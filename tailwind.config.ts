@@ -7,14 +7,18 @@
  * Creation Reason: Tailwind CSS configuration for the project
  * Main Functionality: Custom colors, fonts, animations, and utilities
  * 
- * Last Modified: v1.0.0 - Initial configuration
+ * Last Modified: v1.0.1 - Fixed content paths
  * ============================================
  */
-
 import type { Config } from 'tailwindcss';
 
 const config: Config = {
   content: [
+    './pages/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
+    './app/**/*.{js,ts,jsx,tsx,mdx}',
+    './lib/**/*.{js,ts,jsx,tsx,mdx}',
+    // 如果你也有 src 目录，保留这些
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
