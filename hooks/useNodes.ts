@@ -4,7 +4,7 @@
  * ============================================
  * File Path: hooks/useNodes.ts
  * 
- * Last Modified: v1.0.2 - Fixed infinite re-render by removing motion animations dependency
+ * Last Modified: v1.0.3 - Added options support to useNodeSessions
  * ============================================
  */
 
@@ -24,7 +24,7 @@ export const nodeKeys = {
   listWithStatus: (status: NodeStatus | undefined) => ['nodes', 'list', status] as const,
   detail: (id: string) => ['nodes', 'detail', id] as const,
   stats: (id: string, days: number) => ['nodes', 'stats', id, days] as const,
-  sessions: (id: string) => ['nodes', 'sessions', id] as const,
+  sessions: (id: string, options?: UseNodeSessionsOptions) => ['nodes', 'sessions', id, options] as const,
 };
 
 // ============================================
@@ -46,8 +46,8 @@ export function useNodes(): UseNodesResult {
       const response = await api.getNodes();
       return response.data;
     },
-    staleTime: Infinity, // Never consider data stale automatically
-    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+    staleTime: Infinity,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
     refetchOnMount: false,
     refetchOnReconnect: false,
@@ -145,6 +145,11 @@ export function useNodeStats(
 // Node Sessions Hook
 // ============================================
 
+interface UseNodeSessionsOptions {
+  status?: 'active' | 'completed' | 'error';
+  limit?: number;
+}
+
 interface UseNodeSessionsResult {
   sessions: Session[];
   isLoading: boolean;
@@ -153,11 +158,14 @@ interface UseNodeSessionsResult {
   refetch: () => void;
 }
 
-export function useNodeSessions(nodeId: string): UseNodeSessionsResult {
+export function useNodeSessions(
+  nodeId: string,
+  options: UseNodeSessionsOptions = {}
+): UseNodeSessionsResult {
   const query = useQuery({
-    queryKey: nodeKeys.sessions(nodeId),
+    queryKey: nodeKeys.sessions(nodeId, options),
     queryFn: async () => {
-      const response = await api.getNodeSessions(nodeId);
+      const response = await api.getNodeSessions(nodeId, options);
       return response.data;
     },
     enabled: !!nodeId,
@@ -232,7 +240,6 @@ export function useAggregatedStats(): {
 } {
   const { nodes, isLoading } = useNodes();
 
-  // Calculate stats from nodes
   const totalNodes = nodes.length;
   const onlineNodes = nodes.filter(n => n.status === 'online').length;
   const totalSessions = nodes.reduce((sum, n) => sum + n.total_sessions, 0);
