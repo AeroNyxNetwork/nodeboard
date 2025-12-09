@@ -2,28 +2,9 @@
  * ============================================
  * AeroNyx Dashboard Layout
  * ============================================
- * File Path: src/app/dashboard/layout.tsx
+ * File Path: app/dashboard/layout.tsx
  * 
- * Creation Reason: Layout wrapper for all dashboard pages
- * Main Functionality: Auth protection, sidebar navigation,
- *                     and responsive mobile menu
- * Dependencies:
- *   - src/stores/authStore.ts
- *   - src/components/dashboard/Sidebar.tsx
- *   - next/navigation
- * 
- * Main Logical Flow:
- * 1. Check authentication status
- * 2. Redirect to login if not authenticated
- * 3. Render sidebar and main content area
- * 4. Handle mobile menu toggle
- * 
- * ⚠️ Important Note for Next Developer:
- * - All /dashboard/* routes are protected
- * - Sidebar state is managed locally
- * - Mobile menu closes on navigation
- * 
- * Last Modified: v1.0.0 - Initial dashboard layout
+ * Last Modified: v1.0.1 - Fixed auth check and sidebar display
  * ============================================
  */
 
@@ -46,24 +27,23 @@ export default function DashboardLayout({
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isChecking, setIsChecking] = useState(true);
 
-  // Auth protection
+  // Auth protection - only check once on mount
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/');
-    } else {
-      setIsLoading(false);
-    }
+    // Small delay to allow auth store to initialize
+    const timer = setTimeout(() => {
+      if (!isAuthenticated) {
+        router.push('/');
+      }
+      setIsChecking(false);
+    }, 100);
+
+    return () => clearTimeout(timer);
   }, [isAuthenticated, router]);
 
-  // Close sidebar on route change (mobile)
-  useEffect(() => {
-    setIsSidebarOpen(false);
-  }, []);
-
   // Show loading while checking auth
-  if (isLoading || !isAuthenticated) {
+  if (isChecking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0A0A0F]">
         <div className="flex flex-col items-center gap-4">
@@ -72,6 +52,11 @@ export default function DashboardLayout({
         </div>
       </div>
     );
+  }
+
+  // If not authenticated after check, show nothing (will redirect)
+  if (!isAuthenticated) {
+    return null;
   }
 
   return (
@@ -87,11 +72,7 @@ export default function DashboardLayout({
         />
 
         {/* Main Content */}
-        <main className="
-          flex-1 min-h-screen
-          lg:ml-0
-          pt-16 lg:pt-0
-        ">
+        <main className="flex-1 min-h-screen pt-16 lg:pt-0">
           <div className="p-6 lg:p-8">
             {children}
           </div>
