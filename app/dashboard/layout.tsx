@@ -4,13 +4,13 @@
  * ============================================
  * File Path: app/dashboard/layout.tsx
  * 
- * Last Modified: v1.0.1 - Fixed auth check and sidebar display
+ * Last Modified: v1.0.2 - Fixed infinite re-render loop
  * ============================================
  */
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import Sidebar, { MobileHeader } from '@/components/dashboard/Sidebar';
@@ -25,50 +25,58 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isChecking, setIsChecking] = useState(true);
+  const [isReady, setIsReady] = useState(false);
+  const hasCheckedAuth = useRef(false);
 
-  // Auth protection - only check once on mount
+  // Auth protection - only check once
   useEffect(() => {
-    // Small delay to allow auth store to initialize
+    if (hasCheckedAuth.current) return;
+    hasCheckedAuth.current = true;
+
+    // Small delay to allow auth store to hydrate from localStorage
     const timer = setTimeout(() => {
+      setIsReady(true);
       if (!isAuthenticated) {
-        router.push('/');
+        router.replace('/');
       }
-      setIsChecking(false);
-    }, 100);
+    }, 50);
 
     return () => clearTimeout(timer);
-  }, [isAuthenticated, router]);
+  }, []); // Empty dependency array - only run once
+
+  // Handle sidebar close
+  const handleCloseSidebar = () => {
+    setIsSidebarOpen(false);
+  };
+
+  const handleOpenSidebar = () => {
+    setIsSidebarOpen(true);
+  };
 
   // Show loading while checking auth
-  if (isChecking) {
+  if (!isReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0A0A0F]">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
-          <p className="text-sm text-gray-500">Loading dashboard...</p>
+          <p className="text-sm text-gray-500">Loading...</p>
         </div>
       </div>
     );
   }
 
-  // If not authenticated after check, show nothing (will redirect)
-  if (!isAuthenticated) {
-    return null;
-  }
-
   return (
     <div className="min-h-screen bg-[#0A0A0F]">
       {/* Mobile Header */}
-      <MobileHeader onMenuToggle={() => setIsSidebarOpen(true)} />
+      <MobileHeader onMenuToggle={handleOpenSidebar} />
 
       <div className="flex">
         {/* Sidebar */}
         <Sidebar 
           isOpen={isSidebarOpen} 
-          onClose={() => setIsSidebarOpen(false)} 
+          onClose={handleCloseSidebar} 
         />
 
         {/* Main Content */}
