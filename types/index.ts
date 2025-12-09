@@ -20,7 +20,7 @@
  * - Wallet types must support both ETH and SOL chains
  * - Keep types in sync with API documentation version
  * 
- * Last Modified: v1.0.0 - Initial type definitions
+ * Last Modified: v1.0.1 - Fixed duplicate NodeStatus identifier
  * ============================================
  */
 
@@ -144,7 +144,7 @@ export interface NodeDetail extends Node {
   updated_at: string;
 }
 
-export interface NodeStatus {
+export interface NodeStatusInfo {
   node_id: string;
   node_name: string;
   status: NodeStatus;
@@ -185,7 +185,7 @@ export interface NodeDetailResponse {
 
 export interface NodeStatusResponse {
   success: boolean;
-  data: NodeStatus;
+  data: NodeStatusInfo;
 }
 
 export interface NodeStatsResponse {
