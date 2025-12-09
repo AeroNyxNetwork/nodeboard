@@ -4,16 +4,15 @@
  * ============================================
  * File Path: components/dashboard/Sidebar.tsx
  * 
- * Last Modified: v1.0.1 - Fixed sidebar visibility on desktop
+ * Last Modified: v1.0.2 - Removed framer-motion, fixed store subscription
  * ============================================
  */
 
 'use client';
 
-import React from 'react';
+import React, { useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '@/stores/authStore';
 import Logo from '@/components/common/Logo';
 import { CopyButton } from '@/components/common/Button';
@@ -80,34 +79,37 @@ interface SidebarProps {
 export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { walletAddress, walletType, logout } = useAuthStore();
+  
+  // Use selectors to prevent unnecessary re-renders
+  const walletAddress = useAuthStore((state) => state.walletAddress);
+  const walletType = useAuthStore((state) => state.walletType);
+  const logout = useAuthStore((state) => state.logout);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     logout();
     router.push('/');
-  };
+  }, [logout, router]);
 
-  const isActiveRoute = (href: string) => {
+  const isActiveRoute = useCallback((href: string) => {
     if (href === '/dashboard') {
       return pathname === '/dashboard';
     }
     return pathname.startsWith(href);
-  };
+  }, [pathname]);
+
+  const handleNavClick = useCallback(() => {
+    if (onClose) onClose();
+  }, [onClose]);
 
   return (
     <>
       {/* Mobile Overlay */}
-      <AnimatePresence>
-        {isOpen && onClose && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
-            onClick={onClose}
-          />
-        )}
-      </AnimatePresence>
+      {isOpen && onClose && (
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden transition-opacity duration-300"
+          onClick={onClose}
+        />
+      )}
 
       {/* Sidebar */}
       <aside
@@ -138,7 +140,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={onClose}
+                onClick={handleNavClick}
                 className={`
                   flex items-center gap-3 px-4 py-3 rounded-xl
                   transition-all duration-200
@@ -153,7 +155,6 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                 </span>
                 <span className="font-medium">{item.label}</span>
                 
-                {/* Active Indicator */}
                 {isActive && (
                   <div className="ml-auto w-1.5 h-1.5 rounded-full bg-purple-400" />
                 )}
@@ -213,7 +214,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
 }
 
 // ============================================
-// Mobile Header with Menu Toggle
+// Mobile Header
 // ============================================
 
 interface MobileHeaderProps {
