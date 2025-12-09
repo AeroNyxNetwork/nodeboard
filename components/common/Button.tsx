@@ -132,6 +132,7 @@ export default function Button({
   return (
     <button
       className={`
+        relative overflow-hidden
         inline-flex items-center justify-center
         transition-all duration-200
         ${variantStyles[variant]}
@@ -153,6 +154,19 @@ export default function Button({
       
       {!isLoading && rightIcon && (
         <span className="flex-shrink-0">{rightIcon}</span>
+      )}
+
+      {/* Shine effect - plays once on mount */}
+      {variant === 'primary' && !isDisabled && (
+        <span 
+          className="
+            absolute inset-0 
+            -translate-x-full
+            animate-[shimmer_1s_ease-out_forwards]
+            bg-gradient-to-r from-transparent via-white/20 to-transparent
+            pointer-events-none
+          " 
+        />
       )}
     </button>
   );
