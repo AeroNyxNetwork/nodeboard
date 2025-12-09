@@ -2,59 +2,19 @@
  * ============================================
  * AeroNyx Landing / Login Page
  * ============================================
- * File Path: src/app/page.tsx
+ * File Path: app/page.tsx
  * 
- * Creation Reason: Main entry page with wallet connect
- * Main Functionality: Display landing hero, features, and wallet
- *                     connection for authentication
- * Dependencies:
- *   - src/components/auth/WalletConnect.tsx
- *   - src/components/common/Logo.tsx
- *   - src/stores/authStore.ts
- *   - next/navigation
- * 
- * Main Logical Flow:
- * 1. Check if user is already authenticated
- * 2. If authenticated, redirect to dashboard
- * 3. If not, show landing page with connect wallet
- * 
- * ⚠️ Important Note for Next Developer:
- * - Authenticated users are redirected to /dashboard
- * - Hero section has animated background effects
- * - Features section highlights key selling points
- * 
- * Last Modified: v1.0.0 - Initial landing page
+ * Last Modified: v1.0.1 - Fixed redirect loop and removed heavy animations
  * ============================================
  */
 
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
 import { useAuthStore } from '@/stores/authStore';
 import Logo from '@/components/common/Logo';
 import WalletConnect from '@/components/auth/WalletConnect';
-
-// ============================================
-// Animation Variants
-// ============================================
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.1,
-      delayChildren: 0.2,
-    },
-  },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0 },
-};
 
 // ============================================
 // Feature Card Component
@@ -68,22 +28,19 @@ interface FeatureProps {
 
 function Feature({ icon, title, description }: FeatureProps) {
   return (
-    <motion.div
-      variants={itemVariants}
-      className="
-        p-6 rounded-2xl
-        bg-gradient-to-br from-white/[0.05] to-transparent
-        border border-white/10
-        hover:border-purple-500/30
-        transition-all duration-300
-      "
-    >
+    <div className="
+      p-6 rounded-2xl
+      bg-gradient-to-br from-white/[0.05] to-transparent
+      border border-white/10
+      hover:border-purple-500/30
+      transition-all duration-300
+    ">
       <div className="w-12 h-12 rounded-xl bg-purple-500/20 flex items-center justify-center mb-4 text-purple-400">
         {icon}
       </div>
       <h3 className="text-lg font-semibold text-white mb-2">{title}</h3>
       <p className="text-sm text-gray-400 leading-relaxed">{description}</p>
-    </motion.div>
+    </div>
   );
 }
 
@@ -93,19 +50,27 @@ function Feature({ icon, title, description }: FeatureProps) {
 
 export default function LandingPage() {
   const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const [isChecking, setIsChecking] = useState(true);
 
-  // Redirect if already authenticated
+  // Check auth and redirect
   useEffect(() => {
-    if (isAuthenticated) {
-      router.push('/dashboard');
-    }
+    // Small delay to ensure store is hydrated
+    const timer = setTimeout(() => {
+      if (isAuthenticated) {
+        router.replace('/dashboard');
+      } else {
+        setIsChecking(false);
+      }
+    }, 100);
+
+    return () => clearTimeout(timer);
   }, [isAuthenticated, router]);
 
   // Show loading while checking auth
-  if (isAuthenticated) {
+  if (isChecking) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-[#0A0A0F]">
         <div className="w-8 h-8 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
       </div>
     );
@@ -113,33 +78,11 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      {/* Animated Background Elements */}
+      {/* Static Background Elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {/* Floating Orbs */}
-        <motion.div
-          animate={{
-            y: [0, -20, 0],
-            opacity: [0.3, 0.5, 0.3],
-          }}
-          transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
-          className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl"
-        />
-        <motion.div
-          animate={{
-            y: [0, 20, 0],
-            opacity: [0.2, 0.4, 0.2],
-          }}
-          transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}
-          className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-pink-500/20 rounded-full blur-3xl"
-        />
-        <motion.div
-          animate={{
-            x: [0, 20, 0],
-            opacity: [0.2, 0.3, 0.2],
-          }}
-          transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-          className="absolute top-1/2 right-1/3 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl"
-        />
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl opacity-30" />
+        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-pink-500/20 rounded-full blur-3xl opacity-20" />
+        <div className="absolute top-1/2 right-1/3 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl opacity-20" />
       </div>
 
       {/* Header */}
@@ -164,13 +107,8 @@ export default function LandingPage() {
       <main className="relative z-10 max-w-7xl mx-auto px-6 py-12 lg:py-20">
         <div className="grid lg:grid-cols-2 gap-16 items-center">
           {/* Hero Section */}
-          <motion.div
-            variants={containerVariants}
-            initial="hidden"
-            animate="visible"
-            className="space-y-8"
-          >
-            <motion.div variants={itemVariants} className="space-y-4">
+          <div className="space-y-8">
+            <div className="space-y-4">
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-500/10 border border-purple-500/20">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="text-sm text-purple-300">Network Live • 1,234 Nodes Online</span>
@@ -186,13 +124,10 @@ export default function LandingPage() {
                 Run nodes, earn rewards, and contribute to the world's most advanced 
                 decentralized privacy infrastructure powered by Web3.
               </p>
-            </motion.div>
+            </div>
 
             {/* Stats */}
-            <motion.div
-              variants={itemVariants}
-              className="grid grid-cols-3 gap-6"
-            >
+            <div className="grid grid-cols-3 gap-6">
               <div>
                 <p className="text-3xl font-bold text-white">1.2M+</p>
                 <p className="text-sm text-gray-500">Active Sessions</p>
@@ -205,16 +140,11 @@ export default function LandingPage() {
                 <p className="text-3xl font-bold text-white">99.9%</p>
                 <p className="text-sm text-gray-500">Uptime</p>
               </div>
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
 
           {/* Wallet Connect Section */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.4 }}
-            className="lg:pl-8"
-          >
+          <div className="lg:pl-8">
             <div className="
               p-8 rounded-3xl
               bg-gradient-to-br from-white/[0.08] to-white/[0.02]
@@ -224,25 +154,18 @@ export default function LandingPage() {
             ">
               <WalletConnect />
             </div>
-          </motion.div>
+          </div>
         </div>
 
         {/* Features Section */}
-        <motion.section
-          id="features"
-          variants={containerVariants}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-100px" }}
-          className="mt-32"
-        >
-          <motion.div variants={itemVariants} className="text-center mb-12">
+        <section id="features" className="mt-32">
+          <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-white mb-4">Why AeroNyx?</h2>
             <p className="text-gray-400 max-w-2xl mx-auto">
               Built on cutting-edge technology to provide the most secure and rewarding 
               node operation experience.
             </p>
-          </motion.div>
+          </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             <Feature
@@ -300,7 +223,7 @@ export default function LandingPage() {
               description="Join thousands of nodes worldwide creating a truly decentralized privacy layer."
             />
           </div>
-        </motion.section>
+        </section>
       </main>
 
       {/* Footer */}
