@@ -4,7 +4,7 @@
  * ============================================
  * File Path: hooks/useNodes.ts
  * 
- * Last Modified: v1.0.1 - Disabled aggressive auto-refresh to prevent constant reloading
+ * Last Modified: v1.0.2 - Fixed infinite re-render by removing motion animations dependency
  * ============================================
  */
 
@@ -15,31 +15,21 @@ import { api } from '@/lib/api';
 import { Node, NodeDetail, NodeStats, Session, NodeStatus } from '@/types';
 
 // ============================================
-// Query Keys
+// Query Keys - use stable references
 // ============================================
 
 export const nodeKeys = {
   all: ['nodes'] as const,
-  lists: () => [...nodeKeys.all, 'list'] as const,
-  list: (status?: NodeStatus) => [...nodeKeys.lists(), { status }] as const,
-  details: () => [...nodeKeys.all, 'detail'] as const,
-  detail: (id: string) => [...nodeKeys.details(), id] as const,
-  statuses: () => [...nodeKeys.all, 'status'] as const,
-  status: (id: string) => [...nodeKeys.statuses(), id] as const,
-  stats: () => [...nodeKeys.all, 'stats'] as const,
-  stat: (id: string, days?: number) => [...nodeKeys.stats(), id, { days }] as const,
-  sessions: () => [...nodeKeys.all, 'sessions'] as const,
-  session: (id: string, filters?: object) => [...nodeKeys.sessions(), id, filters] as const,
+  list: () => ['nodes', 'list'] as const,
+  listWithStatus: (status: NodeStatus | undefined) => ['nodes', 'list', status] as const,
+  detail: (id: string) => ['nodes', 'detail', id] as const,
+  stats: (id: string, days: number) => ['nodes', 'stats', id, days] as const,
+  sessions: (id: string) => ['nodes', 'sessions', id] as const,
 };
 
 // ============================================
 // Node List Hook
 // ============================================
-
-interface UseNodesOptions {
-  status?: NodeStatus;
-  enabled?: boolean;
-}
 
 interface UseNodesResult {
   nodes: Node[];
@@ -49,20 +39,18 @@ interface UseNodesResult {
   refetch: () => void;
 }
 
-export function useNodes(options: UseNodesOptions = {}): UseNodesResult {
-  const { status, enabled = true } = options;
-
+export function useNodes(): UseNodesResult {
   const query = useQuery({
-    queryKey: nodeKeys.list(status),
+    queryKey: nodeKeys.list(),
     queryFn: async () => {
-      const response = await api.getNodes(status);
+      const response = await api.getNodes();
       return response.data;
     },
-    enabled,
-    staleTime: 60000, // Data is fresh for 1 minute
-    refetchOnWindowFocus: false, // Don't refetch when window gains focus
-    refetchOnMount: false, // Don't refetch on component mount if data exists
-    refetchInterval: false, // Disable auto-refresh
+    staleTime: Infinity, // Never consider data stale automatically
+    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   return {
@@ -78,10 +66,6 @@ export function useNodes(options: UseNodesOptions = {}): UseNodesResult {
 // Node Detail Hook
 // ============================================
 
-interface UseNodeDetailOptions {
-  enabled?: boolean;
-}
-
 interface UseNodeDetailResult {
   node: NodeDetail | null;
   isLoading: boolean;
@@ -90,21 +74,18 @@ interface UseNodeDetailResult {
   refetch: () => void;
 }
 
-export function useNodeDetail(
-  nodeId: string,
-  options: UseNodeDetailOptions = {}
-): UseNodeDetailResult {
-  const { enabled = true } = options;
-
+export function useNodeDetail(nodeId: string): UseNodeDetailResult {
   const query = useQuery({
     queryKey: nodeKeys.detail(nodeId),
     queryFn: async () => {
       const response = await api.getNodeDetail(nodeId);
       return response.data;
     },
-    enabled: enabled && !!nodeId,
-    staleTime: 60000,
+    enabled: !!nodeId,
+    staleTime: Infinity,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 
   return {
@@ -122,7 +103,6 @@ export function useNodeDetail(
 
 interface UseNodeStatsOptions {
   days?: number;
-  enabled?: boolean;
 }
 
 interface UseNodeStatsResult {
@@ -137,17 +117,19 @@ export function useNodeStats(
   nodeId: string,
   options: UseNodeStatsOptions = {}
 ): UseNodeStatsResult {
-  const { days = 7, enabled = true } = options;
+  const days = options.days ?? 7;
 
   const query = useQuery({
-    queryKey: nodeKeys.stat(nodeId, days),
+    queryKey: nodeKeys.stats(nodeId, days),
     queryFn: async () => {
       const response = await api.getNodeStats(nodeId, days);
       return response.data;
     },
-    enabled: enabled && !!nodeId,
-    staleTime: 300000, // 5 minutes
+    enabled: !!nodeId,
+    staleTime: Infinity,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 
   return {
@@ -163,12 +145,6 @@ export function useNodeStats(
 // Node Sessions Hook
 // ============================================
 
-interface UseNodeSessionsOptions {
-  status?: 'active' | 'completed' | 'error';
-  limit?: number;
-  enabled?: boolean;
-}
-
 interface UseNodeSessionsResult {
   sessions: Session[];
   isLoading: boolean;
@@ -177,21 +153,18 @@ interface UseNodeSessionsResult {
   refetch: () => void;
 }
 
-export function useNodeSessions(
-  nodeId: string,
-  options: UseNodeSessionsOptions = {}
-): UseNodeSessionsResult {
-  const { status, limit, enabled = true } = options;
-
+export function useNodeSessions(nodeId: string): UseNodeSessionsResult {
   const query = useQuery({
-    queryKey: nodeKeys.session(nodeId, { status, limit }),
+    queryKey: nodeKeys.sessions(nodeId),
     queryFn: async () => {
-      const response = await api.getNodeSessions(nodeId, { status, limit });
+      const response = await api.getNodeSessions(nodeId);
       return response.data;
     },
-    enabled: enabled && !!nodeId,
-    staleTime: 60000,
+    enabled: !!nodeId,
+    staleTime: Infinity,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 
   return {
@@ -221,9 +194,8 @@ export function useUpdateNode() {
       const response = await api.updateNode(nodeId, data);
       return response.data;
     },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: nodeKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: nodeKeys.detail(variables.nodeId) });
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: nodeKeys.list() });
     },
   });
 }
@@ -236,7 +208,7 @@ export function useDeleteNode() {
       return api.deleteNode(nodeId);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: nodeKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: nodeKeys.list() });
     },
   });
 }
@@ -260,16 +232,25 @@ export function useAggregatedStats(): {
 } {
   const { nodes, isLoading } = useNodes();
 
-  const stats: AggregatedStats = {
-    totalNodes: nodes.length,
-    onlineNodes: nodes.filter(n => n.status === 'online').length,
-    totalSessions: nodes.reduce((sum, n) => sum + n.total_sessions, 0),
-    activeSessions: nodes.reduce((sum, n) => sum + n.current_sessions, 0),
-    totalTrafficGB: nodes.reduce((sum, n) => sum + n.total_traffic_gb, 0),
-    avgUptime: nodes.length > 0
-      ? nodes.reduce((sum, n) => sum + n.online_duration, 0) / nodes.length
-      : 0,
-  };
+  // Calculate stats from nodes
+  const totalNodes = nodes.length;
+  const onlineNodes = nodes.filter(n => n.status === 'online').length;
+  const totalSessions = nodes.reduce((sum, n) => sum + n.total_sessions, 0);
+  const activeSessions = nodes.reduce((sum, n) => sum + n.current_sessions, 0);
+  const totalTrafficGB = nodes.reduce((sum, n) => sum + n.total_traffic_gb, 0);
+  const avgUptime = totalNodes > 0
+    ? nodes.reduce((sum, n) => sum + n.online_duration, 0) / totalNodes
+    : 0;
 
-  return { stats, isLoading };
+  return {
+    stats: {
+      totalNodes,
+      onlineNodes,
+      totalSessions,
+      activeSessions,
+      totalTrafficGB,
+      avgUptime,
+    },
+    isLoading,
+  };
 }
