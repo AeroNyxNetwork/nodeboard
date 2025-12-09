@@ -9,7 +9,7 @@
  *   - types/index.ts (type definitions)
  *   - lib/constants.ts (API endpoints and config)
  * 
- * Last Modified: v1.0.0 - Initial API client implementation
+ * Last Modified: v1.0.1 - Fixed TypeScript type errors
  * ============================================
  */
 
@@ -155,12 +155,12 @@ class ApiClient {
   // ============================================
 
   async getNodes(status?: NodeStatus): Promise<NodeListResponse> {
-    let url = API_ENDPOINTS.NODES_LIST;
+    let endpoint = API_ENDPOINTS.NODES_LIST;
     if (status) {
       const params = new URLSearchParams({ status });
-      url = `${url}?${params}`;
+      endpoint = `${API_ENDPOINTS.NODES_LIST}?${params}`;
     }
-    return this.request<NodeListResponse>(url, { method: 'GET' });
+    return this.request<NodeListResponse>(endpoint, { method: 'GET' });
   }
 
   async getNodeDetail(nodeId: string): Promise<NodeDetailResponse> {
@@ -221,11 +221,11 @@ class ApiClient {
     if (options?.limit) params.append('limit', String(options.limit));
 
     const queryString = params.toString();
-    const url = queryString
+    const endpoint = queryString
       ? `${API_ENDPOINTS.NODE_SESSIONS(nodeId)}?${queryString}`
       : API_ENDPOINTS.NODE_SESSIONS(nodeId);
 
-    return this.request<SessionListResponse>(url, { method: 'GET' });
+    return this.request<SessionListResponse>(endpoint, { method: 'GET' });
   }
 }
 
