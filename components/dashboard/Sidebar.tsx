@@ -2,29 +2,9 @@
  * ============================================
  * AeroNyx Dashboard Sidebar Component
  * ============================================
- * File Path: src/components/dashboard/Sidebar.tsx
+ * File Path: components/dashboard/Sidebar.tsx
  * 
- * Creation Reason: Main navigation sidebar for dashboard
- * Main Functionality: Navigation links, user wallet info,
- *                     and logout functionality
- * Dependencies:
- *   - src/stores/authStore.ts (auth state)
- *   - src/components/common/Logo.tsx
- *   - next/navigation (routing)
- *   - framer-motion (animations)
- * 
- * Main Logical Flow:
- * 1. Display logo and brand
- * 2. Render navigation items
- * 3. Show wallet address with copy
- * 4. Handle logout action
- * 
- * ⚠️ Important Note for Next Developer:
- * - Sidebar collapses on mobile
- * - Active state based on current route
- * - Logout clears all auth state
- * 
- * Last Modified: v1.0.0 - Initial sidebar component
+ * Last Modified: v1.0.1 - Fixed sidebar visibility on desktop
  * ============================================
  */
 
@@ -33,7 +13,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '@/stores/authStore';
 import Logo from '@/components/common/Logo';
 import { CopyButton } from '@/components/common/Button';
@@ -97,7 +77,7 @@ interface SidebarProps {
   onClose?: () => void;
 }
 
-export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
+export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { walletAddress, walletType, logout } = useAuthStore();
@@ -117,26 +97,27 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   return (
     <>
       {/* Mobile Overlay */}
-      {isOpen && onClose && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
-          onClick={onClose}
-        />
-      )}
+      <AnimatePresence>
+        {isOpen && onClose && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
+            onClick={onClose}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Sidebar */}
-      <motion.aside
-        initial={false}
-        animate={{ x: isOpen ? 0 : -280 }}
+      <aside
         className={`
           fixed lg:static inset-y-0 left-0 z-50
           w-[280px] min-h-screen
           bg-[#0D0D12] border-r border-white/5
           flex flex-col
           transition-transform duration-300 ease-in-out
+          ${isOpen ? 'translate-x-0' : '-translate-x-full'}
           lg:translate-x-0
         `}
       >
@@ -174,10 +155,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                 
                 {/* Active Indicator */}
                 {isActive && (
-                  <motion.div
-                    layoutId="activeNav"
-                    className="ml-auto w-1.5 h-1.5 rounded-full bg-purple-400"
-                  />
+                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-purple-400" />
                 )}
               </Link>
             );
@@ -193,14 +171,14 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                 Connected Wallet
               </span>
               <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300">
-                {walletType}
+                {walletType || 'N/A'}
               </span>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-sm font-mono text-white">
                 {truncateAddress(walletAddress || '', 6)}
               </span>
-              <CopyButton text={walletAddress || ''} />
+              {walletAddress && <CopyButton text={walletAddress} />}
             </div>
           </div>
 
@@ -229,7 +207,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             Privacy Network v1.0.0
           </p>
         </div>
-      </motion.aside>
+      </aside>
     </>
   );
 }
