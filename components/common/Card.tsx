@@ -4,25 +4,25 @@
  * ============================================
  * File Path: components/common/Card.tsx
  * 
- * Last Modified: v1.0.0 - Initial card component
+ * Last Modified: v1.0.1 - Removed motion animations to prevent re-renders
  * ============================================
  */
 
 'use client';
 
 import React from 'react';
-import { motion, HTMLMotionProps } from 'framer-motion';
 
 type CardVariant = 'default' | 'glow' | 'solid' | 'outline';
 type CardPadding = 'none' | 'sm' | 'md' | 'lg';
 
-interface CardProps extends Omit<HTMLMotionProps<'div'>, 'title'> {
+interface CardProps {
   variant?: CardVariant;
   padding?: CardPadding;
   interactive?: boolean;
   header?: React.ReactNode;
   footer?: React.ReactNode;
   children: React.ReactNode;
+  className?: string;
 }
 
 const variantStyles: Record<CardVariant, string> = {
@@ -47,42 +47,30 @@ export default function Card({
   footer,
   children,
   className = '',
-  ...props
 }: CardProps) {
-  const cardContent = (
-    <>
+  return (
+    <div
+      className={`
+        relative overflow-hidden rounded-2xl transition-all duration-300
+        ${variantStyles[variant]}
+        ${interactive ? 'cursor-pointer hover:scale-[1.01] hover:-translate-y-0.5' : ''}
+        ${className}
+      `}
+    >
+      {/* Top gradient line */}
       <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-purple-500/30 to-transparent" />
+      
+      {/* Header */}
       {header && <div className="border-b border-white/5 px-6 py-4">{header}</div>}
+      
+      {/* Content */}
       <div className={padding !== 'none' && !header && !footer ? paddingStyles[padding] : ''}>
         {(header || footer) ? <div className={paddingStyles[padding]}>{children}</div> : children}
       </div>
+      
+      {/* Footer */}
       {footer && <div className="border-t border-white/5 px-6 py-4">{footer}</div>}
-    </>
-  );
-
-  if (interactive) {
-    return (
-      <motion.div
-        className={`relative overflow-hidden rounded-2xl transition-all duration-300 ${variantStyles[variant]} ${className}`}
-        whileHover={{ scale: 1.01, y: -2 }}
-        whileTap={{ scale: 0.99 }}
-        {...props}
-      >
-        {cardContent}
-      </motion.div>
-    );
-  }
-
-  return (
-    <motion.div
-      className={`relative overflow-hidden rounded-2xl transition-all duration-300 ${variantStyles[variant]} ${className}`}
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      {...props}
-    >
-      {cardContent}
-    </motion.div>
+    </div>
   );
 }
 
