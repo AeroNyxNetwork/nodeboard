@@ -4,14 +4,7 @@
  * ============================================
  * File Path: hooks/useNodes.ts
  * 
- * Creation Reason: React hooks for node data fetching and management
- * Dependencies:
- *   - types/index.ts
- *   - lib/api.ts
- *   - lib/constants.ts
- *   - @tanstack/react-query
- * 
- * Last Modified: v1.0.0 - Initial hooks implementation
+ * Last Modified: v1.0.1 - Disabled aggressive auto-refresh to prevent constant reloading
  * ============================================
  */
 
@@ -19,7 +12,6 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { POLLING_INTERVALS } from '@/lib/constants';
 import { Node, NodeDetail, NodeStats, Session, NodeStatus } from '@/types';
 
 // ============================================
@@ -47,7 +39,6 @@ export const nodeKeys = {
 interface UseNodesOptions {
   status?: NodeStatus;
   enabled?: boolean;
-  refetchInterval?: number;
 }
 
 interface UseNodesResult {
@@ -59,7 +50,7 @@ interface UseNodesResult {
 }
 
 export function useNodes(options: UseNodesOptions = {}): UseNodesResult {
-  const { status, enabled = true, refetchInterval = POLLING_INTERVALS.NODES_LIST } = options;
+  const { status, enabled = true } = options;
 
   const query = useQuery({
     queryKey: nodeKeys.list(status),
@@ -68,8 +59,10 @@ export function useNodes(options: UseNodesOptions = {}): UseNodesResult {
       return response.data;
     },
     enabled,
-    refetchInterval,
-    staleTime: 10000,
+    staleTime: 60000, // Data is fresh for 1 minute
+    refetchOnWindowFocus: false, // Don't refetch when window gains focus
+    refetchOnMount: false, // Don't refetch on component mount if data exists
+    refetchInterval: false, // Disable auto-refresh
   });
 
   return {
@@ -110,6 +103,8 @@ export function useNodeDetail(
       return response.data;
     },
     enabled: enabled && !!nodeId,
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
   });
 
   return {
@@ -151,7 +146,8 @@ export function useNodeStats(
       return response.data;
     },
     enabled: enabled && !!nodeId,
-    staleTime: 60000,
+    staleTime: 300000, // 5 minutes
+    refetchOnWindowFocus: false,
   });
 
   return {
@@ -194,8 +190,8 @@ export function useNodeSessions(
       return response.data;
     },
     enabled: enabled && !!nodeId,
-    refetchInterval: POLLING_INTERVALS.SESSIONS_LIST,
-    staleTime: 30000,
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
   });
 
   return {
