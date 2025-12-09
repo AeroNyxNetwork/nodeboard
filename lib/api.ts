@@ -9,7 +9,7 @@
  *   - types/index.ts (type definitions)
  *   - lib/constants.ts (API endpoints and config)
  * 
- * Last Modified: v1.0.1 - Fixed TypeScript type errors
+ * Last Modified: v1.0.2 - Fixed TypeScript type errors in getNodes
  * ============================================
  */
 
@@ -155,11 +155,9 @@ class ApiClient {
   // ============================================
 
   async getNodes(status?: NodeStatus): Promise<NodeListResponse> {
-    let endpoint = API_ENDPOINTS.NODES_LIST;
-    if (status) {
-      const params = new URLSearchParams({ status });
-      endpoint = `${API_ENDPOINTS.NODES_LIST}?${params}`;
-    }
+    const endpoint: string = status
+      ? `${API_ENDPOINTS.NODES_LIST}?${new URLSearchParams({ status })}`
+      : API_ENDPOINTS.NODES_LIST;
     return this.request<NodeListResponse>(endpoint, { method: 'GET' });
   }
 
