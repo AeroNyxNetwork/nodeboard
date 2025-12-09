@@ -2,35 +2,15 @@
  * ============================================
  * AeroNyx Nodes List Page
  * ============================================
- * File Path: src/app/dashboard/nodes/page.tsx
+ * File Path: app/dashboard/nodes/page.tsx
  * 
- * Creation Reason: Dedicated nodes management page
- * Main Functionality: Display all nodes with filtering, sorting,
- *                     and bulk actions
- * Dependencies:
- *   - src/hooks/useNodes.ts
- *   - src/components/dashboard/NodeCard.tsx
- *   - src/components/dashboard/AddNodeModal.tsx
- * 
- * Main Logical Flow:
- * 1. Fetch all nodes with optional status filter
- * 2. Display filter tabs (All, Online, Offline)
- * 3. Render node grid with cards
- * 4. Handle node deletion
- * 
- * ⚠️ Important Note for Next Developer:
- * - Filters are URL-based for shareability
- * - Sort order can be added in future
- * - Bulk actions placeholder for future features
- * 
- * Last Modified: v1.0.0 - Initial nodes page
+ * Last Modified: v1.0.1 - Removed motion animations to fix re-render loop
  * ============================================
  */
 
 'use client';
 
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useCallback } from 'react';
 import { useNodes, useDeleteNode } from '@/hooks/useNodes';
 import { Node, NodeStatus } from '@/types';
 import Button from '@/components/common/Button';
@@ -73,19 +53,12 @@ function FilterTabs({ activeFilter, onFilterChange, counts }: FilterTabsProps) {
             relative px-4 py-2 rounded-lg text-sm font-medium
             transition-all duration-200
             ${activeFilter === tab.id
-              ? 'text-white'
+              ? 'text-white bg-purple-500/20 border border-purple-500/30'
               : 'text-gray-400 hover:text-white'
             }
           `}
         >
-          {activeFilter === tab.id && (
-            <motion.div
-              layoutId="activeFilter"
-              className="absolute inset-0 bg-purple-500/20 border border-purple-500/30 rounded-lg"
-              transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
-            />
-          )}
-          <span className="relative flex items-center gap-2">
+          <span className="flex items-center gap-2">
             {tab.label}
             <span className={`
               px-1.5 py-0.5 text-xs rounded-full
@@ -180,11 +153,9 @@ export default function NodesPage() {
 
   // Filter nodes based on active filter and search query
   const filteredNodes = nodes.filter(node => {
-    // Status filter
     if (activeFilter !== 'all' && node.status !== activeFilter) {
       return false;
     }
-    // Search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       return (
@@ -196,8 +167,24 @@ export default function NodesPage() {
     return true;
   });
 
-  // Handle node deletion
-  const handleDeleteNode = async () => {
+  // Memoized handlers
+  const handleOpenAddModal = useCallback(() => {
+    setIsAddModalOpen(true);
+  }, []);
+
+  const handleCloseAddModal = useCallback(() => {
+    setIsAddModalOpen(false);
+  }, []);
+
+  const handleSetNodeToDelete = useCallback((node: Node) => {
+    setNodeToDelete(node);
+  }, []);
+
+  const handleCancelDelete = useCallback(() => {
+    setNodeToDelete(null);
+  }, []);
+
+  const handleDeleteNode = useCallback(async () => {
     if (!nodeToDelete) return;
 
     try {
@@ -206,7 +193,23 @@ export default function NodesPage() {
     } catch (err) {
       console.error('Failed to delete node:', err);
     }
-  };
+  }, [nodeToDelete, deleteNodeMutation]);
+
+  const handleFilterChange = useCallback((filter: FilterOption) => {
+    setActiveFilter(filter);
+  }, []);
+
+  const handleSearchChange = useCallback((query: string) => {
+    setSearchQuery(query);
+  }, []);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery('');
+  }, []);
+
+  const handleViewAllNodes = useCallback(() => {
+    setActiveFilter('all');
+  }, []);
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -222,7 +225,7 @@ export default function NodesPage() {
       <div className="mb-6">
         <FilterTabs
           activeFilter={activeFilter}
-          onFilterChange={setActiveFilter}
+          onFilterChange={handleFilterChange}
           counts={counts}
         />
       </div>
@@ -231,8 +234,8 @@ export default function NodesPage() {
       <div className="mb-6">
         <ActionsBar
           searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          onAddNode={() => setIsAddModalOpen(true)}
+          onSearchChange={handleSearchChange}
+          onAddNode={handleOpenAddModal}
         />
       </div>
 
@@ -254,7 +257,7 @@ export default function NodesPage() {
             title="No Results Found"
             description={`No nodes match "${searchQuery}". Try a different search term.`}
             action={
-              <Button variant="secondary" onClick={() => setSearchQuery('')}>
+              <Button variant="secondary" onClick={handleClearSearch}>
                 Clear Search
               </Button>
             }
@@ -274,11 +277,11 @@ export default function NodesPage() {
             }
             action={
               activeFilter === 'all' ? (
-                <Button variant="primary" onClick={() => setIsAddModalOpen(true)}>
+                <Button variant="primary" onClick={handleOpenAddModal}>
                   Add Your First Node
                 </Button>
               ) : (
-                <Button variant="secondary" onClick={() => setActiveFilter('all')}>
+                <Button variant="secondary" onClick={handleViewAllNodes}>
                   View All Nodes
                 </Button>
               )
@@ -286,21 +289,15 @@ export default function NodesPage() {
           />
         )
       ) : (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="grid md:grid-cols-2 xl:grid-cols-3 gap-6"
-        >
-          <AnimatePresence>
-            {filteredNodes.map((node) => (
-              <NodeCard
-                key={node.id}
-                node={node}
-                onDelete={setNodeToDelete}
-              />
-            ))}
-          </AnimatePresence>
-        </motion.div>
+        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {filteredNodes.map((node) => (
+            <NodeCard
+              key={node.id}
+              node={node}
+              onDelete={handleSetNodeToDelete}
+            />
+          ))}
+        </div>
       )}
 
       {/* Results Count */}
@@ -313,13 +310,13 @@ export default function NodesPage() {
       {/* Add Node Modal */}
       <AddNodeModal
         isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
+        onClose={handleCloseAddModal}
       />
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog
         isOpen={!!nodeToDelete}
-        onClose={() => setNodeToDelete(null)}
+        onClose={handleCancelDelete}
         onConfirm={handleDeleteNode}
         title="Delete Node"
         message={`Are you sure you want to delete "${nodeToDelete?.name}"? This action cannot be undone and will remove all associated data.`}
