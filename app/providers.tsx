@@ -4,40 +4,30 @@
  * ============================================
  * File Path: app/providers.tsx
  * 
- * Creation Reason: Client-side providers wrapper
- * Main Functionality: Initialize React Query, auth state, and any
- *                     other client-side providers
- * Dependencies:
- *   - @tanstack/react-query
- *   - stores/authStore.ts
- * 
- * Last Modified: v1.0.0 - Initial providers setup
+ * Last Modified: v1.0.1 - Fixed re-render issues
  * ============================================
  */
 
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 
 // ============================================
-// Query Client Configuration
+// Create QueryClient outside component to prevent re-creation
 // ============================================
 
 function makeQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        staleTime: 60 * 1000,
+        staleTime: 5 * 60 * 1000, // 5 minutes
+        gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
         refetchOnWindowFocus: false,
-        retry: (failureCount, error) => {
-          if (error instanceof Error && 
-              (error.message.includes('401') || error.message.includes('403'))) {
-            return false;
-          }
-          return failureCount < 3;
-        },
+        refetchOnMount: false,
+        refetchOnReconnect: false,
+        retry: 1,
       },
     },
   });
@@ -47,9 +37,13 @@ let browserQueryClient: QueryClient | undefined = undefined;
 
 function getQueryClient() {
   if (typeof window === 'undefined') {
+    // Server: always make a new query client
     return makeQueryClient();
   } else {
-    if (!browserQueryClient) browserQueryClient = makeQueryClient();
+    // Browser: reuse the same query client
+    if (!browserQueryClient) {
+      browserQueryClient = makeQueryClient();
+    }
     return browserQueryClient;
   }
 }
@@ -60,14 +54,19 @@ function getQueryClient() {
 
 function AuthInitializer({ children }: { children: React.ReactNode }) {
   const initialize = useAuthStore((state) => state.initialize);
-  const [isInitialized, setIsInitialized] = useState(false);
+  const hasInitialized = useRef(false);
+  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    initialize();
-    setIsInitialized(true);
+    // Only initialize once
+    if (!hasInitialized.current) {
+      hasInitialized.current = true;
+      initialize();
+      setIsReady(true);
+    }
   }, [initialize]);
 
-  if (!isInitialized) {
+  if (!isReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0A0A0F]">
         <div className="w-8 h-8 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
@@ -87,7 +86,7 @@ interface ProvidersProps {
 }
 
 export function Providers({ children }: ProvidersProps) {
-  const queryClient = getQueryClient();
+  const [queryClient] = useState(() => getQueryClient());
 
   return (
     <QueryClientProvider client={queryClient}>
