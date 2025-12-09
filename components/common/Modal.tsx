@@ -4,15 +4,14 @@
  * ============================================
  * File Path: components/common/Modal.tsx
  * 
- * Last Modified: v1.0.0 - Initial modal component
+ * Last Modified: v1.0.1 - Removed framer-motion to fix re-render issues
  * ============================================
  */
 
 'use client';
 
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'framer-motion';
 import { IconButton } from './Button';
 
 type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | 'full';
@@ -38,17 +37,6 @@ const sizeStyles: Record<ModalSize, string> = {
   full: 'max-w-4xl',
 };
 
-const backdropVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1 },
-};
-
-const modalVariants = {
-  hidden: { opacity: 0, scale: 0.95, y: 20 },
-  visible: { opacity: 1, scale: 1, y: 0, transition: { type: 'spring', damping: 25, stiffness: 300 } },
-  exit: { opacity: 0, scale: 0.95, y: 20, transition: { duration: 0.2 } },
-};
-
 function CloseIcon() {
   return (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -69,8 +57,17 @@ export default function Modal({
   children,
   footer,
 }: ModalProps) {
+  const [mounted, setMounted] = useState(false);
+
+  // Handle client-side mounting
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape' && closeOnEscape) onClose();
+    if (e.key === 'Escape' && closeOnEscape) {
+      onClose();
+    }
   }, [closeOnEscape, onClose]);
 
   useEffect(() => {
@@ -84,47 +81,75 @@ export default function Modal({
     };
   }, [isOpen, handleKeyDown]);
 
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget && closeOnBackdrop) onClose();
-  };
+  const handleBackdropClick = useCallback((e: React.MouseEvent) => {
+    if (e.target === e.currentTarget && closeOnBackdrop) {
+      onClose();
+    }
+  }, [closeOnBackdrop, onClose]);
 
-  if (typeof window === 'undefined') return null;
+  // Don't render on server or if not mounted
+  if (!mounted || !isOpen) return null;
 
   return createPortal(
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" initial="hidden" animate="visible" exit="hidden">
-          <motion.div className="absolute inset-0 bg-black/70 backdrop-blur-sm" variants={backdropVariants} onClick={handleBackdropClick} />
-          <motion.div
-            className={`relative w-full ${sizeStyles[size]} bg-gradient-to-br from-[#1A1A24] to-[#12121A] border border-white/10 rounded-2xl shadow-2xl overflow-hidden`}
-            variants={modalVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-          >
-            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-purple-500/50 to-transparent" />
-            {(title || showCloseButton) && (
-              <div className="flex items-start justify-between p-6 border-b border-white/5">
-                <div className="space-y-1 pr-8">
-                  {title && <h2 className="text-xl font-semibold text-white">{title}</h2>}
-                  {description && <p className="text-sm text-gray-400">{description}</p>}
-                </div>
-                {showCloseButton && (
-                  <IconButton icon={<CloseIcon />} aria-label="Close modal" onClick={onClose} variant="ghost" className="absolute top-4 right-4" />
-                )}
-              </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm transition-opacity duration-200"
+        onClick={handleBackdropClick}
+      />
+      
+      {/* Modal */}
+      <div
+        className={`
+          relative w-full ${sizeStyles[size]}
+          bg-gradient-to-br from-[#1A1A24] to-[#12121A]
+          border border-white/10 rounded-2xl shadow-2xl overflow-hidden
+          transform transition-all duration-200
+        `}
+      >
+        {/* Top gradient line */}
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-purple-500/50 to-transparent" />
+        
+        {/* Header */}
+        {(title || showCloseButton) && (
+          <div className="flex items-start justify-between p-6 border-b border-white/5">
+            <div className="space-y-1 pr-8">
+              {title && <h2 className="text-xl font-semibold text-white">{title}</h2>}
+              {description && <p className="text-sm text-gray-400">{description}</p>}
+            </div>
+            {showCloseButton && (
+              <IconButton
+                icon={<CloseIcon />}
+                aria-label="Close modal"
+                onClick={onClose}
+                variant="ghost"
+                className="absolute top-4 right-4"
+              />
             )}
-            <div className="p-6 max-h-[70vh] overflow-y-auto">{children}</div>
-            {footer && <div className="flex items-center justify-end gap-3 p-6 border-t border-white/5 bg-black/20">{footer}</div>}
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>,
+          </div>
+        )}
+        
+        {/* Content */}
+        <div className="p-6 max-h-[70vh] overflow-y-auto">
+          {children}
+        </div>
+        
+        {/* Footer */}
+        {footer && (
+          <div className="flex items-center justify-end gap-3 p-6 border-t border-white/5 bg-black/20">
+            {footer}
+          </div>
+        )}
+      </div>
+    </div>,
     document.body
   );
 }
 
+// ============================================
 // Confirm Dialog
+// ============================================
+
 interface ConfirmDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -160,8 +185,16 @@ export function ConfirmDialog({
     info: 'bg-blue-500 hover:bg-blue-600',
   };
 
+  const handleConfirm = useCallback(() => {
+    onConfirm();
+  }, [onConfirm]);
+
+  const handleClose = useCallback(() => {
+    onClose();
+  }, [onClose]);
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={false}>
+    <Modal isOpen={isOpen} onClose={handleClose} size="sm" showCloseButton={false}>
       <div className="flex flex-col items-center text-center space-y-4">
         <div className={`w-16 h-16 rounded-full ${iconColors[variant]} flex items-center justify-center`}>
           {variant === 'danger' && (
@@ -180,20 +213,22 @@ export function ConfirmDialog({
             </svg>
           )}
         </div>
+        
         <div className="space-y-2">
           <h3 className="text-lg font-semibold text-white">{title}</h3>
           <p className="text-sm text-gray-400">{message}</p>
         </div>
+        
         <div className="flex items-center gap-3 w-full pt-2">
           <button
-            onClick={onClose}
+            onClick={handleClose}
             disabled={isLoading}
             className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-gray-300 hover:bg-white/5 transition-colors disabled:opacity-50"
           >
             {cancelText}
           </button>
           <button
-            onClick={onConfirm}
+            onClick={handleConfirm}
             disabled={isLoading}
             className={`flex-1 px-4 py-2.5 rounded-xl text-white ${buttonColors[variant]} transition-colors disabled:opacity-50 flex items-center justify-center gap-2`}
           >
