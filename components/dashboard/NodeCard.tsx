@@ -4,7 +4,7 @@
  * ============================================
  * File Path: components/dashboard/NodeCard.tsx
  * 
- * Last Modified: v1.0.1 - Removed motion animations to prevent re-renders
+ * Last Modified: v1.0.2 - Added safe fallback for unknown status
  * ============================================
  */
 
@@ -15,6 +15,18 @@ import Link from 'next/link';
 import { Node } from '@/types';
 import { formatRelativeTime } from '@/lib/api';
 import { NODE_STATUS_CONFIG } from '@/lib/constants';
+
+// ============================================
+// Default Status Config (Fallback)
+// ============================================
+
+const DEFAULT_STATUS_CONFIG = {
+  label: 'Unknown',
+  color: '#6B7280',
+  bgColor: 'bg-gray-500/20',
+  textColor: 'text-gray-400',
+  borderColor: 'border-gray-500/50',
+};
 
 // ============================================
 // Props Interface
@@ -52,7 +64,14 @@ function StatItem({ label, value, icon }: StatItemProps) {
 // ============================================
 
 export default function NodeCard({ node, onDelete }: NodeCardProps) {
-  const statusConfig = NODE_STATUS_CONFIG[node.status];
+  // Safe status config with fallback
+  const statusConfig = NODE_STATUS_CONFIG[node.status as keyof typeof NODE_STATUS_CONFIG] || DEFAULT_STATUS_CONFIG;
+
+  // Safe value getters
+  const currentSessions = node.current_sessions ?? 0;
+  const totalSessions = node.total_sessions ?? 0;
+  const totalTrafficGb = node.total_traffic_gb ?? 0;
+  const onlineDuration = node.online_duration ?? 0;
 
   return (
     <div className="group relative">
@@ -93,10 +112,10 @@ export default function NodeCard({ node, onDelete }: NodeCardProps) {
                 {/* Name & IP */}
                 <div>
                   <h3 className="font-semibold text-white group-hover:text-purple-300 transition-colors">
-                    {node.name}
+                    {node.name || 'Unnamed Node'}
                   </h3>
                   <p className="text-sm text-gray-500 font-mono">
-                    {node.public_ip}:{node.port}
+                    {node.public_ip || '0.0.0.0'}:{node.port || 0}
                   </p>
                 </div>
               </div>
@@ -110,7 +129,8 @@ export default function NodeCard({ node, onDelete }: NodeCardProps) {
                 <span className={`
                   w-2 h-2 rounded-full
                   ${node.status === 'online' ? 'bg-emerald-400 animate-pulse' : 
-                    node.status === 'offline' ? 'bg-gray-400' : 'bg-red-400'}
+                    node.status === 'offline' ? 'bg-gray-400' : 
+                    node.status === 'suspended' ? 'bg-red-400' : 'bg-gray-400'}
                 `} />
                 <span className="text-xs font-medium">{statusConfig.label}</span>
               </div>
@@ -120,7 +140,7 @@ export default function NodeCard({ node, onDelete }: NodeCardProps) {
             <div className="grid grid-cols-2 gap-4 mb-6">
               <StatItem
                 label="Active Sessions"
-                value={node.current_sessions}
+                value={currentSessions}
                 icon={
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -129,7 +149,7 @@ export default function NodeCard({ node, onDelete }: NodeCardProps) {
               />
               <StatItem
                 label="Total Sessions"
-                value={node.total_sessions.toLocaleString()}
+                value={totalSessions.toLocaleString()}
                 icon={
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -138,7 +158,7 @@ export default function NodeCard({ node, onDelete }: NodeCardProps) {
               />
               <StatItem
                 label="Traffic"
-                value={`${node.total_traffic_gb.toFixed(2)} GB`}
+                value={`${totalTrafficGb.toFixed(2)} GB`}
                 icon={
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
@@ -147,7 +167,7 @@ export default function NodeCard({ node, onDelete }: NodeCardProps) {
               />
               <StatItem
                 label="Uptime"
-                value={`${node.online_duration.toFixed(1)}h`}
+                value={`${onlineDuration.toFixed(1)}h`}
                 icon={
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -162,7 +182,7 @@ export default function NodeCard({ node, onDelete }: NodeCardProps) {
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>Last seen {formatRelativeTime(node.last_heartbeat)}</span>
+                <span>Last seen {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : 'Never'}</span>
               </div>
               
               <div className="flex items-center gap-2">
@@ -174,7 +194,7 @@ export default function NodeCard({ node, onDelete }: NodeCardProps) {
                     Verified
                   </span>
                 )}
-                <span className="text-xs text-gray-500">v{node.version}</span>
+                <span className="text-xs text-gray-500">v{node.version || '0.0.0'}</span>
               </div>
             </div>
           </div>
