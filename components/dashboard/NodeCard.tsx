@@ -2,28 +2,9 @@
  * ============================================
  * AeroNyx Node Card Component
  * ============================================
- * File Path: src/components/dashboard/NodeCard.tsx
+ * File Path: components/dashboard/NodeCard.tsx
  * 
- * Creation Reason: Display individual node information
- * Main Functionality: Show node status, stats, and quick actions
- * Dependencies:
- *   - src/types/index.ts (Node type)
- *   - src/lib/api.ts (formatting utilities)
- *   - src/lib/constants.ts (status config)
- *   - framer-motion (animations)
- * 
- * Main Logical Flow:
- * 1. Display node status indicator
- * 2. Show key metrics (sessions, traffic, uptime)
- * 3. Provide quick actions (view, delete)
- * 4. Animate status changes
- * 
- * ⚠️ Important Note for Next Developer:
- * - Status colors defined in constants.ts
- * - Card is interactive - links to detail page
- * - Delete action requires confirmation
- * 
- * Last Modified: v1.0.0 - Initial node card component
+ * Last Modified: v1.0.1 - Removed motion animations to prevent re-renders
  * ============================================
  */
 
@@ -31,9 +12,8 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
 import { Node } from '@/types';
-import { formatRelativeTime, formatBytes } from '@/lib/api';
+import { formatRelativeTime } from '@/lib/api';
 import { NODE_STATUS_CONFIG } from '@/lib/constants';
 
 // ============================================
@@ -75,13 +55,7 @@ export default function NodeCard({ node, onDelete }: NodeCardProps) {
   const statusConfig = NODE_STATUS_CONFIG[node.status];
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      whileHover={{ y: -2 }}
-      className="group relative"
-    >
+    <div className="group relative">
       <Link href={`/dashboard/nodes/${node.id}`}>
         <div className="
           relative overflow-hidden rounded-2xl
@@ -90,6 +64,7 @@ export default function NodeCard({ node, onDelete }: NodeCardProps) {
           backdrop-blur-xl
           transition-all duration-300
           hover:shadow-lg hover:shadow-purple-500/10
+          hover:-translate-y-0.5
         ">
           {/* Top Gradient Line */}
           <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-purple-500/30 to-transparent" />
@@ -208,9 +183,7 @@ export default function NodeCard({ node, onDelete }: NodeCardProps) {
 
       {/* Quick Delete Button (appears on hover) */}
       {onDelete && (
-        <motion.button
-          initial={{ opacity: 0, scale: 0.9 }}
-          whileHover={{ scale: 1.1 }}
+        <button
           className="
             absolute top-4 right-4
             opacity-0 group-hover:opacity-100
@@ -230,9 +203,9 @@ export default function NodeCard({ node, onDelete }: NodeCardProps) {
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
           </svg>
-        </motion.button>
+        </button>
       )}
-    </motion.div>
+    </div>
   );
 }
 
