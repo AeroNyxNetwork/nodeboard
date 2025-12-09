@@ -2,34 +2,15 @@
  * ============================================
  * AeroNyx Button Component
  * ============================================
- * File Path: src/components/common/Button.tsx
+ * File Path: components/common/Button.tsx
  * 
- * Creation Reason: Reusable button component with variants
- * Main Functionality: Primary, secondary, ghost, and danger button styles
- *                     with loading states and icon support
- * Dependencies: 
- *   - React
- *   - framer-motion (animations)
- * 
- * Main Logical Flow:
- * 1. Accept variant, size, and state props
- * 2. Apply appropriate styling based on variant
- * 3. Handle loading and disabled states
- * 4. Animate with Framer Motion
- * 
- * ⚠️ Important Note for Next Developer:
- * - Always use this component for buttons to maintain consistency
- * - Loading state automatically disables the button
- * - Icon can be placed left or right
- * 
- * Last Modified: v1.0.0 - Initial button component
+ * Last Modified: v1.0.1 - Removed framer-motion and infinite shimmer animation
  * ============================================
  */
 
 'use client';
 
-import React from 'react';
-import { motion, HTMLMotionProps } from 'framer-motion';
+import React, { useCallback, useState } from 'react';
 
 // ============================================
 // Types
@@ -38,7 +19,7 @@ import { motion, HTMLMotionProps } from 'framer-motion';
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
-interface ButtonProps extends Omit<HTMLMotionProps<'button'>, 'size'> {
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
   isLoading?: boolean;
@@ -60,27 +41,32 @@ const variantStyles: Record<ButtonVariant, string> = {
     shadow-lg shadow-purple-500/25
     hover:shadow-purple-500/40
     border border-purple-500/50
+    active:scale-[0.98]
   `,
   secondary: `
     bg-white/5 hover:bg-white/10
     text-white font-medium
     border border-white/10 hover:border-white/20
+    active:scale-[0.98]
   `,
   ghost: `
     bg-transparent hover:bg-white/5
     text-gray-300 hover:text-white
     border border-transparent
+    active:scale-[0.98]
   `,
   danger: `
     bg-red-500/20 hover:bg-red-500/30
     text-red-400 font-medium
     border border-red-500/30 hover:border-red-500/50
+    active:scale-[0.98]
   `,
   outline: `
     bg-transparent
     text-purple-400 hover:text-purple-300 font-medium
     border border-purple-500/50 hover:border-purple-500
     hover:bg-purple-500/10
+    active:scale-[0.98]
   `,
 };
 
@@ -144,19 +130,17 @@ export default function Button({
   const isDisabled = disabled || isLoading;
 
   return (
-    <motion.button
+    <button
       className={`
         inline-flex items-center justify-center
         transition-all duration-200
         ${variantStyles[variant]}
         ${sizeStyles[size]}
         ${fullWidth ? 'w-full' : ''}
-        ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+        ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:scale-[1.02]'}
         ${className}
       `}
       disabled={isDisabled}
-      whileHover={!isDisabled ? { scale: 1.02 } : undefined}
-      whileTap={!isDisabled ? { scale: 0.98 } : undefined}
       {...props}
     >
       {isLoading ? (
@@ -170,14 +154,7 @@ export default function Button({
       {!isLoading && rightIcon && (
         <span className="flex-shrink-0">{rightIcon}</span>
       )}
-      
-      {/* Shine effect for primary button */}
-      {variant === 'primary' && !isDisabled && (
-        <span className="absolute inset-0 overflow-hidden rounded-xl">
-          <span className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-        </span>
-      )}
-    </motion.button>
+    </button>
   );
 }
 
@@ -185,9 +162,11 @@ export default function Button({
 // Icon Button Variant
 // ============================================
 
-interface IconButtonProps extends Omit<ButtonProps, 'children' | 'leftIcon' | 'rightIcon'> {
+interface IconButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
   icon: React.ReactNode;
   'aria-label': string;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
 }
 
 export function IconButton({
@@ -195,6 +174,7 @@ export function IconButton({
   variant = 'ghost',
   size = 'md',
   className = '',
+  disabled,
   ...props
 }: IconButtonProps) {
   const iconSizeStyles: Record<ButtonSize, string> = {
@@ -204,26 +184,25 @@ export function IconButton({
   };
 
   return (
-    <motion.button
+    <button
       className={`
         inline-flex items-center justify-center
         transition-all duration-200 rounded-lg
         ${variantStyles[variant]}
         ${iconSizeStyles[size]}
-        ${props.disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+        ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:scale-105 active:scale-95'}
         ${className}
       `}
-      whileHover={!props.disabled ? { scale: 1.05 } : undefined}
-      whileTap={!props.disabled ? { scale: 0.95 } : undefined}
+      disabled={disabled}
       {...props}
     >
       {icon}
-    </motion.button>
+    </button>
   );
 }
 
 // ============================================
-// Copy Button (Common Use Case)
+// Copy Button
 // ============================================
 
 interface CopyButtonProps {
@@ -233,9 +212,9 @@ interface CopyButtonProps {
 }
 
 export function CopyButton({ text, onCopy, className = '' }: CopyButtonProps) {
-  const [copied, setCopied] = React.useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const handleCopy = async () => {
+  const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -244,7 +223,7 @@ export function CopyButton({ text, onCopy, className = '' }: CopyButtonProps) {
     } catch (err) {
       console.error('Failed to copy:', err);
     }
-  };
+  }, [text, onCopy]);
 
   return (
     <IconButton
