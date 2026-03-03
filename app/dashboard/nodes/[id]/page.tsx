@@ -269,16 +269,16 @@ function NodeHeader({ node, onSaveName, isSavingName, onDelete }: NodeHeaderProp
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-4 text-sm text-gray-400">
-              <div className="flex items-center gap-2">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-400">
+              <div className="flex items-center gap-2 min-w-0">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
                 </svg>
-                <span className="font-mono">{node.public_ip}:{node.port}</span>
+                <span className="font-mono truncate">{node.public_ip}:{node.port}</span>
                 <CopyButton text={`${node.public_ip}:${node.port}`} />
               </div>
               <div className="flex items-center gap-2">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>Last seen {formatRelativeTime(node.last_heartbeat)}</span>
@@ -563,35 +563,35 @@ export default function NodeDetailPage() {
       <div className="grid lg:grid-cols-3 gap-6 mb-6">
         <Card variant="default" padding="md" className="lg:col-span-1">
           <h3 className="font-semibold text-white mb-4">Hardware Info</h3>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-500">CPU</span>
-              <span className="text-sm text-white">{node.hardware_info?.cpu || 'Unknown'}</span>
+          <div className="space-y-4">
+            <div>
+              <span className="text-xs text-gray-500 uppercase tracking-wider">CPU</span>
+              <p className="text-sm text-white mt-1 break-words">{node.hardware_info?.cpu || 'Unknown'}</p>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-500">Memory</span>
-              <span className="text-sm text-white">{node.hardware_info?.memory || 'Unknown'}</span>
+            <div>
+              <span className="text-xs text-gray-500 uppercase tracking-wider">Memory</span>
+              <p className="text-sm text-white mt-1">{node.hardware_info?.memory || 'Unknown'}</p>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-500">OS</span>
-              <span className="text-sm text-white">{node.hardware_info?.os || 'Unknown'}</span>
+            <div>
+              <span className="text-xs text-gray-500 uppercase tracking-wider">OS</span>
+              <p className="text-sm text-white mt-1 break-words">{node.hardware_info?.os || 'Unknown'}</p>
             </div>
           </div>
         </Card>
 
         <Card variant="default" padding="md" className="lg:col-span-2">
           <h3 className="font-semibold text-white mb-4">Node Details</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="min-w-0">
               <span className="text-xs text-gray-500 uppercase tracking-wider">Node ID</span>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-2 mt-1 min-w-0">
                 <span className="text-sm font-mono text-gray-300 truncate">{node.id}</span>
                 <CopyButton text={node.id} />
               </div>
             </div>
-            <div>
+            <div className="min-w-0">
               <span className="text-xs text-gray-500 uppercase tracking-wider">Public Key</span>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-2 mt-1 min-w-0">
                 <span className="text-sm font-mono text-gray-300 truncate">{node.public_key?.slice(0, 20)}...</span>
                 <CopyButton text={node.public_key || ''} />
               </div>
