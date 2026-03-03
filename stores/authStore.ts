@@ -147,9 +147,30 @@ async function connectPhantom(): Promise<WalletInfo> {
   }
 
   try {
-    // Phantom may already be connected — try eager connect first,
-    // fall back to normal connect which opens the approval popup
-    const response = await provider.connect();
+    // Strategy:
+    // 1. Try silent/trusted reconnect first (no popup if already approved)
+    // 2. If that fails, disconnect to clear stale state, then force connect
+    // This handles the "Unexpected error" that Phantom throws when there's
+    // leftover connection state from a previous session.
+
+    let response;
+
+    try {
+      // Attempt silent reconnect (onlyIfTrusted: true means no popup)
+      response = await provider.connect({ onlyIfTrusted: true });
+    } catch {
+      // Silent reconnect failed — user hasn't approved before, or state is stale.
+      // Disconnect first to clear any broken state, then do a full connect.
+      try {
+        await provider.disconnect();
+      } catch {
+        // disconnect() can also fail if never connected — ignore
+      }
+
+      // Now try the full connect (this will show the Phantom approval popup)
+      response = await provider.connect();
+    }
+
     return {
       address: response.publicKey.toString(),
       type: 'SOL',
@@ -157,6 +178,12 @@ async function connectPhantom(): Promise<WalletInfo> {
     };
   } catch (err) {
     console.error('[AeroNyx] Phantom connect error:', err);
+
+    // Provide more specific error messages based on error type
+    const errMsg = err instanceof Error ? err.message : String(err);
+    if (errMsg.includes('User rejected')) {
+      throw new Error('Connection request was rejected. Please try again and approve in Phantom.');
+    }
     throw new Error(ERROR_MESSAGES.WALLET_CONNECTION_FAILED);
   }
 }
