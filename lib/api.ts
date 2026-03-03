@@ -3,13 +3,32 @@
  * AeroNyx Privacy Network - API Client
  * ============================================
  * File Path: lib/api.ts
- * 
+ *
  * Creation Reason: Centralized API client for all backend communications
- * Dependencies: 
+ * Modification Reason:
+ *   v1.0.3 - Fixed auth endpoints (getNonce, login) sending stale Authorization
+ *     header. These are public endpoints that should NOT include Bearer token.
+ *     When a stale/expired API key exists in localStorage, the backend returns
+ *     401 which triggers "Session expired" before login can complete.
+ *     Added `skipAuth` option to request() for public endpoints.
+ * Dependencies:
  *   - types/index.ts (type definitions)
  *   - lib/constants.ts (API endpoints and config)
- * 
- * Last Modified: v1.0.2 - Fixed TypeScript type errors in getNodes
+ *
+ * Main Logical Flow:
+ * 1. All requests go through request() which adds headers and handles errors
+ * 2. Auth endpoints (getNonce, login) use skipAuth: true to avoid sending tokens
+ * 3. 401 responses trigger logout event and clear localStorage
+ * 4. Authenticated endpoints automatically include Bearer token from localStorage
+ *
+ * ⚠️ Important Note for Next Developer:
+ * - getNonce and login MUST use skipAuth: true — they are pre-auth endpoints
+ * - If you add new public endpoints, also use skipAuth: true
+ * - The 401 handler dispatches 'auth:logout' custom event, listened by authStore
+ * - Do not change the error message format without updating authStore error handling
+ *
+ * Last Modified: v1.0.3 - Fixed stale auth header on public endpoints
+ * Previous: v1.0.2 - Fixed TypeScript type errors in getNodes
  * ============================================
  */
 
@@ -32,6 +51,15 @@ import {
 import { API_BASE_URL, API_ENDPOINTS, STORAGE_KEYS } from './constants';
 
 // ============================================
+// Extended Request Options
+// ============================================
+
+interface ApiRequestOptions extends RequestInit {
+  /** If true, do NOT include Authorization header. Use for public endpoints. */
+  skipAuth?: boolean;
+}
+
+// ============================================
 // API Client Class
 // ============================================
 
@@ -47,14 +75,17 @@ class ApiClient {
     return localStorage.getItem(STORAGE_KEYS.API_KEY);
   }
 
-  private getAuthHeaders(): HeadersInit {
-    const apiKey = this.getApiKey();
+  private getAuthHeaders(skipAuth: boolean = false): HeadersInit {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
 
-    if (apiKey) {
-      headers['Authorization'] = `Bearer ${apiKey}`;
+    // Only add Authorization header for authenticated endpoints
+    if (!skipAuth) {
+      const apiKey = this.getApiKey();
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
     }
 
     return headers;
@@ -62,22 +93,25 @@ class ApiClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: ApiRequestOptions = {}
   ): Promise<T> {
+    const { skipAuth, ...fetchOptions } = options;
     const url = `${this.baseUrl}${endpoint}`;
-    
+
     const config: RequestInit = {
-      ...options,
+      ...fetchOptions,
       headers: {
-        ...this.getAuthHeaders(),
-        ...options.headers,
+        ...this.getAuthHeaders(skipAuth),
+        ...fetchOptions.headers,
       },
     };
 
     try {
       const response = await fetch(url, config);
 
-      if (response.status === 401) {
+      // Only trigger session expiry for AUTHENTICATED endpoints
+      // Public endpoints (skipAuth: true) should not trigger logout
+      if (response.status === 401 && !skipAuth) {
         if (typeof window !== 'undefined') {
           localStorage.removeItem(STORAGE_KEYS.API_KEY);
           localStorage.removeItem(STORAGE_KEYS.WALLET_ADDRESS);
@@ -104,14 +138,14 @@ class ApiClient {
   }
 
   // ============================================
-  // Authentication Endpoints
+  // Authentication Endpoints (Public - no auth header)
   // ============================================
 
   async getNonce(walletAddress: string): Promise<NonceResponse> {
     const params = new URLSearchParams({ wallet_address: walletAddress });
     return this.request<NonceResponse>(
       `${API_ENDPOINTS.AUTH_NONCE}?${params}`,
-      { method: 'GET' }
+      { method: 'GET', skipAuth: true }
     );
   }
 
@@ -119,6 +153,7 @@ class ApiClient {
     return this.request<LoginResponse>(API_ENDPOINTS.AUTH_LOGIN, {
       method: 'POST',
       body: JSON.stringify(data),
+      skipAuth: true,
     });
   }
 
@@ -261,7 +296,7 @@ export function formatRelativeTime(date: string | Date): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
   if (seconds < 604800) return `${Math.floor(seconds / 86400)} days ago`;
-  
+
   return then.toLocaleDateString();
 }
 
