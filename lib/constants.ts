@@ -3,12 +3,26 @@
  * AeroNyx Privacy Network - Constants
  * ============================================
  * File Path: lib/constants.ts
- * 
+ *
  * Creation Reason: Centralized configuration and constants
+ * Modification Reason:
+ *   v1.1.0 - Added Agent-related constants for Phase 1:
+ *     - AGENT_ENDPOINTS in API_ENDPOINTS (install, status, start, stop, restart, uninstall)
+ *     - AGENT_POLLING_INTERVAL for transitional status polling (2s)
+ *     - AGENT_STATUS_CONFIG for UI rendering (label, colors, description)
+ *     - Agent-related ERROR_MESSAGES and SUCCESS_MESSAGES
+ *
  * Main Functionality: API endpoints, polling intervals, storage keys,
  *                     and application-wide configuration values
- * 
- * Last Modified: v1.0.0 - Initial constants setup
+ * Dependencies: None
+ *
+ * ⚠️ Important Note for Next Developer:
+ * - AGENT_STATUS_CONFIG keys MUST match AgentStatus type in types/agent.ts
+ * - AGENT_POLLING_INTERVAL (2000ms) is used by useAgent.ts for transitional states
+ * - Agent endpoints use function patterns like NODE_DETAIL — pass node ID
+ *
+ * Last Modified: v1.1.0 - Added Agent constants for Phase 1
+ * Previous: v1.0.0 - Initial constants setup
  * ============================================
  */
 
@@ -22,18 +36,26 @@ export const API_ENDPOINTS = {
   // Authentication
   AUTH_NONCE: '/auth/nonce/',
   AUTH_LOGIN: '/auth/login/',
-  
+
   // Registration Codes
   CODES_GENERATE: '/codes/generate/',
   CODES_LIST: '/codes/',
   CODES_REVOKE: '/codes/',
-  
+
   // Nodes
   NODES_LIST: '/nodes/',
   NODE_DETAIL: (id: string) => `/nodes/${id}/`,
   NODE_STATUS: (id: string) => `/nodes/${id}/status/`,
   NODE_STATS: (id: string) => `/nodes/${id}/stats/`,
   NODE_SESSIONS: (id: string) => `/nodes/${id}/sessions/`,
+
+  // Agent Management (Phase 1)
+  AGENT_STATUS: (nodeId: string) => `/nodes/${nodeId}/agent_status/`,
+  AGENT_INSTALL: (nodeId: string) => `/nodes/${nodeId}/install_agent/`,
+  AGENT_START: (nodeId: string) => `/nodes/${nodeId}/start_agent/`,
+  AGENT_STOP: (nodeId: string) => `/nodes/${nodeId}/stop_agent/`,
+  AGENT_RESTART: (nodeId: string) => `/nodes/${nodeId}/restart_agent/`,
+  AGENT_UNINSTALL: (nodeId: string) => `/nodes/${nodeId}/uninstall_agent/`,
 } as const;
 
 // ============================================
@@ -45,6 +67,10 @@ export const POLLING_INTERVALS = {
   NODE_STATUS: 30000,
   SESSIONS_LIST: 60000,
   CODES_LIST: 60000,
+  /** Agent status polling during transitional states (installing/starting/stopping/etc.) */
+  AGENT_TRANSITIONAL: 2000,
+  /** Agent status polling during stable states (running/stopped/etc.) — less frequent */
+  AGENT_STABLE: 30000,
 } as const;
 
 // ============================================
@@ -73,6 +99,8 @@ export const THEME_COLORS = {
     offline: '#6B7280',
     suspended: '#EF4444',
     warning: '#F59E0B',
+    ai_running: '#3B82F6',
+    ai_installing: '#8B5CF6',
   },
 } as const;
 
@@ -101,6 +129,116 @@ export const NODE_STATUS_CONFIG = {
     bgColor: 'bg-red-500/20',
     textColor: 'text-red-400',
     borderColor: 'border-red-500/50',
+  },
+} as const;
+
+// ============================================
+// Agent Status Configuration (Phase 1)
+// ============================================
+
+/**
+ * UI configuration for each AgentStatus value.
+ * Keys match AgentStatus type in types/agent.ts exactly.
+ *
+ * Fields:
+ *   label       — Display text for status badge
+ *   description — Contextual message shown below the status
+ *   bgColor     — Tailwind bg class for badge/container
+ *   textColor   — Tailwind text class
+ *   borderColor — Tailwind border class
+ *   dotColor    — Tailwind bg class for the status dot
+ *   animate     — Whether to pulse/spin the dot
+ */
+export const AGENT_STATUS_CONFIG = {
+  not_installed: {
+    label: 'Not Installed',
+    description: 'Deploy OpenClaw AI engine on this node',
+    bgColor: 'bg-gray-500/20',
+    textColor: 'text-gray-400',
+    borderColor: 'border-gray-500/50',
+    dotColor: 'bg-gray-400',
+    animate: false,
+  },
+  installing: {
+    label: 'Installing',
+    description: 'OpenClaw is being installed...',
+    bgColor: 'bg-purple-500/20',
+    textColor: 'text-purple-400',
+    borderColor: 'border-purple-500/50',
+    dotColor: 'bg-purple-400',
+    animate: true,
+  },
+  installed: {
+    label: 'Installed',
+    description: 'OpenClaw is installed and ready to start',
+    bgColor: 'bg-blue-500/20',
+    textColor: 'text-blue-400',
+    borderColor: 'border-blue-500/50',
+    dotColor: 'bg-blue-400',
+    animate: false,
+  },
+  starting: {
+    label: 'Starting',
+    description: 'OpenClaw is starting up...',
+    bgColor: 'bg-blue-500/20',
+    textColor: 'text-blue-400',
+    borderColor: 'border-blue-500/50',
+    dotColor: 'bg-blue-400',
+    animate: true,
+  },
+  running: {
+    label: 'Running',
+    description: 'OpenClaw is active and serving requests',
+    bgColor: 'bg-emerald-500/20',
+    textColor: 'text-emerald-400',
+    borderColor: 'border-emerald-500/50',
+    dotColor: 'bg-emerald-400',
+    animate: true,
+  },
+  stopping: {
+    label: 'Stopping',
+    description: 'OpenClaw is shutting down...',
+    bgColor: 'bg-yellow-500/20',
+    textColor: 'text-yellow-400',
+    borderColor: 'border-yellow-500/50',
+    dotColor: 'bg-yellow-400',
+    animate: true,
+  },
+  stopped: {
+    label: 'Stopped',
+    description: 'OpenClaw is installed but not running',
+    bgColor: 'bg-yellow-500/20',
+    textColor: 'text-yellow-400',
+    borderColor: 'border-yellow-500/50',
+    dotColor: 'bg-yellow-400',
+    animate: false,
+  },
+  error: {
+    label: 'Error',
+    description: 'OpenClaw encountered an error',
+    bgColor: 'bg-red-500/20',
+    textColor: 'text-red-400',
+    borderColor: 'border-red-500/50',
+    dotColor: 'bg-red-400',
+    animate: false,
+  },
+  updating: {
+    label: 'Updating',
+    description: 'OpenClaw is being updated...',
+    bgColor: 'bg-purple-500/20',
+    textColor: 'text-purple-400',
+    borderColor: 'border-purple-500/50',
+    dotColor: 'bg-purple-400',
+    animate: true,
+  },
+  uninstalling: {
+    label: 'Uninstalling',
+    description: 'OpenClaw is being removed...',
+    bgColor: 'bg-red-500/20',
+    textColor: 'text-red-400',
+    borderColor: 'border-red-500/50',
+    dotColor: 'bg-red-400',
+    animate: true,
   },
 } as const;
 
@@ -148,6 +286,13 @@ export const ERROR_MESSAGES = {
   NETWORK_ERROR: 'Network error. Please check your connection.',
   SESSION_EXPIRED: 'Session expired. Please reconnect your wallet.',
   UNAUTHORIZED: 'Unauthorized. Please reconnect your wallet.',
+  // Agent-specific errors (Phase 1)
+  AGENT_INSTALL_FAILED: 'Failed to install OpenClaw. Please try again.',
+  AGENT_START_FAILED: 'Failed to start OpenClaw. Please try again.',
+  AGENT_STOP_FAILED: 'Failed to stop OpenClaw. Please try again.',
+  AGENT_RESTART_FAILED: 'Failed to restart OpenClaw. Please try again.',
+  AGENT_UNINSTALL_FAILED: 'Failed to uninstall OpenClaw. Please try again.',
+  AGENT_STATUS_FAILED: 'Failed to fetch agent status.',
 } as const;
 
 // ============================================
@@ -162,4 +307,10 @@ export const SUCCESS_MESSAGES = {
   NODE_DELETED: 'Node deleted successfully.',
   NODE_UPDATED: 'Node updated successfully.',
   COPIED_TO_CLIPBOARD: 'Copied to clipboard!',
+  // Agent-specific messages (Phase 1)
+  AGENT_INSTALL_TRIGGERED: 'OpenClaw installation started!',
+  AGENT_START_TRIGGERED: 'OpenClaw is starting...',
+  AGENT_STOP_TRIGGERED: 'OpenClaw is stopping...',
+  AGENT_RESTART_TRIGGERED: 'OpenClaw is restarting...',
+  AGENT_UNINSTALL_TRIGGERED: 'OpenClaw uninstall started.',
 } as const;
