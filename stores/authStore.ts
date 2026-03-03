@@ -147,29 +147,27 @@ async function connectPhantom(): Promise<WalletInfo> {
   }
 
   try {
-    // Strategy:
-    // 1. Try silent/trusted reconnect first (no popup if already approved)
-    // 2. If that fails, disconnect to clear stale state, then force connect
-    // This handles the "Unexpected error" that Phantom throws when there's
-    // leftover connection state from a previous session.
+    // Strategy to handle Phantom's "Unexpected error" (known issue):
+    // This error occurs when Phantom is locked, in a bad state, or
+    // conflicting with other wallet extensions (e.g. Backpack).
+    //
+    // Approach:
+    // 1. Disconnect to clear any stale state (ignore errors)
+    // 2. Small delay to let Phantom settle
+    // 3. Try connect() which should trigger the approval popup
 
-    let response;
-
+    // Step 1: Clear any stale connection state
     try {
-      // Attempt silent reconnect (onlyIfTrusted: true means no popup)
-      response = await provider.connect({ onlyIfTrusted: true });
+      await provider.disconnect();
     } catch {
-      // Silent reconnect failed — user hasn't approved before, or state is stale.
-      // Disconnect first to clear any broken state, then do a full connect.
-      try {
-        await provider.disconnect();
-      } catch {
-        // disconnect() can also fail if never connected — ignore
-      }
-
-      // Now try the full connect (this will show the Phantom approval popup)
-      response = await provider.connect();
+      // disconnect() can fail if never connected — ignore
     }
+
+    // Step 2: Small delay to let Phantom's internal state settle
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    // Step 3: Attempt connection (shows Phantom approval popup)
+    const response = await provider.connect();
 
     return {
       address: response.publicKey.toString(),
@@ -179,11 +177,22 @@ async function connectPhantom(): Promise<WalletInfo> {
   } catch (err) {
     console.error('[AeroNyx] Phantom connect error:', err);
 
-    // Provide more specific error messages based on error type
+    // Provide specific, actionable error messages
     const errMsg = err instanceof Error ? err.message : String(err);
+
     if (errMsg.includes('User rejected')) {
       throw new Error('Connection request was rejected. Please try again and approve in Phantom.');
     }
+
+    if (errMsg.includes('Unexpected error')) {
+      throw new Error(
+        'Phantom returned an unexpected error. Please try:\n' +
+        '1. Click the Phantom icon and make sure your wallet is unlocked\n' +
+        '2. Temporarily disable other wallet extensions (e.g. Backpack)\n' +
+        '3. Refresh the page and try again'
+      );
+    }
+
     throw new Error(ERROR_MESSAGES.WALLET_CONNECTION_FAILED);
   }
 }
@@ -290,9 +299,23 @@ async function signSolanaMessage(
 
   try {
     const signedMessage = await solanaProvider.signMessage(encodedMessage, 'utf8');
-    return Array.from(signedMessage.signature as Uint8Array)
+
+    // IMPORTANT: Phantom returns signature as a custom class (not Uint8Array).
+    // We must wrap it with new Uint8Array() to ensure Array.from() iterates
+    // correctly over all 64 bytes. Without this, some bytes may be skipped,
+    // resulting in a signature shorter than the expected 128 hex characters.
+    const signatureBytes = new Uint8Array(signedMessage.signature);
+
+    const hex = Array.from(signatureBytes)
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
+
+    // Sanity check: ed25519 signature must be exactly 128 hex chars (64 bytes)
+    if (hex.length !== 128) {
+      console.error(`[AeroNyx] Signature length mismatch: expected 128, got ${hex.length}`);
+    }
+
+    return hex;
   } catch (err) {
     console.error('[AeroNyx] Solana signMessage error:', err);
     throw new Error(ERROR_MESSAGES.SIGNATURE_FAILED);
