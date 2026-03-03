@@ -6,6 +6,14 @@
  *
  * Creation Reason: Centralized API client for all backend communications
  * Modification Reason:
+ *   v1.1.0 - Added Agent lifecycle API methods for Phase 1:
+ *     - getAgentStatus(nodeId, agentType?) — GET /nodes/{id}/agent_status/
+ *     - installAgent(nodeId, data?) — POST /nodes/{id}/install_agent/
+ *     - startAgent(nodeId) — POST /nodes/{id}/start_agent/
+ *     - stopAgent(nodeId) — POST /nodes/{id}/stop_agent/
+ *     - restartAgent(nodeId) — POST /nodes/{id}/restart_agent/
+ *     - uninstallAgent(nodeId) — POST /nodes/{id}/uninstall_agent/
+ *     All methods use existing auth flow (Bearer token).
  *   v1.0.3 - Fixed auth endpoints (getNonce, login) sending stale Authorization
  *     header. These are public endpoints that should NOT include Bearer token.
  *     When a stale/expired API key exists in localStorage, the backend returns
@@ -13,6 +21,7 @@
  *     Added `skipAuth` option to request() for public endpoints.
  * Dependencies:
  *   - types/index.ts (type definitions)
+ *   - types/agent.ts (agent type definitions — Phase 1)
  *   - lib/constants.ts (API endpoints and config)
  *
  * Main Logical Flow:
@@ -20,15 +29,18 @@
  * 2. Auth endpoints (getNonce, login) use skipAuth: true to avoid sending tokens
  * 3. 401 responses trigger logout event and clear localStorage
  * 4. Authenticated endpoints automatically include Bearer token from localStorage
+ * 5. Agent endpoints follow the same authenticated pattern
  *
  * ⚠️ Important Note for Next Developer:
  * - getNonce and login MUST use skipAuth: true — they are pre-auth endpoints
  * - If you add new public endpoints, also use skipAuth: true
  * - The 401 handler dispatches 'auth:logout' custom event, listened by authStore
  * - Do not change the error message format without updating authStore error handling
+ * - Agent endpoints all require auth — do NOT use skipAuth
+ * - installAgent accepts optional body; backend defaults agent_type to "openclaw"
  *
- * Last Modified: v1.0.3 - Fixed stale auth header on public endpoints
- * Previous: v1.0.2 - Fixed TypeScript type errors in getNodes
+ * Last Modified: v1.1.0 - Added Agent lifecycle API methods for Phase 1
+ * Previous: v1.0.3 - Fixed stale auth header on public endpoints
  * ============================================
  */
 
@@ -47,6 +59,13 @@ import {
   ApiError,
   NodeStatus,
 } from '@/types';
+
+import {
+  AgentStatusResponse,
+  AgentActionResponse,
+  InstallAgentRequest,
+  AgentType,
+} from '@/types/agent';
 
 import { API_BASE_URL, API_ENDPOINTS, STORAGE_KEYS } from './constants';
 
@@ -259,6 +278,113 @@ class ApiClient {
       : API_ENDPOINTS.NODE_SESSIONS(nodeId);
 
     return this.request<SessionListResponse>(endpoint, { method: 'GET' });
+  }
+
+  // ============================================
+  // Agent Lifecycle Endpoints (Phase 1)
+  // ============================================
+
+  /**
+   * Get agent status for a node.
+   * @param nodeId - Node UUID
+   * @param agentType - Optional filter by agent type (e.g. "openclaw").
+   *                    If omitted, returns all agents on the node.
+   */
+  async getAgentStatus(
+    nodeId: string,
+    agentType?: AgentType
+  ): Promise<AgentStatusResponse> {
+    const params = new URLSearchParams();
+    if (agentType) params.append('agent_type', agentType);
+
+    const queryString = params.toString();
+    const endpoint = queryString
+      ? `${API_ENDPOINTS.AGENT_STATUS(nodeId)}?${queryString}`
+      : API_ENDPOINTS.AGENT_STATUS(nodeId);
+
+    return this.request<AgentStatusResponse>(endpoint, { method: 'GET' });
+  }
+
+  /**
+   * Install agent on a node.
+   * All fields in the request body are optional.
+   * Backend defaults: agent_type="openclaw", version="latest"
+   */
+  async installAgent(
+    nodeId: string,
+    data?: InstallAgentRequest
+  ): Promise<AgentActionResponse> {
+    return this.request<AgentActionResponse>(
+      API_ENDPOINTS.AGENT_INSTALL(nodeId),
+      {
+        method: 'POST',
+        body: JSON.stringify(data || {}),
+      }
+    );
+  }
+
+  /**
+   * Start an installed agent on a node.
+   */
+  async startAgent(
+    nodeId: string,
+    agentType: AgentType = 'openclaw'
+  ): Promise<AgentActionResponse> {
+    return this.request<AgentActionResponse>(
+      API_ENDPOINTS.AGENT_START(nodeId),
+      {
+        method: 'POST',
+        body: JSON.stringify({ agent_type: agentType }),
+      }
+    );
+  }
+
+  /**
+   * Stop a running agent on a node.
+   */
+  async stopAgent(
+    nodeId: string,
+    agentType: AgentType = 'openclaw'
+  ): Promise<AgentActionResponse> {
+    return this.request<AgentActionResponse>(
+      API_ENDPOINTS.AGENT_STOP(nodeId),
+      {
+        method: 'POST',
+        body: JSON.stringify({ agent_type: agentType }),
+      }
+    );
+  }
+
+  /**
+   * Restart a running agent on a node.
+   */
+  async restartAgent(
+    nodeId: string,
+    agentType: AgentType = 'openclaw'
+  ): Promise<AgentActionResponse> {
+    return this.request<AgentActionResponse>(
+      API_ENDPOINTS.AGENT_RESTART(nodeId),
+      {
+        method: 'POST',
+        body: JSON.stringify({ agent_type: agentType }),
+      }
+    );
+  }
+
+  /**
+   * Uninstall an agent from a node.
+   */
+  async uninstallAgent(
+    nodeId: string,
+    agentType: AgentType = 'openclaw'
+  ): Promise<AgentActionResponse> {
+    return this.request<AgentActionResponse>(
+      API_ENDPOINTS.AGENT_UNINSTALL(nodeId),
+      {
+        method: 'POST',
+        body: JSON.stringify({ agent_type: agentType }),
+      }
+    );
   }
 }
 
