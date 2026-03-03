@@ -3,8 +3,26 @@
  * AeroNyx Node Card Component
  * ============================================
  * File Path: components/dashboard/NodeCard.tsx
- * 
- * Last Modified: v1.0.2 - Added safe fallback for unknown status
+ *
+ * Modification Reason:
+ *   v1.0.3 - Fixed delete button overlapping with status badge.
+ *     Moved delete button from top-4 right-4 to top-16 right-4
+ *     so it renders below the status badge on hover.
+ *   v1.0.2 - Added safe fallback for unknown status
+ * Dependencies:
+ *   - next/link (navigation)
+ *   - types/index.ts (Node type)
+ *   - lib/api.ts (formatRelativeTime utility)
+ *   - lib/constants.ts (NODE_STATUS_CONFIG)
+ *
+ * ⚠️ Important Note for Next Developer:
+ * - Delete button uses absolute positioning — if you change the card's
+ *   padding or header layout, verify the button doesn't overlap the badge
+ * - The is_verified icon SVG uses fill="currentColor" — if you want an
+ *   outlined style, switch to stroke-based path data
+ *
+ * Last Modified: v1.0.3 - Fixed delete button / status badge overlap
+ * Previous: v1.0.2 - Added safe fallback for unknown status
  * ============================================
  */
 
@@ -188,8 +206,8 @@ export default function NodeCard({ node, onDelete }: NodeCardProps) {
               <div className="flex items-center gap-2">
                 {node.is_verified && (
                   <span className="flex items-center gap-1 text-xs text-emerald-400">
-                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     Verified
                   </span>
@@ -201,11 +219,11 @@ export default function NodeCard({ node, onDelete }: NodeCardProps) {
         </div>
       </Link>
 
-      {/* Quick Delete Button (appears on hover) */}
+      {/* Quick Delete Button — positioned below status badge to avoid overlap */}
       {onDelete && (
         <button
           className="
-            absolute top-4 right-4
+            absolute top-16 right-4
             opacity-0 group-hover:opacity-100
             p-2 rounded-lg
             bg-red-500/20 hover:bg-red-500/30
