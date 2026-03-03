@@ -3,17 +3,43 @@
  * AeroNyx Dashboard Layout
  * ============================================
  * File Path: app/dashboard/layout.tsx
- * 
- * Last Modified: v1.0.4 - Fixed redirect loop with proper state management
+ *
+ * Modification Reason: Instead of redirecting unauthenticated users to the
+ *   landing page, the layout now shows the dashboard skeleton behind a
+ *   non-dismissable AuthModal. Once the user authenticates, the modal
+ *   disappears and the full dashboard is revealed.
+ * Main Functionality:
+ *   - Auth-gated layout with login modal overlay
+ *   - Sidebar navigation (desktop + mobile)
+ *   - Skeleton loading state while hydrating
+ * Dependencies:
+ *   - stores/authStore.ts (auth state)
+ *   - components/auth/AuthModal.tsx (login modal — NEW)
+ *   - components/dashboard/Sidebar.tsx (navigation)
+ *
+ * Main Logical Flow:
+ * 1. Wait for auth store hydration (brief spinner)
+ * 2. Render dashboard shell (sidebar + content area)
+ * 3. If !isAuthenticated → overlay AuthModal (non-dismissable)
+ * 4. If isAuthenticated → render children normally
+ *
+ * ⚠️ Important Note for Next Developer:
+ * - Auth redirect to '/' has been removed — do NOT re-add it
+ * - AuthModal is controlled by isAuthenticated from the store
+ * - The dashboard skeleton is always rendered (behind modal if needed)
+ * - Maintain interface compatibility with components/dashboard/Sidebar.tsx
+ *
+ * Last Modified: v1.1.0 - Replaced redirect-to-landing with AuthModal overlay
+ * Previous: v1.0.4 - Fixed redirect loop with proper state management
  * ============================================
  */
 
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import Sidebar, { MobileHeader } from '@/components/dashboard/Sidebar';
+import AuthModal from '@/components/auth/AuthModal';
 
 // ============================================
 // Dashboard Layout Component
@@ -24,38 +50,36 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const router = useRouter();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isReady, setIsReady] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
   const hasChecked = useRef(false);
 
+  // ============================================
+  // Wait for auth store hydration from localStorage
+  // ============================================
   useEffect(() => {
-    // Only check once
     if (hasChecked.current) return;
     hasChecked.current = true;
 
-    // Small delay to ensure store is hydrated from localStorage
+    // Small delay to ensure zustand store is hydrated from localStorage
     const timer = setTimeout(() => {
-      // Get the current auth state directly from store
-      const currentAuth = useAuthStore.getState().isAuthenticated;
-      
-      if (!currentAuth) {
-        router.replace('/');
-      } else {
-        setIsReady(true);
-      }
+      setIsHydrated(true);
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [router]);
+  }, []);
 
-  // Handle sidebar
+  // ============================================
+  // Sidebar handlers
+  // ============================================
   const handleCloseSidebar = () => setIsSidebarOpen(false);
   const handleOpenSidebar = () => setIsSidebarOpen(true);
 
-  // Show loading while checking auth
-  if (!isReady) {
+  // ============================================
+  // Pre-hydration: show loading spinner
+  // ============================================
+  if (!isHydrated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0A0A0F]">
         <div className="flex flex-col items-center gap-4">
@@ -66,16 +90,22 @@ export default function DashboardLayout({
     );
   }
 
+  // ============================================
+  // Post-hydration: render dashboard + auth modal if needed
+  // ============================================
   return (
     <div className="min-h-screen bg-[#0A0A0F]">
+      {/* Auth Modal — overlays everything when not authenticated */}
+      <AuthModal isOpen={!isAuthenticated} />
+
       {/* Mobile Header */}
       <MobileHeader onMenuToggle={handleOpenSidebar} />
 
       <div className="flex">
         {/* Sidebar */}
-        <Sidebar 
-          isOpen={isSidebarOpen} 
-          onClose={handleCloseSidebar} 
+        <Sidebar
+          isOpen={isSidebarOpen}
+          onClose={handleCloseSidebar}
         />
 
         {/* Main Content */}
