@@ -6,6 +6,11 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.2.0 - Integrated AgentPanel for Phase 1 Agent Lifecycle Management.
+ *     - Imported AgentPanel component
+ *     - Added AgentPanel between NodeHeader and StatsGrid
+ *     - Passed nodeStatus and onToast callback to AgentPanel
+ *     - Extracted showToast to be reusable by both page and AgentPanel
  *   v1.1.0 - Bug fixes and feature completion:
  *     - Removed unused framer-motion import
  *     - Implemented inline edit for node name (was TODO)
@@ -14,9 +19,11 @@
  *     - Added Copy IP and Copy Node ID actions in header (moved from card)
  *     - Improved error handling in edit/delete flows
  * Main Functionality: Display detailed node info, real-time stats,
- *                     sessions list, and management actions
+ *                     sessions list, agent lifecycle panel, and management actions
  * Dependencies:
  *   - src/hooks/useNodes.ts
+ *   - src/hooks/useAgent.ts (via AgentPanel)
+ *   - src/components/dashboard/AgentPanel.tsx (Phase 1)
  *   - src/components/common/Card.tsx
  *   - src/components/common/Button.tsx
  *   - src/components/common/Modal.tsx
@@ -25,18 +32,21 @@
  * Main Logical Flow:
  * 1. Fetch node detail and stats via hooks (auth-guarded)
  * 2. Display node info header with actions (edit name, delete)
- * 3. Show real-time statistics grid
- * 4. Show hardware info + node details
- * 5. List recent sessions in table
+ * 3. Display AgentPanel (OpenClaw lifecycle management)
+ * 4. Show real-time statistics grid
+ * 5. Show hardware info + node details
+ * 6. List recent sessions in table
  *
  * ⚠️ Important Note for Next Developer:
  * - Uses dynamic route [id] parameter
  * - Edit mode is inline — name field becomes an input on click
  * - Delete navigates back to /dashboard/nodes after success
  * - All data hooks have auth guards (see useNodes.ts v1.1.0)
+ * - AgentPanel handles its own data fetching via useAgentStatus
+ * - Toast is shared: both page actions and AgentPanel use showToast
  *
- * Last Modified: v1.1.0 - Bug fixes + inline edit + delete toast
- * Previous: v1.0.0 - Initial node detail page
+ * Last Modified: v1.2.0 - Integrated AgentPanel for Phase 1
+ * Previous: v1.1.0 - Bug fixes + inline edit + delete toast
  * ============================================
  */
 
@@ -57,6 +67,7 @@ import { NODE_STATUS_CONFIG } from '@/lib/constants';
 import Card, { StatCard } from '@/components/common/Card';
 import Button, { CopyButton } from '@/components/common/Button';
 import { ConfirmDialog } from '@/components/common/Modal';
+import AgentPanel from '@/components/dashboard/AgentPanel';
 
 // ============================================
 // Toast Component (local — lightweight)
@@ -468,7 +479,7 @@ export default function NodeDetailPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [toast, setToast] = useState<{ message: string; variant: 'success' | 'error' } | null>(null);
 
-  // Show toast helper
+  // Show toast helper — shared with AgentPanel via onToast prop
   const showToast = useCallback((message: string, variant: 'success' | 'error' = 'success') => {
     setToast({ message, variant });
     setTimeout(() => setToast(null), 3000);
@@ -509,6 +520,8 @@ export default function NodeDetailPage() {
         <BackButton />
         <div className="space-y-6">
           <div className="h-40 rounded-2xl bg-white/5 animate-pulse" />
+          {/* Agent panel skeleton */}
+          <div className="h-32 rounded-2xl bg-white/5 animate-pulse" />
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="h-28 rounded-2xl bg-white/5 animate-pulse" />
@@ -554,6 +567,13 @@ export default function NodeDetailPage() {
         onSaveName={handleSaveName}
         isSavingName={updateNodeMutation.isPending}
         onDelete={() => setShowDeleteDialog(true)}
+      />
+
+      {/* ======== Phase 1: Agent Lifecycle Panel ======== */}
+      <AgentPanel
+        nodeId={nodeId}
+        nodeStatus={node.status}
+        onToast={showToast}
       />
 
       {/* Stats Grid */}
