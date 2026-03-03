@@ -236,8 +236,16 @@ export function useUpdateNode() {
       const response = await api.updateNode(nodeId, data);
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: nodeKeys.list() });
+    onSuccess: (_data, variables) => {
+      // Invalidate both detail and list caches with forced refetch
+      queryClient.invalidateQueries({
+        queryKey: nodeKeys.detail(variables.nodeId),
+        refetchType: 'all',
+      });
+      queryClient.invalidateQueries({
+        queryKey: nodeKeys.list(),
+        refetchType: 'all',
+      });
     },
   });
 }
@@ -249,8 +257,16 @@ export function useDeleteNode() {
     mutationFn: async (nodeId: string) => {
       return api.deleteNode(nodeId);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: nodeKeys.list() });
+    onSuccess: (_data, nodeId) => {
+      // Remove the deleted node's detail cache
+      queryClient.removeQueries({ queryKey: nodeKeys.detail(nodeId) });
+      // Invalidate AND refetch the list immediately so it's fresh
+      // when user navigates back to the nodes list page.
+      // refetchType: 'all' ensures refetch even with staleTime: Infinity.
+      queryClient.invalidateQueries({
+        queryKey: nodeKeys.list(),
+        refetchType: 'all',
+      });
     },
   });
 }
