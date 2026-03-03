@@ -3,8 +3,12 @@
  * AeroNyx Wallet Connect Component
  * ============================================
  * File Path: src/components/auth/WalletConnect.tsx
- * 
+ *
  * Creation Reason: Main authentication component for Web3 wallet connection
+ * Modification Reason: Fix wallet availability detection to match authStore v1.1.0.
+ *   Phantom newer versions inject at window.phantom.solana, not window.solana.
+ *   MetaMask detection now handles multi-provider scenarios.
+ *   Added longer delay for slow-injecting wallets (e.g. OKX).
  * Main Functionality: Display wallet options, handle connection flow,
  *                     and manage authentication state
  * Dependencies:
@@ -12,19 +16,22 @@
  *   - src/components/common/Button.tsx
  *   - src/components/common/Card.tsx
  *   - framer-motion (animations)
- * 
+ *
  * Main Logical Flow:
- * 1. Display available wallet options
+ * 1. Display available wallet options (with correct availability detection)
  * 2. Handle wallet connection request
  * 3. Trigger signature request
  * 4. Complete authentication and redirect
- * 
+ *
  * ⚠️ Important Note for Next Developer:
- * - Each wallet provider has different availability detection
+ * - Wallet detection must match the logic in stores/authStore.ts
+ * - If you add a new wallet provider, update BOTH this file and authStore.ts
  * - OKX wallet supports both ETH and SOL
  * - Error states should be user-friendly
- * 
- * Last Modified: v1.0.0 - Initial wallet connect component
+ * - checkAvailable() runs on mount + after delays because wallets inject at different times
+ *
+ * Last Modified: v1.1.0 - Fixed wallet detection for Phantom, MetaMask, OKX
+ * Previous: v1.0.0 - Initial wallet connect component
  * ============================================
  */
 
@@ -63,7 +70,12 @@ const walletOptions: WalletOption[] = [
         <path d="M110.584 64.9142H99.142C99.142 41.7651 80.173 23 56.7724 23C33.6612 23 14.8716 41.3057 14.4118 64.0583C13.936 87.577 36.0852 107 60.1629 107H65.5765C86.839 107 111.119 89.4991 110.584 64.9142ZM40.4561 63.4584C40.4561 58.5338 44.4469 54.5765 49.4124 54.5765C54.378 54.5765 58.3688 58.5338 58.3688 63.4584C58.3688 68.383 54.378 72.3404 49.4124 72.3404C44.4308 72.3404 40.4561 68.399 40.4561 63.4584ZM74.3331 72.3404C69.3676 72.3404 65.3768 68.383 65.3768 63.4584C65.3768 58.5338 69.3676 54.5765 74.3331 54.5765C79.2987 54.5765 83.2895 58.5338 83.2895 63.4584C83.2895 68.399 79.2826 72.3404 74.3331 72.3404Z" fill="#FFFDF8"/>
       </svg>
     ),
-    checkAvailable: () => typeof window !== 'undefined' && !!window.solana?.isPhantom,
+    // ✅ Fixed: Check both window.phantom.solana (new) and window.solana (legacy)
+    checkAvailable: () => {
+      if (typeof window === 'undefined') return false;
+      const w = window as any;
+      return !!(w.phantom?.solana?.isPhantom || w.solana?.isPhantom);
+    },
     downloadUrl: 'https://phantom.app/',
   },
   {
@@ -87,7 +99,18 @@ const walletOptions: WalletOption[] = [
         <path d="M106.292 63.478l2.926-14.086-4.418-13.152-33.563 24.93 12.92 10.925 18.261 5.328 4.032-4.702-1.76-1.27 2.79-2.532-2.138-1.655 2.789-2.13-1.839-1.656zM18.782 49.392l2.943 14.086-1.877 1.387 2.79 2.13-2.122 1.656 2.789 2.532-1.76 1.27 4.032 4.702 18.244-5.328 12.92-10.925-33.563-24.93-4.396 13.152z" fill="#763D16" stroke="#763D16"/>
       </svg>
     ),
-    checkAvailable: () => typeof window !== 'undefined' && !!window.ethereum?.isMetaMask,
+    // ✅ Fixed: Handle multi-provider scenario (MetaMask + other wallets)
+    checkAvailable: () => {
+      if (typeof window === 'undefined') return false;
+      const ethereum = (window as any).ethereum;
+      if (!ethereum) return false;
+      if (ethereum.isMetaMask) return true;
+      // Multi-provider: check providers array
+      if (ethereum.providers?.length) {
+        return ethereum.providers.some((p: any) => p.isMetaMask);
+      }
+      return false;
+    },
     downloadUrl: 'https://metamask.io/',
   },
   {
@@ -102,7 +125,11 @@ const walletOptions: WalletOption[] = [
         <path d="M51.2 25.6H25.6v25.6h25.6V25.6zM102.4 25.6H76.8v25.6h25.6V25.6zM51.2 76.8H25.6v25.6h25.6V76.8zM102.4 76.8H76.8v25.6h25.6V76.8z" fill="#fff"/>
       </svg>
     ),
-    checkAvailable: () => typeof window !== 'undefined' && !!(window.okxwallet?.solana || window.okxwallet?.ethereum),
+    checkAvailable: () => {
+      if (typeof window === 'undefined') return false;
+      const okx = (window as any).okxwallet;
+      return !!(okx?.solana || okx?.ethereum);
+    },
     downloadUrl: 'https://www.okx.com/web3',
   },
 ];
@@ -121,10 +148,12 @@ export default function WalletConnect() {
   const [step, setStep] = useState<ConnectionStep>('select');
   const [selectedWallet, setSelectedWallet] = useState<WalletOption | null>(null);
   const [availableWallets, setAvailableWallets] = useState<Record<string, boolean>>({});
-  
+
   const { connectWallet, login, error, clearError, isLoading } = useAuthStore();
 
   // Check wallet availability on mount
+  // ✅ Fixed: Added multiple check intervals because some wallets
+  //    (especially OKX, Phantom in some browsers) inject their globals late
   useEffect(() => {
     const checkWallets = () => {
       const availability: Record<string, boolean> = {};
@@ -134,11 +163,19 @@ export default function WalletConnect() {
       setAvailableWallets(availability);
     };
 
-    // Check immediately and after a delay (some wallets inject slowly)
+    // Check immediately
     checkWallets();
-    const timeout = setTimeout(checkWallets, 1000);
-    
-    return () => clearTimeout(timeout);
+
+    // Re-check after short delays for slow-injecting wallets
+    const timeout1 = setTimeout(checkWallets, 500);
+    const timeout2 = setTimeout(checkWallets, 1500);
+    const timeout3 = setTimeout(checkWallets, 3000);
+
+    return () => {
+      clearTimeout(timeout1);
+      clearTimeout(timeout2);
+      clearTimeout(timeout3);
+    };
   }, []);
 
   // Handle wallet selection
@@ -150,14 +187,15 @@ export default function WalletConnect() {
     try {
       // Step 1: Connect wallet
       const walletInfo: WalletInfo = await connectWallet(wallet.id);
-      
+
       setStep('signing');
-      
+
       // Step 2: Sign message and login
       await login(walletInfo);
-      
+
       setStep('success');
     } catch (err) {
+      console.error('[AeroNyx] WalletConnect handleSelectWallet error:', err);
       setStep('error');
     }
   };
@@ -189,7 +227,7 @@ export default function WalletConnect() {
             <div className="space-y-3">
               {walletOptions.map((wallet) => {
                 const isAvailable = availableWallets[wallet.id];
-                
+
                 return (
                   <motion.button
                     key={wallet.id}
@@ -198,8 +236,8 @@ export default function WalletConnect() {
                     className={`
                       w-full p-4 rounded-xl border transition-all duration-200
                       flex items-center gap-4
-                      ${isAvailable 
-                        ? 'border-white/10 bg-white/5 hover:border-purple-500/50 hover:bg-purple-500/10 cursor-pointer' 
+                      ${isAvailable
+                        ? 'border-white/10 bg-white/5 hover:border-purple-500/50 hover:bg-purple-500/10 cursor-pointer'
                         : 'border-white/5 bg-white/[0.02] opacity-50 cursor-not-allowed'
                       }
                     `}
@@ -260,8 +298,8 @@ export default function WalletConnect() {
                     {step === 'connecting' ? 'Connecting...' : 'Waiting for Signature'}
                   </h3>
                   <p className="text-sm text-gray-400">
-                    {step === 'connecting' 
-                      ? `Opening ${selectedWallet?.name}...` 
+                    {step === 'connecting'
+                      ? `Opening ${selectedWallet?.name}...`
                       : 'Please sign the message in your wallet'
                     }
                   </p>
@@ -330,7 +368,7 @@ export default function WalletConnect() {
                 </div>
                 <div className="space-y-2">
                   <h3 className="text-xl font-semibold text-white">Connected!</h3>
-                  <p className="text-sm text-gray-400">Redirecting to dashboard...</p>
+                  <p className="text-sm text-gray-400">Welcome to AeroNyx</p>
                 </div>
               </div>
             </Card>
