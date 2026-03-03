@@ -3,24 +3,32 @@
  * AeroNyx Privacy Network - Type Definitions
  * ============================================
  * File Path: src/types/index.ts
- * 
+ *
  * Creation Reason: Centralized type definitions for the entire application
- * Main Functionality: TypeScript interfaces and types for API responses, 
+ * Modification Reason:
+ *   v1.1.0 - Added window.phantom type declaration for newer Phantom versions.
+ *     Phantom injects at window.phantom.solana instead of window.solana.
+ *     Also added phantom.solana.connect({ onlyIfTrusted }) overload and
+ *     okxwallet.solana.disconnect() method used by authStore.
+ * Main Functionality: TypeScript interfaces and types for API responses,
  *                     wallet connections, nodes, sessions, and UI state
  * Dependencies: None (base types file)
- * 
+ *
  * Main Logical Flow:
  * 1. Define wallet-related types (ETH/SOL)
  * 2. Define API response structures
  * 3. Define node and session data models
  * 4. Define UI state types
- * 
+ * 5. Declare global Window extensions for wallet providers
+ *
  * ⚠️ Important Note for Next Developer:
  * - All API response types must match the backend documentation exactly
  * - Wallet types must support both ETH and SOL chains
  * - Keep types in sync with API documentation version
- * 
- * Last Modified: v1.0.1 - Fixed duplicate NodeStatus identifier
+ * - Window declarations must cover ALL injection paths used in authStore.ts
+ *
+ * Last Modified: v1.1.0 - Added window.phantom type declaration
+ * Previous: v1.0.1 - Fixed duplicate NodeStatus identifier
  * ============================================
  */
 
@@ -254,37 +262,45 @@ export interface NotificationState {
 // Window Extensions for Wallet Providers
 // ============================================
 
+/** Shared Solana provider interface used by Phantom and OKX */
+interface SolanaWalletProvider {
+  isPhantom?: boolean;
+  connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: { toString: () => string } }>;
+  disconnect: () => Promise<void>;
+  signMessage: (
+    message: Uint8Array,
+    encoding: string
+  ) => Promise<{ signature: Uint8Array }>;
+  on: (event: string, callback: () => void) => void;
+  removeListener: (event: string, callback: () => void) => void;
+}
+
+/** Shared Ethereum provider interface used by MetaMask and OKX */
+interface EthereumProvider {
+  isMetaMask?: boolean;
+  providers?: EthereumProvider[];
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+  on: (event: string, callback: (...args: unknown[]) => void) => void;
+  removeListener: (event: string, callback: (...args: unknown[]) => void) => void;
+}
+
 declare global {
   interface Window {
-    solana?: {
-      isPhantom?: boolean;
-      connect: () => Promise<{ publicKey: { toString: () => string } }>;
-      disconnect: () => Promise<void>;
-      signMessage: (
-        message: Uint8Array,
-        encoding: string
-      ) => Promise<{ signature: Uint8Array }>;
-      on: (event: string, callback: () => void) => void;
-      removeListener: (event: string, callback: () => void) => void;
+    /** Legacy Phantom injection path (older versions) */
+    solana?: SolanaWalletProvider;
+
+    /** Modern Phantom injection path (newer versions) */
+    phantom?: {
+      solana?: SolanaWalletProvider;
     };
-    ethereum?: {
-      isMetaMask?: boolean;
-      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-      on: (event: string, callback: (...args: unknown[]) => void) => void;
-      removeListener: (event: string, callback: (...args: unknown[]) => void) => void;
-    };
+
+    /** MetaMask / other EVM wallets */
+    ethereum?: EthereumProvider;
+
+    /** OKX Wallet — supports both Solana and Ethereum */
     okxwallet?: {
-      solana?: {
-        connect: () => Promise<{ publicKey: { toString: () => string } }>;
-        disconnect: () => Promise<void>;
-        signMessage: (
-          message: Uint8Array,
-          encoding: string
-        ) => Promise<{ signature: Uint8Array }>;
-      };
-      ethereum?: {
-        request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-      };
+      solana?: SolanaWalletProvider;
+      ethereum?: EthereumProvider;
     };
   }
 }
