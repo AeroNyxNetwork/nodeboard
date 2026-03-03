@@ -5,10 +5,10 @@
  * File Path: components/dashboard/NodeCard.tsx
  *
  * Modification Reason:
- *   v1.1.0 - Replaced hover delete button with three-dot menu (⋯).
- *     Menu includes: View Details, Edit Name, Copy IP, Copy ID, Delete.
- *     Menu closes on outside click, Escape key, or item selection.
- *     Delete is visually separated with red text and divider.
+ *   v1.2.0 - Moved three-dot menu button to footer row (next to version).
+ *     Menu now opens UPWARD (bottom-up) so it doesn't obscure card content.
+ *     This solves the overlap issue where the menu blocked stats and header.
+ *   v1.1.0 - Replaced hover delete button with three-dot menu
  *   v1.0.3 - Fixed delete button / status badge overlap
  *   v1.0.2 - Added safe fallback for unknown status
  * Dependencies:
@@ -19,19 +19,20 @@
  *   - lib/constants.ts (NODE_STATUS_CONFIG)
  *
  * Main Logical Flow:
- * 1. Card renders node info with status badge
- * 2. Three-dot button (⋯) in top-right opens dropdown menu
- * 3. Menu items trigger actions (navigate, edit, copy, delete)
- * 4. Card body is still clickable to navigate to detail page
+ * 1. Card renders node info with status badge in header
+ * 2. Footer row: last seen, verified badge, version, three-dot button
+ * 3. Three-dot button opens dropdown UPWARD above the footer
+ * 4. Card body is still clickable (Link) to navigate to detail page
  *
  * ⚠️ Important Note for Next Developer:
- * - The menu uses stopPropagation to prevent card click-through
- * - The menu portal is inside the card's relative container for positioning
- * - If you need this menu pattern elsewhere, consider extracting a shared
- *   DropdownMenu component
+ * - Menu opens upward (bottom: 100%) — if card is at the very top of the
+ *   viewport, the menu may be clipped. Consider adding viewport detection
+ *   logic if this becomes an issue.
  * - onEdit callback is optional — if not provided, Edit option is hidden
+ * - All menu clicks use stopPropagation to prevent Link navigation
  *
- * Last Modified: v1.1.0 - Three-dot context menu with actions
+ * Last Modified: v1.2.0 - Menu in footer, opens upward
+ * Previous: v1.1.0 - Three-dot context menu with actions
  * Previous: v1.0.3 - Fixed delete button / status badge overlap
  * Previous: v1.0.2 - Added safe fallback for unknown status
  * ============================================
@@ -117,25 +118,6 @@ function MenuItem({ icon, label, onClick, variant = 'default' }: MenuItemProps) 
       <span className="w-4 h-4 flex-shrink-0">{icon}</span>
       <span>{label}</span>
     </button>
-  );
-}
-
-// ============================================
-// Copy Feedback Component
-// ============================================
-
-function CopyFeedback({ show }: { show: boolean }) {
-  if (!show) return null;
-  return (
-    <div className="
-      fixed top-6 left-1/2 -translate-x-1/2 z-50
-      px-4 py-2 rounded-lg
-      bg-emerald-500/20 border border-emerald-500/30
-      text-emerald-300 text-sm font-medium
-      animate-fade-in
-    ">
-      Copied to clipboard!
-    </div>
   );
 }
 
@@ -236,12 +218,21 @@ export default function NodeCard({ node, onDelete, onEdit }: NodeCardProps) {
   return (
     <>
       {/* Copy Feedback Toast */}
-      <CopyFeedback show={copyFeedback} />
+      {copyFeedback && (
+        <div className="
+          fixed top-6 left-1/2 -translate-x-1/2 z-50
+          px-4 py-2 rounded-lg
+          bg-emerald-500/20 border border-emerald-500/30
+          text-emerald-300 text-sm font-medium
+        ">
+          Copied to clipboard!
+        </div>
+      )}
 
       <div className="group relative">
         <Link href={`/dashboard/nodes/${node.id}`}>
           <div className="
-            relative overflow-hidden rounded-2xl
+            relative overflow-visible rounded-2xl
             bg-gradient-to-br from-white/[0.08] to-white/[0.02]
             border border-white/10 hover:border-purple-500/30
             backdrop-blur-xl
@@ -284,22 +275,19 @@ export default function NodeCard({ node, onDelete, onEdit }: NodeCardProps) {
                   </div>
                 </div>
 
-                {/* Right side: Status Badge + Menu Button */}
-                <div className="flex items-center gap-2">
-                  {/* Status Badge */}
-                  <div className={`
-                    flex items-center gap-2 px-3 py-1.5 rounded-full
-                    ${statusConfig.bgColor} ${statusConfig.textColor}
-                    border ${statusConfig.borderColor}
-                  `}>
-                    <span className={`
-                      w-2 h-2 rounded-full
-                      ${node.status === 'online' ? 'bg-emerald-400 animate-pulse' :
-                        node.status === 'offline' ? 'bg-gray-400' :
-                        node.status === 'suspended' ? 'bg-red-400' : 'bg-gray-400'}
-                    `} />
-                    <span className="text-xs font-medium">{statusConfig.label}</span>
-                  </div>
+                {/* Status Badge */}
+                <div className={`
+                  flex items-center gap-2 px-3 py-1.5 rounded-full
+                  ${statusConfig.bgColor} ${statusConfig.textColor}
+                  border ${statusConfig.borderColor}
+                `}>
+                  <span className={`
+                    w-2 h-2 rounded-full
+                    ${node.status === 'online' ? 'bg-emerald-400 animate-pulse' :
+                      node.status === 'offline' ? 'bg-gray-400' :
+                      node.status === 'suspended' ? 'bg-red-400' : 'bg-gray-400'}
+                  `} />
+                  <span className="text-xs font-medium">{statusConfig.label}</span>
                 </div>
               </div>
 
@@ -368,124 +356,128 @@ export default function NodeCard({ node, onDelete, onEdit }: NodeCardProps) {
           </div>
         </Link>
 
-        {/* Three-Dot Menu Button — always visible in top-right corner */}
-        <button
-          ref={buttonRef}
-          onClick={toggleMenu}
-          className={`
-            absolute top-4 right-4 z-20
-            p-1.5 rounded-lg
-            transition-all duration-200
-            ${menuOpen
-              ? 'bg-white/10 text-white'
-              : 'opacity-0 group-hover:opacity-100 text-gray-400 hover:text-white hover:bg-white/10'
-            }
-          `}
-          aria-label="Node actions"
-          aria-expanded={menuOpen}
-        >
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-            <circle cx="12" cy="5" r="1.5" />
-            <circle cx="12" cy="12" r="1.5" />
-            <circle cx="12" cy="19" r="1.5" />
-          </svg>
-        </button>
-
-        {/* Dropdown Menu */}
-        {menuOpen && (
-          <div
-            ref={menuRef}
-            className="
-              absolute top-12 right-4 z-30
-              w-52 py-1.5 rounded-xl
-              bg-[#1a1a24] border border-white/10
-              shadow-2xl shadow-black/50
-              backdrop-blur-xl
-              animate-in fade-in slide-in-from-top-2
-            "
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
+        {/* ============================================ */}
+        {/* Three-Dot Menu — positioned in footer row    */}
+        {/* Menu opens UPWARD to avoid blocking content  */}
+        {/* ============================================ */}
+        <div className="absolute bottom-4 right-4 z-20">
+          {/* Menu Trigger Button */}
+          <button
+            ref={buttonRef}
+            onClick={toggleMenu}
+            className={`
+              p-1.5 rounded-lg
+              transition-all duration-200
+              ${menuOpen
+                ? 'bg-white/10 text-white'
+                : 'opacity-0 group-hover:opacity-100 text-gray-400 hover:text-white hover:bg-white/10'
+              }
+            `}
+            aria-label="Node actions"
+            aria-expanded={menuOpen}
           >
-            {/* View Details */}
-            <div className="px-1.5">
-              <MenuItem
-                icon={
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                }
-                label="View Details"
-                onClick={handleViewDetails}
-              />
-            </div>
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <circle cx="12" cy="5" r="1.5" />
+              <circle cx="12" cy="12" r="1.5" />
+              <circle cx="12" cy="19" r="1.5" />
+            </svg>
+          </button>
 
-            {/* Edit Name — only show if onEdit provided */}
-            {onEdit && (
+          {/* Dropdown — opens upward */}
+          {menuOpen && (
+            <div
+              ref={menuRef}
+              className="
+                absolute bottom-full right-0 mb-2
+                w-52 py-1.5 rounded-xl
+                bg-[#1a1a24] border border-white/10
+                shadow-2xl shadow-black/50
+                backdrop-blur-xl
+              "
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+            >
+              {/* View Details */}
               <div className="px-1.5">
                 <MenuItem
                   icon={
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zM16.862 4.487L19.5 7.125" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
                   }
-                  label="Edit Name"
-                  onClick={handleEdit}
+                  label="View Details"
+                  onClick={handleViewDetails}
                 />
               </div>
-            )}
 
-            {/* Divider */}
-            <div className="my-1.5 border-t border-white/5" />
-
-            {/* Copy IP */}
-            <div className="px-1.5">
-              <MenuItem
-                icon={
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
-                  </svg>
-                }
-                label={`Copy IP (${node.public_ip || '0.0.0.0'})`}
-                onClick={handleCopyIP}
-              />
-            </div>
-
-            {/* Copy Node ID */}
-            <div className="px-1.5">
-              <MenuItem
-                icon={
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" />
-                  </svg>
-                }
-                label="Copy Node ID"
-                onClick={handleCopyID}
-              />
-            </div>
-
-            {/* Divider before danger zone */}
-            {onDelete && (
-              <>
-                <div className="my-1.5 border-t border-white/5" />
+              {/* Edit Name — only show if onEdit provided */}
+              {onEdit && (
                 <div className="px-1.5">
                   <MenuItem
                     icon={
                       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zM16.862 4.487L19.5 7.125" />
                       </svg>
                     }
-                    label="Delete Node"
-                    onClick={handleDelete}
-                    variant="danger"
+                    label="Edit Name"
+                    onClick={handleEdit}
                   />
                 </div>
-              </>
-            )}
-          </div>
-        )}
+              )}
+
+              {/* Divider */}
+              <div className="my-1.5 border-t border-white/5" />
+
+              {/* Copy IP */}
+              <div className="px-1.5">
+                <MenuItem
+                  icon={
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
+                    </svg>
+                  }
+                  label={`Copy IP`}
+                  onClick={handleCopyIP}
+                />
+              </div>
+
+              {/* Copy Node ID */}
+              <div className="px-1.5">
+                <MenuItem
+                  icon={
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" />
+                    </svg>
+                  }
+                  label="Copy Node ID"
+                  onClick={handleCopyID}
+                />
+              </div>
+
+              {/* Divider before danger zone */}
+              {onDelete && (
+                <>
+                  <div className="my-1.5 border-t border-white/5" />
+                  <div className="px-1.5">
+                    <MenuItem
+                      icon={
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                        </svg>
+                      }
+                      label="Delete Node"
+                      onClick={handleDelete}
+                      variant="danger"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </>
   );
