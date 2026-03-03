@@ -245,7 +245,17 @@ async function connectOKX(): Promise<WalletInfo> {
   // Try Solana first
   if (okx.solana) {
     try {
+      // Disconnect first to clear cached account — ensures we get the
+      // CURRENT wallet address if the user switched accounts in OKX
+      try {
+        await okx.solana.disconnect();
+      } catch {
+        // ignore disconnect errors
+      }
+      await new Promise(resolve => setTimeout(resolve, 200));
+
       const response = await okx.solana.connect();
+      console.log('[AeroNyx] OKX Solana connected:', response.publicKey.toString());
       return {
         address: response.publicKey.toString(),
         type: 'SOL',
@@ -260,11 +270,13 @@ async function connectOKX(): Promise<WalletInfo> {
   // Try Ethereum
   if (okx.ethereum) {
     try {
+      // For ETH, request accounts always returns the current active account
       const accounts = await okx.ethereum.request({
         method: 'eth_requestAccounts',
       }) as string[];
 
       if (accounts && accounts.length > 0) {
+        console.log('[AeroNyx] OKX ETH connected:', accounts[0]);
         return {
           address: accounts[0],
           type: 'ETH',
