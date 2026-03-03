@@ -5,14 +5,15 @@
  * File Path: stores/authStore.ts
  *
  * Creation Reason: Global state management for authentication
- * Modification Reason: Fix Phantom wallet detection for newer versions
- *   that inject via window.phantom.solana instead of window.solana.
- *   Also fix OKX and MetaMask detection with multiple fallback paths.
- *   Improved error logging — original errors are now logged to console
- *   so developers can debug connection failures.
+ * Modification Reason:
+ *   v1.1.0 - Fixed wallet detection for newer Phantom versions
+ *   v1.2.0 - Fixed Phantom "Unexpected error" with disconnect-before-connect strategy
+ *   v1.3.0 - Fixed signature hex conversion: Phantom/OKX return custom class (not Uint8Array),
+ *             must wrap with new Uint8Array() before Array.from() to ensure all 64 bytes
+ *             are correctly iterated. Added debug logging for login flow.
  * Dependencies:
  *   - types/index.ts (type definitions)
- *   - lib/constants.ts (storage keys)
+ *   - lib/constants.ts (storage keys, error messages)
  *   - lib/api.ts (API client)
  *   - zustand (state management)
  *
@@ -25,12 +26,16 @@
  * ⚠️ Important Note for Next Developer:
  * - Wallet providers inject globals at different paths and timings
  * - Always use the getPhantomProvider() / getMetaMaskProvider() / getOKXProvider()
- *   helpers below instead of accessing window.solana / window.ethereum directly
- * - The catch blocks now log original errors — do NOT remove console.error calls
+ *   helpers instead of accessing window.solana / window.ethereum directly
+ * - Phantom/OKX signMessage returns a CUSTOM CLASS, not Uint8Array — always wrap
+ *   with new Uint8Array() before converting to hex
+ * - The catch blocks log original errors — do NOT remove console.error calls
  * - Event listener cleanup for 'auth:logout' is handled by the ref guard
  *   in providers.tsx AuthInitializer — do not call initialize() more than once
  *
- * Last Modified: v1.1.0 - Fixed wallet detection for Phantom, MetaMask, OKX
+ * Last Modified: v1.3.0 - Fixed signature conversion + added debug logging
+ * Previous: v1.2.0 - Fixed Phantom connect strategy
+ * Previous: v1.1.0 - Fixed wallet detection paths
  * Previous: v1.0.0 - Initial auth store implementation
  * ============================================
  */
@@ -279,6 +284,32 @@ async function connectOKX(): Promise<WalletInfo> {
 // Signature Helpers
 // ============================================
 
+/**
+ * Convert a wallet signature to hex string.
+ *
+ * IMPORTANT: Phantom and OKX return signature as a CUSTOM CLASS (not Uint8Array).
+ * Array.from() does not correctly iterate over custom classes, which causes
+ * bytes to be skipped and produces a signature shorter than 128 hex characters.
+ *
+ * Solution: Always wrap with new Uint8Array() before Array.from().
+ */
+function signatureToHex(signatureData: any): string {
+  // Force conversion to real Uint8Array regardless of source type
+  const bytes = new Uint8Array(signatureData);
+  const hex = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  // Sanity check: ed25519 signature = 64 bytes = 128 hex chars
+  // Ethereum signature = 65 bytes = 130 hex chars (with recovery byte)
+  console.log(`[AeroNyx] Signature: ${hex.length} hex chars (${bytes.length} bytes)`);
+  if (bytes.length !== 64 && bytes.length !== 65) {
+    console.warn(`[AeroNyx] Unexpected signature length: ${bytes.length} bytes`);
+  }
+
+  return hex;
+}
+
 async function signSolanaMessage(
   message: string,
   provider: WalletProvider
@@ -298,24 +329,14 @@ async function signSolanaMessage(
   }
 
   try {
+    console.log('[AeroNyx] Signing Solana message...');
+    console.log('[AeroNyx] Message to sign:', JSON.stringify(message));
+
     const signedMessage = await solanaProvider.signMessage(encodedMessage, 'utf8');
 
-    // IMPORTANT: Phantom returns signature as a custom class (not Uint8Array).
-    // We must wrap it with new Uint8Array() to ensure Array.from() iterates
-    // correctly over all 64 bytes. Without this, some bytes may be skipped,
-    // resulting in a signature shorter than the expected 128 hex characters.
-    const signatureBytes = new Uint8Array(signedMessage.signature);
+    console.log('[AeroNyx] signMessage returned, signature type:', signedMessage.signature?.constructor?.name);
 
-    const hex = Array.from(signatureBytes)
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-
-    // Sanity check: ed25519 signature must be exactly 128 hex chars (64 bytes)
-    if (hex.length !== 128) {
-      console.error(`[AeroNyx] Signature length mismatch: expected 128, got ${hex.length}`);
-    }
-
-    return hex;
+    return signatureToHex(signedMessage.signature);
   } catch (err) {
     console.error('[AeroNyx] Solana signMessage error:', err);
     throw new Error(ERROR_MESSAGES.SIGNATURE_FAILED);
@@ -340,10 +361,16 @@ async function signEthereumMessage(
   }
 
   try {
+    console.log('[AeroNyx] Signing Ethereum message...');
+    console.log('[AeroNyx] Message to sign:', JSON.stringify(message));
+
     const signature = await ethProvider.request({
       method: 'personal_sign',
       params: [message, address],
     }) as string;
+
+    console.log('[AeroNyx] ETH signature length:', signature.length);
+
     return signature;
   } catch (err) {
     console.error('[AeroNyx] Ethereum personal_sign error:', err);
@@ -405,6 +432,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           throw new Error('Unsupported wallet provider');
       }
 
+      console.log('[AeroNyx] Wallet connected:', walletInfo.address, walletInfo.type);
       set({ walletProvider: provider });
       return walletInfo;
     } catch (error) {
@@ -425,8 +453,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
+      // Step 1: Get nonce from backend
+      console.log('[AeroNyx] Step 1: Getting nonce for', walletInfo.address);
       const nonceResponse = await api.getNonce(walletInfo.address);
+      console.log('[AeroNyx] Nonce response:', JSON.stringify(nonceResponse));
 
+      // Step 2: Sign the message from backend
       let signature: string;
 
       if (walletInfo.type === 'SOL') {
@@ -439,12 +471,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         );
       }
 
+      // Step 3: Send signature to backend for verification
+      console.log('[AeroNyx] Step 3: Logging in...');
+      console.log('[AeroNyx] Login payload:', {
+        wallet_address: walletInfo.address,
+        wallet_type: walletInfo.type,
+        signature_length: signature.length,
+        signature_preview: signature.substring(0, 20) + '...',
+      });
+
       const loginResponse = await api.login({
         wallet_address: walletInfo.address,
         wallet_type: walletInfo.type,
         signature,
       });
 
+      console.log('[AeroNyx] Login successful!');
+
+      // Step 4: Store session
       localStorage.setItem(STORAGE_KEYS.API_KEY, loginResponse.api_key);
       localStorage.setItem(STORAGE_KEYS.WALLET_ADDRESS, loginResponse.user.wallet_address);
       localStorage.setItem(STORAGE_KEYS.WALLET_TYPE, loginResponse.user.wallet_type);
