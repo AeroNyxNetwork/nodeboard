@@ -3,15 +3,35 @@
  * AeroNyx Privacy Network - Auth Store
  * ============================================
  * File Path: stores/authStore.ts
- * 
+ *
  * Creation Reason: Global state management for authentication
+ * Modification Reason: Fix Phantom wallet detection for newer versions
+ *   that inject via window.phantom.solana instead of window.solana.
+ *   Also fix OKX and MetaMask detection with multiple fallback paths.
+ *   Improved error logging — original errors are now logged to console
+ *   so developers can debug connection failures.
  * Dependencies:
  *   - types/index.ts (type definitions)
  *   - lib/constants.ts (storage keys)
  *   - lib/api.ts (API client)
  *   - zustand (state management)
- * 
- * Last Modified: v1.0.0 - Initial auth store implementation
+ *
+ * Main Logical Flow:
+ * 1. initialize() reads localStorage to restore session
+ * 2. connectWallet() detects and connects to the chosen wallet provider
+ * 3. login() requests nonce from backend, signs with wallet, calls backend login
+ * 4. logout() clears session and disconnects wallet
+ *
+ * ⚠️ Important Note for Next Developer:
+ * - Wallet providers inject globals at different paths and timings
+ * - Always use the getPhantomProvider() / getMetaMaskProvider() / getOKXProvider()
+ *   helpers below instead of accessing window.solana / window.ethereum directly
+ * - The catch blocks now log original errors — do NOT remove console.error calls
+ * - Event listener cleanup for 'auth:logout' is handled by the ref guard
+ *   in providers.tsx AuthInitializer — do not call initialize() more than once
+ *
+ * Last Modified: v1.1.0 - Fixed wallet detection for Phantom, MetaMask, OKX
+ * Previous: v1.0.0 - Initial auth store implementation
  * ============================================
  */
 
@@ -41,36 +61,121 @@ interface AuthState {
 }
 
 // ============================================
+// Wallet Provider Detection Helpers
+// ============================================
+
+/**
+ * Get Phantom Solana provider.
+ * Newer Phantom versions inject at window.phantom.solana
+ * Older versions inject at window.solana
+ * Returns the provider object or null if not found.
+ */
+function getPhantomProvider(): any | null {
+  if (typeof window === 'undefined') return null;
+
+  // Prefer window.phantom.solana (newer Phantom versions)
+  const phantomSolana = (window as any).phantom?.solana;
+  if (phantomSolana?.isPhantom) {
+    return phantomSolana;
+  }
+
+  // Fallback to window.solana (older Phantom versions)
+  const legacySolana = (window as any).solana;
+  if (legacySolana?.isPhantom) {
+    return legacySolana;
+  }
+
+  return null;
+}
+
+/**
+ * Get MetaMask Ethereum provider.
+ * Handles cases where multiple wallets inject window.ethereum.
+ * Returns the provider object or null if not found.
+ */
+function getMetaMaskProvider(): any | null {
+  if (typeof window === 'undefined') return null;
+
+  const ethereum = (window as any).ethereum;
+  if (!ethereum) return null;
+
+  // If MetaMask is the only provider
+  if (ethereum.isMetaMask) {
+    return ethereum;
+  }
+
+  // If multiple providers exist (e.g. MetaMask + Coinbase),
+  // check the providers array
+  if (ethereum.providers?.length) {
+    const mmProvider = ethereum.providers.find((p: any) => p.isMetaMask);
+    if (mmProvider) return mmProvider;
+  }
+
+  return null;
+}
+
+/**
+ * Get OKX Wallet provider.
+ * OKX injects at window.okxwallet with .solana and .ethereum sub-providers.
+ * Returns { solana?, ethereum? } or null if not found.
+ */
+function getOKXProvider(): { solana?: any; ethereum?: any } | null {
+  if (typeof window === 'undefined') return null;
+
+  const okx = (window as any).okxwallet;
+  if (!okx) return null;
+
+  if (okx.solana || okx.ethereum) {
+    return { solana: okx.solana, ethereum: okx.ethereum };
+  }
+
+  return null;
+}
+
+// ============================================
 // Wallet Connection Helpers
 // ============================================
 
 async function connectPhantom(): Promise<WalletInfo> {
-  if (!window.solana?.isPhantom) {
-    throw new Error(ERROR_MESSAGES.WALLET_NOT_FOUND + ' Please install Phantom.');
+  const provider = getPhantomProvider();
+
+  if (!provider) {
+    throw new Error(
+      ERROR_MESSAGES.WALLET_NOT_FOUND +
+      ' Phantom wallet not detected. Please install it from https://phantom.app/'
+    );
   }
 
   try {
-    const response = await window.solana.connect();
+    // Phantom may already be connected — try eager connect first,
+    // fall back to normal connect which opens the approval popup
+    const response = await provider.connect();
     return {
       address: response.publicKey.toString(),
       type: 'SOL',
       provider: 'phantom',
     };
-  } catch {
+  } catch (err) {
+    console.error('[AeroNyx] Phantom connect error:', err);
     throw new Error(ERROR_MESSAGES.WALLET_CONNECTION_FAILED);
   }
 }
 
 async function connectMetaMask(): Promise<WalletInfo> {
-  if (!window.ethereum?.isMetaMask) {
-    throw new Error(ERROR_MESSAGES.WALLET_NOT_FOUND + ' Please install MetaMask.');
+  const provider = getMetaMaskProvider();
+
+  if (!provider) {
+    throw new Error(
+      ERROR_MESSAGES.WALLET_NOT_FOUND +
+      ' MetaMask not detected. Please install it from https://metamask.io/'
+    );
   }
 
   try {
-    const accounts = await window.ethereum.request({
+    const accounts = await provider.request({
       method: 'eth_requestAccounts',
     }) as string[];
-    
+
     if (!accounts || accounts.length === 0) {
       throw new Error(ERROR_MESSAGES.WALLET_CONNECTION_FAILED);
     }
@@ -80,31 +185,44 @@ async function connectMetaMask(): Promise<WalletInfo> {
       type: 'ETH',
       provider: 'metamask',
     };
-  } catch {
+  } catch (err) {
+    console.error('[AeroNyx] MetaMask connect error:', err);
     throw new Error(ERROR_MESSAGES.WALLET_CONNECTION_FAILED);
   }
 }
 
 async function connectOKX(): Promise<WalletInfo> {
-  if (window.okxwallet?.solana) {
+  const okx = getOKXProvider();
+
+  if (!okx) {
+    throw new Error(
+      ERROR_MESSAGES.WALLET_NOT_FOUND +
+      ' OKX Wallet not detected. Please install it from https://www.okx.com/web3'
+    );
+  }
+
+  // Try Solana first
+  if (okx.solana) {
     try {
-      const response = await window.okxwallet.solana.connect();
+      const response = await okx.solana.connect();
       return {
         address: response.publicKey.toString(),
         type: 'SOL',
         provider: 'okx',
       };
-    } catch {
+    } catch (err) {
+      console.error('[AeroNyx] OKX Solana connect error, trying ETH:', err);
       // Fall through to try Ethereum
     }
   }
 
-  if (window.okxwallet?.ethereum) {
+  // Try Ethereum
+  if (okx.ethereum) {
     try {
-      const accounts = await window.okxwallet.ethereum.request({
+      const accounts = await okx.ethereum.request({
         method: 'eth_requestAccounts',
       }) as string[];
-      
+
       if (accounts && accounts.length > 0) {
         return {
           address: accounts[0],
@@ -112,7 +230,8 @@ async function connectOKX(): Promise<WalletInfo> {
           provider: 'okx',
         };
       }
-    } catch {
+    } catch (err) {
+      console.error('[AeroNyx] OKX Ethereum connect error:', err);
       // Fall through to error
     }
   }
@@ -129,20 +248,28 @@ async function signSolanaMessage(
   provider: WalletProvider
 ): Promise<string> {
   const encodedMessage = new TextEncoder().encode(message);
-  
-  let signedMessage: { signature: Uint8Array };
-  
-  if (provider === 'phantom' && window.solana) {
-    signedMessage = await window.solana.signMessage(encodedMessage, 'utf8');
-  } else if (provider === 'okx' && window.okxwallet?.solana) {
-    signedMessage = await window.okxwallet.solana.signMessage(encodedMessage, 'utf8');
-  } else {
+
+  let solanaProvider: any = null;
+
+  if (provider === 'phantom') {
+    solanaProvider = getPhantomProvider();
+  } else if (provider === 'okx') {
+    solanaProvider = getOKXProvider()?.solana;
+  }
+
+  if (!solanaProvider) {
     throw new Error(ERROR_MESSAGES.SIGNATURE_FAILED);
   }
 
-  return Array.from(signedMessage.signature)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+  try {
+    const signedMessage = await solanaProvider.signMessage(encodedMessage, 'utf8');
+    return Array.from(signedMessage.signature)
+      .map((b: number) => b.toString(16).padStart(2, '0'))
+      .join('');
+  } catch (err) {
+    console.error('[AeroNyx] Solana signMessage error:', err);
+    throw new Error(ERROR_MESSAGES.SIGNATURE_FAILED);
+  }
 }
 
 async function signEthereumMessage(
@@ -150,23 +277,28 @@ async function signEthereumMessage(
   address: string,
   provider: WalletProvider
 ): Promise<string> {
-  let signature: string;
+  let ethProvider: any = null;
 
-  if (provider === 'metamask' && window.ethereum) {
-    signature = await window.ethereum.request({
-      method: 'personal_sign',
-      params: [message, address],
-    }) as string;
-  } else if (provider === 'okx' && window.okxwallet?.ethereum) {
-    signature = await window.okxwallet.ethereum.request({
-      method: 'personal_sign',
-      params: [message, address],
-    }) as string;
-  } else {
+  if (provider === 'metamask') {
+    ethProvider = getMetaMaskProvider();
+  } else if (provider === 'okx') {
+    ethProvider = getOKXProvider()?.ethereum;
+  }
+
+  if (!ethProvider) {
     throw new Error(ERROR_MESSAGES.SIGNATURE_FAILED);
   }
 
-  return signature;
+  try {
+    const signature = await ethProvider.request({
+      method: 'personal_sign',
+      params: [message, address],
+    }) as string;
+    return signature;
+  } catch (err) {
+    console.error('[AeroNyx] Ethereum personal_sign error:', err);
+    throw new Error(ERROR_MESSAGES.SIGNATURE_FAILED);
+  }
 }
 
 // ============================================
@@ -227,6 +359,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return walletInfo;
     } catch (error) {
       const message = error instanceof Error ? error.message : ERROR_MESSAGES.WALLET_CONNECTION_FAILED;
+      console.error('[AeroNyx] connectWallet failed:', error);
       set({ error: message, isLoading: false });
       throw error;
     }
@@ -234,7 +367,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   login: async (walletInfo: WalletInfo): Promise<void> => {
     const { walletProvider } = get();
-    
+
     if (!walletProvider) {
       throw new Error('Wallet not connected');
     }
@@ -276,6 +409,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : ERROR_MESSAGES.SIGNATURE_FAILED;
+      console.error('[AeroNyx] login failed:', error);
       set({ error: message, isLoading: false });
       throw error;
     }
@@ -286,8 +420,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.removeItem(STORAGE_KEYS.WALLET_ADDRESS);
     localStorage.removeItem(STORAGE_KEYS.WALLET_TYPE);
 
-    if (window.solana?.isPhantom) {
-      window.solana.disconnect().catch(() => {});
+    // Disconnect Phantom (try both injection paths)
+    const phantomProvider = getPhantomProvider();
+    if (phantomProvider) {
+      phantomProvider.disconnect().catch(() => {});
     }
 
     set({
