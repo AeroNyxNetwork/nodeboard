@@ -263,8 +263,8 @@ async function signSolanaMessage(
 
   try {
     const signedMessage = await solanaProvider.signMessage(encodedMessage, 'utf8');
-    return Array.from(signedMessage.signature)
-      .map((b: number) => b.toString(16).padStart(2, '0'))
+    return Array.from(signedMessage.signature as Uint8Array)
+      .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
   } catch (err) {
     console.error('[AeroNyx] Solana signMessage error:', err);
