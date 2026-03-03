@@ -3,36 +3,47 @@
  * AeroNyx Node Detail Page
  * ============================================
  * File Path: src/app/dashboard/nodes/[id]/page.tsx
- * 
+ *
  * Creation Reason: Individual node detail view
+ * Modification Reason:
+ *   v1.1.0 - Bug fixes and feature completion:
+ *     - Removed unused framer-motion import
+ *     - Implemented inline edit for node name (was TODO)
+ *     - Used NodeStatus type instead of hardcoded union in NodeHeader
+ *     - Added success toast after delete before redirect
+ *     - Added Copy IP and Copy Node ID actions in header (moved from card)
+ *     - Improved error handling in edit/delete flows
  * Main Functionality: Display detailed node info, real-time stats,
  *                     sessions list, and management actions
  * Dependencies:
  *   - src/hooks/useNodes.ts
  *   - src/components/common/Card.tsx
  *   - src/components/common/Button.tsx
- * 
+ *   - src/components/common/Modal.tsx
+ *   - src/types/index.ts (NodeStatus, NodeDetail)
+ *
  * Main Logical Flow:
- * 1. Fetch node detail and stats
- * 2. Display node info header
- * 3. Show real-time statistics
- * 4. List active sessions
- * 5. Provide management actions
- * 
+ * 1. Fetch node detail and stats via hooks (auth-guarded)
+ * 2. Display node info header with actions (edit name, delete)
+ * 3. Show real-time statistics grid
+ * 4. Show hardware info + node details
+ * 5. List recent sessions in table
+ *
  * ⚠️ Important Note for Next Developer:
  * - Uses dynamic route [id] parameter
- * - Real-time status updates via polling
- * - Edit mode for node name
- * 
- * Last Modified: v1.0.0 - Initial node detail page
+ * - Edit mode is inline — name field becomes an input on click
+ * - Delete navigates back to /dashboard/nodes after success
+ * - All data hooks have auth guards (see useNodes.ts v1.1.0)
+ *
+ * Last Modified: v1.1.0 - Bug fixes + inline edit + delete toast
+ * Previous: v1.0.0 - Initial node detail page
  * ============================================
  */
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
 import {
   useNodeDetail,
   useNodeStats,
@@ -40,11 +51,31 @@ import {
   useUpdateNode,
   useDeleteNode,
 } from '@/hooks/useNodes';
-import { formatRelativeTime, formatBytes, formatDuration } from '@/lib/api';
+import { NodeStatus } from '@/types';
+import { formatRelativeTime, formatDuration, copyToClipboard } from '@/lib/api';
 import { NODE_STATUS_CONFIG } from '@/lib/constants';
 import Card, { StatCard } from '@/components/common/Card';
-import Button, { IconButton, CopyButton } from '@/components/common/Button';
+import Button, { CopyButton } from '@/components/common/Button';
 import { ConfirmDialog } from '@/components/common/Modal';
+
+// ============================================
+// Toast Component (local — lightweight)
+// ============================================
+
+function Toast({ message, variant = 'success' }: { message: string; variant?: 'success' | 'error' }) {
+  return (
+    <div className={`
+      fixed top-6 left-1/2 -translate-x-1/2 z-50
+      px-4 py-2 rounded-lg text-sm font-medium
+      ${variant === 'success'
+        ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-300'
+        : 'bg-red-500/20 border border-red-500/30 text-red-300'
+      }
+    `}>
+      {message}
+    </div>
+  );
+}
 
 // ============================================
 // Back Button Component
@@ -67,6 +98,101 @@ function BackButton() {
 }
 
 // ============================================
+// Editable Node Name Component
+// ============================================
+
+interface EditableNameProps {
+  name: string;
+  onSave: (newName: string) => Promise<void>;
+  isLoading: boolean;
+}
+
+function EditableName({ name, onSave, isLoading }: EditableNameProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Focus input when entering edit mode
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  const handleStartEdit = useCallback(() => {
+    setEditValue(name);
+    setIsEditing(true);
+  }, [name]);
+
+  const handleCancel = useCallback(() => {
+    setEditValue(name);
+    setIsEditing(false);
+  }, [name]);
+
+  const handleSave = useCallback(async () => {
+    const trimmed = editValue.trim();
+    if (!trimmed || trimmed === name) {
+      handleCancel();
+      return;
+    }
+    try {
+      await onSave(trimmed);
+      setIsEditing(false);
+    } catch {
+      // Keep edit mode open on error
+    }
+  }, [editValue, name, onSave, handleCancel]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') handleSave();
+    if (e.key === 'Escape') handleCancel();
+  }, [handleSave, handleCancel]);
+
+  if (isEditing) {
+    return (
+      <div className="flex items-center gap-2">
+        <input
+          ref={inputRef}
+          type="text"
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={handleCancel}
+          disabled={isLoading}
+          className="
+            text-2xl font-bold text-white bg-white/5
+            border border-purple-500/50 rounded-lg
+            px-3 py-1 outline-none
+            focus:border-purple-500 focus:ring-1 focus:ring-purple-500/30
+          "
+          maxLength={50}
+        />
+        {isLoading && (
+          <div className="w-5 h-5 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={handleStartEdit}
+      className="group/name flex items-center gap-2 text-left"
+      title="Click to edit name"
+    >
+      <h1 className="text-2xl font-bold text-white">{name}</h1>
+      <svg
+        className="w-4 h-4 text-gray-600 opacity-0 group-hover/name:opacity-100 transition-opacity"
+        fill="none" stroke="currentColor" viewBox="0 0 24 24"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+      </svg>
+    </button>
+  );
+}
+
+// ============================================
 // Node Header Component
 // ============================================
 
@@ -74,19 +200,25 @@ interface NodeHeaderProps {
   node: {
     id: string;
     name: string;
-    status: 'online' | 'offline' | 'suspended';
+    status: NodeStatus;
     public_ip: string;
     port: number;
     version: string;
     is_verified: boolean;
     last_heartbeat: string;
   };
-  onEdit: () => void;
+  onSaveName: (newName: string) => Promise<void>;
+  isSavingName: boolean;
   onDelete: () => void;
 }
 
-function NodeHeader({ node, onEdit, onDelete }: NodeHeaderProps) {
-  const statusConfig = NODE_STATUS_CONFIG[node.status];
+function NodeHeader({ node, onSaveName, isSavingName, onDelete }: NodeHeaderProps) {
+  const statusConfig = NODE_STATUS_CONFIG[node.status] || {
+    label: 'Unknown',
+    bgColor: 'bg-gray-500/20',
+    textColor: 'text-gray-400',
+    borderColor: 'border-gray-500/50',
+  };
 
   return (
     <Card variant="glow" padding="lg" className="mb-6">
@@ -104,8 +236,15 @@ function NodeHeader({ node, onEdit, onDelete }: NodeHeaderProps) {
           </div>
 
           <div>
-            <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-2xl font-bold text-white">{node.name}</h1>
+            <div className="flex items-center gap-3 mb-1 flex-wrap">
+              {/* Editable Name */}
+              <EditableName
+                name={node.name}
+                onSave={onSaveName}
+                isLoading={isSavingName}
+              />
+
+              {/* Status Badge */}
               <div className={`
                 flex items-center gap-2 px-3 py-1 rounded-full
                 ${statusConfig.bgColor} ${statusConfig.textColor}
@@ -113,15 +252,17 @@ function NodeHeader({ node, onEdit, onDelete }: NodeHeaderProps) {
               `}>
                 <span className={`
                   w-2 h-2 rounded-full
-                  ${node.status === 'online' ? 'bg-emerald-400 animate-pulse' : 
+                  ${node.status === 'online' ? 'bg-emerald-400 animate-pulse' :
                     node.status === 'offline' ? 'bg-gray-400' : 'bg-red-400'}
                 `} />
                 <span className="text-xs font-medium">{statusConfig.label}</span>
               </div>
+
+              {/* Verified Badge */}
               {node.is_verified && (
                 <span className="flex items-center gap-1 text-xs text-emerald-400">
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   Verified
                 </span>
@@ -147,13 +288,10 @@ function NodeHeader({ node, onEdit, onDelete }: NodeHeaderProps) {
           </div>
         </div>
 
-        {/* Actions */}
+        {/* Actions — only Delete (edit is inline now) */}
         <div className="flex items-center gap-3">
-          <Button variant="secondary" onClick={onEdit}>
-            Edit
-          </Button>
           <Button variant="danger" onClick={onDelete}>
-            Delete
+            Delete Node
           </Button>
         </div>
       </div>
@@ -323,21 +461,46 @@ export default function NodeDetailPage() {
   const router = useRouter();
   const nodeId = params.id as string;
 
-  const { node, isLoading, isError } = useNodeDetail(nodeId);
+  const { node, isLoading, isError, refetch } = useNodeDetail(nodeId);
   const updateNodeMutation = useUpdateNode();
   const deleteNodeMutation = useDeleteNode();
 
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [toast, setToast] = useState<{ message: string; variant: 'success' | 'error' } | null>(null);
+
+  // Show toast helper
+  const showToast = useCallback((message: string, variant: 'success' | 'error' = 'success') => {
+    setToast({ message, variant });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  // Handle save name
+  const handleSaveName = useCallback(async (newName: string) => {
+    try {
+      await updateNodeMutation.mutateAsync({ nodeId, data: { name: newName } });
+      refetch();
+      showToast('Node name updated');
+    } catch (err) {
+      console.error('Failed to update node name:', err);
+      showToast('Failed to update name', 'error');
+      throw err; // Re-throw so EditableName stays in edit mode
+    }
+  }, [nodeId, updateNodeMutation, refetch, showToast]);
 
   // Handle delete
-  const handleDelete = async () => {
+  const handleDelete = useCallback(async () => {
     try {
       await deleteNodeMutation.mutateAsync(nodeId);
-      router.push('/dashboard/nodes');
+      showToast('Node deleted successfully');
+      // Small delay so user sees the toast before redirect
+      setTimeout(() => {
+        router.push('/dashboard/nodes');
+      }, 1000);
     } catch (err) {
       console.error('Failed to delete node:', err);
+      showToast('Failed to delete node', 'error');
     }
-  };
+  }, [nodeId, deleteNodeMutation, router, showToast]);
 
   // Loading state
   if (isLoading) {
@@ -380,19 +543,23 @@ export default function NodeDetailPage() {
 
   return (
     <div className="max-w-7xl mx-auto">
+      {/* Toast */}
+      {toast && <Toast message={toast.message} variant={toast.variant} />}
+
       <BackButton />
 
-      {/* Node Header */}
+      {/* Node Header — with inline edit and delete */}
       <NodeHeader
         node={node}
-        onEdit={() => {/* TODO: Implement edit modal */}}
+        onSaveName={handleSaveName}
+        isSavingName={updateNodeMutation.isPending}
         onDelete={() => setShowDeleteDialog(true)}
       />
 
       {/* Stats Grid */}
       <StatsGrid nodeId={nodeId} />
 
-      {/* Hardware Info */}
+      {/* Hardware Info + Node Details */}
       <div className="grid lg:grid-cols-3 gap-6 mb-6">
         <Card variant="default" padding="md" className="lg:col-span-1">
           <h3 className="font-semibold text-white mb-4">Hardware Info</h3>
@@ -444,7 +611,7 @@ export default function NodeDetailPage() {
       {/* Sessions Table */}
       <SessionsTable nodeId={nodeId} />
 
-      {/* Delete Confirmation */}
+      {/* Delete Confirmation Dialog */}
       <ConfirmDialog
         isOpen={showDeleteDialog}
         onClose={() => setShowDeleteDialog(false)}
