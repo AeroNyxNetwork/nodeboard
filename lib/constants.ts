@@ -74,6 +74,33 @@ export const POLLING_INTERVALS = {
 } as const;
 
 // ============================================
+// WebSocket Configuration (Phase 2)
+// ============================================
+
+export const WS_BASE_URL = 'wss://api.aeronyx.network/ws/frontend/tunnel';
+
+/**
+ * Build the full WebSocket URL for a node tunnel.
+ * @param nodeId - Node UUID
+ * @param apiKey - User API key for authentication
+ */
+export const getWsUrl = (nodeId: string, apiKey: string) =>
+  `${WS_BASE_URL}/${nodeId}/?api_key=${apiKey}`;
+
+export const WS_CONFIG = {
+  /** Max reconnection attempts before giving up */
+  MAX_RECONNECT_ATTEMPTS: 10,
+  /** Base delay for exponential backoff (ms) */
+  RECONNECT_BASE_DELAY: 1000,
+  /** Maximum reconnect delay cap (ms) */
+  RECONNECT_MAX_DELAY: 30000,
+  /** Ping interval to keep connection alive (ms) */
+  PING_INTERVAL: 25000,
+  /** Time to wait for pong before considering connection dead (ms) */
+  PONG_TIMEOUT: 10000,
+} as const;
+
+// ============================================
 // Local Storage Keys
 // ============================================
 
