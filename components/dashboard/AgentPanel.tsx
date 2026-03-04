@@ -50,6 +50,7 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   useAgentStatus,
   useInstallAgent,
@@ -207,6 +208,7 @@ function AgentErrorDisplay({ agent }: { agent: AgentInfo }) {
 
 export default function AgentPanel({ nodeId, nodeStatus, onToast }: AgentPanelProps) {
   // ---- Hooks ----
+  const router = useRouter();
   const { agent, agentStatus, isLoading, isError } = useAgentStatus(nodeId);
 
   const installMutation = useInstallAgent();
@@ -366,6 +368,7 @@ export default function AgentPanel({ nodeId, nodeStatus, onToast }: AgentPanelPr
           onRestart: handleRestart,
           onRequestStop: () => setConfirmAction('stop'),
           onRequestUninstall: () => setConfirmAction('uninstall'),
+          onOpenChat: () => router.push(`/dashboard/nodes/${nodeId}/chat`),
         })}
 
         {/* Metadata Footer (when agent exists) */}
@@ -429,6 +432,7 @@ interface RenderContentProps {
   onRestart: () => void;
   onRequestStop: () => void;
   onRequestUninstall: () => void;
+  onOpenChat: () => void;
 }
 
 function renderContent(props: RenderContentProps): React.ReactNode {
@@ -442,6 +446,7 @@ function renderContent(props: RenderContentProps): React.ReactNode {
     onRestart,
     onRequestStop,
     onRequestUninstall,
+    onOpenChat,
   } = props;
 
   const disabled = isNodeOffline || isAnyMutationPending;
@@ -524,9 +529,7 @@ function renderContent(props: RenderContentProps): React.ReactNode {
             {/* Open Chat — navigates to Phase 2 chat terminal */}
             <Button
               variant="primary"
-              onClick={() => {
-                window.location.href = `/dashboard/nodes/${nodeId}/chat`;
-              }}
+              onClick={onOpenChat}
             >
               <span className="flex items-center gap-2">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
