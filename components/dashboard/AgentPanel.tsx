@@ -521,12 +521,11 @@ function renderContent(props: RenderContentProps): React.ReactNode {
 
           {/* Action Buttons */}
           <div className="flex flex-wrap items-center gap-3">
-            {/* Open Chat — Phase 2 placeholder */}
+            {/* Open Chat — navigates to Phase 2 chat terminal */}
             <Button
               variant="primary"
               onClick={() => {
-                // TODO Phase 2: Navigate to /dashboard/nodes/{nodeId}/chat
-                window.alert('Chat terminal coming in Phase 2!');
+                window.location.href = `/dashboard/nodes/${nodeId}/chat`;
               }}
             >
               <span className="flex items-center gap-2">
