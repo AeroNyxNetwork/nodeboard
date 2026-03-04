@@ -20,14 +20,16 @@
  *   - stores/authStore.ts (apiKey for WS URL)
  *   - lib/constants.ts (getWsUrl, WS_CONFIG)
  *
- * Protocol (from project docs):
- *   Frontend → Backend:
+ * Protocol (actual CMS messages — confirmed working 2026-03-05):
+ *   Frontend → CMS:
  *     {"type":"agent_request","request_id":"uuid","action":"chat","payload":{...}}
- *   Backend → Frontend (complete):
- *     {"type":"agent_response","request_id":"uuid","status":"success","payload":{...}}
- *   Backend → Frontend (stream):
- *     {"type":"agent_stream","request_id":"uuid","chunk":"...","done":false}
- *     {"type":"agent_stream","request_id":"uuid","chunk":"...","done":true}
+ *   CMS → Frontend (ack):
+ *     {"type":"ack","request_id":"uuid"}
+ *   CMS → Frontend (stream):
+ *     {"type":"stream","request_id":"uuid","chunk":"...","done":false}
+ *     {"type":"stream","request_id":"uuid","chunk":"","done":true}
+ *   CMS → Frontend (complete response, arrives after stream done):
+ *     {"type":"response","request_id":"uuid","status":"success","payload":{"response":"..."}}
  *   Heartbeat: {"type":"ping"} / {"type":"pong"}
  *   Auth OK: {"type":"auth_ok","node_id":"...","node_name":"..."}
  *   Error: {"type":"error","message":"..."}
@@ -44,7 +46,11 @@
  *   NOT the raw WebSocket message format
  * - streamingMessage ref holds the in-progress assistant message during streaming
  *
- * Last Modified: v1.0.0 - Initial WebSocket chat hook for Phase 2
+ * Last Modified: v1.1.0 - Adapted to actual CMS message types:
+ *   agent_stream → stream, agent_response → response, added ack handler.
+ *   handleResponse is smart: if a streamed message already exists for the
+ *   request_id, it finalizes it instead of creating a duplicate.
+ * Previous: v1.0.0 - Initial WebSocket chat hook for Phase 2
  * ============================================
  */
 
@@ -223,28 +229,65 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     ]);
   }, [startPingPong]);
 
-  const handleAgentResponse = useCallback(
-    (data: { request_id: string; status: string; payload?: { response?: string } }) => {
-      const content = data.payload?.response || '';
-      const isErr = data.status === 'error';
+  /**
+   * Handle "ack" — CMS confirms message received.
+   * Currently just logged; could be used for delivery indicators in future.
+   */
+  const handleAck = useCallback((data: { request_id: string }) => {
+    console.log('[AeroNyx WS] Message acknowledged:', data.request_id);
+  }, []);
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: data.request_id,
-          role: 'assistant',
-          content: isErr ? `Error: ${content || 'Unknown error'}` : content,
-          timestamp: Date.now(),
-          isError: isErr,
-        },
-      ]);
+  /**
+   * Handle "response" — complete AI response (arrives after stream ends,
+   * or as the sole reply if streaming was disabled).
+   *
+   * If we already have a streamed message with this request_id, we skip
+   * creating a duplicate. If not (non-streaming mode), we create the message.
+   */
+  const handleResponse = useCallback(
+    (data: { request_id: string; status: string; payload?: { response?: string; error?: string } }) => {
+      const isErr = data.status === 'error';
+      const content = isErr
+        ? (data.payload?.error || data.payload?.response || 'Unknown error')
+        : (data.payload?.response || '');
+
+      setMessages((prev) => {
+        // Check if we already have a streamed message with this request_id
+        const existingIdx = prev.findIndex((m) => m.id === data.request_id);
+
+        if (existingIdx >= 0) {
+          // Stream already completed — finalize the message (mark not streaming, update content if error)
+          const copy = [...prev];
+          copy[existingIdx] = {
+            ...copy[existingIdx],
+            content: isErr ? `Error: ${content}` : copy[existingIdx].content,
+            isStreaming: false,
+            isError: isErr,
+          };
+          return copy;
+        }
+
+        // No streamed message exists — this is a non-streaming response
+        return [
+          ...prev,
+          {
+            id: data.request_id,
+            role: 'assistant',
+            content: isErr ? `Error: ${content}` : content,
+            timestamp: Date.now(),
+            isError: isErr,
+          },
+        ];
+      });
+
       setIsStreaming(false);
       activeStreamIdRef.current = null;
+      streamBufferRef.current.delete(data.request_id);
     },
     []
   );
 
-  const handleAgentStream = useCallback(
+  const handleStream = useCallback(
     (data: { request_id: string; chunk: string; done: boolean }) => {
       const { request_id, chunk, done } = data;
       const buffer = streamBufferRef.current;
@@ -353,11 +396,14 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
           case 'pong':
             handlePong();
             break;
-          case 'agent_response':
-            handleAgentResponse(data);
+          case 'ack':
+            handleAck(data);
             break;
-          case 'agent_stream':
-            handleAgentStream(data);
+          case 'stream':
+            handleStream(data);
+            break;
+          case 'response':
+            handleResponse(data);
             break;
           case 'error':
             handleWsError(data);
@@ -448,8 +494,9 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     clearPingPong,
     handleAuthOk,
     handlePong,
-    handleAgentResponse,
-    handleAgentStream,
+    handleAck,
+    handleStream,
+    handleResponse,
     handleWsError,
   ]);
 
