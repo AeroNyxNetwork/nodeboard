@@ -294,11 +294,11 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
 
       // Accumulate chunk
       const current = buffer.get(request_id) || '';
-      const updated = current + chunk;
+      const updated = current + (chunk || '');
       buffer.set(request_id, updated);
 
-      // Track active stream
-      if (!activeStreamIdRef.current) {
+      // Track active stream — allow switching to a new request_id
+      if (activeStreamIdRef.current !== request_id) {
         activeStreamIdRef.current = request_id;
         setIsStreaming(true);
       }
@@ -307,7 +307,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
       setMessages((prev) => {
         const idx = prev.findIndex((m) => m.id === request_id);
         if (idx >= 0) {
-          // Update existing message
+          // Update existing message in place
           const copy = [...prev];
           copy[idx] = {
             ...copy[idx],
@@ -321,7 +321,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
           ...prev,
           {
             id: request_id,
-            role: 'assistant',
+            role: 'assistant' as const,
             content: updated,
             timestamp: Date.now(),
             isStreaming: !done,
@@ -331,8 +331,10 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
 
       if (done) {
         buffer.delete(request_id);
-        activeStreamIdRef.current = null;
-        setIsStreaming(false);
+        if (activeStreamIdRef.current === request_id) {
+          activeStreamIdRef.current = null;
+          setIsStreaming(false);
+        }
       }
     },
     []
@@ -388,6 +390,16 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+
+        // === DEBUG LOG — remove after confirming stream works ===
+        if (data.type !== 'pong') {
+          console.log('[AeroNyx WS] ←', data.type, {
+            request_id: data.request_id?.slice(0, 8),
+            chunk_len: data.chunk?.length,
+            done: data.done,
+            status: data.status,
+          });
+        }
 
         switch (data.type) {
           case 'auth_ok':
