@@ -4,40 +4,40 @@
  * ============================================
  * File Path: components/memories/MemoryList.tsx
  *
- * Creation Reason: Displays memories grouped by layer with collapsible sections.
- *   Used as the main content area in the Memory Explorer overview.
+ * Modification Reason (v1.1.0):
+ *   - Uses MemoryOverviewData with `recent_by_layer` format
+ *   - Converts MemoryOverviewRecord to MemoryDisplayRecord via toDisplayRecord()
+ *   - Search results use fullRecordToDisplay() for MemoryRecord → MemoryDisplayRecord
+ *   - Both modes now use the unified MemoryDisplayRecord type for MemoryCard
  *
  * Main Functionality:
  *   - Groups memories by layer (identity → knowledge → episode → archive)
  *   - Each layer section is collapsible with count badge
  *   - Archive layer collapsed by default
- *   - Empty state per layer when no records exist
+ *   - Flat list mode for search results
  *   - Skeleton loader during fetch
- *   - Also supports flat list mode for search results (no grouping)
  *
  * Dependencies:
- *   - types/memory.ts (MemoryOverviewData, MemoryRecord, MEMORY_LAYER_CONFIG, etc.)
+ *   - types/memory.ts (MemoryOverviewData, MemoryDisplayRecord, toDisplayRecord, etc.)
  *   - components/memories/MemoryCard.tsx
  *
- * ⚠️ Important Note for Next Developer:
- * - Two modes: "grouped" (overview) and "flat" (search results)
- * - In grouped mode, receives MemoryOverviewData
- * - In flat mode, receives MemoryRecord[] directly
- * - Collapsed state is local to this component (not persisted)
- *
- * Last Modified: v1.0.0 - Initial memory list for Memory Explorer
+ * Last Modified: v1.1.0 - Aligned with actual API response format
+ * Previous: v1.0.0 - Initial memory list
  * ============================================
  */
 
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   MemoryOverviewData,
   MemoryRecord,
+  MemoryDisplayRecord,
   MemoryLayer,
   MEMORY_LAYER_CONFIG,
   MEMORY_LAYERS_ORDERED,
+  toDisplayRecord,
+  fullRecordToDisplay,
 } from '@/types/memory';
 import MemoryCard from './MemoryCard';
 
@@ -48,7 +48,7 @@ import MemoryCard from './MemoryCard';
 interface MemoryListGroupedProps {
   mode: 'grouped';
   overview: MemoryOverviewData;
-  onEdit: (record: MemoryRecord) => void;
+  onEdit: (record: MemoryDisplayRecord) => void;
   onDelete: (recordId: string) => void;
   deletingId: string | null;
 }
@@ -56,7 +56,7 @@ interface MemoryListGroupedProps {
 interface MemoryListFlatProps {
   mode: 'flat';
   records: MemoryRecord[];
-  onEdit: (record: MemoryRecord) => void;
+  onEdit: (record: MemoryDisplayRecord) => void;
   onDelete: (recordId: string) => void;
   deletingId: string | null;
   emptyMessage?: string;
@@ -91,9 +91,9 @@ export function MemoryListSkeleton() {
 interface LayerSectionProps {
   layer: MemoryLayer;
   count: number;
-  records: MemoryRecord[];
+  records: MemoryDisplayRecord[];
   defaultCollapsed: boolean;
-  onEdit: (record: MemoryRecord) => void;
+  onEdit: (record: MemoryDisplayRecord) => void;
   onDelete: (recordId: string) => void;
   deletingId: string | null;
 }
@@ -181,7 +181,13 @@ export default function MemoryList(props: MemoryListProps) {
   if (mode === 'flat') {
     const { records, emptyMessage } = props;
 
-    if (records.length === 0) {
+    // Convert MemoryRecord[] to MemoryDisplayRecord[]
+    const displayRecords = useMemo(
+      () => records.map(fullRecordToDisplay),
+      [records]
+    );
+
+    if (displayRecords.length === 0) {
       return (
         <div className="py-12 text-center">
           <svg className="w-12 h-12 mx-auto text-gray-700 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -196,7 +202,7 @@ export default function MemoryList(props: MemoryListProps) {
 
     return (
       <div className="space-y-2">
-        {records.map((record) => (
+        {displayRecords.map((record) => (
           <MemoryCard
             key={record.record_id}
             record={record}
@@ -209,19 +215,24 @@ export default function MemoryList(props: MemoryListProps) {
     );
   }
 
-  // Grouped mode — overview
+  // Grouped mode — overview with recent_by_layer
   const { overview } = props;
 
   return (
     <div>
       {MEMORY_LAYERS_ORDERED.map((layer) => {
-        const layerData = overview.by_layer[layer];
+        const count = overview.by_layer[layer] ?? 0;
+        const rawRecords = overview.recent_by_layer[layer] ?? [];
+
+        // Convert MemoryOverviewRecord[] to MemoryDisplayRecord[]
+        const displayRecords = rawRecords.map((r) => toDisplayRecord(r, layer));
+
         return (
           <LayerSection
             key={layer}
             layer={layer}
-            count={layerData?.count ?? 0}
-            records={layerData?.records ?? []}
+            count={count}
+            records={displayRecords}
             defaultCollapsed={MEMORY_LAYER_CONFIG[layer].defaultCollapsed}
             onEdit={onEdit}
             onDelete={onDelete}
