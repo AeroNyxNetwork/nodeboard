@@ -296,6 +296,30 @@ function EmptyState({ isConnected, onSuggestion }: EmptyStateProps) {
 }
 
 // ============================================
+// Memory Chain Indicator
+// ============================================
+
+/**
+ * Shows a brief "Recalling memories..." animation before the AI responds.
+ * Fades in, stays for ~2s, then morphs into the typing indicator.
+ * This communicates to users that MemChain is actively working.
+ */
+function MemoryChainIndicator() {
+  return (
+    <div className="flex items-center gap-2 mb-3 max-w-3xl mx-auto px-4 sm:px-0">
+      <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20">
+        <svg className="w-3.5 h-3.5 text-purple-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+        </svg>
+        <span className="text-[12px] text-purple-300 font-medium">
+          Recalling memories...
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
 // Typing Indicator
 // ============================================
 
@@ -565,6 +589,10 @@ export default function ChatTerminal({ nodeId }: ChatTerminalProps) {
   const showTypingIndicator = isStreaming && messages.length > 0 &&
     messages[messages.length - 1].role === 'user';
 
+  // Show memory indicator: briefly after user sends, before first chunk arrives
+  // This gives users a sense that MemChain is working behind the scenes
+  const showMemoryIndicator = showTypingIndicator;
+
   return (
     <div className="flex flex-col h-full bg-[#0A0A0F]">
       {/* Status Bar */}
@@ -594,6 +622,9 @@ export default function ChatTerminal({ nodeId }: ChatTerminalProps) {
               const msg = messages[item.index];
               return <ChatMessage key={msg.id} message={msg} />;
             })}
+
+            {/* Memory chain indicator: shows when waiting for AI response */}
+            {showMemoryIndicator && <MemoryChainIndicator />}
 
             {/* Typing indicator: shows when waiting for first assistant chunk */}
             {showTypingIndicator && <TypingIndicator />}
