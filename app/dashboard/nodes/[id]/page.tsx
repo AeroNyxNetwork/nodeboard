@@ -6,6 +6,10 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.3.0 - Added AI Memory entry card between AgentPanel and StatsGrid.
+ *     - Shows only when node is online
+ *     - Links to /dashboard/nodes/[id]/memories
+ *     - Uses existing Card and Button components
  *   v1.2.0 - Integrated AgentPanel for Phase 1 Agent Lifecycle Management.
  *     - Imported AgentPanel component
  *     - Added AgentPanel between NodeHeader and StatsGrid
@@ -18,8 +22,10 @@
  *     - Added success toast after delete before redirect
  *     - Added Copy IP and Copy Node ID actions in header (moved from card)
  *     - Improved error handling in edit/delete flows
+ *
  * Main Functionality: Display detailed node info, real-time stats,
- *                     sessions list, agent lifecycle panel, and management actions
+ *                     sessions list, agent lifecycle panel, AI memory
+ *                     entry card, and management actions
  * Dependencies:
  *   - src/hooks/useNodes.ts
  *   - src/hooks/useAgent.ts (via AgentPanel)
@@ -33,9 +39,10 @@
  * 1. Fetch node detail and stats via hooks (auth-guarded)
  * 2. Display node info header with actions (edit name, delete)
  * 3. Display AgentPanel (OpenClaw lifecycle management)
- * 4. Show real-time statistics grid
- * 5. Show hardware info + node details
- * 6. List recent sessions in table
+ * 4. Display AI Memory entry card (when online)
+ * 5. Show real-time statistics grid
+ * 6. Show hardware info + node details
+ * 7. List recent sessions in table
  *
  * ⚠️ Important Note for Next Developer:
  * - Uses dynamic route [id] parameter
@@ -44,9 +51,10 @@
  * - All data hooks have auth guards (see useNodes.ts v1.1.0)
  * - AgentPanel handles its own data fetching via useAgentStatus
  * - Toast is shared: both page actions and AgentPanel use showToast
+ * - Memory entry card only shows when node.status === 'online'
  *
- * Last Modified: v1.2.0 - Integrated AgentPanel for Phase 1
- * Previous: v1.1.0 - Bug fixes + inline edit + delete toast
+ * Last Modified: v1.3.0 - Added AI Memory entry card
+ * Previous: v1.2.0 - Integrated AgentPanel for Phase 1
  * ============================================
  */
 
@@ -522,6 +530,8 @@ export default function NodeDetailPage() {
           <div className="h-40 rounded-2xl bg-white/5 animate-pulse" />
           {/* Agent panel skeleton */}
           <div className="h-32 rounded-2xl bg-white/5 animate-pulse" />
+          {/* Memory card skeleton */}
+          <div className="h-20 rounded-2xl bg-white/5 animate-pulse" />
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="h-28 rounded-2xl bg-white/5 animate-pulse" />
@@ -544,7 +554,7 @@ export default function NodeDetailPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <h2 className="text-xl font-semibold text-white mb-2">Node Not Found</h2>
-            <p className="text-gray-400 mb-6">The node you're looking for doesn't exist or has been deleted.</p>
+            <p className="text-gray-400 mb-6">The node you&apos;re looking for doesn&apos;t exist or has been deleted.</p>
             <Button variant="secondary" onClick={() => router.push('/dashboard/nodes')}>
               Back to Nodes
             </Button>
@@ -575,6 +585,44 @@ export default function NodeDetailPage() {
         nodeStatus={node.status}
         onToast={showToast}
       />
+
+      {/* ======== v1.3.0: AI Memory Entry Card ======== */}
+      {node.status === 'online' && (
+        <Card variant="default" padding="md" className="mb-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="
+                w-10 h-10 rounded-xl
+                bg-gradient-to-br from-purple-500/20 to-blue-500/20
+                border border-white/[0.08]
+                flex items-center justify-center flex-shrink-0
+              ">
+                <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white">AI Memory</h3>
+                <p className="text-xs text-gray-500">
+                  View and manage what the AI remembers about you
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => router.push(`/dashboard/nodes/${nodeId}/memories`)}
+            >
+              <span className="flex items-center gap-1.5">
+                Manage
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </span>
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {/* Stats Grid */}
       <StatsGrid nodeId={nodeId} />
