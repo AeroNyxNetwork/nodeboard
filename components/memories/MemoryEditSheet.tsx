@@ -4,35 +4,23 @@
  * ============================================
  * File Path: components/memories/MemoryEditSheet.tsx
  *
- * Creation Reason: Modal/Sheet for editing or creating a memory.
- *   On desktop: centered modal. On mobile: bottom sheet.
- *   Handles both "create new" (record=null) and "edit existing" modes.
+ * Modification Reason (v1.1.0):
+ *   - Uses MemoryDisplayRecord instead of MemoryRecord
+ *   - Works with both overview records and search/detail records
  *
  * Main Functionality:
  *   - Content textarea (required)
  *   - Layer selector (dropdown)
- *   - Tags input (comma-separated, with chip display)
+ *   - Tags input (comma-separated, chip display)
  *   - Source display (read-only for existing records)
- *   - Save button triggers:
- *     - Create: POST /mpi/remember/
- *     - Edit: POST /mpi/forget/ + POST /mpi/remember/
- *   - Handles duplicate detection (shows message, doesn't error)
- *   - Loading state during save
- *   - Error display
+ *   - Save triggers create or edit (forget + remember)
+ *   - Desktop: centered modal. Mobile: bottom sheet.
  *
  * Dependencies:
- *   - types/memory.ts (MemoryRecord, MemoryLayer, MEMORY_LAYER_CONFIG, etc.)
+ *   - types/memory.ts (MemoryDisplayRecord, MemoryLayer, etc.)
  *
- * ⚠️ Important Note for Next Developer:
- * - This component is controlled: open/close via isOpen prop
- * - The parent provides onSave callback and handles the actual API mutation
- * - In edit mode, record prop is the existing record to prefill fields
- * - In create mode, record is null
- * - Tags are managed as string[] internally, displayed as chips with remove buttons
- * - Backdrop click or Escape key closes the sheet
- * - Mobile: slides up from bottom; Desktop: fade-in centered
- *
- * Last Modified: v1.0.0 - Initial edit sheet for Memory Explorer
+ * Last Modified: v1.1.0 - Use MemoryDisplayRecord
+ * Previous: v1.0.0 - Initial edit sheet
  * ============================================
  */
 
@@ -40,7 +28,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  MemoryRecord,
+  MemoryDisplayRecord,
   MemoryLayer,
   MemoryRememberRequest,
   MEMORY_LAYER_CONFIG,
@@ -54,18 +42,15 @@ import {
 interface MemoryEditSheetProps {
   isOpen: boolean;
   onClose: () => void;
-  /** Called when user saves. Parent handles the mutation. */
   onSave: (data: MemoryRememberRequest, oldRecordId?: string) => Promise<void>;
   /** Existing record for edit mode; null for create mode */
-  record: MemoryRecord | null;
-  /** True while save is in progress */
+  record: MemoryDisplayRecord | null;
   isSaving: boolean;
-  /** Error message from parent */
   error: string | null;
 }
 
 // ============================================
-// Tag Input Component
+// Tag Input
 // ============================================
 
 interface TagInputProps {
@@ -137,7 +122,7 @@ function TagInput({ tags, onChange }: TagInputProps) {
         onChange={(e) => setInputValue(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={() => { if (inputValue) addTag(inputValue); }}
-        placeholder={tags.length === 0 ? 'Add tags (Enter or comma to add)' : ''}
+        placeholder={tags.length === 0 ? 'Add tags (Enter or comma)' : ''}
         className="flex-1 min-w-[80px] bg-transparent text-sm text-white placeholder-gray-600 outline-none"
       />
     </div>
@@ -158,7 +143,6 @@ export default function MemoryEditSheet({
 }: MemoryEditSheetProps) {
   const isEditMode = !!record;
 
-  // Form state
   const [content, setContent] = useState('');
   const [layer, setLayer] = useState<MemoryLayer>('knowledge');
   const [tags, setTags] = useState<string[]>([]);
@@ -214,7 +198,7 @@ export default function MemoryEditSheet({
         onClick={() => { if (!isSaving) onClose(); }}
       />
 
-      {/* Sheet / Modal */}
+      {/* Sheet */}
       <div
         className="
           fixed z-50
@@ -255,9 +239,7 @@ export default function MemoryEditSheet({
 
           {/* Content */}
           <div className="mb-4">
-            <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">
-              Content *
-            </label>
+            <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">Content *</label>
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
@@ -278,9 +260,7 @@ export default function MemoryEditSheet({
 
           {/* Layer */}
           <div className="mb-4">
-            <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">
-              Layer
-            </label>
+            <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">Layer</label>
             <select
               value={layer}
               onChange={(e) => setLayer(e.target.value as MemoryLayer)}
@@ -288,13 +268,9 @@ export default function MemoryEditSheet({
               className="
                 w-full px-3 py-2.5 rounded-xl
                 bg-white/[0.04] border border-white/[0.08]
-                text-sm text-white
-                outline-none
-                focus:border-purple-500/30
-                disabled:opacity-50
-                transition-colors
-                appearance-none
-                cursor-pointer
+                text-sm text-white outline-none
+                focus:border-purple-500/30 disabled:opacity-50
+                transition-colors appearance-none cursor-pointer
               "
               style={{
                 backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`,
@@ -316,18 +292,14 @@ export default function MemoryEditSheet({
 
           {/* Tags */}
           <div className="mb-4">
-            <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">
-              Tags
-            </label>
+            <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">Tags</label>
             <TagInput tags={tags} onChange={setTags} />
           </div>
 
-          {/* Source (read-only for edit mode) */}
+          {/* Source (edit mode) */}
           {isEditMode && (
             <div className="mb-5">
-              <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1">
-                Source
-              </label>
+              <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1">Source</label>
               <p className="text-sm text-gray-400">{record!.source_ai}</p>
             </div>
           )}
@@ -344,39 +316,21 @@ export default function MemoryEditSheet({
             <button
               onClick={onClose}
               disabled={isSaving}
-              className="
-                flex-1 px-4 py-2.5 rounded-xl
-                bg-white/5 border border-white/[0.08]
-                text-sm font-medium text-gray-400
-                hover:bg-white/10 active:bg-white/15
-                disabled:opacity-50
-                transition-colors
-              "
+              className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 border border-white/[0.08] text-sm font-medium text-gray-400 hover:bg-white/10 disabled:opacity-50 transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={!canSave}
-              className="
-                flex-1 px-4 py-2.5 rounded-xl
-                bg-purple-600 hover:bg-purple-500 active:bg-purple-700
-                text-sm font-medium text-white
-                disabled:opacity-50 disabled:cursor-not-allowed
-                transition-colors
-                shadow-lg shadow-purple-500/20
-              "
+              className="flex-1 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 active:bg-purple-700 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-purple-500/20"
             >
               {isSaving ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   Saving...
                 </span>
-              ) : isEditMode ? (
-                'Save Changes'
-              ) : (
-                'Create Memory'
-              )}
+              ) : isEditMode ? 'Save Changes' : 'Create Memory'}
             </button>
           </div>
         </div>
