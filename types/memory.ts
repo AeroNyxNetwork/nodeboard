@@ -8,6 +8,14 @@
  *   (AI Memory Management module). Covers all MPI API request/response
  *   shapes, UI state types, and configuration constants.
  *
+ * Modification Reason (v1.1.0):
+ *   Updated to match actual API response format (v1.5.0 backend doc):
+ *   - overview: `recent_by_layer` instead of `by_layer.*.records`
+ *   - `timestamp` is Unix seconds (int), not ISO string
+ *   - Record items in overview don't have `layer` field (inferred from parent key)
+ *   - `total` instead of `total_records` in overview
+ *   - Added `last_memory_at`, `embed_ready`, `embed_dim` to overview
+ *
  * Dependencies:
  *   - Used by hooks/useMemories.ts
  *   - Used by lib/api.ts (MPI methods)
@@ -18,8 +26,11 @@
  * - record_id is a hex string (SHA-256 hash), NOT a UUID
  * - API responses always wrap data in { success: boolean, data: T }
  * - The "edit" operation is forget + remember (no atomic update API)
+ * - `timestamp` in overview records is Unix SECONDS — multiply by 1000 for JS Date
+ * - Records in overview do NOT have a `layer` field; the layer is the parent key
  *
- * Last Modified: v1.0.0 - Initial type definitions for MemChain Explorer
+ * Last Modified: v1.1.0 - Aligned with actual API response format
+ * Previous: v1.0.0 - Initial type definitions
  * ============================================
  */
 
@@ -30,15 +41,35 @@
 /** Memory layer — matches Rust MemChain layer names exactly */
 export type MemoryLayer = 'identity' | 'knowledge' | 'episode' | 'archive';
 
-/** Single memory record */
+/**
+ * Memory record as returned by overview endpoint (recent_by_layer).
+ * Note: does NOT include `layer` — that's inferred from the parent key.
+ * Note: `timestamp` is Unix seconds, NOT milliseconds.
+ */
+export interface MemoryOverviewRecord {
+  record_id: string;
+  content: string;
+  topic_tags: string[];
+  timestamp: number; // Unix seconds
+  access_count: number;
+  positive_feedback: number;
+  negative_feedback: number;
+  source_ai: string;
+}
+
+/**
+ * Memory record with full detail (from /mpi/record/ or /mpi/search/).
+ * Search results include `score` and `layer`.
+ * Detail results include `embedding_model`, `last_accessed`, `conflict_with`.
+ */
 export interface MemoryRecord {
   record_id: string;
   content: string;
   layer: MemoryLayer;
   topic_tags: string[];
   source_ai: string;
-  created_at: string;
-  last_accessed: string | null;
+  created_at: string; // ISO string (from search/detail)
+  last_accessed?: string | null;
   access_count: number;
   positive_feedback: number;
   negative_feedback: number;
@@ -47,6 +78,26 @@ export interface MemoryRecord {
   /** Only present in detail view */
   embedding_model?: string;
   conflict_with?: string | null;
+}
+
+/**
+ * Unified record type for UI rendering.
+ * Normalizes both overview records (Unix timestamp, no layer)
+ * and full records (ISO string, has layer) into a single shape.
+ */
+export interface MemoryDisplayRecord {
+  record_id: string;
+  content: string;
+  layer: MemoryLayer;
+  topic_tags: string[];
+  source_ai: string;
+  /** Always in milliseconds (JS Date compatible) */
+  timestamp_ms: number;
+  access_count: number;
+  positive_feedback: number;
+  negative_feedback: number;
+  /** Only present in search results */
+  score?: number;
 }
 
 // ============================================
@@ -91,13 +142,14 @@ export interface MemoryStatusResponse {
   data: MemoryStatusData;
 }
 
-/** GET /mpi/overview/ */
+/** GET /mpi/overview/ — actual API format (v1.5.0) */
 export interface MemoryOverviewData {
-  total_records: number;
-  by_layer: Record<MemoryLayer, {
-    count: number;
-    records: MemoryRecord[];
-  }>;
+  total: number;
+  by_layer: Record<MemoryLayer, number>;
+  recent_by_layer: Record<MemoryLayer, MemoryOverviewRecord[]>;
+  last_memory_at: number | null;
+  embed_ready: boolean;
+  embed_dim: number;
 }
 
 export interface MemoryOverviewResponse {
@@ -260,3 +312,45 @@ export const MEMORY_LAYERS_ORDERED: MemoryLayer[] = [
   'episode',
   'archive',
 ];
+
+// ============================================
+// Utility: Normalize records for UI
+// ============================================
+
+/**
+ * Convert an overview record (Unix seconds, no layer) to a display record.
+ */
+export function toDisplayRecord(
+  record: MemoryOverviewRecord,
+  layer: MemoryLayer
+): MemoryDisplayRecord {
+  return {
+    record_id: record.record_id,
+    content: record.content,
+    layer,
+    topic_tags: record.topic_tags,
+    source_ai: record.source_ai,
+    timestamp_ms: record.timestamp * 1000,
+    access_count: record.access_count,
+    positive_feedback: record.positive_feedback,
+    negative_feedback: record.negative_feedback,
+  };
+}
+
+/**
+ * Convert a full record (ISO string, has layer) to a display record.
+ */
+export function fullRecordToDisplay(record: MemoryRecord): MemoryDisplayRecord {
+  return {
+    record_id: record.record_id,
+    content: record.content,
+    layer: record.layer,
+    topic_tags: record.topic_tags,
+    source_ai: record.source_ai,
+    timestamp_ms: new Date(record.created_at).getTime(),
+    access_count: record.access_count,
+    positive_feedback: record.positive_feedback,
+    negative_feedback: record.negative_feedback,
+    score: record.score,
+  };
+}
