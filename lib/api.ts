@@ -6,22 +6,17 @@
  *
  * Creation Reason: Centralized API client for all backend communications
  * Modification Reason:
- *   v1.1.0 - Added Agent lifecycle API methods for Phase 1:
- *     - getAgentStatus(nodeId, agentType?) — GET /nodes/{id}/agent_status/
- *     - installAgent(nodeId, data?) — POST /nodes/{id}/install_agent/
- *     - startAgent(nodeId) — POST /nodes/{id}/start_agent/
- *     - stopAgent(nodeId) — POST /nodes/{id}/stop_agent/
- *     - restartAgent(nodeId) — POST /nodes/{id}/restart_agent/
- *     - uninstallAgent(nodeId) — POST /nodes/{id}/uninstall_agent/
- *     All methods use existing auth flow (Bearer token).
- *   v1.0.3 - Fixed auth endpoints (getNonce, login) sending stale Authorization
- *     header. These are public endpoints that should NOT include Bearer token.
- *     When a stale/expired API key exists in localStorage, the backend returns
- *     401 which triggers "Session expired" before login can complete.
- *     Added `skipAuth` option to request() for public endpoints.
+ *   v1.2.0 - Added MemChain MPI methods for Memory Explorer:
+ *     - getMemoryStatus, getMemoryOverview, searchMemories,
+ *       getMemoryRecord, rememberMemory, forgetMemory, embedText
+ *     All MPI methods require auth and an online node.
+ *   v1.1.0 - Added Agent lifecycle API methods for Phase 1
+ *   v1.0.3 - Fixed auth endpoints sending stale Authorization header
+ *
  * Dependencies:
  *   - types/index.ts (type definitions)
  *   - types/agent.ts (agent type definitions — Phase 1)
+ *   - types/memory.ts (memory type definitions — v1.2.0)
  *   - lib/constants.ts (API endpoints and config)
  *
  * Main Logical Flow:
@@ -30,6 +25,7 @@
  * 3. 401 responses trigger logout event and clear localStorage
  * 4. Authenticated endpoints automatically include Bearer token from localStorage
  * 5. Agent endpoints follow the same authenticated pattern
+ * 6. MPI endpoints follow the same authenticated pattern; expect 503/504 on offline nodes
  *
  * ⚠️ Important Note for Next Developer:
  * - getNonce and login MUST use skipAuth: true — they are pre-auth endpoints
@@ -37,10 +33,11 @@
  * - The 401 handler dispatches 'auth:logout' custom event, listened by authStore
  * - Do not change the error message format without updating authStore error handling
  * - Agent endpoints all require auth — do NOT use skipAuth
- * - installAgent accepts optional body; backend defaults agent_type to "openclaw"
+ * - MPI endpoints all require auth — do NOT use skipAuth
+ * - MPI requests may take 1-3s (search involves embedding); frontend should show loading
  *
- * Last Modified: v1.1.0 - Added Agent lifecycle API methods for Phase 1
- * Previous: v1.0.3 - Fixed stale auth header on public endpoints
+ * Last Modified: v1.2.0 - Added MPI endpoints for Memory Explorer
+ * Previous: v1.1.0 - Added Agent lifecycle API methods for Phase 1
  * ============================================
  */
 
@@ -66,6 +63,18 @@ import {
   InstallAgentRequest,
   AgentType,
 } from '@/types/agent';
+
+import {
+  MemoryStatusResponse,
+  MemoryOverviewResponse,
+  MemorySearchRequest,
+  MemorySearchResponse,
+  MemoryRecordResponse,
+  MemoryRememberRequest,
+  MemoryRememberResponse,
+  MemoryForgetResponse,
+  MemoryEmbedResponse,
+} from '@/types/memory';
 
 import { API_BASE_URL, API_ENDPOINTS, STORAGE_KEYS } from './constants';
 
@@ -288,7 +297,6 @@ class ApiClient {
    * Get agent status for a node.
    * @param nodeId - Node UUID
    * @param agentType - Optional filter by agent type (e.g. "openclaw").
-   *                    If omitted, returns all agents on the node.
    */
   async getAgentStatus(
     nodeId: string,
@@ -307,8 +315,6 @@ class ApiClient {
 
   /**
    * Install agent on a node.
-   * All fields in the request body are optional.
-   * Backend defaults: agent_type="openclaw", version="latest"
    */
   async installAgent(
     nodeId: string,
@@ -383,6 +389,120 @@ class ApiClient {
       {
         method: 'POST',
         body: JSON.stringify({ agent_type: agentType }),
+      }
+    );
+  }
+
+  // ============================================
+  // MemChain MPI Endpoints — Memory Explorer (v1.2.0)
+  // ============================================
+  //
+  // ⚠️ All MPI endpoints require auth and an online node.
+  //   Expect 503 if node is offline, 504 if request times out (30s).
+  //   Frontend should check node status before calling these.
+  // ============================================
+
+  /**
+   * Get MemChain engine status and memory statistics.
+   */
+  async getMemoryStatus(nodeId: string): Promise<MemoryStatusResponse> {
+    return this.request<MemoryStatusResponse>(
+      API_ENDPOINTS.MPI_STATUS(nodeId),
+      { method: 'GET' }
+    );
+  }
+
+  /**
+   * Get memory overview grouped by layer.
+   * @param perLayer - Records per layer (default 20, max 50)
+   */
+  async getMemoryOverview(
+    nodeId: string,
+    perLayer: number = 20
+  ): Promise<MemoryOverviewResponse> {
+    const params = new URLSearchParams({ per_layer: String(perLayer) });
+    return this.request<MemoryOverviewResponse>(
+      `${API_ENDPOINTS.MPI_OVERVIEW(nodeId)}?${params}`,
+      { method: 'GET' }
+    );
+  }
+
+  /**
+   * Semantic search across memories.
+   * Takes 1-3 seconds (embed + recall).
+   */
+  async searchMemories(
+    nodeId: string,
+    data: MemorySearchRequest
+  ): Promise<MemorySearchResponse> {
+    return this.request<MemorySearchResponse>(
+      API_ENDPOINTS.MPI_SEARCH(nodeId),
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  /**
+   * Get a single memory record by ID.
+   */
+  async getMemoryRecord(
+    nodeId: string,
+    recordId: string
+  ): Promise<MemoryRecordResponse> {
+    return this.request<MemoryRecordResponse>(
+      API_ENDPOINTS.MPI_RECORD(nodeId, recordId),
+      { method: 'GET' }
+    );
+  }
+
+  /**
+   * Create a new memory. Rust node auto-embeds the content.
+   * Returns 'duplicate' status if content already exists.
+   */
+  async rememberMemory(
+    nodeId: string,
+    data: MemoryRememberRequest
+  ): Promise<MemoryRememberResponse> {
+    return this.request<MemoryRememberResponse>(
+      API_ENDPOINTS.MPI_REMEMBER(nodeId),
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  /**
+   * Delete (forget) a memory by record ID.
+   */
+  async forgetMemory(
+    nodeId: string,
+    recordId: string
+  ): Promise<MemoryForgetResponse> {
+    return this.request<MemoryForgetResponse>(
+      API_ENDPOINTS.MPI_FORGET(nodeId),
+      {
+        method: 'POST',
+        body: JSON.stringify({ record_id: recordId }),
+      }
+    );
+  }
+
+  /**
+   * Vectorize text (advanced usage).
+   * Normally not called directly — /mpi/search/ handles embedding internally.
+   */
+  async embedText(
+    nodeId: string,
+    text: string
+  ): Promise<MemoryEmbedResponse> {
+    return this.request<MemoryEmbedResponse>(
+      API_ENDPOINTS.MPI_EMBED(nodeId),
+      {
+        method: 'POST',
+        body: JSON.stringify({ text }),
       }
     );
   }
