@@ -5,53 +5,64 @@
  * File Path: components/memories/MemoryCard.tsx
  *
  * Creation Reason: Single memory record card for the Memory Explorer.
- *   Used in both the overview list and search results.
+ *
+ * Modification Reason (v1.1.0):
+ *   - Uses MemoryDisplayRecord (unified type with timestamp_ms)
+ *   - Supports records from both overview (Unix seconds) and search (ISO string)
+ *   - All timestamp handling uses timestamp_ms (already in milliseconds)
  *
  * Main Functionality:
- *   - Displays memory content (truncated to ~120 chars in list view)
+ *   - Memory content (truncated line-clamp-3)
  *   - Layer badge with color coding
  *   - Topic tags as chips
- *   - Metadata: created time, access count, feedback (thumbs up/down)
+ *   - Metadata: time, access count, feedback
  *   - Search relevance score (when present)
  *   - Actions: Edit, Delete (with inline confirmation)
  *   - Mobile: actions always visible; Desktop: actions on hover
  *
  * Dependencies:
- *   - types/memory.ts (MemoryRecord, MEMORY_LAYER_CONFIG)
+ *   - types/memory.ts (MemoryDisplayRecord, MEMORY_LAYER_CONFIG)
  *   - lib/api.ts (formatRelativeTime)
  *
- * ⚠️ Important Note for Next Developer:
- * - Delete uses inline confirmation (expand-to-confirm pattern), NOT a modal
- * - The `score` prop is only present for search results; conditionally rendered
- * - Content truncation is CSS-based (line-clamp-3) not JS-based
- * - The card is wrapped in memo() for list performance
- *
- * Last Modified: v1.0.0 - Initial memory card for Memory Explorer
+ * Last Modified: v1.1.0 - Use MemoryDisplayRecord unified type
+ * Previous: v1.0.0 - Initial memory card
  * ============================================
  */
 
 'use client';
 
 import React, { useState, useCallback, memo } from 'react';
-import { MemoryRecord, MEMORY_LAYER_CONFIG } from '@/types/memory';
-import { formatRelativeTime } from '@/lib/api';
+import { MemoryDisplayRecord, MEMORY_LAYER_CONFIG } from '@/types/memory';
 
 // ============================================
 // Props
 // ============================================
 
 interface MemoryCardProps {
-  record: MemoryRecord;
-  onEdit: (record: MemoryRecord) => void;
+  record: MemoryDisplayRecord;
+  onEdit: (record: MemoryDisplayRecord) => void;
   onDelete: (recordId: string) => void;
   isDeleting?: boolean;
+}
+
+// ============================================
+// Helpers
+// ============================================
+
+function formatRelTime(ms: number): string {
+  const seconds = Math.floor((Date.now() - ms) / 1000);
+  if (seconds < 60) return 'Just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+  return new Date(ms).toLocaleDateString();
 }
 
 // ============================================
 // Layer Badge
 // ============================================
 
-function LayerBadge({ layer }: { layer: MemoryRecord['layer'] }) {
+function LayerBadge({ layer }: { layer: MemoryDisplayRecord['layer'] }) {
   const config = MEMORY_LAYER_CONFIG[layer];
   return (
     <span
@@ -67,7 +78,7 @@ function LayerBadge({ layer }: { layer: MemoryRecord['layer'] }) {
 }
 
 // ============================================
-// Score Badge (search results only)
+// Score Badge
 // ============================================
 
 function ScoreBadge({ score }: { score: number }) {
@@ -119,14 +130,14 @@ function MemoryCardComponent({ record, onEdit, onDelete, isDeleting }: MemoryCar
         ${isDeleting ? 'opacity-50 pointer-events-none' : ''}
       `}
     >
-      {/* Top row: layer badge + score + meta */}
+      {/* Top row */}
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 flex-wrap">
           <LayerBadge layer={record.layer} />
           {record.score !== undefined && <ScoreBadge score={record.score} />}
         </div>
         <span className="text-[11px] text-gray-600 flex-shrink-0">
-          {formatRelativeTime(record.created_at)}
+          {formatRelTime(record.timestamp_ms)}
         </span>
       </div>
 
@@ -149,7 +160,7 @@ function MemoryCardComponent({ record, onEdit, onDelete, isDeleting }: MemoryCar
         </div>
       )}
 
-      {/* Footer: stats + actions */}
+      {/* Footer */}
       <div className="flex items-center justify-between">
         {/* Stats */}
         <div className="flex items-center gap-3 text-[11px] text-gray-600">
@@ -180,30 +191,20 @@ function MemoryCardComponent({ record, onEdit, onDelete, isDeleting }: MemoryCar
           )}
         </div>
 
-        {/* Actions — always visible on mobile, hover on desktop */}
+        {/* Actions */}
         <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
           {confirmDelete ? (
             <>
               <button
                 onClick={handleDeleteClick}
                 disabled={isDeleting}
-                className="
-                  px-2.5 py-1 rounded-lg text-[11px] font-medium
-                  bg-red-500/20 text-red-400 border border-red-500/30
-                  hover:bg-red-500/30 active:bg-red-500/40
-                  transition-colors
-                "
+                className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors"
               >
                 {isDeleting ? 'Deleting...' : 'Confirm'}
               </button>
               <button
                 onClick={handleCancelDelete}
-                className="
-                  px-2.5 py-1 rounded-lg text-[11px] font-medium
-                  bg-white/5 text-gray-400
-                  hover:bg-white/10
-                  transition-colors
-                "
+                className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/5 text-gray-400 hover:bg-white/10 transition-colors"
               >
                 Cancel
               </button>
@@ -212,11 +213,7 @@ function MemoryCardComponent({ record, onEdit, onDelete, isDeleting }: MemoryCar
             <>
               <button
                 onClick={handleEdit}
-                className="
-                  p-1.5 rounded-lg text-gray-500
-                  hover:text-gray-300 hover:bg-white/5 active:bg-white/10
-                  transition-colors
-                "
+                className="p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-white/5 active:bg-white/10 transition-colors"
                 aria-label="Edit memory"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -225,11 +222,7 @@ function MemoryCardComponent({ record, onEdit, onDelete, isDeleting }: MemoryCar
               </button>
               <button
                 onClick={handleDeleteClick}
-                className="
-                  p-1.5 rounded-lg text-gray-500
-                  hover:text-red-400 hover:bg-red-500/10 active:bg-red-500/20
-                  transition-colors
-                "
+                className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 active:bg-red-500/20 transition-colors"
                 aria-label="Delete memory"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
