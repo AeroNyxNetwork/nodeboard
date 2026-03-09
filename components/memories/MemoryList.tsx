@@ -4,11 +4,11 @@
  * ============================================
  * File Path: components/memories/MemoryList.tsx
  *
- * Modification Reason (v1.1.0):
- *   - Uses MemoryOverviewData with `recent_by_layer` format
- *   - Converts MemoryOverviewRecord to MemoryDisplayRecord via toDisplayRecord()
- *   - Search results use fullRecordToDisplay() for MemoryRecord → MemoryDisplayRecord
- *   - Both modes now use the unified MemoryDisplayRecord type for MemoryCard
+ * Modification Reason (v1.2.0):
+ *   - Fixed TypeScript union type inference issue with onEdit callback
+ *   - Separated grouped and flat rendering into distinct components
+ *     to avoid union destructuring issues
+ *   - Both modes accept onEdit as (record: MemoryDisplayRecord) => void
  *
  * Main Functionality:
  *   - Groups memories by layer (identity → knowledge → episode → archive)
@@ -18,11 +18,11 @@
  *   - Skeleton loader during fetch
  *
  * Dependencies:
- *   - types/memory.ts (MemoryOverviewData, MemoryDisplayRecord, toDisplayRecord, etc.)
+ *   - types/memory.ts
  *   - components/memories/MemoryCard.tsx
  *
- * Last Modified: v1.1.0 - Aligned with actual API response format
- * Previous: v1.0.0 - Initial memory list
+ * Last Modified: v1.2.0 - Fixed union type inference for onEdit
+ * Previous: v1.1.0 - Aligned with actual API response format
  * ============================================
  */
 
@@ -42,27 +42,14 @@ import {
 import MemoryCard from './MemoryCard';
 
 // ============================================
-// Props
+// Shared callback types
 // ============================================
 
-interface MemoryListGroupedProps {
-  mode: 'grouped';
-  overview: MemoryOverviewData;
+interface MemoryListCallbacks {
   onEdit: (record: MemoryDisplayRecord) => void;
   onDelete: (recordId: string) => void;
   deletingId: string | null;
 }
-
-interface MemoryListFlatProps {
-  mode: 'flat';
-  records: MemoryRecord[];
-  onEdit: (record: MemoryDisplayRecord) => void;
-  onDelete: (recordId: string) => void;
-  deletingId: string | null;
-  emptyMessage?: string;
-}
-
-type MemoryListProps = MemoryListGroupedProps | MemoryListFlatProps;
 
 // ============================================
 // Skeleton
@@ -88,14 +75,11 @@ export function MemoryListSkeleton() {
 // Layer Section (collapsible)
 // ============================================
 
-interface LayerSectionProps {
+interface LayerSectionProps extends MemoryListCallbacks {
   layer: MemoryLayer;
   count: number;
   records: MemoryDisplayRecord[];
   defaultCollapsed: boolean;
-  onEdit: (record: MemoryDisplayRecord) => void;
-  onDelete: (recordId: string) => void;
-  deletingId: string | null;
 }
 
 function LayerSection({
@@ -114,7 +98,6 @@ function LayerSection({
 
   return (
     <div className="mb-4">
-      {/* Section header */}
       <button
         onClick={toggle}
         className="
@@ -146,7 +129,6 @@ function LayerSection({
         </svg>
       </button>
 
-      {/* Records */}
       {!collapsed && (
         <div className="mt-2 space-y-2">
           {records.length === 0 ? (
@@ -171,60 +153,19 @@ function LayerSection({
 }
 
 // ============================================
-// Main Component
+// Grouped List (overview mode)
 // ============================================
 
-export default function MemoryList(props: MemoryListProps) {
-  const { mode, onEdit, onDelete, deletingId } = props;
+interface GroupedListProps extends MemoryListCallbacks {
+  overview: MemoryOverviewData;
+}
 
-  // Flat mode — search results
-  if (mode === 'flat') {
-    const { records, emptyMessage } = props;
-
-    // Convert MemoryRecord[] to MemoryDisplayRecord[]
-    const displayRecords = useMemo(
-      () => records.map(fullRecordToDisplay),
-      [records]
-    );
-
-    if (displayRecords.length === 0) {
-      return (
-        <div className="py-12 text-center">
-          <svg className="w-12 h-12 mx-auto text-gray-700 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <p className="text-sm text-gray-500">
-            {emptyMessage || 'No memories found. Your AI agent is still learning.'}
-          </p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="space-y-2">
-        {displayRecords.map((record) => (
-          <MemoryCard
-            key={record.record_id}
-            record={record}
-            onEdit={onEdit}
-            onDelete={onDelete}
-            isDeleting={deletingId === record.record_id}
-          />
-        ))}
-      </div>
-    );
-  }
-
-  // Grouped mode — overview with recent_by_layer
-  const { overview } = props;
-
+function GroupedList({ overview, onEdit, onDelete, deletingId }: GroupedListProps) {
   return (
     <div>
       {MEMORY_LAYERS_ORDERED.map((layer) => {
         const count = overview.by_layer[layer] ?? 0;
         const rawRecords = overview.recent_by_layer[layer] ?? [];
-
-        // Convert MemoryOverviewRecord[] to MemoryDisplayRecord[]
         const displayRecords = rawRecords.map((r) => toDisplayRecord(r, layer));
 
         return (
@@ -241,5 +182,79 @@ export default function MemoryList(props: MemoryListProps) {
         );
       })}
     </div>
+  );
+}
+
+// ============================================
+// Flat List (search results mode)
+// ============================================
+
+interface FlatListProps extends MemoryListCallbacks {
+  records: MemoryRecord[];
+  emptyMessage?: string;
+}
+
+function FlatList({ records, onEdit, onDelete, deletingId, emptyMessage }: FlatListProps) {
+  const displayRecords = useMemo(
+    () => records.map(fullRecordToDisplay),
+    [records]
+  );
+
+  if (displayRecords.length === 0) {
+    return (
+      <div className="py-12 text-center">
+        <svg className="w-12 h-12 mx-auto text-gray-700 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        <p className="text-sm text-gray-500">
+          {emptyMessage || 'No memories found. Your AI agent is still learning.'}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {displayRecords.map((record) => (
+        <MemoryCard
+          key={record.record_id}
+          record={record}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          isDeleting={deletingId === record.record_id}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ============================================
+// Main Component — delegates to Grouped or Flat
+// ============================================
+
+type MemoryListProps =
+  | { mode: 'grouped'; overview: MemoryOverviewData; onEdit: (record: MemoryDisplayRecord) => void; onDelete: (recordId: string) => void; deletingId: string | null }
+  | { mode: 'flat'; records: MemoryRecord[]; onEdit: (record: MemoryDisplayRecord) => void; onDelete: (recordId: string) => void; deletingId: string | null; emptyMessage?: string };
+
+export default function MemoryList(props: MemoryListProps) {
+  if (props.mode === 'grouped') {
+    return (
+      <GroupedList
+        overview={props.overview}
+        onEdit={props.onEdit}
+        onDelete={props.onDelete}
+        deletingId={props.deletingId}
+      />
+    );
+  }
+
+  return (
+    <FlatList
+      records={props.records}
+      onEdit={props.onEdit}
+      onDelete={props.onDelete}
+      deletingId={props.deletingId}
+      emptyMessage={props.emptyMessage}
+    />
   );
 }
