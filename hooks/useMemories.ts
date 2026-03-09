@@ -5,7 +5,12 @@
  * File Path: hooks/useMemories.ts
  *
  * Creation Reason: React Query hooks for the MemChain Memory Explorer.
- *   Provides data fetching, caching, and mutations for all MPI operations.
+ *
+ * Modification Reason (v1.1.0):
+ *   Updated to match actual API response format (v1.5.0 backend doc):
+ *   - useMemoryOverview now returns MemoryOverviewData with `recent_by_layer`
+ *   - Search results use MemoryRecord (has `layer`, ISO dates)
+ *   - Overview records use MemoryOverviewRecord (Unix seconds, no `layer`)
  *
  * Main Functionality:
  *   - useMemoryStatus: Engine status + stats (query)
@@ -22,22 +27,15 @@
  *   - stores/authStore.ts (isAuthenticated guard)
  *   - types/memory.ts
  *
- * Main Logical Flow:
- *   1. All queries guard on isAuthenticated (same pattern as useNodes.ts)
- *   2. Mutations invalidate relevant queries on success
- *   3. Search uses useMutation (not useQuery) because it's user-initiated
- *      and takes a POST body — no automatic refetching
- *   4. Edit is a sequential forget → remember wrapped in a single mutation
- *
  * ⚠️ Important Note for Next Developer:
  * - MPI requests can take 1-3 seconds (search involves embedding)
  * - If the node is offline, all MPI requests return 503
- * - The "edit" operation is NOT atomic: forget then remember. If remember
- *   fails, the old record is already gone — frontend must handle this gracefully
+ * - The "edit" operation is NOT atomic: forget then remember
  * - useMemorySearch returns { mutate, data, isPending } — call mutate() to search
  * - Query cache keys include nodeId so different nodes don't share cache
  *
- * Last Modified: v1.0.0 - Initial memory hooks for Memory Explorer
+ * Last Modified: v1.1.0 - Aligned with actual API response format
+ * Previous: v1.0.0 - Initial memory hooks
  * ============================================
  */
 
@@ -53,9 +51,6 @@ import {
   MemorySearchData,
   MemoryRecord,
   MemoryRememberRequest,
-  MemoryRememberData,
-  MemoryForgetData,
-  MemoryLayer,
 } from '@/types/memory';
 
 // ============================================
@@ -82,10 +77,6 @@ interface UseMemoryStatusResult {
   refetch: () => void;
 }
 
-/**
- * Fetch MemChain engine status and memory statistics.
- * Used for the status card at the top of the Memory Explorer.
- */
 export function useMemoryStatus(nodeId: string): UseMemoryStatusResult {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
@@ -96,10 +87,10 @@ export function useMemoryStatus(nodeId: string): UseMemoryStatusResult {
       return response.data;
     },
     enabled: isAuthenticated && !!nodeId,
-    staleTime: 30 * 1000, // 30s — status can change when AI interacts
+    staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
-    refetchOnMount: true, // Always fresh on mount
+    refetchOnMount: true,
   });
 
   return {
@@ -127,10 +118,6 @@ interface UseMemoryOverviewResult {
   refetch: () => void;
 }
 
-/**
- * Fetch memory overview grouped by layer.
- * Used for the main memory list in the Memory Explorer.
- */
 export function useMemoryOverview(
   nodeId: string,
   options: UseMemoryOverviewOptions = {}
@@ -165,23 +152,13 @@ export function useMemoryOverview(
 // ============================================
 
 interface UseMemorySearchResult {
-  /** Call this to trigger a search */
   search: (params: MemorySearchRequest) => void;
-  /** Search results (persists until next search) */
   results: MemorySearchData | null;
-  /** True while search is in progress */
   isSearching: boolean;
-  /** Search error */
   error: Error | null;
-  /** Reset results to null */
   reset: () => void;
 }
 
-/**
- * Semantic search across memories.
- * Uses useMutation because search is user-triggered (POST body).
- * Results persist until next search or manual reset.
- */
 export function useMemorySearch(nodeId: string): UseMemorySearchResult {
   const mutation = useMutation({
     mutationFn: async (params: MemorySearchRequest) => {
@@ -211,10 +188,6 @@ interface UseMemoryRecordResult {
   refetch: () => void;
 }
 
-/**
- * Fetch a single memory record by ID.
- * Used for the detail/edit view.
- */
 export function useMemoryRecord(
   nodeId: string,
   recordId: string | null
@@ -247,10 +220,6 @@ export function useMemoryRecord(
 // useRememberMemory (create)
 // ============================================
 
-/**
- * Create a new memory.
- * Invalidates overview and status on success.
- */
 export function useRememberMemory(nodeId: string) {
   const queryClient = useQueryClient();
 
@@ -260,7 +229,6 @@ export function useRememberMemory(nodeId: string) {
       return response.data;
     },
     onSuccess: () => {
-      // Invalidate overview and status to reflect new memory
       queryClient.invalidateQueries({
         queryKey: memoryKeys.status(nodeId),
         refetchType: 'all',
@@ -277,10 +245,6 @@ export function useRememberMemory(nodeId: string) {
 // useForgetMemory (delete)
 // ============================================
 
-/**
- * Delete a memory by record ID.
- * Invalidates overview and status on success.
- */
 export function useForgetMemory(nodeId: string) {
   const queryClient = useQueryClient();
 
@@ -290,11 +254,9 @@ export function useForgetMemory(nodeId: string) {
       return response.data;
     },
     onSuccess: (_data, recordId) => {
-      // Remove record detail cache
       queryClient.removeQueries({
         queryKey: memoryKeys.record(nodeId, recordId),
       });
-      // Invalidate overview and status
       queryClient.invalidateQueries({
         queryKey: memoryKeys.status(nodeId),
         refetchType: 'all',
@@ -312,47 +274,31 @@ export function useForgetMemory(nodeId: string) {
 // ============================================
 
 interface EditMemoryParams {
-  /** ID of the record to replace */
   oldRecordId: string;
-  /** New memory data */
   newData: MemoryRememberRequest;
 }
 
 interface EditMemoryResult {
-  /** New record ID after edit */
   newRecordId: string;
-  /** Status of the remember operation */
   status: 'created' | 'duplicate';
 }
 
-/**
- * Edit a memory by deleting the old one and creating a new one.
- * This is NOT atomic — if remember fails after forget, the old record is gone.
- * The mutation returns the new record info on success.
- * Invalidates overview and status on success.
- */
 export function useEditMemory(nodeId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (params: EditMemoryParams): Promise<EditMemoryResult> => {
-      // Step 1: Delete old record
       await api.forgetMemory(nodeId, params.oldRecordId);
-
-      // Step 2: Create new record
       const response = await api.rememberMemory(nodeId, params.newData);
-
       return {
         newRecordId: response.data.record_id,
         status: response.data.status,
       };
     },
     onSuccess: (_data, params) => {
-      // Remove old record detail cache
       queryClient.removeQueries({
         queryKey: memoryKeys.record(nodeId, params.oldRecordId),
       });
-      // Invalidate overview and status
       queryClient.invalidateQueries({
         queryKey: memoryKeys.status(nodeId),
         refetchType: 'all',
