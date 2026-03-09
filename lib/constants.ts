@@ -6,10 +6,14 @@
  *
  * Creation Reason: Centralized configuration and constants
  * Modification Reason:
+ *   v1.2.0 - Added MemChain MPI endpoints for Memory Explorer:
+ *     - MPI_STATUS, MPI_OVERVIEW, MPI_SEARCH, MPI_RECORD,
+ *       MPI_REMEMBER, MPI_FORGET, MPI_EMBED in API_ENDPOINTS
+ *     - MEMORY_POLLING_INTERVAL for overview refresh
  *   v1.1.0 - Added Agent-related constants for Phase 1:
- *     - AGENT_ENDPOINTS in API_ENDPOINTS (install, status, start, stop, restart, uninstall)
+ *     - AGENT_ENDPOINTS in API_ENDPOINTS
  *     - AGENT_POLLING_INTERVAL for transitional status polling (2s)
- *     - AGENT_STATUS_CONFIG for UI rendering (label, colors, description)
+ *     - AGENT_STATUS_CONFIG for UI rendering
  *     - Agent-related ERROR_MESSAGES and SUCCESS_MESSAGES
  *
  * Main Functionality: API endpoints, polling intervals, storage keys,
@@ -20,9 +24,10 @@
  * - AGENT_STATUS_CONFIG keys MUST match AgentStatus type in types/agent.ts
  * - AGENT_POLLING_INTERVAL (2000ms) is used by useAgent.ts for transitional states
  * - Agent endpoints use function patterns like NODE_DETAIL — pass node ID
+ * - MPI_RECORD endpoint takes both nodeId and recordId
  *
- * Last Modified: v1.1.0 - Added Agent constants for Phase 1
- * Previous: v1.0.0 - Initial constants setup
+ * Last Modified: v1.2.0 - Added MPI endpoints for Memory Explorer
+ * Previous: v1.1.0 - Added Agent constants for Phase 1
  * ============================================
  */
 
@@ -56,6 +61,15 @@ export const API_ENDPOINTS = {
   AGENT_STOP: (nodeId: string) => `/nodes/${nodeId}/stop_agent/`,
   AGENT_RESTART: (nodeId: string) => `/nodes/${nodeId}/restart_agent/`,
   AGENT_UNINSTALL: (nodeId: string) => `/nodes/${nodeId}/uninstall_agent/`,
+
+  // MemChain MPI — Memory Explorer (v1.2.0)
+  MPI_STATUS: (nodeId: string) => `/nodes/${nodeId}/mpi/status/`,
+  MPI_OVERVIEW: (nodeId: string) => `/nodes/${nodeId}/mpi/overview/`,
+  MPI_SEARCH: (nodeId: string) => `/nodes/${nodeId}/mpi/search/`,
+  MPI_RECORD: (nodeId: string, recordId: string) => `/nodes/${nodeId}/mpi/record/${recordId}/`,
+  MPI_REMEMBER: (nodeId: string) => `/nodes/${nodeId}/mpi/remember/`,
+  MPI_FORGET: (nodeId: string) => `/nodes/${nodeId}/mpi/forget/`,
+  MPI_EMBED: (nodeId: string) => `/nodes/${nodeId}/mpi/embed/`,
 } as const;
 
 // ============================================
@@ -71,6 +85,8 @@ export const POLLING_INTERVALS = {
   AGENT_TRANSITIONAL: 2000,
   /** Agent status polling during stable states (running/stopped/etc.) — less frequent */
   AGENT_STABLE: 30000,
+  /** Memory overview auto-refresh interval (not aggressive — user-triggered mostly) */
+  MEMORY_OVERVIEW: 60000,
 } as const;
 
 // ============================================
@@ -166,15 +182,6 @@ export const NODE_STATUS_CONFIG = {
 /**
  * UI configuration for each AgentStatus value.
  * Keys match AgentStatus type in types/agent.ts exactly.
- *
- * Fields:
- *   label       — Display text for status badge
- *   description — Contextual message shown below the status
- *   bgColor     — Tailwind bg class for badge/container
- *   textColor   — Tailwind text class
- *   borderColor — Tailwind border class
- *   dotColor    — Tailwind bg class for the status dot
- *   animate     — Whether to pulse/spin the dot
  */
 export const AGENT_STATUS_CONFIG = {
   not_installed: {
@@ -320,6 +327,14 @@ export const ERROR_MESSAGES = {
   AGENT_RESTART_FAILED: 'Failed to restart OpenClaw. Please try again.',
   AGENT_UNINSTALL_FAILED: 'Failed to uninstall OpenClaw. Please try again.',
   AGENT_STATUS_FAILED: 'Failed to fetch agent status.',
+  // Memory-specific errors (v1.2.0)
+  MEMORY_STATUS_FAILED: 'Failed to fetch memory status.',
+  MEMORY_OVERVIEW_FAILED: 'Failed to load memories.',
+  MEMORY_SEARCH_FAILED: 'Memory search failed. Please try again.',
+  MEMORY_REMEMBER_FAILED: 'Failed to create memory. Please try again.',
+  MEMORY_FORGET_FAILED: 'Failed to delete memory. Please try again.',
+  MEMORY_EDIT_FAILED: 'Failed to edit memory. The old memory was deleted but the new one could not be created. Please try again.',
+  MEMORY_NODE_OFFLINE: 'Node is offline. Memory management requires an online node.',
 } as const;
 
 // ============================================
@@ -340,4 +355,9 @@ export const SUCCESS_MESSAGES = {
   AGENT_STOP_TRIGGERED: 'OpenClaw is stopping...',
   AGENT_RESTART_TRIGGERED: 'OpenClaw is restarting...',
   AGENT_UNINSTALL_TRIGGERED: 'OpenClaw uninstall started.',
+  // Memory-specific messages (v1.2.0)
+  MEMORY_CREATED: 'Memory created successfully.',
+  MEMORY_DELETED: 'Memory deleted. AI will no longer recall this.',
+  MEMORY_UPDATED: 'Memory updated successfully.',
+  MEMORY_DUPLICATE: 'This memory already exists.',
 } as const;
