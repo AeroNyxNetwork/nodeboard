@@ -4,65 +4,73 @@
  * ============================================
  * File Path: hooks/useWebSocketChat.ts
  *
- * Creation Reason: Phase 2 — AI Encrypted Terminal requires a custom
- *   WebSocket hook for real-time bidirectional communication with the
- *   node's AI agent via the AeroNyx tunnel relay.
+ * Modification Reason (v2.0.0):
+ *   Integrated E2E encryption (XChaCha20-Poly1305 + X25519):
+ *   - After auth_ok, sends e2e_init with ephemeral public key
+ *   - On e2e_ready, completes handshake → all chat encrypted
+ *   - New message types: e2e_message (send), e2e_stream / e2e_response (recv)
+ *   - Graceful degradation: 5s handshake timeout → falls back to plaintext
+ *   - MPI requests (Memory Explorer) do NOT use E2E — only chat
+ *   - E2E session destroyed on disconnect, new session on reconnect
+ *   - Exposed `isE2E` flag for UI (e.g. lock icon in status bar)
+ *
+ *   All changes marked with 🔐 E2E comments.
+ *   Existing plaintext flow is UNTOUCHED — E2E wraps around it.
+ *
+ * Previous (v1.1.0):
+ *   Adapted to actual CMS message types (stream, response, ack).
+ *   No encryption.
  *
  * Main Functionality:
- *   - Native WebSocket connection with automatic reconnection (exponential backoff)
+ *   - Native WebSocket connection with auto-reconnect (exponential backoff)
  *   - Heartbeat (ping/pong) keep-alive
- *   - Message send (agent_request) with auto-generated request_id
- *   - Stream assembly: collects agent_stream chunks into complete messages
- *   - Connection state tracking (connecting, connected, disconnected, error)
+ *   - 🔐 E2E handshake after auth_ok (optional, degrades gracefully)
+ *   - 🔐 Encrypted send (e2e_message) / receive (e2e_stream, e2e_response)
+ *   - Stream assembly: collects chunks into complete messages
+ *   - Connection state tracking
  *   - Graceful cleanup on unmount or manual disconnect
  *
  * Dependencies:
  *   - stores/authStore.ts (apiKey for WS URL)
  *   - lib/constants.ts (getWsUrl, WS_CONFIG)
+ *   - lib/e2e-crypto.ts (E2ESession) 🔐
  *
- * Protocol (actual CMS messages — confirmed working 2026-03-05):
- *   Frontend → CMS:
- *     {"type":"agent_request","request_id":"uuid","action":"chat","payload":{...}}
- *   CMS → Frontend (ack):
- *     {"type":"ack","request_id":"uuid"}
- *   CMS → Frontend (stream):
- *     {"type":"stream","request_id":"uuid","chunk":"...","done":false}
- *     {"type":"stream","request_id":"uuid","chunk":"","done":true}
- *   CMS → Frontend (complete response, arrives after stream done):
- *     {"type":"response","request_id":"uuid","status":"success","payload":{"response":"..."}}
- *   Heartbeat: {"type":"ping"} / {"type":"pong"}
- *   Auth OK: {"type":"auth_ok","node_id":"...","node_name":"..."}
- *   Error: {"type":"error","message":"..."}
+ * Protocol — Plaintext (unchanged):
+ *   → {"type":"agent_request","request_id":"uuid","action":"chat","payload":{...}}
+ *   ← {"type":"ack","request_id":"uuid"}
+ *   ← {"type":"stream","request_id":"uuid","chunk":"...","done":false/true}
+ *   ← {"type":"response","request_id":"uuid","status":"success","payload":{...}}
+ *
+ * Protocol — E2E (new):
+ *   → {"type":"e2e_init","ephemeral_pk":"hex"}
+ *   ← {"type":"e2e_ready","x25519_pk":"hex"}
+ *   → {"type":"e2e_message","request_id":"uuid","action":"chat","nonce":"hex","ciphertext":"hex"}
+ *   ← {"type":"e2e_stream","request_id":"uuid","nonce":"hex","ciphertext":"hex","done":false}
+ *   ← {"type":"e2e_stream","request_id":"uuid","done":true}  (no nonce/ct)
+ *   ← {"type":"e2e_response","request_id":"uuid","nonce":"hex","ciphertext":"hex"}
  *
  * ⚠️ Important Note for Next Developer:
- * - The hook manages its own WebSocket lifecycle — do NOT create additional
- *   WebSocket connections to the same node from other components
- * - reconnect logic uses exponential backoff with jitter
- * - ping/pong keeps the connection alive; if pong is not received within
- *   PONG_TIMEOUT, the connection is considered dead and reconnects
- * - All timers (ping interval, pong timeout, reconnect delay) are cleaned
- *   up on unmount via the cleanup function in useEffect
- * - ChatMessage type is local to this hook — it's the UI-facing data model,
- *   NOT the raw WebSocket message format
- * - streamingMessage ref holds the in-progress assistant message during streaming
+ * - E2E key material lives ONLY in e2eSessionRef (memory). Never persist.
+ * - Each connect() creates a new E2ESession (forward secrecy).
+ * - If e2e_ready not received within 5s, falls back to plaintext silently.
+ * - MPI requests (action != 'chat') always use plaintext agent_request.
+ * - The 'isE2E' return value reflects current encryption state for UI.
+ * - handleStream/handleResponse are reused by E2E handlers after decryption.
  *
- * Last Modified: v1.1.0 - Adapted to actual CMS message types:
- *   agent_stream → stream, agent_response → response, added ack handler.
- *   handleResponse is smart: if a streamed message already exists for the
- *   request_id, it finalizes it instead of creating a duplicate.
- * Previous: v1.0.0 - Initial WebSocket chat hook for Phase 2
+ * Last Modified: v2.0.0 - E2E encryption integration
+ * Previous: v1.1.0 - Adapted to actual CMS message types
  * ============================================
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { getWsUrl, WS_CONFIG } from '@/lib/constants';
+import { E2ESession } from '@/lib/e2e-crypto'; // 🔐 E2E
 
 // ============================================
 // Types
 // ============================================
 
-/** Connection states exposed to UI */
 export type WsConnectionState =
   | 'idle'
   | 'connecting'
@@ -72,40 +80,32 @@ export type WsConnectionState =
   | 'disconnected'
   | 'error';
 
-/** A single chat message (UI model) */
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
-  /** True while the assistant message is still being streamed */
   isStreaming?: boolean;
-  /** If status === 'error' on agent_response */
   isError?: boolean;
 }
 
-/** Auth OK payload from server */
 interface AuthOkPayload {
   type: 'auth_ok';
   node_id: string;
   node_name: string;
 }
 
-/** Return type of the hook */
 export interface UseWebSocketChatReturn {
   messages: ChatMessage[];
   connectionState: WsConnectionState;
   nodeName: string | null;
-  /** Send a chat message to the agent */
   sendMessage: (prompt: string, options?: SendOptions) => void;
-  /** Manually disconnect */
   disconnect: () => void;
-  /** Manually reconnect */
   reconnect: () => void;
-  /** Clear message history */
   clearMessages: () => void;
-  /** Whether the assistant is currently streaming a response */
   isStreaming: boolean;
+  /** 🔐 Whether E2E encryption is active for this session */
+  isE2E: boolean;
 }
 
 interface SendOptions {
@@ -115,20 +115,26 @@ interface SendOptions {
 }
 
 // ============================================
-// UUID Generator (crypto-based)
+// UUID Generator
 // ============================================
 
 function generateId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
   }
-  // Fallback for older browsers
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
 }
+
+// ============================================
+// Constants
+// ============================================
+
+/** 🔐 How long to wait for e2e_ready before falling back to plaintext */
+const E2E_HANDSHAKE_TIMEOUT_MS = 5000;
 
 // ============================================
 // Hook Implementation
@@ -143,18 +149,21 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
   const [connectionState, setConnectionState] = useState<WsConnectionState>('idle');
   const [nodeName, setNodeName] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isE2E, setIsE2E] = useState(false); // 🔐 E2E
 
-  // ---- Refs (mutable, not triggering re-renders) ----
+  // ---- Refs ----
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pongTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intentionalCloseRef = useRef(false);
-  /** Tracks the request_id of the currently streaming assistant message */
   const activeStreamIdRef = useRef<string | null>(null);
-  /** Accumulates stream chunks keyed by request_id */
   const streamBufferRef = useRef<Map<string, string>>(new Map());
+
+  // 🔐 E2E refs
+  const e2eSessionRef = useRef<E2ESession | null>(null);
+  const e2eHandshakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ============================================
   // Timer Cleanup Helpers
@@ -178,6 +187,19 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     }
   }, []);
 
+  // 🔐 E2E cleanup helper
+  const destroyE2E = useCallback(() => {
+    if (e2eHandshakeTimerRef.current) {
+      clearTimeout(e2eHandshakeTimerRef.current);
+      e2eHandshakeTimerRef.current = null;
+    }
+    if (e2eSessionRef.current) {
+      e2eSessionRef.current.destroy();
+      e2eSessionRef.current = null;
+    }
+    setIsE2E(false);
+  }, []);
+
   // ============================================
   // Ping/Pong Keep-Alive
   // ============================================
@@ -190,9 +212,8 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'ping' }));
 
-        // Set pong timeout — if no pong received, force reconnect
         pongTimeoutRef.current = setTimeout(() => {
-          console.warn('[AeroNyx WS] Pong timeout — connection may be dead');
+          console.warn('[WS] Pong timeout — connection may be dead');
           ws.close(4002, 'Pong timeout');
         }, WS_CONFIG.PONG_TIMEOUT);
       }
@@ -207,17 +228,16 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
   }, []);
 
   // ============================================
-  // Message Handlers
+  // Message Handlers (plaintext — reused by E2E after decryption)
   // ============================================
 
   const handleAuthOk = useCallback((data: AuthOkPayload) => {
-    console.log('[AeroNyx WS] Authenticated:', data.node_name);
+    console.log('[WS] Authenticated:', data.node_name);
     setNodeName(data.node_name);
     setConnectionState('connected');
     reconnectAttemptRef.current = 0;
     startPingPong();
 
-    // System message
     setMessages((prev) => [
       ...prev,
       {
@@ -227,23 +247,33 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
         timestamp: Date.now(),
       },
     ]);
+
+    // 🔐 E2E: Initiate handshake after auth
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const session = new E2ESession();
+      e2eSessionRef.current = session;
+
+      ws.send(JSON.stringify({
+        type: 'e2e_init',
+        ephemeral_pk: session.getEphemeralPublicKeyHex(),
+      }));
+
+      // 🔐 Timeout: if no e2e_ready within 5s, fall back to plaintext
+      e2eHandshakeTimerRef.current = setTimeout(() => {
+        if (e2eSessionRef.current && !e2eSessionRef.current.isReady()) {
+          console.warn('[E2E] Handshake timeout — falling back to plaintext');
+          e2eSessionRef.current.destroy();
+          e2eSessionRef.current = null;
+        }
+      }, E2E_HANDSHAKE_TIMEOUT_MS);
+    }
   }, [startPingPong]);
 
-  /**
-   * Handle "ack" — CMS confirms message received.
-   * Currently just logged; could be used for delivery indicators in future.
-   */
-  const handleAck = useCallback((data: { request_id: string }) => {
-    console.log('[AeroNyx WS] Message acknowledged:', data.request_id);
+  const handleAck = useCallback((_data: { request_id: string }) => {
+    // ACK received — could be used for delivery indicators in future
   }, []);
 
-  /**
-   * Handle "response" — complete AI response (arrives after stream ends,
-   * or as the sole reply if streaming was disabled).
-   *
-   * If we already have a streamed message with this request_id, we skip
-   * creating a duplicate. If not (non-streaming mode), we create the message.
-   */
   const handleResponse = useCallback(
     (data: { request_id: string; status: string; payload?: { response?: string; error?: string } }) => {
       const isErr = data.status === 'error';
@@ -252,11 +282,9 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
         : (data.payload?.response || '');
 
       setMessages((prev) => {
-        // Check if we already have a streamed message with this request_id
         const existingIdx = prev.findIndex((m) => m.id === data.request_id);
 
         if (existingIdx >= 0) {
-          // Stream already completed — finalize the message (mark not streaming, update content if error)
           const copy = [...prev];
           copy[existingIdx] = {
             ...copy[existingIdx],
@@ -267,7 +295,6 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
           return copy;
         }
 
-        // No streamed message exists — this is a non-streaming response
         return [
           ...prev,
           {
@@ -292,22 +319,18 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
       const { request_id, chunk, done } = data;
       const buffer = streamBufferRef.current;
 
-      // Accumulate chunk
       const current = buffer.get(request_id) || '';
       const updated = current + (chunk || '');
       buffer.set(request_id, updated);
 
-      // Track active stream — allow switching to a new request_id
       if (activeStreamIdRef.current !== request_id) {
         activeStreamIdRef.current = request_id;
         setIsStreaming(true);
       }
 
-      // Update or append assistant message
       setMessages((prev) => {
         const idx = prev.findIndex((m) => m.id === request_id);
         if (idx >= 0) {
-          // Update existing message in place
           const copy = [...prev];
           copy[idx] = {
             ...copy[idx],
@@ -316,7 +339,6 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
           };
           return copy;
         }
-        // New streaming message
         return [
           ...prev,
           {
@@ -342,7 +364,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
 
   const handleWsError = useCallback((data: { message?: string }) => {
     const errMsg = data.message || 'WebSocket error';
-    console.error('[AeroNyx WS] Server error:', errMsg);
+    console.error('[WS] Server error:', errMsg);
     setMessages((prev) => [
       ...prev,
       {
@@ -356,6 +378,93 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
   }, []);
 
   // ============================================
+  // 🔐 E2E Message Handlers
+  // ============================================
+
+  /** 🔐 Rust node responded with its X25519 public key — complete handshake */
+  const handleE2eReady = useCallback((data: { x25519_pk?: string }) => {
+    // Clear handshake timeout
+    if (e2eHandshakeTimerRef.current) {
+      clearTimeout(e2eHandshakeTimerRef.current);
+      e2eHandshakeTimerRef.current = null;
+    }
+
+    const session = e2eSessionRef.current;
+    if (!session || !data.x25519_pk) {
+      console.error('[E2E] Missing session or x25519_pk in e2e_ready');
+      return;
+    }
+
+    session.completeHandshake(data.x25519_pk);
+    setIsE2E(true);
+    console.log('[E2E] ✅ Handshake complete — encryption active');
+  }, []);
+
+  /** 🔐 Encrypted stream chunk — decrypt then delegate to handleStream */
+  const handleE2eStream = useCallback(
+    (data: { request_id: string; nonce?: string; ciphertext?: string; done?: boolean }) => {
+      const session = e2eSessionRef.current;
+      if (!session || !session.isReady()) return;
+
+      const done = data.done || false;
+
+      // done=true signal has no content
+      if (done) {
+        handleStream({ request_id: data.request_id, chunk: '', done: true });
+        return;
+      }
+
+      if (!data.nonce || !data.ciphertext) {
+        console.error('[E2E] Missing nonce/ciphertext in e2e_stream');
+        return;
+      }
+
+      const plaintext = session.decrypt(data.nonce, data.ciphertext);
+      if (plaintext === null) {
+        console.error('[E2E] Decryption failed for stream chunk');
+        return;
+      }
+
+      handleStream({ request_id: data.request_id, chunk: plaintext, done: false });
+    },
+    [handleStream]
+  );
+
+  /** 🔐 Encrypted complete response — decrypt then delegate to handleResponse */
+  const handleE2eResponse = useCallback(
+    (data: { request_id: string; nonce?: string; ciphertext?: string; status?: string }) => {
+      const session = e2eSessionRef.current;
+      if (!session || !session.isReady()) return;
+
+      if (!data.nonce || !data.ciphertext) {
+        console.error('[E2E] Missing nonce/ciphertext in e2e_response');
+        return;
+      }
+
+      const plaintext = session.decrypt(data.nonce, data.ciphertext);
+      if (plaintext === null) {
+        console.error('[E2E] Decryption failed for response');
+        return;
+      }
+
+      // Decrypted content may be JSON or plain text
+      let payload: { response?: string; error?: string };
+      try {
+        payload = JSON.parse(plaintext);
+      } catch {
+        payload = { response: plaintext };
+      }
+
+      handleResponse({
+        request_id: data.request_id,
+        status: data.status || 'success',
+        payload,
+      });
+    },
+    [handleResponse]
+  );
+
+  // ============================================
   // WebSocket Connection
   // ============================================
 
@@ -365,7 +474,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
       return;
     }
 
-    // Clean up any existing connection
+    // Clean up existing connection
     if (wsRef.current) {
       intentionalCloseRef.current = true;
       wsRef.current.close();
@@ -373,33 +482,21 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     }
 
     clearPingPong();
+    destroyE2E(); // 🔐 Clean up previous E2E session
     intentionalCloseRef.current = false;
     setConnectionState('connecting');
 
     const url = getWsUrl(nodeId, apiKey);
-    console.log('[AeroNyx WS] Connecting...');
-
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log('[AeroNyx WS] Socket opened, awaiting auth_ok...');
       setConnectionState('authenticating');
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-
-        // === DEBUG LOG — remove after confirming stream works ===
-        if (data.type !== 'pong') {
-          console.log('[AeroNyx WS] ←', data.type, {
-            request_id: data.request_id?.slice(0, 8),
-            chunk_len: data.chunk?.length,
-            done: data.done,
-            status: data.status,
-          });
-        }
 
         switch (data.type) {
           case 'auth_ok':
@@ -420,17 +517,29 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
           case 'error':
             handleWsError(data);
             break;
+
+          // 🔐 E2E message types
+          case 'e2e_ready':
+            handleE2eReady(data);
+            break;
+          case 'e2e_stream':
+            handleE2eStream(data);
+            break;
+          case 'e2e_response':
+            handleE2eResponse(data);
+            break;
+
           default:
-            console.log('[AeroNyx WS] Unknown message type:', data.type);
+            console.log('[WS] Unknown message type:', data.type);
         }
       } catch (err) {
-        console.error('[AeroNyx WS] Failed to parse message:', err);
+        console.error('[WS] Failed to parse message:', err);
       }
     };
 
     ws.onclose = (event) => {
-      console.log(`[AeroNyx WS] Closed: code=${event.code} reason=${event.reason}`);
       clearPingPong();
+      destroyE2E(); // 🔐 Destroy E2E session on close
       wsRef.current = null;
 
       // Clean up streaming state
@@ -438,6 +547,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
         setIsStreaming(false);
         activeStreamIdRef.current = null;
       }
+      streamBufferRef.current.clear(); // Also clear stale buffers
 
       // Auth failure — do not reconnect
       if (event.code === 4001) {
@@ -455,25 +565,20 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
         return;
       }
 
-      // Intentional close — stay disconnected
+      // Intentional close
       if (intentionalCloseRef.current) {
         setConnectionState('disconnected');
         return;
       }
 
-      // Unexpected close — try reconnecting
+      // Unexpected close — reconnect with backoff
       if (reconnectAttemptRef.current < WS_CONFIG.MAX_RECONNECT_ATTEMPTS) {
         const attempt = reconnectAttemptRef.current;
-        // Exponential backoff with jitter
         const delay = Math.min(
-          WS_CONFIG.RECONNECT_BASE_DELAY * Math.pow(2, attempt) +
-            Math.random() * 1000,
+          WS_CONFIG.RECONNECT_BASE_DELAY * Math.pow(2, attempt) + Math.random() * 1000,
           WS_CONFIG.RECONNECT_MAX_DELAY
         );
 
-        console.log(
-          `[AeroNyx WS] Reconnecting in ${Math.round(delay)}ms (attempt ${attempt + 1}/${WS_CONFIG.MAX_RECONNECT_ATTEMPTS})`
-        );
         setConnectionState('reconnecting');
         reconnectAttemptRef.current = attempt + 1;
 
@@ -481,7 +586,6 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
           connect();
         }, delay);
       } else {
-        console.error('[AeroNyx WS] Max reconnect attempts reached');
         setConnectionState('error');
         setMessages((prev) => [
           ...prev,
@@ -496,20 +600,23 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
       }
     };
 
-    ws.onerror = (event) => {
-      console.error('[AeroNyx WS] Error event:', event);
+    ws.onerror = () => {
       // onclose will fire after this — reconnect logic lives there
     };
   }, [
     nodeId,
     apiKey,
     clearPingPong,
+    destroyE2E,
     handleAuthOk,
     handlePong,
     handleAck,
     handleStream,
     handleResponse,
     handleWsError,
+    handleE2eReady,
+    handleE2eStream,
+    handleE2eResponse,
   ]);
 
   // ============================================
@@ -520,34 +627,49 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     (prompt: string, options?: SendOptions) => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        console.warn('[AeroNyx WS] Cannot send — not connected');
+        console.warn('[WS] Cannot send — not connected');
         return;
       }
 
       const requestId = generateId();
-      const message = {
-        type: 'agent_request',
-        request_id: requestId,
-        action: options?.action || 'chat',
-        payload: {
-          prompt,
-          model: options?.model || 'default',
-          stream: options?.stream !== false, // default true
-        },
-      };
+      const action = options?.action || 'chat';
+      const e2e = e2eSessionRef.current;
+
+      // 🔐 E2E: encrypt chat messages when handshake is complete
+      // MPI and non-chat actions always use plaintext
+      if (action === 'chat' && e2e && e2e.isReady()) {
+        const { nonce, ciphertext } = e2e.encrypt(prompt);
+        ws.send(JSON.stringify({
+          type: 'e2e_message',
+          request_id: requestId,
+          action: 'chat',
+          nonce,
+          ciphertext,
+        }));
+      } else {
+        // Plaintext mode (fallback or non-chat action)
+        ws.send(JSON.stringify({
+          type: 'agent_request',
+          request_id: requestId,
+          action,
+          payload: {
+            prompt,
+            model: options?.model || 'default',
+            stream: options?.stream !== false,
+          },
+        }));
+      }
 
       // Add user message to state immediately
       setMessages((prev) => [
         ...prev,
         {
-          id: generateId(), // separate ID for user msg
+          id: generateId(), // separate ID for user message
           role: 'user',
           content: prompt,
           timestamp: Date.now(),
         },
       ]);
-
-      ws.send(JSON.stringify(message));
     },
     []
   );
@@ -556,6 +678,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     intentionalCloseRef.current = true;
     clearReconnectTimer();
     clearPingPong();
+    destroyE2E(); // 🔐
 
     if (wsRef.current) {
       wsRef.current.close(1000, 'User disconnected');
@@ -564,7 +687,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     setConnectionState('disconnected');
     setIsStreaming(false);
     activeStreamIdRef.current = null;
-  }, [clearReconnectTimer, clearPingPong]);
+  }, [clearReconnectTimer, clearPingPong, destroyE2E]);
 
   const reconnect = useCallback(() => {
     reconnectAttemptRef.current = 0;
@@ -579,7 +702,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
   }, []);
 
   // ============================================
-  // Lifecycle: Connect on mount, cleanup on unmount
+  // Lifecycle
   // ============================================
 
   useEffect(() => {
@@ -591,6 +714,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
       intentionalCloseRef.current = true;
       clearReconnectTimer();
       clearPingPong();
+      destroyE2E(); // 🔐
       if (wsRef.current) {
         wsRef.current.close(1000, 'Component unmounted');
         wsRef.current = null;
@@ -608,5 +732,6 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     reconnect,
     clearMessages,
     isStreaming,
+    isE2E, // 🔐
   };
 }
