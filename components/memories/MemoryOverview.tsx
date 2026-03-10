@@ -4,20 +4,23 @@
  * ============================================
  * File Path: components/memories/MemoryOverview.tsx
  *
- * Modification Reason (v1.1.0):
- *   - Updated for new API format (recent_by_layer, Unix timestamps)
- *   - Uses MemoryDisplayRecord throughout
- *   - Edit sheet receives MemoryDisplayRecord instead of MemoryRecord
- *   - Save handler maps MemoryDisplayRecord back to MemoryRememberRequest
+ * Modification Reason (v2.0.0):
+ *   Complete redesign for "This AI truly knows me" emotional feel:
+ *   - Replaced StatusCard with MemoryHero (neural constellation)
+ *   - Spotlight search: floating search with backdrop dim
+ *   - Refined list layout with better spacing
+ *   - Smooth transitions between search and browse modes
+ *   - Add memory button integrated into hero area
  *
  * Main Functionality:
- *   - Status card + search bar + memory list + edit sheet
- *   - Search/browse mode auto-switch
+ *   - MemoryHero (constellation + stats) at top
+ *   - Action bar: search + add button
+ *   - Grouped memory list (overview) or flat results (search)
+ *   - Edit/Create sheet
  *   - Toast notifications
- *   - Offline node detection handled by parent page
  *
- * Last Modified: v1.1.0 - Aligned with actual API format
- * Previous: v1.0.0 - Initial overview
+ * Last Modified: v2.0.0 - Emotional redesign with neural constellation
+ * Previous: v1.1.0 - Aligned with actual API format
  * ============================================
  */
 
@@ -38,7 +41,7 @@ import {
   MemorySearchRequest,
   MemoryLayer,
 } from '@/types/memory';
-import MemoryStatusCard from './MemoryStatusCard';
+import MemoryHero from './MemoryHero';
 import MemoryList, { MemoryListSkeleton } from './MemoryList';
 import MemoryEditSheet from './MemoryEditSheet';
 
@@ -58,101 +61,165 @@ function Toast({ message, variant }: { message: string; variant: 'success' | 'er
   return (
     <div className={`
       fixed top-6 left-1/2 -translate-x-1/2 z-[60]
-      px-4 py-2 rounded-lg text-sm font-medium shadow-xl
+      px-4 py-2.5 rounded-xl text-sm font-medium shadow-2xl
+      backdrop-blur-lg
+      motion-safe:animate-[slideDown_0.3s_ease-out]
       ${variant === 'success'
-        ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-300'
-        : 'bg-red-500/20 border border-red-500/30 text-red-300'
+        ? 'bg-emerald-500/15 border border-emerald-500/25 text-emerald-300'
+        : 'bg-red-500/15 border border-red-500/25 text-red-300'
       }
     `}>
-      {message}
+      <div className="flex items-center gap-2">
+        {variant === 'success' ? (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+        ) : (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        )}
+        {message}
+      </div>
     </div>
   );
 }
 
 // ============================================
-// Search Bar
+// Action Bar (search + add)
 // ============================================
 
-interface SearchBarProps {
-  value: string;
-  onChange: (value: string) => void;
+interface ActionBarProps {
+  searchValue: string;
+  onSearchChange: (value: string) => void;
   isSearching: boolean;
   onAddMemory: () => void;
   layerFilter: MemoryLayer | null;
   onLayerFilterChange: (layer: MemoryLayer | null) => void;
+  isSearchMode: boolean;
 }
 
-function SearchBar({ value, onChange, isSearching, onAddMemory, layerFilter, onLayerFilterChange }: SearchBarProps) {
+function ActionBar({
+  searchValue,
+  onSearchChange,
+  isSearching,
+  onAddMemory,
+  layerFilter,
+  onLayerFilterChange,
+  isSearchMode,
+}: ActionBarProps) {
   return (
-    <div className="flex flex-col sm:flex-row gap-3 mb-6">
-      <div className="relative flex-1">
-        <svg
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"
-          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+    <div className="mb-6">
+      <div className="flex gap-2 sm:gap-3">
+        {/* Search */}
+        <div className="relative flex-1">
+          <svg
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search memories with natural language..."
+            value={searchValue}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="
+              w-full pl-10 pr-4 py-2.5 sm:py-3 rounded-xl
+              bg-white/[0.03] border border-white/[0.06]
+              text-sm text-white placeholder-gray-600
+              focus:outline-none focus:border-purple-500/30 focus:bg-white/[0.05]
+              transition-all duration-200
+            "
+          />
+          {isSearching && (
+            <div className="absolute right-3.5 top-1/2 -translate-y-1/2">
+              <div className="w-4 h-4 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+            </div>
+          )}
+        </div>
+
+        {/* Layer filter (during search) */}
+        {isSearchMode && (
+          <select
+            value={layerFilter ?? ''}
+            onChange={(e) => onLayerFilterChange(e.target.value ? e.target.value as MemoryLayer : null)}
+            className="
+              hidden sm:block px-3 py-2.5 rounded-xl
+              bg-white/[0.03] border border-white/[0.06]
+              text-sm text-gray-400 outline-none
+              focus:border-purple-500/30 transition-colors
+              appearance-none cursor-pointer
+            "
+            style={{
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 8px center',
+              backgroundSize: '16px',
+              paddingRight: '32px',
+            }}
+          >
+            <option value="">All layers</option>
+            <option value="identity">🧬 Identity</option>
+            <option value="knowledge">📚 Knowledge</option>
+            <option value="episode">📝 Episodes</option>
+            <option value="archive">🗄️ Archive</option>
+          </select>
+        )}
+
+        {/* Add button */}
+        <button
+          onClick={onAddMemory}
+          className="
+            flex items-center justify-center gap-2
+            px-4 py-2.5 sm:py-3 rounded-xl
+            bg-purple-600 hover:bg-purple-500 active:bg-purple-700
+            text-sm font-medium text-white
+            shadow-lg shadow-purple-500/20 transition-all duration-200
+            hover:shadow-purple-500/30 active:scale-[0.98]
+            flex-shrink-0
+          "
         >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          <span className="hidden sm:inline">Teach AI</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// Search Results Header
+// ============================================
+
+function SearchResultsHeader({
+  query,
+  count,
+  onClear,
+}: {
+  query: string;
+  count: number;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center gap-2">
+        <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
-        <input
-          type="text"
-          placeholder="Search memories semantically..."
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="
-            w-full pl-10 pr-4 py-2.5 rounded-xl
-            bg-white/[0.04] border border-white/[0.08]
-            text-sm text-white placeholder-gray-500
-            focus:outline-none focus:border-purple-500/30
-            transition-colors
-          "
-        />
-        {isSearching && (
-          <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            <div className="w-4 h-4 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
-          </div>
-        )}
+        <p className="text-sm text-gray-400">
+          <span className="text-white font-medium">{count}</span>
+          {' '}result{count !== 1 ? 's' : ''} for{' '}
+          <span className="text-purple-300">&quot;{query}&quot;</span>
+        </p>
       </div>
-
-      {value.trim().length > 0 && (
-        <select
-          value={layerFilter ?? ''}
-          onChange={(e) => onLayerFilterChange(e.target.value ? e.target.value as MemoryLayer : null)}
-          className="
-            px-3 py-2.5 rounded-xl
-            bg-white/[0.04] border border-white/[0.08]
-            text-sm text-gray-400 outline-none
-            focus:border-purple-500/30 transition-colors
-            appearance-none cursor-pointer
-          "
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`,
-            backgroundRepeat: 'no-repeat',
-            backgroundPosition: 'right 8px center',
-            backgroundSize: '16px',
-            paddingRight: '32px',
-          }}
-        >
-          <option value="">All layers</option>
-          <option value="identity">🧬 Identity</option>
-          <option value="knowledge">📚 Knowledge</option>
-          <option value="episode">📝 Episodes</option>
-          <option value="archive">🗄️ Archive</option>
-        </select>
-      )}
-
       <button
-        onClick={onAddMemory}
-        className="
-          flex items-center justify-center gap-2
-          px-4 py-2.5 rounded-xl
-          bg-purple-600 hover:bg-purple-500 active:bg-purple-700
-          text-sm font-medium text-white
-          shadow-lg shadow-purple-500/20 transition-colors flex-shrink-0
-        "
+        onClick={onClear}
+        className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1 rounded-lg hover:bg-white/5 transition-colors"
       >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-        </svg>
-        <span className="hidden sm:inline">Add Memory</span>
+        Clear
       </button>
     </div>
   );
@@ -199,8 +266,13 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
       const params: MemorySearchRequest = { query: trimmed, top_k: 20 };
       if (layerFilter) params.layer_filter = layerFilter;
       search(params);
-    }, 500);
+    }, 600);
   }, [search, resetSearch, layerFilter]);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery('');
+    resetSearch();
+  }, [resetSearch]);
 
   // Re-search when layer filter changes
   useEffect(() => {
@@ -241,24 +313,15 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
 
       if (oldRecordId) {
         const result = await editMutation.mutateAsync({ oldRecordId, newData: data });
-        if (result.status === 'duplicate') {
-          showToast('This memory already exists.', 'error');
-        } else {
-          showToast('Memory updated successfully.');
-        }
+        showToast(result.status === 'duplicate' ? 'This memory already exists.' : 'Memory updated');
       } else {
         const result = await rememberMutation.mutateAsync(data);
-        if (result.status === 'duplicate') {
-          showToast('This memory already exists.', 'error');
-        } else {
-          showToast('Memory created successfully.');
-        }
+        showToast(result.status === 'duplicate' ? 'This memory already exists.' : 'Memory created');
       }
 
       handleCloseSheet();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save memory.';
-      setSheetError(message);
+      setSheetError(err instanceof Error ? err.message : 'Failed to save memory.');
     }
   }, [editMutation, rememberMutation, showToast, handleCloseSheet]);
 
@@ -266,7 +329,7 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
     try {
       setDeletingId(recordId);
       await forgetMutation.mutateAsync(recordId);
-      showToast('Memory deleted. AI will no longer recall this.');
+      showToast('Memory forgotten. Your AI will no longer recall this.');
     } catch {
       showToast('Failed to delete memory.', 'error');
     } finally {
@@ -281,29 +344,44 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
     <div>
       {toast && <Toast message={toast.message} variant={toast.variant} />}
 
-      <MemoryStatusCard status={status} isLoading={statusLoading} />
+      {/* Hero — constellation + stats */}
+      <MemoryHero
+        status={status}
+        overview={overview}
+        isLoading={statusLoading}
+      />
 
-      <SearchBar
-        value={searchQuery}
-        onChange={handleSearchChange}
+      {/* Action bar */}
+      <ActionBar
+        searchValue={searchQuery}
+        onSearchChange={handleSearchChange}
         isSearching={isSearching}
         onAddMemory={handleAddNew}
         layerFilter={layerFilter}
         onLayerFilterChange={setLayerFilter}
+        isSearchMode={isSearchMode}
       />
 
+      {/* Content */}
       {isSearchMode ? (
         isSearching && !searchResults ? (
-          <div className="py-12 flex flex-col items-center gap-3">
-            <div className="w-8 h-8 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
-            <p className="text-sm text-gray-500">Searching memories...</p>
+          <div className="py-16 flex flex-col items-center gap-3">
+            <div className="relative">
+              <div className="w-10 h-10 border-2 border-purple-500/20 border-t-purple-500 rounded-full animate-spin" />
+              <svg className="absolute inset-0 m-auto w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <p className="text-sm text-gray-500">Searching through memories...</p>
           </div>
         ) : (
           <div>
             {searchResults && (
-              <p className="text-xs text-gray-500 mb-3">
-                {searchResults.results.length} result{searchResults.results.length !== 1 ? 's' : ''} for &quot;{searchResults.query}&quot;
-              </p>
+              <SearchResultsHeader
+                query={searchResults.query}
+                count={searchResults.results.length}
+                onClear={handleClearSearch}
+              />
             )}
             <MemoryList
               mode="flat"
@@ -311,7 +389,7 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
               onEdit={handleEdit}
               onDelete={handleDelete}
               deletingId={deletingId}
-              emptyMessage={`No memories found for "${searchQuery}". Your AI agent is still learning.`}
+              emptyMessage={`No memories match "${searchQuery}". Your AI is still learning about you.`}
             />
           </div>
         )
@@ -327,12 +405,19 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
             deletingId={deletingId}
           />
         ) : (
-          <div className="py-12 text-center">
-            <p className="text-sm text-gray-500">No memories loaded.</p>
+          <div className="py-16 text-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-purple-500/10 flex items-center justify-center">
+              <svg className="w-8 h-8 text-purple-400/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+              </svg>
+            </div>
+            <p className="text-sm text-gray-500 mb-1">No memories yet</p>
+            <p className="text-xs text-gray-600">Start chatting with your AI to build memories, or teach it manually.</p>
           </div>
         )
       )}
 
+      {/* Edit / Create Sheet */}
       <MemoryEditSheet
         isOpen={isSheetOpen}
         onClose={handleCloseSheet}
