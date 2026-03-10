@@ -4,19 +4,30 @@
  * ============================================
  * File Path: app/dashboard/nodes/[id]/memories/page.tsx
  *
- * Creation Reason: Route page for the MemChain Memory Explorer.
- *   Route: /dashboard/nodes/[id]/memories
- *   Validates node exists and is online before rendering the explorer.
+ * Modification Reason (v1.1.0):
+ *   - BUGFIX #18: Added Agent status check before rendering MemoryOverview.
+ *     Problem: Page only checked node.status === 'online', but if the Agent
+ *     is not running (stopped/not_installed/error), all MPI requests return 503.
+ *     User would see empty state or errors with no explanation.
+ *     Fix: Fetch agent status via useAgentStatus hook. Show a clear gate UI
+ *     if agent is not in 'running' state, guiding user to start the agent.
+ *   - Simplified page header (removed redundant empty right side)
+ *
+ * Previous (v1.0.0):
+ *   Route page that validates node exists and is online, then renders
+ *   MemoryOverview. No agent status check.
  *
  * Main Functionality:
  *   - Validates node exists via useNodeDetail
  *   - Checks node is online (MPI requires online node)
- *   - Shows offline/error/loading states with appropriate guidance
+ *   - Checks agent is running (MPI requires active agent)
+ *   - Shows offline/agent-not-running/error/loading states
  *   - Renders MemoryOverview component when all checks pass
  *   - Back navigation to node detail page
  *
  * Dependencies:
  *   - hooks/useNodes.ts (useNodeDetail)
+ *   - hooks/useAgent.ts (useAgentStatus)
  *   - components/memories/MemoryOverview.tsx
  *   - components/common/Button.tsx
  *   - components/common/Card.tsx
@@ -24,15 +35,20 @@
  * Main Logical Flow:
  *   1. Extract nodeId from route params
  *   2. Fetch node detail to validate existence and status
- *   3. If offline → show offline state with guidance
- *   4. If online → render MemoryOverview
+ *   3. If offline → show offline gate
+ *   4. Fetch agent status
+ *   5. If agent not running → show agent gate with guidance
+ *   6. If all checks pass → render MemoryOverview
  *
  * ⚠️ Important Note for Next Developer:
- * - All MPI API calls return 503 when node is offline
- * - This page prevents MPI calls when offline (avoids 30s timeout waits)
- * - MemoryOverview assumes node is online — it does NOT check node status
+ * - All MPI API calls return 503 when node is offline OR agent not running
+ * - This page prevents MPI calls in both cases (avoids 30s timeout waits)
+ * - MemoryOverview assumes node is online + agent running — it does NOT check
+ * - useAgentStatus may return null during loading; handle gracefully
+ * - Agent status 'running' is the ONLY state where MPI works
  *
- * Last Modified: v1.0.0 - Initial memory explorer page
+ * Last Modified: v1.1.0 - Added Agent status check (#18)
+ * Previous: v1.0.0 - Initial memory explorer page
  * ============================================
  */
 
@@ -41,6 +57,7 @@
 import React from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useNodeDetail } from '@/hooks/useNodes';
+import { useAgentStatus } from '@/hooks/useAgent';
 import MemoryOverview from '@/components/memories/MemoryOverview';
 import Button from '@/components/common/Button';
 import Card from '@/components/common/Card';
@@ -66,7 +83,7 @@ function BackButton({ nodeId }: { nodeId: string }) {
 }
 
 // ============================================
-// Gate Component (for offline/error states)
+// Gate Component (for offline/error/agent states)
 // ============================================
 
 interface GateProps {
@@ -113,10 +130,10 @@ function Loading() {
       <div className="h-6 w-24 bg-white/5 rounded mb-6 animate-pulse" />
       <div className="space-y-6">
         <div className="h-32 bg-white/5 rounded-2xl animate-pulse" />
-        <div className="h-12 bg-white/5 rounded-xl animate-pulse" />
-        <div className="space-y-3">
+        <div className="h-10 bg-white/5 rounded-xl animate-pulse" />
+        <div className="space-y-2">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-24 bg-white/[0.03] rounded-xl animate-pulse" />
+            <div key={i} className="h-10 bg-white/[0.03] rounded-lg animate-pulse" />
           ))}
         </div>
       </div>
@@ -133,15 +150,21 @@ export default function MemoriesPage() {
   const router = useRouter();
   const nodeId = params.id as string;
 
-  const { node, isLoading, isError } = useNodeDetail(nodeId);
+  const { node, isLoading: nodeLoading, isError: nodeError } = useNodeDetail(nodeId);
+  // Only fetch agent status when node is confirmed online
+  // (avoids unnecessary 503 request when node is offline)
+  const isNodeOnline = !!node && node.status === 'online';
+  const { agentStatus, isLoading: agentLoading } = useAgentStatus(
+    isNodeOnline ? nodeId : ''
+  );
 
-  // Loading
-  if (isLoading) {
+  // Loading (node first, then agent)
+  if (nodeLoading) {
     return <Loading />;
   }
 
   // Node not found
-  if (isError || !node) {
+  if (nodeError || !node) {
     return (
       <Gate
         nodeId={nodeId}
@@ -180,19 +203,64 @@ export default function MemoriesPage() {
     );
   }
 
+  // Agent loading (only after node is confirmed online)
+  if (agentLoading) {
+    return <Loading />;
+  }
+
+  // Agent not running (#18)
+  // agentStatus is AgentStatus | null (a string like 'running', not an object)
+  const agentNotReady = !agentStatus || agentStatus !== 'running';
+
+  if (agentNotReady) {
+    const isInstalled = agentStatus === 'installed' || agentStatus === 'stopped';
+    const isTransitional = agentStatus === 'installing' || agentStatus === 'starting' || agentStatus === 'stopping' || agentStatus === 'updating';
+
+    let title = 'AI Agent Not Running';
+    let description = `Memory management requires OpenClaw to be running on "${node.name}".`;
+
+    if (!agentStatus || agentStatus === 'not_installed') {
+      title = 'AI Agent Not Installed';
+      description = `Install and start OpenClaw on "${node.name}" to manage AI memories.`;
+    } else if (isTransitional) {
+      title = 'AI Agent Starting...';
+      description = `OpenClaw is currently ${agentStatus}. Please wait a moment and try again.`;
+    } else if (agentStatus === 'error') {
+      title = 'AI Agent Error';
+      description = `OpenClaw encountered an error on "${node.name}". Please check the agent panel.`;
+    } else if (isInstalled) {
+      description = `OpenClaw is installed but not running on "${node.name}". Start the agent first.`;
+    }
+
+    return (
+      <Gate
+        nodeId={nodeId}
+        title={title}
+        description={description}
+        icon={
+          <svg className="w-8 h-8 text-purple-400/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+          </svg>
+        }
+        action={{
+          label: isTransitional ? 'Please Wait...' : 'Go to Node',
+          onClick: () => router.push(`/dashboard/nodes/${nodeId}`),
+        }}
+      />
+    );
+  }
+
   // All checks passed — render Memory Explorer
   return (
     <div className="max-w-7xl mx-auto">
       <BackButton nodeId={nodeId} />
 
       {/* Page Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white">AI Memory</h1>
-          <p className="text-sm text-gray-400 mt-1">
-            Manage what {node.name}&apos;s AI remembers about you
-          </p>
-        </div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-white">AI Memory</h1>
+        <p className="text-sm text-gray-400 mt-1">
+          Manage what {node.name}&apos;s AI remembers about you
+        </p>
       </div>
 
       {/* Memory Explorer */}
