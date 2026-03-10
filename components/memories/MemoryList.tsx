@@ -115,31 +115,26 @@ function LayerSection({
 
   return (
     <div className="mb-3">
-      {/* Section header */}
+      {/* Section header — line-separated, minimal */}
       <div
         role="button"
         tabIndex={0}
         onClick={toggle}
         onKeyDown={handleKeyDown}
         className="
-          flex items-center justify-between gap-2
-          px-2 py-1.5 rounded-lg
-          hover:bg-white/[0.03] active:bg-white/[0.05]
-          transition-colors cursor-pointer select-none
+          flex items-center gap-3 py-2 cursor-pointer select-none
+          group
         "
       >
         <div className="flex items-center gap-2">
-          <span className="text-sm leading-none">{config.icon}</span>
-          <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+          <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
             {config.labelEn}
           </span>
-          <span className={`
-            px-1.5 py-0.5 rounded text-[10px] font-medium
-            ${config.bgColor} ${config.textColor}
-          `}>
-            {count}
+          <span className="text-xs text-gray-600">
+            {count} {count === 1 ? 'memory' : 'memories'}
           </span>
         </div>
+        <div className="flex-1 h-px bg-white/[0.04]" />
         <svg
           className={`w-3.5 h-3.5 text-gray-600 transition-transform duration-200 ${
             collapsed ? '' : 'rotate-180'
@@ -152,9 +147,9 @@ function LayerSection({
 
       {/* Records */}
       {!collapsed && (
-        <div className="mt-1 space-y-1 sm:space-y-0.5">
+        <div className="space-y-0">
           {records.length === 0 ? (
-            <p className="text-xs text-gray-600 px-2 py-3 text-center">
+            <p className="text-xs text-gray-600 py-3 text-center">
               No {config.labelEn.toLowerCase()} memories yet
             </p>
           ) : (
@@ -240,7 +235,7 @@ function FlatList({ records, onEdit, onDelete, deletingId, emptyMessage }: FlatL
   }
 
   return (
-    <div className="space-y-1 sm:space-y-0.5">
+    <div className="space-y-0">
       {displayRecords.map((record) => (
         <MemoryCard
           key={record.record_id}
