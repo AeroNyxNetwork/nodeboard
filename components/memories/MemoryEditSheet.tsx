@@ -4,9 +4,17 @@
  * ============================================
  * File Path: components/memories/MemoryEditSheet.tsx
  *
- * Modification Reason (v1.1.0):
- *   - Uses MemoryDisplayRecord instead of MemoryRecord
- *   - Works with both overview records and search/detail records
+ * Modification Reason (v1.2.0):
+ *   - BUGFIX #14: Tag input onBlur race condition.
+ *     Problem: When user types a tag and clicks Save directly, onBlur fires
+ *     addTag() but React state update is async, so handleSave reads stale `tags`.
+ *     Fix: Use a ref (tagsRef) as source of truth alongside state. onBlur writes
+ *     to both ref and state. handleSave reads from ref, not state.
+ *   - No visual changes to the sheet layout
+ *
+ * Previous (v1.1.0):
+ *   Uses MemoryDisplayRecord instead of MemoryRecord.
+ *   Works with both overview records and search/detail records.
  *
  * Main Functionality:
  *   - Content textarea (required)
@@ -19,8 +27,15 @@
  * Dependencies:
  *   - types/memory.ts (MemoryDisplayRecord, MemoryLayer, etc.)
  *
- * Last Modified: v1.1.0 - Use MemoryDisplayRecord
- * Previous: v1.0.0 - Initial edit sheet
+ * ⚠️ Important Note for Next Developer:
+ * - tagsRef is the source of truth for tags when saving.
+ *   Do NOT read from `tags` state in handleSave — it may be stale
+ *   due to the onBlur → setState async timing.
+ * - Both `tags` state (for UI rendering) and `tagsRef` (for saving)
+ *   must be kept in sync. Always update both.
+ *
+ * Last Modified: v1.2.0 - Fix tag onBlur race condition (#14)
+ * Previous: v1.1.0 - Use MemoryDisplayRecord
  * ============================================
  */
 
@@ -56,23 +71,29 @@ interface MemoryEditSheetProps {
 interface TagInputProps {
   tags: string[];
   onChange: (tags: string[]) => void;
+  /** Ref kept in sync for save-time reads */
+  tagsRef: React.MutableRefObject<string[]>;
 }
 
-function TagInput({ tags, onChange }: TagInputProps) {
+function TagInput({ tags, onChange, tagsRef }: TagInputProps) {
   const [inputValue, setInputValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const addTag = useCallback((value: string) => {
     const trimmed = value.trim().toLowerCase();
     if (trimmed && !tags.includes(trimmed)) {
-      onChange([...tags, trimmed]);
+      const updated = [...tags, trimmed];
+      onChange(updated);
+      tagsRef.current = updated;
     }
     setInputValue('');
-  }, [tags, onChange]);
+  }, [tags, onChange, tagsRef]);
 
   const removeTag = useCallback((tag: string) => {
-    onChange(tags.filter((t) => t !== tag));
-  }, [tags, onChange]);
+    const updated = tags.filter((t) => t !== tag);
+    onChange(updated);
+    tagsRef.current = updated;
+  }, [tags, onChange, tagsRef]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ',') {
@@ -83,6 +104,17 @@ function TagInput({ tags, onChange }: TagInputProps) {
       removeTag(tags[tags.length - 1]);
     }
   }, [inputValue, tags, addTag, removeTag]);
+
+  /**
+   * onBlur: commit pending input value as a tag.
+   * Uses requestAnimationFrame to allow the state update to propagate
+   * before any subsequent Save click handler reads from tagsRef.
+   */
+  const handleBlur = useCallback(() => {
+    if (inputValue.trim()) {
+      addTag(inputValue);
+    }
+  }, [inputValue, addTag]);
 
   return (
     <div
@@ -109,6 +141,7 @@ function TagInput({ tags, onChange }: TagInputProps) {
             onClick={(e) => { e.stopPropagation(); removeTag(tag); }}
             className="hover:text-white transition-colors"
             aria-label={`Remove tag ${tag}`}
+            type="button"
           >
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -121,7 +154,7 @@ function TagInput({ tags, onChange }: TagInputProps) {
         value={inputValue}
         onChange={(e) => setInputValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        onBlur={() => { if (inputValue) addTag(inputValue); }}
+        onBlur={handleBlur}
         placeholder={tags.length === 0 ? 'Add tags (Enter or comma)' : ''}
         className="flex-1 min-w-[80px] bg-transparent text-sm text-white placeholder-gray-600 outline-none"
       />
@@ -147,17 +180,28 @@ export default function MemoryEditSheet({
   const [layer, setLayer] = useState<MemoryLayer>('knowledge');
   const [tags, setTags] = useState<string[]>([]);
 
+  /**
+   * tagsRef: source of truth for tags when saving.
+   * Fixes #14: onBlur → addTag → setState is async,
+   * so handleSave might read stale `tags` state.
+   * tagsRef is updated synchronously by TagInput.
+   */
+  const tagsRef = useRef<string[]>([]);
+
   // Reset form when record changes or sheet opens
   useEffect(() => {
     if (isOpen) {
       if (record) {
         setContent(record.content);
         setLayer(record.layer);
-        setTags([...record.topic_tags]);
+        const initialTags = [...record.topic_tags];
+        setTags(initialTags);
+        tagsRef.current = initialTags;
       } else {
         setContent('');
         setLayer('knowledge');
         setTags([]);
+        tagsRef.current = [];
       }
     }
   }, [isOpen, record]);
@@ -176,15 +220,16 @@ export default function MemoryEditSheet({
     const trimmed = content.trim();
     if (!trimmed) return;
 
+    // Read tags from ref (source of truth) to avoid stale state (#14)
     const data: MemoryRememberRequest = {
       content: trimmed,
       layer,
-      topic_tags: tags,
+      topic_tags: tagsRef.current,
       source_ai: isEditMode ? record!.source_ai : 'manual',
     };
 
     await onSave(data, isEditMode ? record!.record_id : undefined);
-  }, [content, layer, tags, isEditMode, record, onSave]);
+  }, [content, layer, isEditMode, record, onSave]);
 
   const canSave = content.trim().length > 0 && !isSaving;
 
@@ -230,6 +275,7 @@ export default function MemoryEditSheet({
               disabled={isSaving}
               className="p-1.5 rounded-lg hover:bg-white/5 text-gray-500 hover:text-gray-300 transition-colors"
               aria-label="Close"
+              type="button"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -293,7 +339,7 @@ export default function MemoryEditSheet({
           {/* Tags */}
           <div className="mb-4">
             <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">Tags</label>
-            <TagInput tags={tags} onChange={setTags} />
+            <TagInput tags={tags} onChange={setTags} tagsRef={tagsRef} />
           </div>
 
           {/* Source (edit mode) */}
@@ -316,6 +362,7 @@ export default function MemoryEditSheet({
             <button
               onClick={onClose}
               disabled={isSaving}
+              type="button"
               className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 border border-white/[0.08] text-sm font-medium text-gray-400 hover:bg-white/10 disabled:opacity-50 transition-colors"
             >
               Cancel
@@ -323,6 +370,7 @@ export default function MemoryEditSheet({
             <button
               onClick={handleSave}
               disabled={!canSave}
+              type="button"
               className="flex-1 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 active:bg-purple-700 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-purple-500/20"
             >
               {isSaving ? (
