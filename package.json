@@ -1,6 +1,6 @@
 {
   "name": "aeronyx-privacy-network",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -16,7 +16,10 @@
     "framer-motion": "^11.0.0",
     "zustand": "^4.5.0",
     "@tanstack/react-query": "^5.28.0",
-    "@tanstack/react-query-devtools": "^5.28.0"
+    "@tanstack/react-query-devtools": "^5.28.0",
+    "@stablelib/xchacha20poly1305": "^1.0.1",
+    "@stablelib/x25519": "^1.0.3",
+    "@stablelib/random": "^1.0.2"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
