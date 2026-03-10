@@ -4,23 +4,40 @@
  * ============================================
  * File Path: components/memories/MemoryOverview.tsx
  *
- * Modification Reason (v2.0.0):
- *   Complete redesign for "This AI truly knows me" emotional feel:
- *   - Replaced StatusCard with MemoryHero (neural constellation)
- *   - Spotlight search: floating search with backdrop dim
- *   - Refined list layout with better spacing
- *   - Smooth transitions between search and browse modes
- *   - Add memory button integrated into hero area
+ * Modification Reason (v3.0.0):
+ *   Information architecture redesign — "useful > decorative":
+ *   - MemoryHero v2.0.0: Cognitive Summary replaces particle constellation
+ *   - MemoryCard v2.0.0: Desktop rows / Mobile cards (responsive)
+ *   - Tighter spacing, higher information density
+ *   - Search debounce reduced from 600ms to 500ms
+ *   - Toast system unchanged
+ *
+ * Previous (v2.0.0):
+ *   "This AI truly knows me" emotional feel with neural constellation,
+ *   spotlight search, MemoryHero particles at top.
  *
  * Main Functionality:
- *   - MemoryHero (constellation + stats) at top
- *   - Action bar: search + add button
+ *   - MemoryHero (cognitive summary + stats) at top
+ *   - Action bar: search + layer filter + add button
  *   - Grouped memory list (overview) or flat results (search)
- *   - Edit/Create sheet
+ *   - Edit/Create sheet (with tag onBlur fix)
  *   - Toast notifications
  *
- * Last Modified: v2.0.0 - Emotional redesign with neural constellation
- * Previous: v1.1.0 - Aligned with actual API format
+ * Dependencies:
+ *   - hooks/useMemories.ts (all memory hooks)
+ *   - types/memory.ts (types + display helpers)
+ *   - components/memories/MemoryHero.tsx (v2.0.0 cognitive summary)
+ *   - components/memories/MemoryList.tsx (v2.0.0 compact layout)
+ *   - components/memories/MemoryEditSheet.tsx (v1.2.0 tag fix)
+ *
+ * ⚠️ Important Note for Next Developer:
+ * - This component assumes node is online — page.tsx gates offline state
+ * - Search uses useMutation (POST), not useQuery — manual trigger
+ * - Edit = forget + remember (not atomic); error messaging handles partial failure
+ * - The search debounce timer must be cleaned up on unmount
+ *
+ * Last Modified: v3.0.0 - Information architecture redesign
+ * Previous: v2.0.0 - Emotional redesign with neural constellation
  * ============================================
  */
 
@@ -86,7 +103,7 @@ function Toast({ message, variant }: { message: string; variant: 'success' | 'er
 }
 
 // ============================================
-// Action Bar (search + add)
+// Action Bar (search + filter + add)
 // ============================================
 
 interface ActionBarProps {
@@ -109,23 +126,23 @@ function ActionBar({
   isSearchMode,
 }: ActionBarProps) {
   return (
-    <div className="mb-6">
-      <div className="flex gap-2 sm:gap-3">
+    <div className="mb-4">
+      <div className="flex gap-2">
         {/* Search */}
         <div className="relative flex-1">
           <svg
-            className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"
             fill="none" stroke="currentColor" viewBox="0 0 24 24"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
             type="text"
-            placeholder="Search memories with natural language..."
+            placeholder="Search memories..."
             value={searchValue}
             onChange={(e) => onSearchChange(e.target.value)}
             className="
-              w-full pl-10 pr-4 py-2.5 sm:py-3 rounded-xl
+              w-full pl-9 pr-4 py-2 rounded-lg
               bg-white/[0.03] border border-white/[0.06]
               text-sm text-white placeholder-gray-600
               focus:outline-none focus:border-purple-500/30 focus:bg-white/[0.05]
@@ -133,19 +150,19 @@ function ActionBar({
             "
           />
           {isSearching && (
-            <div className="absolute right-3.5 top-1/2 -translate-y-1/2">
-              <div className="w-4 h-4 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <div className="w-3.5 h-3.5 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
             </div>
           )}
         </div>
 
-        {/* Layer filter (during search) */}
+        {/* Layer filter */}
         {isSearchMode && (
           <select
             value={layerFilter ?? ''}
             onChange={(e) => onLayerFilterChange(e.target.value ? e.target.value as MemoryLayer : null)}
             className="
-              hidden sm:block px-3 py-2.5 rounded-xl
+              hidden sm:block px-3 py-2 rounded-lg
               bg-white/[0.03] border border-white/[0.06]
               text-sm text-gray-400 outline-none
               focus:border-purple-500/30 transition-colors
@@ -155,8 +172,8 @@ function ActionBar({
               backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`,
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'right 8px center',
-              backgroundSize: '16px',
-              paddingRight: '32px',
+              backgroundSize: '14px',
+              paddingRight: '28px',
             }}
           >
             <option value="">All layers</option>
@@ -172,7 +189,7 @@ function ActionBar({
           onClick={onAddMemory}
           className="
             flex items-center justify-center gap-2
-            px-4 py-2.5 sm:py-3 rounded-xl
+            px-3 py-2 rounded-lg
             bg-purple-600 hover:bg-purple-500 active:bg-purple-700
             text-sm font-medium text-white
             shadow-lg shadow-purple-500/20 transition-all duration-200
@@ -204,17 +221,12 @@ function SearchResultsHeader({
   onClear: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between mb-4">
-      <div className="flex items-center gap-2">
-        <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-        <p className="text-sm text-gray-400">
-          <span className="text-white font-medium">{count}</span>
-          {' '}result{count !== 1 ? 's' : ''} for{' '}
-          <span className="text-purple-300">&quot;{query}&quot;</span>
-        </p>
-      </div>
+    <div className="flex items-center justify-between mb-3">
+      <p className="text-xs text-gray-400">
+        <span className="text-white font-medium">{count}</span>
+        {' '}result{count !== 1 ? 's' : ''} for{' '}
+        <span className="text-purple-300">&quot;{query}&quot;</span>
+      </p>
       <button
         onClick={onClear}
         className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1 rounded-lg hover:bg-white/5 transition-colors"
@@ -251,7 +263,7 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  // Debounced search
+  // Debounced search (500ms)
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
@@ -266,7 +278,7 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
       const params: MemorySearchRequest = { query: trimmed, top_k: 20 };
       if (layerFilter) params.layer_filter = layerFilter;
       search(params);
-    }, 600);
+    }, 500);
   }, [search, resetSearch, layerFilter]);
 
   const handleClearSearch = useCallback(() => {
@@ -284,6 +296,7 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layerFilter]);
 
+  // Cleanup debounce timer
   useEffect(() => {
     return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
   }, []);
@@ -344,7 +357,7 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
     <div>
       {toast && <Toast message={toast.message} variant={toast.variant} />}
 
-      {/* Hero — constellation + stats */}
+      {/* Hero — cognitive summary + stats */}
       <MemoryHero
         status={status}
         overview={overview}
@@ -365,14 +378,11 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
       {/* Content */}
       {isSearchMode ? (
         isSearching && !searchResults ? (
-          <div className="py-16 flex flex-col items-center gap-3">
+          <div className="py-12 flex flex-col items-center gap-3">
             <div className="relative">
-              <div className="w-10 h-10 border-2 border-purple-500/20 border-t-purple-500 rounded-full animate-spin" />
-              <svg className="absolute inset-0 m-auto w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+              <div className="w-8 h-8 border-2 border-purple-500/20 border-t-purple-500 rounded-full animate-spin" />
             </div>
-            <p className="text-sm text-gray-500">Searching through memories...</p>
+            <p className="text-xs text-gray-500">Searching through memories...</p>
           </div>
         ) : (
           <div>
@@ -389,7 +399,7 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
               onEdit={handleEdit}
               onDelete={handleDelete}
               deletingId={deletingId}
-              emptyMessage={`No memories match "${searchQuery}". Your AI is still learning about you.`}
+              emptyMessage={`No memories match "${searchQuery}".`}
             />
           </div>
         )
@@ -405,14 +415,8 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
             deletingId={deletingId}
           />
         ) : (
-          <div className="py-16 text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-purple-500/10 flex items-center justify-center">
-              <svg className="w-8 h-8 text-purple-400/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-              </svg>
-            </div>
-            <p className="text-sm text-gray-500 mb-1">No memories yet</p>
-            <p className="text-xs text-gray-600">Start chatting with your AI to build memories, or teach it manually.</p>
+          <div className="py-12 text-center">
+            <p className="text-sm text-gray-500">Start chatting with your AI to build memories, or teach it manually.</p>
           </div>
         )
       )}
