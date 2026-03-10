@@ -307,38 +307,149 @@ function EmptyState({ isConnected, onSuggestion }: { isConnected: boolean; onSug
 function ChatInput({ onSend, disabled, isStreaming }: { onSend: (t: string) => void; disabled: boolean; isStreaming: boolean }) {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composingRef = useRef(false);
 
-  useEffect(() => {
+  // Robust auto-resize: works across browsers including Safari iOS
+  const resizeTextarea = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 168)}px`;
-  }, [value]);
+    // Reset to single row to get accurate scrollHeight
+    el.style.height = '0px';
+    // Calculate new height, capped at ~6 lines
+    const maxHeight = 160;
+    const newHeight = Math.min(el.scrollHeight, maxHeight);
+    el.style.height = `${Math.max(newHeight, 38)}px`;
+    // Show scrollbar only when content exceeds max
+    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, []);
+
+  useEffect(() => {
+    resizeTextarea();
+  }, [value, resizeTextarea]);
 
   const handleSend = useCallback(() => {
+    // Don't send during IME composition (Chinese/Japanese/Korean input)
+    if (composingRef.current) return;
     const trimmed = value.trim();
     if (!trimmed || disabled || isStreaming) return;
     onSend(trimmed);
     setValue('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    // Reset height after clearing
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.style.height = '38px';
+        textareaRef.current.style.overflowY = 'hidden';
+      }
+    });
   }, [value, disabled, isStreaming, onSend]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    // Don't intercept Enter during IME composition
+    if (e.nativeEvent.isComposing || composingRef.current) return;
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
   }, [handleSend]);
+
+  // IME composition handlers (for Chinese/Japanese/Korean input)
+  const handleCompositionStart = useCallback(() => {
+    composingRef.current = true;
+  }, []);
+
+  const handleCompositionEnd = useCallback(() => {
+    composingRef.current = false;
+  }, []);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setValue(e.target.value);
+  }, []);
 
   const canSend = value.trim().length > 0 && !disabled && !isStreaming;
 
   return (
-    <div className="flex-shrink-0 border-t border-white/[0.06] bg-[#0D0D12]/90 backdrop-blur-xl supports-[padding:env(safe-area-inset-bottom)]:pb-[env(safe-area-inset-bottom)]">
-      <div className="max-w-3xl mx-auto w-full px-3 sm:px-4 py-3 sm:py-4">
-        <div className="flex items-end gap-2 sm:gap-3 bg-white/[0.04] border border-white/[0.08] rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 focus-within:border-purple-500/30 focus-within:bg-white/[0.05] transition-all duration-200">
-          <textarea ref={textareaRef} value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={handleKeyDown} placeholder={disabled ? 'Waiting for connection...' : isStreaming ? 'AI is responding...' : 'Message...'} disabled={disabled} rows={1} className="flex-1 bg-transparent text-sm text-white placeholder-gray-600 resize-none outline-none max-h-[168px] leading-relaxed disabled:opacity-40" aria-label="Chat message input" />
-          <button onClick={handleSend} disabled={!canSend} className={`flex-shrink-0 p-2 rounded-xl transition-all duration-200 ${canSend ? 'bg-purple-600 hover:bg-purple-500 active:bg-purple-700 text-white shadow-lg shadow-purple-500/20 active:scale-95' : 'bg-white/[0.04] text-gray-600 cursor-not-allowed'}`} aria-label="Send message">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>
+    <div
+      className="
+        flex-shrink-0 border-t border-white/[0.06]
+        bg-[#0D0D12]/95 backdrop-blur-xl
+      "
+      style={{
+        paddingBottom: 'max(12px, env(safe-area-inset-bottom, 12px))',
+      }}
+    >
+      <div className="max-w-3xl mx-auto w-full px-3 sm:px-4 pt-3 sm:pt-4">
+        <div
+          className="
+            flex items-end gap-2 sm:gap-3
+            bg-white/[0.04] border border-white/[0.08]
+            rounded-2xl px-3 sm:px-4 py-2 sm:py-2.5
+            focus-within:border-purple-500/30 focus-within:bg-white/[0.05]
+            transition-all duration-200
+          "
+        >
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
+            placeholder={
+              disabled
+                ? 'Waiting for connection...'
+                : isStreaming
+                ? 'AI is responding...'
+                : 'Message...'
+            }
+            disabled={disabled}
+            rows={1}
+            className="
+              flex-1 bg-transparent text-[15px] sm:text-sm text-white
+              placeholder-gray-600 resize-none outline-none
+              leading-relaxed disabled:opacity-40
+              overflow-hidden
+            "
+            style={{
+              minHeight: '38px',
+              maxHeight: '160px',
+            }}
+            aria-label="Chat message input"
+            enterKeyHint="send"
+            autoComplete="off"
+            autoCorrect="off"
+          />
+
+          {/* Send button */}
+          <button
+            onClick={handleSend}
+            disabled={!canSend}
+            className={`
+              flex-shrink-0 p-2.5 sm:p-2 rounded-xl
+              transition-all duration-200 touch-manipulation
+              ${canSend
+                ? 'bg-purple-600 hover:bg-purple-500 active:bg-purple-700 text-white shadow-lg shadow-purple-500/20 active:scale-95'
+                : 'bg-white/[0.04] text-gray-600 cursor-not-allowed'
+              }
+            `}
+            aria-label="Send message"
+            type="button"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24">
+              <path
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"
+              />
+            </svg>
           </button>
         </div>
-        <p className="hidden sm:block text-[10px] text-gray-700 mt-2 text-center select-none">End-to-end encrypted · Enter to send · Shift+Enter for new line</p>
+
+        {/* Hint */}
+        <p className="hidden sm:block text-[10px] text-gray-700 mt-2 text-center select-none">
+          End-to-end encrypted · Enter to send · Shift+Enter for new line
+        </p>
       </div>
     </div>
   );
@@ -480,7 +591,7 @@ export default function ChatTerminal({ nodeId }: ChatTerminalProps) {
         onBack={handleBack}
       />
 
-      <div ref={messagesContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain relative">
+      <div ref={messagesContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain relative select-text">
         {!hasMessages ? (
           <EmptyState isConnected={isConnected} onSuggestion={handleSuggestion} />
         ) : (
