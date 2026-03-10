@@ -519,13 +519,17 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
             break;
 
           // 🔐 E2E message types
+          // Rust uses dot-separated (e2e.ready), normalize to underscore
           case 'e2e_ready':
+          case 'e2e.ready':
             handleE2eReady(data);
             break;
           case 'e2e_stream':
+          case 'e2e.stream':
             handleE2eStream(data);
             break;
           case 'e2e_response':
+          case 'e2e.response':
             handleE2eResponse(data);
             break;
 
