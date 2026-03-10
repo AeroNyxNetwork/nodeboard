@@ -4,17 +4,18 @@
  * ============================================
  * File Path: types/memory.ts
  *
- * Creation Reason: Type definitions for the MemChain Memory Explorer
- *   (AI Memory Management module). Covers all MPI API request/response
- *   shapes, UI state types, and configuration constants.
+ * Modification Reason (v1.3.0):
+ *   - Rewrote buildCognitiveSummary() for natural-language output:
+ *     • Extracts name from identity records (regex pattern matching)
+ *     • Builds structured sentence: "Your AI knows you as [name], ..."
+ *     • Groups knowledge into preferences/interests/skills categories
+ *     • Falls back gracefully when data is sparse
+ *   - Previous v1.2.0 just concatenated raw record content which read
+ *     like a database dump, not an AI's cognitive understanding
  *
- * Modification Reason (v1.1.0):
- *   Updated to match actual API response format (v1.5.0 backend doc):
- *   - overview: `recent_by_layer` instead of `by_layer.*.records`
- *   - `timestamp` is Unix seconds (int), not ISO string
- *   - Record items in overview don't have `layer` field (inferred from parent key)
- *   - `total` instead of `total_records` in overview
- *   - Added `last_memory_at`, `embed_ready`, `embed_dim` to overview
+ * Previous (v1.2.0):
+ *   Added defensive timestamp checks, CognitiveSummaryData type,
+ *   naive buildCognitiveSummary that concatenated record content.
  *
  * Dependencies:
  *   - Used by hooks/useMemories.ts
@@ -28,9 +29,11 @@
  * - The "edit" operation is forget + remember (no atomic update API)
  * - `timestamp` in overview records is Unix SECONDS — multiply by 1000 for JS Date
  * - Records in overview do NOT have a `layer` field; the layer is the parent key
+ * - buildCognitiveSummary() is frontend template logic — replace with
+ *   /mpi/summary/ backend endpoint when available for true AI summarization
  *
- * Last Modified: v1.1.0 - Aligned with actual API response format
- * Previous: v1.0.0 - Initial type definitions
+ * Last Modified: v1.3.0 - Natural-language cognitive summary builder
+ * Previous: v1.2.0 - Defensive timestamp checks + naive summary
  * ============================================
  */
 
@@ -98,6 +101,21 @@ export interface MemoryDisplayRecord {
   negative_feedback: number;
   /** Only present in search results */
   score?: number;
+}
+
+/**
+ * Cognitive summary data — generated on the frontend from
+ * identity + knowledge layer memories for the Hero component.
+ */
+export interface CognitiveSummaryData {
+  /** Human-readable summary paragraph (reads like AI speaking) */
+  summary: string;
+  /** Total memory count */
+  totalMemories: number;
+  /** Active layer count (layers with > 0 memories) */
+  activeLayers: number;
+  /** Relative label for last memory time (e.g., "5m ago") */
+  lastMemoryLabel: string | null;
 }
 
 // ============================================
@@ -253,11 +271,6 @@ export interface LayerConfig {
 // Layer Configuration Constant
 // ============================================
 
-/**
- * Display configuration for each memory layer.
- * Order matches the recommended display order:
- *   identity → knowledge → episode → archive
- */
 export const MEMORY_LAYER_CONFIG: Record<MemoryLayer, LayerConfig> = {
   identity: {
     key: 'identity',
@@ -314,12 +327,27 @@ export const MEMORY_LAYERS_ORDERED: MemoryLayer[] = [
 ];
 
 // ============================================
+// Utility: Safe timestamp parsing
+// ============================================
+
+function safeUnixSecondsToMs(timestamp: number | null | undefined): number {
+  if (timestamp == null || timestamp <= 0 || !Number.isFinite(timestamp)) {
+    return Date.now();
+  }
+  return timestamp * 1000;
+}
+
+function safeIsoToMs(isoString: string | null | undefined): number {
+  if (!isoString) return Date.now();
+  const ms = new Date(isoString).getTime();
+  if (Number.isNaN(ms)) return Date.now();
+  return ms;
+}
+
+// ============================================
 // Utility: Normalize records for UI
 // ============================================
 
-/**
- * Convert an overview record (Unix seconds, no layer) to a display record.
- */
 export function toDisplayRecord(
   record: MemoryOverviewRecord,
   layer: MemoryLayer
@@ -328,29 +356,192 @@ export function toDisplayRecord(
     record_id: record.record_id,
     content: record.content,
     layer,
-    topic_tags: record.topic_tags,
-    source_ai: record.source_ai,
-    timestamp_ms: record.timestamp * 1000,
-    access_count: record.access_count,
-    positive_feedback: record.positive_feedback,
-    negative_feedback: record.negative_feedback,
+    topic_tags: record.topic_tags ?? [],
+    source_ai: record.source_ai ?? 'unknown',
+    timestamp_ms: safeUnixSecondsToMs(record.timestamp),
+    access_count: record.access_count ?? 0,
+    positive_feedback: record.positive_feedback ?? 0,
+    negative_feedback: record.negative_feedback ?? 0,
   };
 }
 
-/**
- * Convert a full record (ISO string, has layer) to a display record.
- */
 export function fullRecordToDisplay(record: MemoryRecord): MemoryDisplayRecord {
   return {
     record_id: record.record_id,
     content: record.content,
     layer: record.layer,
-    topic_tags: record.topic_tags,
-    source_ai: record.source_ai,
-    timestamp_ms: new Date(record.created_at).getTime(),
-    access_count: record.access_count,
-    positive_feedback: record.positive_feedback,
-    negative_feedback: record.negative_feedback,
+    topic_tags: record.topic_tags ?? [],
+    source_ai: record.source_ai ?? 'unknown',
+    timestamp_ms: safeIsoToMs(record.created_at),
+    access_count: record.access_count ?? 0,
+    positive_feedback: record.positive_feedback ?? 0,
+    negative_feedback: record.negative_feedback ?? 0,
     score: record.score,
+  };
+}
+
+// ============================================
+// Utility: Build Cognitive Summary (frontend)
+// ============================================
+
+/**
+ * Try to extract a user name from identity records.
+ * Looks for patterns like "name is X", "called X", "user's name is X", etc.
+ */
+function extractName(identityRecords: MemoryOverviewRecord[]): string | null {
+  for (const r of identityRecords) {
+    const c = r.content.toLowerCase();
+    // "The user's name is Jonas" / "name is Jonas" / "User is called Jonas"
+    const patterns = [
+      /(?:user'?s?\s+)?name\s+is\s+(\w+)/i,
+      /(?:called|named|known as)\s+(\w+)/i,
+      /^(\w+)\s+is\s+(?:the\s+)?user/i,
+    ];
+    for (const pat of patterns) {
+      const match = r.content.match(pat);
+      if (match?.[1]) {
+        // Capitalize first letter
+        const name = match[1];
+        return name.charAt(0).toUpperCase() + name.slice(1);
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract descriptive phrases from record content.
+ * Strips common prefixes like "User", "The user", etc.
+ * Returns a lowercased phrase suitable for embedding in a sentence.
+ */
+function toPhrase(content: string): string {
+  return content
+    .replace(/^(the\s+)?user('?s?)?\s*/i, '')
+    .replace(/\.$/, '')
+    .trim();
+}
+
+/**
+ * Build a cognitive summary that reads like AI self-awareness.
+ *
+ * Strategy:
+ * 1. Extract name from identity (if present) → "Your AI knows you as [name]"
+ * 2. Pull identity traits (non-name) → "a [trait] who [trait]"
+ * 3. Pull knowledge facts → "You [preference], [preference], and [interest]"
+ * 4. Mention recent episode if present → "Recently you discussed [topic]"
+ * 5. If very few records, keep it short and honest
+ *
+ * This is NOT AI-generated — it's structured template assembly.
+ * Replace with /mpi/summary/ when backend supports it.
+ */
+export function buildCognitiveSummary(
+  overview: MemoryOverviewData | null,
+  status: MemoryStatusData | null
+): CognitiveSummaryData | null {
+  if (!overview || !status) return null;
+
+  const identityRecords = overview.recent_by_layer.identity ?? [];
+  const knowledgeRecords = overview.recent_by_layer.knowledge ?? [];
+  const episodeRecords = overview.recent_by_layer.episode ?? [];
+
+  const activeLayers = MEMORY_LAYERS_ORDERED.filter(
+    (l) => (overview.by_layer[l] ?? 0) > 0
+  ).length;
+
+  // Last memory relative label
+  let lastMemoryLabel: string | null = null;
+  if (overview.last_memory_at) {
+    const diff = Math.floor(Date.now() / 1000 - overview.last_memory_at);
+    if (diff < 60) lastMemoryLabel = 'just now';
+    else if (diff < 3600) lastMemoryLabel = `${Math.floor(diff / 60)}m ago`;
+    else if (diff < 86400) lastMemoryLabel = `${Math.floor(diff / 3600)}h ago`;
+    else lastMemoryLabel = `${Math.floor(diff / 86400)}d ago`;
+  }
+
+  // --- Build summary ---
+
+  // No memories at all
+  if (overview.total === 0) {
+    return {
+      summary: '',
+      totalMemories: 0,
+      activeLayers: 0,
+      lastMemoryLabel: null,
+    };
+  }
+
+  const sentences: string[] = [];
+
+  // 1. Opening: name + identity
+  const name = extractName(identityRecords);
+  const otherIdentity = identityRecords
+    .filter((r) => {
+      const c = r.content.toLowerCase();
+      return !c.includes('name is') && !c.includes('called') && !c.includes('named');
+    })
+    .slice(0, 3)
+    .map((r) => toPhrase(r.content))
+    .filter((p) => p.length > 0 && p.length < 120);
+
+  if (name && otherIdentity.length > 0) {
+    sentences.push(`Your AI knows you as ${name}, ${otherIdentity[0]}.`);
+    otherIdentity.slice(1).forEach((trait) => {
+      sentences.push(trait.charAt(0).toUpperCase() + trait.slice(1) + '.');
+    });
+  } else if (name) {
+    sentences.push(`Your AI knows you as ${name}.`);
+  } else if (otherIdentity.length > 0) {
+    const first = otherIdentity[0];
+    sentences.push(`Your AI recognizes you as ${first}.`);
+  }
+
+  // 2. Knowledge / preferences
+  const knowledgePhrases = knowledgeRecords
+    .slice(0, 5)
+    .map((r) => toPhrase(r.content))
+    .filter((p) => p.length > 0 && p.length < 120);
+
+  if (knowledgePhrases.length > 0) {
+    if (knowledgePhrases.length === 1) {
+      sentences.push(`It knows that you ${knowledgePhrases[0]}.`);
+    } else if (knowledgePhrases.length === 2) {
+      sentences.push(
+        `It knows that you ${knowledgePhrases[0]} and ${knowledgePhrases[1]}.`
+      );
+    } else {
+      const last = knowledgePhrases[knowledgePhrases.length - 1];
+      const rest = knowledgePhrases.slice(0, -1).join(', ');
+      sentences.push(`It knows that you ${rest}, and ${last}.`);
+    }
+  }
+
+  // 3. Recent episode
+  if (episodeRecords.length > 0) {
+    const recentPhrase = toPhrase(episodeRecords[0].content);
+    if (recentPhrase.length > 0 && recentPhrase.length < 120) {
+      sentences.push(`Recently: ${recentPhrase}.`);
+    }
+  }
+
+  // 4. Fallback if we have records but couldn't build sentences
+  //    (e.g. all records are archive layer)
+  if (sentences.length === 0) {
+    sentences.push(
+      `Your AI has ${overview.total} memory${overview.total !== 1 ? 's' : ''} about you.`
+    );
+  }
+
+  // Clean up double periods
+  const summary = sentences
+    .join(' ')
+    .replace(/\.\./g, '.')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return {
+    summary,
+    totalMemories: overview.total,
+    activeLayers,
+    lastMemoryLabel,
   };
 }
