@@ -153,7 +153,7 @@ function StatusBadge({ status }: { status: CognitiveTaskStatus }) {
   return (
     <span className={`
       inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border
-      ${cfg.bg} ${cfg.textColor} ${cfg.borderColor}
+      ${cfg.bgColor} ${cfg.textColor} ${cfg.borderColor}
     `}>
       {cfg.animate && (
         <span className={`w-1.5 h-1.5 rounded-full ${cfg.dotColor} animate-pulse`} />
