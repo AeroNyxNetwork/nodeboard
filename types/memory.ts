@@ -4,21 +4,51 @@
  * ============================================
  * File Path: types/memory.ts
  *
+ * Modification Reason (v1.4.0):
+ *   Added v2.4.0 cognitive graph types and v2.5.0 SuperNode types
+ *   to support Phase 4 MemChain Memory Explorer expansion.
+ *
+ *   New types added:
+ *     Core recall (v2.4.0):
+ *       MemoryRecallRequest, MemoryRecallResponse,
+ *       MemoryRecallDetailRequest, MemoryRecallDetailResponse,
+ *       FtsSearchResult, FtsSearchResponse,
+ *       ContextInjectResponse
+ *     Cognitive graph — Projects (v2.4.0):
+ *       Project, ProjectListResponse,
+ *       ProjectDetailResponse, ProjectTimelineEntry,
+ *       ProjectTimelineResponse
+ *     Cognitive graph — Sessions (v2.4.0):
+ *       MpiSession, SessionDetailResponse,
+ *       ConversationTurn, SessionConversationResponse,
+ *       Artifact, ArtifactVersion,
+ *       SessionArtifactsResponse, ArtifactDetailResponse,
+ *       ArtifactVersionsResponse
+ *     Cognitive graph — Entities (v2.4.0):
+ *       Entity, KnowledgeEdge, EntityDetailResponse,
+ *       EntityGraphNode, EntityGraphEdge, EntityGraphResponse,
+ *       EntityTimelineEvent, EntityTimelineResponse
+ *     Cognitive graph — Communities (v2.4.0):
+ *       Community, CommunityListResponse
+ *     SuperNode — Tasks (v2.5.0):
+ *       CognitiveTaskStatus, CognitiveTaskType,
+ *       CognitiveTask, CognitiveTaskDetail,
+ *       TokenUsage, SupernodeTasksResponse,
+ *       SupernodeTaskDetailResponse, SupernodeTaskActionResponse
+ *     SuperNode — Usage & Health (v2.5.0):
+ *       ProviderUsageStat, SupernodeUsageResponse,
+ *       ProviderHealthStatus, SupernodeHealthResponse
+ *   Extended MemoryStatusData.supernode for v2.5.0 SuperNode status.
+ *
  * Modification Reason (v1.3.0):
- *   - Rewrote buildCognitiveSummary() for natural-language output:
- *     • Extracts name from identity records (regex pattern matching)
- *     • Builds structured sentence: "Your AI knows you as [name], ..."
- *     • Groups knowledge into preferences/interests/skills categories
- *     • Falls back gracefully when data is sparse
- *   - Previous v1.2.0 just concatenated raw record content which read
- *     like a database dump, not an AI's cognitive understanding
+ *   Rewrote buildCognitiveSummary() for natural-language output.
  *
  * Previous (v1.2.0):
  *   Added defensive timestamp checks, CognitiveSummaryData type,
  *   naive buildCognitiveSummary that concatenated record content.
  *
  * Dependencies:
- *   - Used by hooks/useMemories.ts
+ *   - Used by hooks/useMemory.ts
  *   - Used by lib/api.ts (MPI methods)
  *   - Used by all components/memories/*.tsx
  *
@@ -28,12 +58,19 @@
  * - API responses always wrap data in { success: boolean, data: T }
  * - The "edit" operation is forget + remember (no atomic update API)
  * - `timestamp` in overview records is Unix SECONDS — multiply by 1000 for JS Date
- * - Records in overview do NOT have a `layer` field; the layer is the parent key
+ * - Records in overview do NOT have a `layer` field; layer is the parent key
  * - buildCognitiveSummary() is frontend template logic — replace with
- *   /mpi/summary/ backend endpoint when available for true AI summarization
+ *   /mpi/summary/ backend endpoint when available
+ * - entity_id / project_id / session_id / artifact_id / community_id are all
+ *   string IDs (prefixed hex), NOT UUIDs
+ * - CognitiveTaskType string values must match Rust config_supernode.rs as_str()
+ *   exactly: "session_title" | "community_narrative" | "conflict_resolution" |
+ *   "recall_synthesis" | "code_analysis" | "entity_description"
+ * - SuperNode endpoints return 404 when supernode.enabled=false on the node.
+ *   Always check MemoryStatusData.supernode?.enabled before showing SuperNode UI.
  *
- * Last Modified: v1.3.0 - Natural-language cognitive summary builder
- * Previous: v1.2.0 - Defensive timestamp checks + naive summary
+ * Last Modified: v1.4.0 - Added v2.4.0 cognitive graph types + v2.5.0 SuperNode types
+ * Previous: v1.3.0 - Natural-language cognitive summary builder
  * ============================================
  */
 
@@ -119,10 +156,10 @@ export interface CognitiveSummaryData {
 }
 
 // ============================================
-// API Response Types
+// API Response Types — Core Memory (v1.2.0)
 // ============================================
 
-/** GET /mpi/status/ */
+/** GET /mpi/status/ — v2.5.0: extended with supernode field */
 export interface MemoryStatusData {
   memchain_enabled: boolean;
   mode: string;
@@ -153,6 +190,18 @@ export interface MemoryStatusData {
     lift: number | null;
     weights_version: number;
   };
+  /**
+   * v2.5.0 SuperNode status (absent when supernode.enabled=false on node).
+   * Always check this before rendering SuperNode UI components.
+   */
+  supernode?: {
+    enabled: boolean;
+    provider_count: number;
+    pending_tasks: number;
+    processing_tasks: number;
+    completed_tasks_today: number;
+    failed_tasks_today: number;
+  } | null;
 }
 
 export interface MemoryStatusResponse {
@@ -160,7 +209,7 @@ export interface MemoryStatusResponse {
   data: MemoryStatusData;
 }
 
-/** GET /mpi/overview/ — actual API format (v1.5.0) */
+/** GET /mpi/overview/ */
 export interface MemoryOverviewData {
   total: number;
   by_layer: Record<MemoryLayer, number>;
@@ -175,7 +224,7 @@ export interface MemoryOverviewResponse {
   data: MemoryOverviewData;
 }
 
-/** POST /mpi/search/ */
+/** POST /mpi/search/ — semantic search (embed + recall combo) */
 export interface MemorySearchRequest {
   query: string;
   top_k?: number;
@@ -247,6 +296,501 @@ export interface MemoryEmbedData {
 export interface MemoryEmbedResponse {
   success: boolean;
   data: MemoryEmbedData;
+}
+
+// ============================================
+// API Response Types — Hybrid Recall (v1.4.0 / v2.4.0 backend)
+// ============================================
+
+/**
+ * POST /mpi/recall/ — hybrid recall (vector + BM25 + graph + cross-encoder).
+ *
+ * mode='full'  (default): returns complete memory content in results
+ * mode='index': returns only record IDs — use recallMemoryDetail() for content
+ *
+ * The index mode enables progressive retrieval (load summaries first,
+ * then fetch full content on demand).
+ */
+export interface MemoryRecallRequest {
+  query?: string;
+  embedding?: number[];
+  embedding_model?: string;
+  top_k?: number;
+  mode?: 'full' | 'index';
+  layer_filter?: MemoryLayer;
+  tag_filter?: string[];
+  min_score?: number;
+}
+
+export interface MemoryRecallData {
+  memories: MemoryRecord[];
+  total: number;
+  mode: 'full' | 'index';
+}
+
+export interface MemoryRecallResponse {
+  success: boolean;
+  data: MemoryRecallData;
+}
+
+/**
+ * POST /mpi/recall_detail/ — progressive retrieval step 2.
+ * Fetch full content for specific record IDs returned by recall(mode='index').
+ */
+export interface MemoryRecallDetailRequest {
+  record_ids: string[];
+}
+
+export interface MemoryRecallDetailResponse {
+  success: boolean;
+  data: {
+    memories: MemoryRecord[];
+  };
+}
+
+// ============================================
+// API Response Types — FTS Search (v1.4.0 / v2.4.0 backend)
+// ============================================
+
+/** GET /mpi/search_fts/?q=... — FTS5 BM25 keyword search with snippet highlights */
+export interface FtsSearchResult {
+  record_id: string;
+  /** Highlighted snippet with matched terms (HTML-safe, use dangerouslySetInnerHTML or strip tags) */
+  snippet: string;
+  /** Layer the record belongs to */
+  layer: MemoryLayer;
+  source_ai: string;
+  timestamp: number; // Unix seconds
+}
+
+export interface FtsSearchResponse {
+  success: boolean;
+  data: {
+    query: string;
+    results: FtsSearchResult[];
+    total: number;
+  };
+}
+
+// ============================================
+// API Response Types — Context Inject (v1.4.0 / v2.4.0 backend)
+// ============================================
+
+/** GET /mpi/context/ — auto context injection for new sessions */
+export interface ContextInjectResponse {
+  success: boolean;
+  data: {
+    context: string;
+    record_ids: string[];
+    token_count: number;
+  };
+}
+
+// ============================================
+// API Response Types — Projects (v1.4.0 / v2.4.0 backend)
+// ============================================
+
+export interface Project {
+  project_id: string;
+  name: string;
+  status: 'active' | 'archived' | 'paused';
+  community_id: string;
+  /** ISO string or null */
+  last_active_at: string | null;
+  session_count: number;
+  entity_count: number;
+  description?: string | null;
+}
+
+export interface ProjectListResponse {
+  success: boolean;
+  data: {
+    projects: Project[];
+    total: number;
+  };
+}
+
+export interface ProjectDetailResponse {
+  success: boolean;
+  data: Project & {
+    /** Top entities in this project's community */
+    top_entities: Array<{
+      entity_id: string;
+      name: string;
+      entity_type: string;
+      mention_count: number;
+    }>;
+    recent_sessions: Array<{
+      session_id: string;
+      title: string | null;
+      started_at: number;
+      turn_count: number;
+    }>;
+  };
+}
+
+export interface ProjectTimelineEntry {
+  date: string; // YYYY-MM-DD
+  sessions: Array<{
+    session_id: string;
+    title: string | null;
+    started_at: number; // Unix seconds
+    turn_count: number;
+    summary: string | null;
+  }>;
+}
+
+export interface ProjectTimelineResponse {
+  success: boolean;
+  data: {
+    project_id: string;
+    project_name: string;
+    timeline: ProjectTimelineEntry[];
+  };
+}
+
+// ============================================
+// API Response Types — Sessions (v1.4.0 / v2.4.0 backend)
+// ============================================
+
+export interface MpiSession {
+  session_id: string;
+  /**
+   * LLM-generated title (v2.5.0 SuperNode).
+   * May be null if SuperNode hasn't processed the session yet.
+   * Fallback: use summary or session_id prefix.
+   */
+  title: string | null;
+  summary: string | null;
+  project_id: string | null;
+  started_at: number; // Unix seconds
+  ended_at: number | null; // Unix seconds
+  turn_count: number;
+  source_ai: string;
+  entities_extracted: boolean;
+  summary_generated: boolean;
+}
+
+export interface SessionDetailResponse {
+  success: boolean;
+  data: MpiSession;
+}
+
+export interface ConversationTurn {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  turn_index: number;
+  timestamp: number; // Unix seconds
+}
+
+export interface SessionConversationResponse {
+  success: boolean;
+  data: {
+    session_id: string;
+    title: string | null;
+    turns: ConversationTurn[];
+    total_turns: number;
+  };
+}
+
+export interface Artifact {
+  artifact_id: string;
+  session_id: string;
+  project_id: string | null;
+  artifact_type: string; // 'code' | 'text' | ...
+  title: string | null;
+  language: string | null;
+  version: number;
+  content_hash: string;
+  line_count: number | null;
+  created_at: number; // Unix seconds
+}
+
+export interface SessionArtifactsResponse {
+  success: boolean;
+  data: {
+    session_id: string;
+    artifacts: Artifact[];
+    total: number;
+  };
+}
+
+export interface ArtifactDetail extends Artifact {
+  /** Base64-encoded or raw string content */
+  content: string;
+  description: string | null;
+}
+
+export interface ArtifactDetailResponse {
+  success: boolean;
+  data: ArtifactDetail;
+}
+
+export interface ArtifactVersion {
+  artifact_id: string;
+  version: number;
+  content_hash: string;
+  created_at: number; // Unix seconds
+}
+
+export interface ArtifactVersionsResponse {
+  success: boolean;
+  data: {
+    artifact_id: string;
+    versions: ArtifactVersion[];
+  };
+}
+
+// ============================================
+// API Response Types — Entities (v1.4.0 / v2.4.0 backend)
+// ============================================
+
+export interface Entity {
+  entity_id: string;
+  name: string;
+  name_normalized: string;
+  entity_type: string; // 'technology' | 'module' | 'project' | 'person' | 'concept' | ...
+  /**
+   * LLM-generated description (v2.5.0 SuperNode).
+   * May be null or short auto-description if SuperNode hasn't processed yet.
+   */
+  description: string | null;
+  mention_count: number;
+  community_id: string | null;
+  created_at: number; // Unix seconds
+  updated_at: number; // Unix seconds
+}
+
+export interface KnowledgeEdge {
+  edge_id: number;
+  source_id: string;
+  target_id: string;
+  source_name: string;
+  target_name: string;
+  relation_type: string; // 'USES' | 'DEPENDS_ON' | 'RELATED_TO' | 'CO_OCCURS' | ...
+  weight: number;
+  confidence: number;
+  valid_from: number; // Unix seconds
+  valid_until: number | null;
+  fact_text: string | null;
+}
+
+export interface EntityDetailResponse {
+  success: boolean;
+  data: Entity & {
+    edges: KnowledgeEdge[];
+    edge_count: number;
+  };
+}
+
+/** BFS subgraph node (may include entities beyond the root entity) */
+export interface EntityGraphNode {
+  entity_id: string;
+  name: string;
+  entity_type: string;
+  mention_count: number;
+  /** true = the queried entity, false = neighbor */
+  is_root: boolean;
+}
+
+export interface EntityGraphEdge {
+  source_id: string;
+  target_id: string;
+  relation_type: string;
+  weight: number;
+}
+
+export interface EntityGraphResponse {
+  success: boolean;
+  data: {
+    root_entity_id: string;
+    nodes: EntityGraphNode[];
+    edges: EntityGraphEdge[];
+  };
+}
+
+export interface EntityTimelineEvent {
+  session_id: string;
+  session_title: string | null;
+  episode_id: string;
+  role: string;
+  timestamp: number; // Unix seconds
+}
+
+export interface EntityTimelineResponse {
+  success: boolean;
+  data: {
+    entity_id: string;
+    entity_name: string;
+    events: EntityTimelineEvent[];
+    total: number;
+  };
+}
+
+// ============================================
+// API Response Types — Communities (v1.4.0 / v2.4.0 backend)
+// ============================================
+
+export interface Community {
+  community_id: string;
+  name: string;
+  entity_count: number;
+  /**
+   * LLM-generated narrative summary (v2.5.0 SuperNode).
+   * May start with "Community with" if SuperNode hasn't generated a narrative yet.
+   * Use this as a fallback indicator: if starts with "Community with", show a
+   * "Generating summary..." placeholder instead.
+   */
+  summary: string | null;
+  description: string | null;
+  /** True if this community has been promoted to a tracked project */
+  has_project: boolean;
+  project_id: string | null;
+}
+
+export interface CommunityListResponse {
+  success: boolean;
+  data: {
+    communities: Community[];
+    total: number;
+  };
+}
+
+// ============================================
+// API Response Types — SuperNode Tasks (v1.4.0 / v2.5.0 backend)
+// ============================================
+
+/**
+ * Cognitive task status values.
+ * Matches Rust storage_supernode.rs status strings exactly.
+ */
+export type CognitiveTaskStatus =
+  | 'pending'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+/**
+ * Cognitive task type string values.
+ * Matches Rust CognitiveTaskType::as_str() exactly.
+ */
+export type CognitiveTaskType =
+  | 'session_title'
+  | 'community_narrative'
+  | 'conflict_resolution'
+  | 'recall_synthesis'
+  | 'code_analysis'
+  | 'entity_description';
+
+export interface TokenUsage {
+  input: number;
+  output: number;
+  cached: number;
+}
+
+/** Task row in the queue listing */
+export interface CognitiveTask {
+  id: number;
+  task_type: CognitiveTaskType;
+  status: CognitiveTaskStatus;
+  priority: number;
+  target_table: string | null;
+  target_id: string | null;
+  privacy_level: string;
+  provider_used: string | null;
+  model_used: string | null;
+  token_usage: TokenUsage | null;
+  retry_count: number;
+  max_retries: number;
+  error_message: string | null;
+  created_at: number; // Unix seconds
+  started_at: number | null;
+  completed_at: number | null;
+}
+
+/** Task detail — includes payload, result, and prompt messages */
+export interface CognitiveTaskDetail extends CognitiveTask {
+  /** JSON string of the input data sent to the prompt builder */
+  payload: string;
+  /** LLM result (may be truncated to 8192 chars) */
+  result: string | null;
+  /** JSON array of messages sent to the LLM */
+  prompt_messages: string | null;
+}
+
+export interface SupernodeTasksResponse {
+  success: boolean;
+  data: {
+    tasks: CognitiveTask[];
+    total: number;
+  };
+}
+
+export interface SupernodeTaskDetailResponse {
+  success: boolean;
+  data: CognitiveTaskDetail;
+}
+
+export interface SupernodeTaskActionResponse {
+  success: boolean;
+  data: {
+    task_id: number;
+    status: CognitiveTaskStatus;
+    message: string;
+  };
+}
+
+// ============================================
+// API Response Types — SuperNode Usage & Health (v1.4.0 / v2.5.0 backend)
+// ============================================
+
+export interface ProviderUsageStat {
+  provider: string;
+  model: string;
+  task_type: CognitiveTaskType;
+  total_calls: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cached_tokens: number;
+  avg_latency_ms: number;
+  /** Estimated cost in USD (calculated at query time, may change if rates change) */
+  estimated_cost_usd: number;
+}
+
+export interface SupernodeUsageResponse {
+  success: boolean;
+  data: {
+    period: string; // YYYY-MM
+    stats: ProviderUsageStat[];
+    totals: {
+      total_calls: number;
+      total_input_tokens: number;
+      total_output_tokens: number;
+      estimated_cost_usd: number;
+    };
+  };
+}
+
+export interface ProviderHealthStatus {
+  provider_name: string;
+  model: string;
+  is_healthy: boolean;
+  latency_ms: number | null;
+  error: string | null;
+  last_checked_at: number; // Unix seconds
+}
+
+export interface SupernodeHealthResponse {
+  success: boolean;
+  data: {
+    providers: ProviderHealthStatus[];
+    queue_summary: {
+      pending: number;
+      processing: number;
+      failed_last_hour: number;
+    };
+  };
 }
 
 // ============================================
@@ -327,6 +871,46 @@ export const MEMORY_LAYERS_ORDERED: MemoryLayer[] = [
 ];
 
 // ============================================
+// Cognitive Task Type UI Labels
+// ============================================
+
+export const COGNITIVE_TASK_TYPE_LABELS: Record<CognitiveTaskType, string> = {
+  session_title: 'Session Title',
+  community_narrative: 'Community Narrative',
+  conflict_resolution: 'Conflict Resolution',
+  recall_synthesis: 'Recall Synthesis',
+  code_analysis: 'Code Analysis',
+  entity_description: 'Entity Description',
+};
+
+// ============================================
+// Utility: Community summary quality check
+// ============================================
+
+/**
+ * Returns true if the community summary was generated by LLM (SuperNode),
+ * false if it's the no-LLM placeholder from Step 11.
+ * Use this to show "Generating..." placeholders in the UI.
+ */
+export function hasLlmCommunityNarrative(community: Community): boolean {
+  if (!community.summary) return false;
+  return !community.summary.startsWith('Community with');
+}
+
+/**
+ * Returns true if the session title was generated by LLM (SuperNode),
+ * false if it's the no-LLM placeholder from Step 10.
+ */
+export function hasLlmSessionTitle(session: MpiSession): boolean {
+  if (!session.title) return false;
+  // no-LLM titles look like "JWT, React, TypeScript" (entity list)
+  // or "Project Alpha: JWT, React" — no way to distinguish from LLM without
+  // checking if summary starts with "Topics:" (not available here).
+  // Best heuristic: title exists = show it, null = show "Processing..."
+  return true;
+}
+
+// ============================================
 // Utility: Safe timestamp parsing
 // ============================================
 
@@ -386,12 +970,9 @@ export function fullRecordToDisplay(record: MemoryRecord): MemoryDisplayRecord {
 
 /**
  * Try to extract a user name from identity records.
- * Looks for patterns like "name is X", "called X", "user's name is X", etc.
  */
 function extractName(identityRecords: MemoryOverviewRecord[]): string | null {
   for (const r of identityRecords) {
-    const c = r.content.toLowerCase();
-    // "The user's name is Jonas" / "name is Jonas" / "User is called Jonas"
     const patterns = [
       /(?:user'?s?\s+)?name\s+is\s+(\w+)/i,
       /(?:called|named|known as)\s+(\w+)/i,
@@ -400,7 +981,6 @@ function extractName(identityRecords: MemoryOverviewRecord[]): string | null {
     for (const pat of patterns) {
       const match = r.content.match(pat);
       if (match?.[1]) {
-        // Capitalize first letter
         const name = match[1];
         return name.charAt(0).toUpperCase() + name.slice(1);
       }
@@ -409,11 +989,6 @@ function extractName(identityRecords: MemoryOverviewRecord[]): string | null {
   return null;
 }
 
-/**
- * Extract descriptive phrases from record content.
- * Strips common prefixes like "User", "The user", etc.
- * Returns a lowercased phrase suitable for embedding in a sentence.
- */
 function toPhrase(content: string): string {
   return content
     .replace(/^(the\s+)?user('?s?)?\s*/i, '')
@@ -423,14 +998,6 @@ function toPhrase(content: string): string {
 
 /**
  * Build a cognitive summary that reads like AI self-awareness.
- *
- * Strategy:
- * 1. Extract name from identity (if present) → "Your AI knows you as [name]"
- * 2. Pull identity traits (non-name) → "a [trait] who [trait]"
- * 3. Pull knowledge facts → "You [preference], [preference], and [interest]"
- * 4. Mention recent episode if present → "Recently you discussed [topic]"
- * 5. If very few records, keep it short and honest
- *
  * This is NOT AI-generated — it's structured template assembly.
  * Replace with /mpi/summary/ when backend supports it.
  */
@@ -448,7 +1015,6 @@ export function buildCognitiveSummary(
     (l) => (overview.by_layer[l] ?? 0) > 0
   ).length;
 
-  // Last memory relative label
   let lastMemoryLabel: string | null = null;
   if (overview.last_memory_at) {
     const diff = Math.floor(Date.now() / 1000 - overview.last_memory_at);
@@ -458,21 +1024,12 @@ export function buildCognitiveSummary(
     else lastMemoryLabel = `${Math.floor(diff / 86400)}d ago`;
   }
 
-  // --- Build summary ---
-
-  // No memories at all
   if (overview.total === 0) {
-    return {
-      summary: '',
-      totalMemories: 0,
-      activeLayers: 0,
-      lastMemoryLabel: null,
-    };
+    return { summary: '', totalMemories: 0, activeLayers: 0, lastMemoryLabel: null };
   }
 
   const sentences: string[] = [];
 
-  // 1. Opening: name + identity
   const name = extractName(identityRecords);
   const otherIdentity = identityRecords
     .filter((r) => {
@@ -491,11 +1048,9 @@ export function buildCognitiveSummary(
   } else if (name) {
     sentences.push(`Your AI knows you as ${name}.`);
   } else if (otherIdentity.length > 0) {
-    const first = otherIdentity[0];
-    sentences.push(`Your AI recognizes you as ${first}.`);
+    sentences.push(`Your AI recognizes you as ${otherIdentity[0]}.`);
   }
 
-  // 2. Knowledge / preferences
   const knowledgePhrases = knowledgeRecords
     .slice(0, 5)
     .map((r) => toPhrase(r.content))
@@ -505,9 +1060,7 @@ export function buildCognitiveSummary(
     if (knowledgePhrases.length === 1) {
       sentences.push(`It knows that you ${knowledgePhrases[0]}.`);
     } else if (knowledgePhrases.length === 2) {
-      sentences.push(
-        `It knows that you ${knowledgePhrases[0]} and ${knowledgePhrases[1]}.`
-      );
+      sentences.push(`It knows that you ${knowledgePhrases[0]} and ${knowledgePhrases[1]}.`);
     } else {
       const last = knowledgePhrases[knowledgePhrases.length - 1];
       const rest = knowledgePhrases.slice(0, -1).join(', ');
@@ -515,7 +1068,6 @@ export function buildCognitiveSummary(
     }
   }
 
-  // 3. Recent episode
   if (episodeRecords.length > 0) {
     const recentPhrase = toPhrase(episodeRecords[0].content);
     if (recentPhrase.length > 0 && recentPhrase.length < 120) {
@@ -523,25 +1075,13 @@ export function buildCognitiveSummary(
     }
   }
 
-  // 4. Fallback if we have records but couldn't build sentences
-  //    (e.g. all records are archive layer)
   if (sentences.length === 0) {
     sentences.push(
       `Your AI has ${overview.total} memory${overview.total !== 1 ? 's' : ''} about you.`
     );
   }
 
-  // Clean up double periods
-  const summary = sentences
-    .join(' ')
-    .replace(/\.\./g, '.')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const summary = sentences.join(' ').replace(/\.\./g, '.').replace(/\s+/g, ' ').trim();
 
-  return {
-    summary,
-    totalMemories: overview.total,
-    activeLayers,
-    lastMemoryLabel,
-  };
+  return { summary, totalMemories: overview.total, activeLayers, lastMemoryLabel };
 }
