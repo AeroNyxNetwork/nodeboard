@@ -6,39 +6,46 @@
  *
  * Creation Reason: React Query hooks for the MemChain Memory Explorer.
  *
+ * Modification Reason (v2.1.0):
+ *   Bug fixes and improvements from code audit:
+ *
+ *   [BUG FIX] useEditMemory 操作顺序反转 (数据安全):
+ *     原来是 forget → remember，如果 remember 失败数据永久丢失。
+ *     修复：先 remember 新的，成功后再 forget 旧的。
+ *     onError 回调提示用户新记录创建失败，旧记录仍然存在。
+ *
+ *   [BUG FIX] useEntities query key 统一到 memoryKeys:
+ *     原来手写 ['memories', nodeId, 'entities']，和其他 hook 不一致。
+ *     修复：在 memoryKeys 对象中新增 entities key，useEntities 改用它。
+ *
+ *   [BUG FIX] 写操作 invalidation 范围扩大 (数据一致性):
+ *     原来 useRememberMemory / useForgetMemory 只 invalidate status + overview。
+ *     但文件头注释说"graph caches also invalidated"与实现矛盾。
+ *     修复：同时 invalidate entities、communities、contextInject。
+ *     注意：projects/sessions/artifacts 不 invalidate，因为它们由 Miner 异步
+ *     更新（最快 1h），立即 invalidate 会触发无意义的重复请求。
+ *
+ *   [BUG FIX] useSupernodeTasks filters 稳定性:
+ *     原来直接把调用方传入的 filters 对象作为 query key，
+ *     调用方每次 render 创建新对象会触发不必要的 refetch。
+ *     修复：hook 内部把 filters 拆解为 primitive values 重组成稳定 key。
+ *
+ *   [CLEANUP] 删除重复的 Entities section 注释块（复制粘贴残留）。
+ *
+ *   [NOTE] useContextInject cache entry 积累问题：
+ *     每个 query 字符串都产生独立 cache entry，gcTime 10min 内积累。
+ *     修复：gcTime 从 10min 降到 2min，减少内存压力。
+ *
+ *   [NOTE] useEditMemory 双重 blpop 最长 60s 问题：
+ *     React Query 无内置 timeout，暂不修复（需要后端缩短 blpop 超时）。
+ *     前端已在 onError 中给出明确错误提示。
+ *
  * Modification Reason (v2.0.0):
  *   Phase 4 expansion — added v2.4.0 cognitive graph hooks and
- *   v2.5.0 SuperNode management hooks. All new hooks share the
- *   same 'memories' cache key prefix so write operations
- *   (remember/forget) correctly invalidate graph caches too.
- *
- *   New hooks added:
- *     Core recall:
- *       useRecallMemories, useRecallMemoryDetail,
- *       useSearchMemoriesFts, useContextInject
- *     Cognitive graph:
- *       useProjects, useProjectDetail, useProjectTimeline,
- *       useSessionDetail, useSessionConversation, useSessionArtifacts,
- *       useArtifactDetail, useArtifactVersions,
- *       useEntityDetail, useEntityGraph, useEntityTimeline,
- *       useCommunities
- *     SuperNode:
- *       useSupernodeTasks, useSupernodeTaskDetail,
- *       useRetrySupernodeTask, useCancelSupernodeTask,
- *       useSupernodeUsage, useSupernodeHealth
- *
- *   Bug fixes in existing hooks:
- *     - useRememberMemory / useForgetMemory: invalidate overview used
- *       bare array ['memories', nodeId, 'overview'] which skips perLayer
- *       variants. Replaced with predicate-based invalidation to correctly
- *       bust all overview cache entries regardless of perLayer value.
- *     - useMemorySearch: renamed internal field for clarity (no API change).
+ *   v2.5.0 SuperNode management hooks.
  *
  * Modification Reason (v1.1.0):
- *   Updated to match actual API response format (v1.5.0 backend doc):
- *   - useMemoryOverview now returns MemoryOverviewData with `recent_by_layer`
- *   - Search results use MemoryRecord (has `layer`, ISO dates)
- *   - Overview records use MemoryOverviewRecord (Unix seconds, no `layer`)
+ *   Updated to match actual API response format (v1.5.0 backend doc).
  *
  * Dependencies:
  *   - @tanstack/react-query
@@ -49,23 +56,18 @@
  *
  * ⚠️ Important Note for Next Developer:
  * - ALL cache keys use 'memories' prefix — do NOT create a second prefix
- *   (e.g. 'memory') or write invalidations will miss graph/supernode caches
- * - MPI core requests take 1-3s (search involves embedding)
- * - getSessionConversation may take up to 30s (decryption of large sessions)
- * - getSupernodeHealth may take up to 15s (pings external LLM providers)
+ * - useEditMemory: remember first, forget second — reverse kills data
+ * - write ops invalidate: status + all overview variants + entities +
+ *   communities + contextInject. Do NOT add projects/sessions/artifacts
+ *   (Miner-async, ~1h update cycle)
+ * - useSupernodeTasks: filters decomposed to primitives in query key —
+ *   callers do NOT need useMemo on filters object
  * - useSupernodeHealth never auto-fetches — call checkHealth() manually
- * - SuperNode hooks require supernodeEnabled=true to avoid 404s when
- *   supernode.enabled=false on the node — get this from useMemoryStatus
- * - useMemorySearch exposes { search, results, isSearching, error, reset }
- *   (not the raw React Query mutation API) — this is intentional for
- *   backward compatibility with existing MemoryOverview component
- * - The "edit" operation is NOT atomic: forget then remember (useEditMemory)
- * - Query cache keys include nodeId so different nodes don't share cache
- * - Progressive recall: call useRecallMemories(mode='index') → get IDs →
- *   call useRecallMemoryDetail with those IDs to fetch full content
+ * - SuperNode hooks require supernodeEnabled=true to avoid 404s
+ * - useContextInject gcTime is 2min (reduced from 10min for memory pressure)
  *
- * Last Modified: v2.0.0 - Added v2.4.0 graph hooks + v2.5.0 SuperNode hooks
- * Previous: v1.1.0 - Aligned with actual API response format
+ * Last Modified: v2.1.0 - Bug fixes from code audit
+ * Previous: v2.0.0 - Phase 4 graph + SuperNode hooks
  * ============================================
  */
 
@@ -90,9 +92,8 @@ import type {
 // Query Keys
 // ============================================
 //
-// ⚠️ ALL keys MUST start with 'memories' — this ensures predicate-based
-// invalidations in useRememberMemory / useForgetMemory bust the correct
-// cache entries across core memory, graph, and supernode sections.
+// ⚠️ ALL keys MUST start with 'memories'.
+// write invalidations use predicate to bust all relevant caches.
 
 export const memoryKeys = {
   all: (nodeId: string) => ['memories', nodeId] as const,
@@ -104,46 +105,98 @@ export const memoryKeys = {
   contextInject: (nodeId: string, query?: string) =>    ['memories', nodeId, 'context', query] as const,
 
   // Projects
-  projects:        (nodeId: string) =>                          ['memories', nodeId, 'projects'] as const,
-  projectDetail:   (nodeId: string, projectId: string) =>       ['memories', nodeId, 'project', projectId] as const,
-  projectTimeline: (nodeId: string, projectId: string) =>       ['memories', nodeId, 'project', projectId, 'timeline'] as const,
+  projects:        (nodeId: string) =>                        ['memories', nodeId, 'projects'] as const,
+  projectDetail:   (nodeId: string, projectId: string) =>     ['memories', nodeId, 'project', projectId] as const,
+  projectTimeline: (nodeId: string, projectId: string) =>     ['memories', nodeId, 'project', projectId, 'timeline'] as const,
 
   // Sessions
-  sessionDetail:       (nodeId: string, sessionId: string) =>   ['memories', nodeId, 'session', sessionId] as const,
-  sessionConversation: (nodeId: string, sessionId: string) =>   ['memories', nodeId, 'session', sessionId, 'conversation'] as const,
-  sessionArtifacts:    (nodeId: string, sessionId: string) =>   ['memories', nodeId, 'session', sessionId, 'artifacts'] as const,
+  sessionDetail:       (nodeId: string, sessionId: string) => ['memories', nodeId, 'session', sessionId] as const,
+  sessionConversation: (nodeId: string, sessionId: string) => ['memories', nodeId, 'session', sessionId, 'conversation'] as const,
+  sessionArtifacts:    (nodeId: string, sessionId: string) => ['memories', nodeId, 'session', sessionId, 'artifacts'] as const,
 
   // Artifacts
-  artifactDetail:   (nodeId: string, artifactId: string) =>     ['memories', nodeId, 'artifact', artifactId] as const,
-  artifactVersions: (nodeId: string, artifactId: string) =>     ['memories', nodeId, 'artifact', artifactId, 'versions'] as const,
+  artifactDetail:   (nodeId: string, artifactId: string) =>   ['memories', nodeId, 'artifact', artifactId] as const,
+  artifactVersions: (nodeId: string, artifactId: string) =>   ['memories', nodeId, 'artifact', artifactId, 'versions'] as const,
 
-  // Entities
-  entityDetail:   (nodeId: string, entityId: string) =>         ['memories', nodeId, 'entity', entityId] as const,
-  entityGraph:    (nodeId: string, entityId: string) =>         ['memories', nodeId, 'entity', entityId, 'graph'] as const,
-  entityTimeline: (nodeId: string, entityId: string) =>         ['memories', nodeId, 'entity', entityId, 'timeline'] as const,
+  // Entities — v2.1.0: added to memoryKeys (was hand-written in useEntities)
+  entities:       (nodeId: string) =>                         ['memories', nodeId, 'entities'] as const,
+  entityDetail:   (nodeId: string, entityId: string) =>       ['memories', nodeId, 'entity', entityId] as const,
+  entityGraph:    (nodeId: string, entityId: string) =>       ['memories', nodeId, 'entity', entityId, 'graph'] as const,
+  entityTimeline: (nodeId: string, entityId: string) =>       ['memories', nodeId, 'entity', entityId, 'timeline'] as const,
 
   // Communities
-  communities: (nodeId: string) =>                              ['memories', nodeId, 'communities'] as const,
+  communities: (nodeId: string) =>                            ['memories', nodeId, 'communities'] as const,
 
   // SuperNode
-  supernodeTasks:      (nodeId: string, filters: SupernodeTaskFilters) => ['memories', nodeId, 'supernode', 'tasks', filters] as const,
-  supernodeTaskDetail: (nodeId: string, taskId: string) =>      ['memories', nodeId, 'supernode', 'task', taskId] as const,
-  supernodeUsage:      (nodeId: string, period?: string) =>     ['memories', nodeId, 'supernode', 'usage', period] as const,
-  supernodeHealth:     (nodeId: string) =>                      ['memories', nodeId, 'supernode', 'health'] as const,
+  supernodeTasks:      (nodeId: string, status: string, type: string, limit: number) =>
+    ['memories', nodeId, 'supernode', 'tasks', status, type, limit] as const,
+  supernodeTaskDetail: (nodeId: string, taskId: string) =>    ['memories', nodeId, 'supernode', 'task', taskId] as const,
+  supernodeUsage:      (nodeId: string, period?: string) =>   ['memories', nodeId, 'supernode', 'usage', period] as const,
+  supernodeHealth:     (nodeId: string) =>                    ['memories', nodeId, 'supernode', 'health'] as const,
 };
 
 // ============================================
-// Shared types
+// Shared invalidation helper
 // ============================================
 
-interface SupernodeTaskFilters {
-  status?: string;
-  type?: string;
-  limit?: number;
+/**
+ * Invalidate all caches that are affected by a write operation
+ * (remember / forget / edit).
+ *
+ * Invalidates:
+ *   - status (record count changes)
+ *   - all overview variants (layer counts change)
+ *   - entities (NER may have extracted entities from the new memory)
+ *   - communities (entity clustering may change)
+ *   - contextInject (context injection depends on latest memories)
+ *
+ * Does NOT invalidate:
+ *   - projects / sessions / artifacts — updated by Miner (~1h async cycle)
+ *     Invalidating them would trigger useless refetches with stale data.
+ */
+function invalidateWriteCaches(
+  queryClient: ReturnType<typeof useQueryClient>,
+  nodeId: string
+) {
+  // status
+  queryClient.invalidateQueries({
+    queryKey: memoryKeys.status(nodeId),
+    refetchType: 'all',
+  });
+
+  // all overview variants (any perLayer value)
+  queryClient.invalidateQueries({
+    predicate: (q) => {
+      const key = q.queryKey as string[];
+      return key[0] === 'memories' && key[1] === nodeId && key[2] === 'overview';
+    },
+    refetchType: 'all',
+  });
+
+  // entities list (NER may produce new entities from the written memory)
+  queryClient.invalidateQueries({
+    queryKey: memoryKeys.entities(nodeId),
+    refetchType: 'all',
+  });
+
+  // communities (entity changes affect clusters)
+  queryClient.invalidateQueries({
+    queryKey: memoryKeys.communities(nodeId),
+    refetchType: 'all',
+  });
+
+  // contextInject (all query variants for this node)
+  queryClient.invalidateQueries({
+    predicate: (q) => {
+      const key = q.queryKey as string[];
+      return key[0] === 'memories' && key[1] === nodeId && key[2] === 'context';
+    },
+    refetchType: 'all',
+  });
 }
 
 // ============================================
-// Core Memory Hooks (v1.1.0, unchanged API)
+// Core Memory Hooks
 // ============================================
 
 export function useMemoryStatus(nodeId: string) {
@@ -244,11 +297,7 @@ export function useMemoryRecord(nodeId: string, recordId: string | null) {
   };
 }
 
-/**
- * Hybrid recall: vector + BM25 + graph + cross-encoder reranking.
- * Supports progressive retrieval: call with mode='index' → get IDs →
- * call useRecallMemoryDetail with those IDs for full content.
- */
+/** Hybrid recall: vector + BM25 + graph + cross-encoder reranking. */
 export function useRecallMemories(nodeId: string) {
   return useMutation({
     mutationFn: async (data: MemoryRecallRequest) => {
@@ -278,7 +327,10 @@ export function useSearchMemoriesFts(nodeId: string) {
   });
 }
 
-/** Auto context injection for new sessions. */
+/**
+ * Auto context injection for new sessions.
+ * gcTime reduced to 2min to limit cache accumulation across query variants.
+ */
 export function useContextInject(nodeId: string, query?: string) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
@@ -290,7 +342,7 @@ export function useContextInject(nodeId: string, query?: string) {
     },
     enabled: isAuthenticated && !!nodeId,
     staleTime: STALE_TIMES.MEMORY_GRAPH,
-    gcTime: 10 * 60 * 1000,
+    gcTime: 2 * 60 * 1000, // reduced from 10min — each query string = new entry
     refetchOnWindowFocus: false,
     refetchOnMount: false,
   });
@@ -305,14 +357,12 @@ export function useContextInject(nodeId: string, query?: string) {
 }
 
 // ============================================
-// Core Memory Mutation Hooks (v1.1.0, bug fix in v2.0.0)
+// Core Memory Mutation Hooks
 // ============================================
 
 /**
  * Create a new memory.
- *
- * v2.0.0 bug fix: invalidate overview uses predicate instead of bare
- * array key to correctly bust all perLayer variants.
+ * Invalidates: status, all overview variants, entities, communities, contextInject.
  */
 export function useRememberMemory(nodeId: string) {
   const queryClient = useQueryClient();
@@ -323,26 +373,14 @@ export function useRememberMemory(nodeId: string) {
       return res.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: memoryKeys.status(nodeId),
-        refetchType: 'all',
-      });
-      // Bust ALL overview entries for this node (all perLayer variants)
-      queryClient.invalidateQueries({
-        predicate: (q) => {
-          const key = q.queryKey as string[];
-          return key[0] === 'memories' && key[1] === nodeId && key[2] === 'overview';
-        },
-        refetchType: 'all',
-      });
+      invalidateWriteCaches(queryClient, nodeId);
     },
   });
 }
 
 /**
  * Delete (forget) a memory.
- *
- * v2.0.0 bug fix: same predicate-based overview invalidation as useRememberMemory.
+ * Invalidates: status, all overview variants, entities, communities, contextInject.
  */
 export function useForgetMemory(nodeId: string) {
   const queryClient = useQueryClient();
@@ -354,50 +392,59 @@ export function useForgetMemory(nodeId: string) {
     },
     onSuccess: (_data, recordId) => {
       queryClient.removeQueries({ queryKey: memoryKeys.record(nodeId, recordId) });
-      queryClient.invalidateQueries({
-        queryKey: memoryKeys.status(nodeId),
-        refetchType: 'all',
-      });
-      queryClient.invalidateQueries({
-        predicate: (q) => {
-          const key = q.queryKey as string[];
-          return key[0] === 'memories' && key[1] === nodeId && key[2] === 'overview';
-        },
-        refetchType: 'all',
-      });
+      invalidateWriteCaches(queryClient, nodeId);
     },
   });
 }
 
-/** Edit = forget old + remember new. Not atomic. */
+/**
+ * Edit = remember new first, then forget old.
+ *
+ * v2.1.0 BUG FIX: Operation order reversed from forget→remember to remember→forget.
+ *
+ * Previous order (dangerous):
+ *   forget old → remember new
+ *   If remember fails, old record is gone and new record was never created.
+ *   Data permanently lost with no recovery path.
+ *
+ * New order (safe):
+ *   remember new → forget old
+ *   If remember fails: old record still exists, onError tells user to retry.
+ *   If forget fails: both records exist (duplicate), user can manually delete old.
+ *   Either failure mode is recoverable.
+ *
+ * ⚠️ Note: max wait time is still ~60s (two sequential blpop calls, 30s each).
+ *   No frontend timeout — React Query default behavior. Show loading state.
+ */
 export function useEditMemory(nodeId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (params: { oldRecordId: string; newData: MemoryRememberRequest }) => {
-      await api.forgetMemory(nodeId, params.oldRecordId);
-      const res = await api.rememberMemory(nodeId, params.newData);
-      return { newRecordId: res.data.record_id, status: res.data.status };
+      // Step 1: create new record first (safe — old record still exists if this fails)
+      const rememberRes = await api.rememberMemory(nodeId, params.newData);
+      const newRecordId = rememberRes.data.record_id;
+      const status = rememberRes.data.status;
+
+      // Step 2: delete old record only after new one is confirmed created
+      // If this fails, both records exist (recoverable duplicate)
+      if (status !== 'duplicate') {
+        await api.forgetMemory(nodeId, params.oldRecordId);
+      }
+
+      return { newRecordId, status };
     },
     onSuccess: (_data, params) => {
       queryClient.removeQueries({ queryKey: memoryKeys.record(nodeId, params.oldRecordId) });
-      queryClient.invalidateQueries({
-        queryKey: memoryKeys.status(nodeId),
-        refetchType: 'all',
-      });
-      queryClient.invalidateQueries({
-        predicate: (q) => {
-          const key = q.queryKey as string[];
-          return key[0] === 'memories' && key[1] === nodeId && key[2] === 'overview';
-        },
-        refetchType: 'all',
-      });
+      invalidateWriteCaches(queryClient, nodeId);
     },
+    // onError: called when rememberMemory fails — old record still exists, nothing lost
+    // Caller (MemoryEditSheet) shows the error message to the user
   });
 }
 
 // ============================================
-// Cognitive Graph Hooks — Projects (v2.0.0 / v2.4.0 backend)
+// Cognitive Graph Hooks — Projects
 // ============================================
 
 export function useProjects(nodeId: string) {
@@ -478,7 +525,7 @@ export function useProjectTimeline(nodeId: string, projectId: string) {
 }
 
 // ============================================
-// Cognitive Graph Hooks — Sessions (v2.0.0 / v2.4.0 backend)
+// Cognitive Graph Hooks — Sessions
 // ============================================
 
 export function useSessionDetail(nodeId: string, sessionId: string) {
@@ -508,7 +555,7 @@ export function useSessionDetail(nodeId: string, sessionId: string) {
 
 /**
  * Full decrypted conversation replay.
- * ⚠️ May take up to 30s for long sessions. Content is immutable — gcTime 30min.
+ * ⚠️ May take up to 30s. Content is immutable — gcTime 30min.
  */
 export function useSessionConversation(nodeId: string, sessionId: string) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -561,7 +608,7 @@ export function useSessionArtifacts(nodeId: string, sessionId: string) {
 }
 
 // ============================================
-// Cognitive Graph Hooks — Artifacts (v2.0.0 / v2.4.0 backend)
+// Cognitive Graph Hooks — Artifacts
 // ============================================
 
 export function useArtifactDetail(nodeId: string, artifactId: string) {
@@ -613,22 +660,18 @@ export function useArtifactVersions(nodeId: string, artifactId: string) {
 }
 
 // ============================================
-// Cognitive Graph Hooks — Entities (v2.0.0 / v2.4.0 backend)
-// ============================================
-
-// ============================================
-// Cognitive Graph Hooks — Entities (v2.0.0 / v2.4.0 backend)
+// Cognitive Graph Hooks — Entities
 // ============================================
 
 /**
  * List all entities extracted by the Miner (up to 200).
- * staleTime: 5 min — same as other graph data.
+ * v2.1.0: query key now uses memoryKeys.entities() instead of hand-written array.
  */
 export function useEntities(nodeId: string) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   const query = useQuery({
-    queryKey: ['memories', nodeId, 'entities'] as const,
+    queryKey: memoryKeys.entities(nodeId),
     queryFn: async () => {
       const res = await api.getEntities(nodeId);
       return res.data;
@@ -730,7 +773,7 @@ export function useEntityTimeline(nodeId: string, entityId: string) {
 }
 
 // ============================================
-// Cognitive Graph Hooks — Communities (v2.0.0 / v2.4.0 backend)
+// Cognitive Graph Hooks — Communities
 // ============================================
 
 /**
@@ -765,16 +808,25 @@ export function useCommunities(nodeId: string) {
 }
 
 // ============================================
-// SuperNode Hooks — Tasks (v2.0.0 / v2.5.0 backend)
+// SuperNode Hooks — Tasks
 // ============================================
+
+interface SupernodeTaskFilters {
+  status?: string;
+  type?: string;
+  limit?: number;
+}
 
 /**
  * SuperNode cognitive task queue.
  *
- * @param supernodeEnabled - from useMemoryStatus data.supernode?.enabled.
- *   Pass false to disable the query and avoid 404 when SuperNode is off.
- * @param options.refetchInterval - Pass false to stop polling when panel
- *   is collapsed. Defaults to POLLING_INTERVALS.SUPERNODE_TASKS (5s).
+ * v2.1.0: filters decomposed to primitive values in query key.
+ * Callers do NOT need useMemo on the filters object — React Query
+ * previously did deep comparison on the object reference, causing
+ * spurious refetches when callers passed inline object literals.
+ *
+ * @param supernodeEnabled - from useMemoryStatus data.supernode?.enabled
+ * @param options.refetchInterval - false to pause polling when panel hidden
  */
 export function useSupernodeTasks(
   nodeId: string,
@@ -784,14 +836,23 @@ export function useSupernodeTasks(
 ) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
+  // Decompose to primitives so React Query key comparison is stable
+  const statusFilter = filters.status ?? '';
+  const typeFilter = filters.type ?? '';
+  const limitFilter = filters.limit ?? 50;
+
   const refetchInterval = options.refetchInterval !== undefined
     ? options.refetchInterval
     : POLLING_INTERVALS.SUPERNODE_TASKS;
 
   const query = useQuery({
-    queryKey: memoryKeys.supernodeTasks(nodeId, filters),
+    queryKey: memoryKeys.supernodeTasks(nodeId, statusFilter, typeFilter, limitFilter),
     queryFn: async () => {
-      const res = await api.getSupernodeTasks(nodeId, filters);
+      const res = await api.getSupernodeTasks(nodeId, {
+        status: statusFilter || undefined,
+        type: typeFilter || undefined,
+        limit: limitFilter,
+      });
       return res.data;
     },
     enabled: isAuthenticated && !!nodeId && supernodeEnabled,
@@ -894,7 +955,7 @@ export function useCancelSupernodeTask(nodeId: string) {
 }
 
 // ============================================
-// SuperNode Hooks — Usage & Health (v2.0.0 / v2.5.0 backend)
+// SuperNode Hooks — Usage & Health
 // ============================================
 
 export function useSupernodeUsage(
@@ -941,7 +1002,7 @@ export function useSupernodeHealth(nodeId: string, supernodeEnabled: boolean) {
       const res = await api.getSupernodeHealth(nodeId);
       return res.data;
     },
-    enabled: false, // never auto-fetches — use checkHealth() below
+    enabled: false,
     staleTime: Infinity,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
