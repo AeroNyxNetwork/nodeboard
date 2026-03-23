@@ -616,6 +616,40 @@ export function useArtifactVersions(nodeId: string, artifactId: string) {
 // Cognitive Graph Hooks — Entities (v2.0.0 / v2.4.0 backend)
 // ============================================
 
+// ============================================
+// Cognitive Graph Hooks — Entities (v2.0.0 / v2.4.0 backend)
+// ============================================
+
+/**
+ * List all entities extracted by the Miner (up to 200).
+ * staleTime: 5 min — same as other graph data.
+ */
+export function useEntities(nodeId: string) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  const query = useQuery({
+    queryKey: ['memories', nodeId, 'entities'] as const,
+    queryFn: async () => {
+      const res = await api.getEntities(nodeId);
+      return res.data;
+    },
+    enabled: isAuthenticated && !!nodeId,
+    staleTime: STALE_TIMES.MEMORY_GRAPH,
+    gcTime: 15 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+  });
+
+  return {
+    entities: query.data?.entities ?? [],
+    total: query.data?.total ?? 0,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
 export function useEntityDetail(nodeId: string, entityId: string) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
