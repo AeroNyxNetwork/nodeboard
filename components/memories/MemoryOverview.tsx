@@ -4,40 +4,56 @@
  * ============================================
  * File Path: components/memories/MemoryOverview.tsx
  *
- * Modification Reason (v3.0.0):
- *   Information architecture redesign — "useful > decorative":
- *   - MemoryHero v2.0.0: Cognitive Summary replaces particle constellation
- *   - MemoryCard v2.0.0: Desktop rows / Mobile cards (responsive)
- *   - Tighter spacing, higher information density
- *   - Search debounce reduced from 600ms to 500ms
- *   - Toast system unchanged
+ * Modification Reason (v4.0.0):
+ *   Phase 4 expansion — added top-level tab navigation to expose
+ *   v2.4.0 cognitive graph (Entities/Communities) and v2.5.0
+ *   SuperNode management panel alongside the existing Memories tab.
  *
- * Previous (v2.0.0):
- *   "This AI truly knows me" emotional feel with neural constellation,
- *   spotlight search, MemoryHero particles at top.
+ *   New top-level tabs:
+ *     Memories  — original overview + search + edit (unchanged)
+ *     Knowledge — MemoryGraph (entities + communities)
+ *     Projects  — MemoryProjects (project timeline + session replay)
+ *     AI Engine — SupernodePanel (tasks + usage + health)
+ *                 only shown when status.supernode?.enabled === true
  *
- * Main Functionality:
- *   - MemoryHero (cognitive summary + stats) at top
- *   - Action bar: search + layer filter + add button
- *   - Grouped memory list (overview) or flat results (search)
- *   - Edit/Create sheet (with tag onBlur fix)
- *   - Toast notifications
+ *   All existing functionality preserved:
+ *     - MemoryHero cognitive summary
+ *     - Debounced semantic search
+ *     - Layer filter for search results
+ *     - Edit/Create sheet (tag onBlur fix)
+ *     - Toast notifications
+ *
+ *   Entity data for MemoryGraph is fetched here via useEntityDetail
+ *   (full entity list). This avoids passing a hook call into MemoryGraph
+ *   and keeps all data fetching at the top-level component.
+ *
+ * Previous (v3.0.0):
+ *   Information architecture redesign — MemoryHero v2.0.0 cognitive summary,
+ *   MemoryCard v2.0.0 compact layout, tighter spacing, 500ms search debounce.
  *
  * Dependencies:
  *   - hooks/useMemories.ts (all memory hooks)
  *   - types/memory.ts (types + display helpers)
- *   - components/memories/MemoryHero.tsx (v2.0.0 cognitive summary)
- *   - components/memories/MemoryList.tsx (v2.0.0 compact layout)
- *   - components/memories/MemoryEditSheet.tsx (v1.2.0 tag fix)
+ *   - components/memories/MemoryHero.tsx
+ *   - components/memories/MemoryList.tsx
+ *   - components/memories/MemoryEditSheet.tsx
+ *   - components/memories/MemoryGraph.tsx (v4.0.0)
+ *   - components/memories/MemoryProjects.tsx (v4.0.0)
+ *   - components/memories/SupernodePanel.tsx (v4.0.0)
  *
  * ⚠️ Important Note for Next Developer:
- * - This component assumes node is online — page.tsx gates offline state
- * - Search uses useMutation (POST), not useQuery — manual trigger
+ * - MemoryOverview assumes node is online + agent running — page.tsx gates these
+ * - Entities for MemoryGraph are fetched at this level (not inside MemoryGraph)
+ *   because useMemories hooks require nodeId as first arg, not component-internal
+ * - supernodeEnabled is derived from status.supernode?.enabled ?? false
+ *   — this controls both showing the AI Engine tab AND passing to SupernodePanel
+ * - Search uses useMutation (POST), not useQuery — manual trigger only
  * - Edit = forget + remember (not atomic); error messaging handles partial failure
  * - The search debounce timer must be cleaned up on unmount
+ * - Tab state is local (useState), not URL-driven — no back-button nav between tabs
  *
- * Last Modified: v3.0.0 - Information architecture redesign
- * Previous: v2.0.0 - Emotional redesign with neural constellation
+ * Last Modified: v4.0.0 - Phase 4 tab expansion (graph + projects + supernode)
+ * Previous: v3.0.0 - Information architecture redesign
  * ============================================
  */
 
@@ -51,16 +67,21 @@ import {
   useForgetMemory,
   useRememberMemory,
   useEditMemory,
+  useEntities,
 } from '@/hooks/useMemories';
 import {
   MemoryDisplayRecord,
   MemoryRememberRequest,
   MemorySearchRequest,
   MemoryLayer,
+  Entity,
 } from '@/types/memory';
 import MemoryHero from './MemoryHero';
 import MemoryList, { MemoryListSkeleton } from './MemoryList';
 import MemoryEditSheet from './MemoryEditSheet';
+import MemoryGraph from './MemoryGraph';
+import MemoryProjects from './MemoryProjects';
+import SupernodePanel from './SupernodePanel';
 
 // ============================================
 // Props
@@ -71,7 +92,13 @@ interface MemoryOverviewProps {
 }
 
 // ============================================
-// Toast
+// Tab types
+// ============================================
+
+type OverviewTab = 'memories' | 'knowledge' | 'projects' | 'ai_engine';
+
+// ============================================
+// Toast (unchanged from v3.0.0)
 // ============================================
 
 function Toast({ message, variant }: { message: string; variant: 'success' | 'error' }) {
@@ -103,7 +130,47 @@ function Toast({ message, variant }: { message: string; variant: 'success' | 'er
 }
 
 // ============================================
-// Action Bar (search + filter + add)
+// Top-level Tab Bar
+// ============================================
+
+interface TopTabBarProps {
+  active: OverviewTab;
+  onChange: (tab: OverviewTab) => void;
+  showAiEngine: boolean;
+}
+
+function TopTabBar({ active, onChange, showAiEngine }: TopTabBarProps) {
+  const tabs: Array<{ key: OverviewTab; label: string }> = [
+    { key: 'memories',  label: 'Memories' },
+    { key: 'knowledge', label: 'Knowledge' },
+    { key: 'projects',  label: 'Projects' },
+    ...(showAiEngine ? [{ key: 'ai_engine' as const, label: 'AI Engine' }] : []),
+  ];
+
+  return (
+    <div className="flex gap-1 p-1 rounded-xl bg-white/[0.03] border border-white/[0.05] mb-5">
+      {tabs.map(({ key, label }) => (
+        <button
+          key={key}
+          onClick={() => onChange(key)}
+          className={`
+            flex-1 px-3 py-2 rounded-lg text-sm font-medium
+            transition-all duration-150
+            ${active === key
+              ? 'bg-white/[0.07] text-white'
+              : 'text-gray-500 hover:text-gray-300'
+            }
+          `}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ============================================
+// Action Bar (unchanged from v3.0.0)
 // ============================================
 
 interface ActionBarProps {
@@ -128,7 +195,6 @@ function ActionBar({
   return (
     <div className="mb-4">
       <div className="flex gap-2">
-        {/* Search */}
         <div className="relative flex-1">
           <svg
             className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"
@@ -156,7 +222,6 @@ function ActionBar({
           )}
         </div>
 
-        {/* Layer filter */}
         {isSearchMode && (
           <select
             value={layerFilter ?? ''}
@@ -184,7 +249,6 @@ function ActionBar({
           </select>
         )}
 
-        {/* Add button */}
         <button
           onClick={onAddMemory}
           className="
@@ -208,18 +272,10 @@ function ActionBar({
 }
 
 // ============================================
-// Search Results Header
+// Search Results Header (unchanged)
 // ============================================
 
-function SearchResultsHeader({
-  query,
-  count,
-  onClear,
-}: {
-  query: string;
-  count: number;
-  onClear: () => void;
-}) {
+function SearchResultsHeader({ query, count, onClear }: { query: string; count: number; onClear: () => void }) {
   return (
     <div className="flex items-center justify-between mb-3">
       <p className="text-xs text-gray-400">
@@ -242,6 +298,7 @@ function SearchResultsHeader({
 // ============================================
 
 export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
+  // ── Data ──────────────────────────────────────────────────────────
   const { status, isLoading: statusLoading } = useMemoryStatus(nodeId);
   const { overview, isLoading: overviewLoading } = useMemoryOverview(nodeId);
   const { search, results: searchResults, isSearching, reset: resetSearch } = useMemorySearch(nodeId);
@@ -249,6 +306,13 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
   const rememberMutation = useRememberMemory(nodeId);
   const editMutation = useEditMemory(nodeId);
 
+  const { entities, isLoading: entitiesLoading } = useEntities(nodeId);
+
+  // SuperNode availability from status
+  const supernodeEnabled = status?.supernode?.enabled ?? false;
+
+  // ── UI State ──────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<OverviewTab>('memories');
   const [searchQuery, setSearchQuery] = useState('');
   const [layerFilter, setLayerFilter] = useState<MemoryLayer | null>(null);
   const [editingRecord, setEditingRecord] = useState<MemoryDisplayRecord | null>(null);
@@ -263,17 +327,12 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  // Debounced search (500ms)
+  // ── Search (unchanged from v3.0.0) ────────────────────────────────
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-
     const trimmed = value.trim();
-    if (!trimmed) {
-      resetSearch();
-      return;
-    }
-
+    if (!trimmed) { resetSearch(); return; }
     searchTimerRef.current = setTimeout(() => {
       const params: MemorySearchRequest = { query: trimmed, top_k: 20 };
       if (layerFilter) params.layer_filter = layerFilter;
@@ -286,7 +345,6 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
     resetSearch();
   }, [resetSearch]);
 
-  // Re-search when layer filter changes
   useEffect(() => {
     const trimmed = searchQuery.trim();
     if (!trimmed) return;
@@ -296,12 +354,11 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layerFilter]);
 
-  // Cleanup debounce timer
   useEffect(() => {
     return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
   }, []);
 
-  // Handlers
+  // ── Edit/Create Sheet (unchanged) ─────────────────────────────────
   const handleEdit = useCallback((record: MemoryDisplayRecord) => {
     setEditingRecord(record);
     setSheetError(null);
@@ -323,7 +380,6 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
   const handleSave = useCallback(async (data: MemoryRememberRequest, oldRecordId?: string) => {
     try {
       setSheetError(null);
-
       if (oldRecordId) {
         const result = await editMutation.mutateAsync({ oldRecordId, newData: data });
         showToast(result.status === 'duplicate' ? 'This memory already exists.' : 'Memory updated');
@@ -331,7 +387,6 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
         const result = await rememberMutation.mutateAsync(data);
         showToast(result.status === 'duplicate' ? 'This memory already exists.' : 'Memory created');
       }
-
       handleCloseSheet();
     } catch (err) {
       setSheetError(err instanceof Error ? err.message : 'Failed to save memory.');
@@ -353,72 +408,116 @@ export default function MemoryOverview({ nodeId }: MemoryOverviewProps) {
   const isSearchMode = searchQuery.trim().length > 0;
   const isSaving = editMutation.isPending || rememberMutation.isPending;
 
+  // ── Tab change — clear search when leaving Memories tab ───────────
+  const handleTabChange = useCallback((tab: OverviewTab) => {
+    setActiveTab(tab);
+    if (tab !== 'memories') {
+      setSearchQuery('');
+      resetSearch();
+    }
+  }, [resetSearch]);
+
   return (
     <div>
       {toast && <Toast message={toast.message} variant={toast.variant} />}
 
-      {/* Hero — cognitive summary + stats */}
-      <MemoryHero
-        status={status}
-        overview={overview}
-        isLoading={statusLoading}
+      {/* Hero — only on Memories tab */}
+      {activeTab === 'memories' && (
+        <MemoryHero
+          status={status}
+          overview={overview}
+          isLoading={statusLoading}
+        />
+      )}
+
+      {/* Top-level tabs */}
+      <TopTabBar
+        active={activeTab}
+        onChange={handleTabChange}
+        showAiEngine={supernodeEnabled}
       />
 
-      {/* Action bar */}
-      <ActionBar
-        searchValue={searchQuery}
-        onSearchChange={handleSearchChange}
-        isSearching={isSearching}
-        onAddMemory={handleAddNew}
-        layerFilter={layerFilter}
-        onLayerFilterChange={setLayerFilter}
-        isSearchMode={isSearchMode}
-      />
-
-      {/* Content */}
-      {isSearchMode ? (
-        isSearching && !searchResults ? (
-          <div className="py-12 flex flex-col items-center gap-3">
-            <div className="relative">
-              <div className="w-8 h-8 border-2 border-purple-500/20 border-t-purple-500 rounded-full animate-spin" />
-            </div>
-            <p className="text-xs text-gray-500">Searching through memories...</p>
-          </div>
-        ) : (
-          <div>
-            {searchResults && (
-              <SearchResultsHeader
-                query={searchResults.query}
-                count={searchResults.results.length}
-                onClear={handleClearSearch}
-              />
-            )}
-            <MemoryList
-              mode="flat"
-              records={searchResults?.results ?? []}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              deletingId={deletingId}
-              emptyMessage={`No memories match "${searchQuery}".`}
-            />
-          </div>
-        )
-      ) : (
-        overviewLoading ? (
-          <MemoryListSkeleton />
-        ) : overview ? (
-          <MemoryList
-            mode="grouped"
-            overview={overview}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            deletingId={deletingId}
+      {/* ── Memories Tab ────────────────────────────────────────── */}
+      {activeTab === 'memories' && (
+        <>
+          <ActionBar
+            searchValue={searchQuery}
+            onSearchChange={handleSearchChange}
+            isSearching={isSearching}
+            onAddMemory={handleAddNew}
+            layerFilter={layerFilter}
+            onLayerFilterChange={setLayerFilter}
+            isSearchMode={isSearchMode}
           />
-        ) : (
-          <div className="py-12 text-center">
-            <p className="text-sm text-gray-500">Start chatting with your AI to build memories, or teach it manually.</p>
-          </div>
-        )
+
+          {isSearchMode ? (
+            isSearching && !searchResults ? (
+              <div className="py-12 flex flex-col items-center gap-3">
+                <div className="w-8 h-8 border-2 border-purple-500/20 border-t-purple-500 rounded-full animate-spin" />
+                <p className="text-xs text-gray-500">Searching through memories...</p>
+              </div>
+            ) : (
+              <div>
+                {searchResults && (
+                  <SearchResultsHeader
+                    query={searchResults.query}
+                    count={searchResults.results.length}
+                    onClear={handleClearSearch}
+                  />
+                )}
+                <MemoryList
+                  mode="flat"
+                  records={searchResults?.results ?? []}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                  deletingId={deletingId}
+                  emptyMessage={`No memories match "${searchQuery}".`}
+                />
+              </div>
+            )
+          ) : (
+            overviewLoading ? (
+              <MemoryListSkeleton />
+            ) : overview ? (
+              <MemoryList
+                mode="grouped"
+                overview={overview}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                deletingId={deletingId}
+              />
+            ) : (
+              <div className="py-12 text-center">
+                <p className="text-sm text-gray-500">
+                  Start chatting with your AI to build memories, or teach it manually.
+                </p>
+              </div>
+            )
+          )}
+        </>
+      )}
+
+      {/* ── Knowledge Tab ───────────────────────────────────────── */}
+      {activeTab === 'knowledge' && (
+        <MemoryGraph
+          nodeId={nodeId}
+          entities={entities}
+          entitiesLoading={entitiesLoading}
+        />
+      )}
+
+      {/* ── Projects Tab ────────────────────────────────────────── */}
+      {activeTab === 'projects' && (
+        <MemoryProjects nodeId={nodeId} />
+      )}
+
+      {/* ── AI Engine Tab (SuperNode) ────────────────────────────── */}
+      {activeTab === 'ai_engine' && (
+        <SupernodePanel
+          nodeId={nodeId}
+          supernodeEnabled={supernodeEnabled}
+          isActive={activeTab === 'ai_engine'}
+        />
       )}
 
       {/* Edit / Create Sheet */}
