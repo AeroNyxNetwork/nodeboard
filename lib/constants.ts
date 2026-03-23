@@ -6,15 +6,33 @@
  *
  * Creation Reason: Centralized configuration and constants
  * Modification Reason:
+ *   v1.3.0 - Added MemChain MPI v2.4.0 + v2.5.0 endpoints:
+ *     v2.4.0 认知图谱端点:
+ *       MPI_RECALL_DETAIL, MPI_PROJECTS, MPI_PROJECT_DETAIL,
+ *       MPI_PROJECT_TIMELINE, MPI_SESSION_DETAIL,
+ *       MPI_SESSION_CONVERSATION, MPI_SESSION_ARTIFACTS,
+ *       MPI_ARTIFACT_DETAIL, MPI_ARTIFACT_VERSIONS,
+ *       MPI_ENTITY_DETAIL, MPI_ENTITY_GRAPH, MPI_ENTITY_TIMELINE,
+ *       MPI_COMMUNITIES, MPI_CONTEXT_INJECT, MPI_SEARCH_FTS
+ *     v2.5.0 SuperNode 管理端点:
+ *       MPI_SUPERNODE_TASKS, MPI_SUPERNODE_TASK_DETAIL,
+ *       MPI_SUPERNODE_TASK_RETRY, MPI_SUPERNODE_TASK_CANCEL,
+ *       MPI_SUPERNODE_USAGE, MPI_SUPERNODE_HEALTH
+ *     新增常量:
+ *       MEMORY_GRAPH_STALE_TIME — 认知图谱数据缓存时长
+ *       SUPERNODE_POLLING_INTERVAL — SuperNode 任务队列轮询间隔
+ *     修正 WS_BASE_URL 路径:
+ *       旧: /ws/frontend/tunnel (旧路由, 仅向后兼容)
+ *       新: /ws/chat (v1.4.0 对齐路由)
  *   v1.2.0 - Added MemChain MPI endpoints for Memory Explorer:
- *     - MPI_STATUS, MPI_OVERVIEW, MPI_SEARCH, MPI_RECORD,
- *       MPI_REMEMBER, MPI_FORGET, MPI_EMBED in API_ENDPOINTS
- *     - MEMORY_POLLING_INTERVAL for overview refresh
+ *     MPI_STATUS, MPI_OVERVIEW, MPI_SEARCH, MPI_RECORD,
+ *     MPI_REMEMBER, MPI_FORGET, MPI_EMBED
+ *     MEMORY_POLLING_INTERVAL for overview refresh
  *   v1.1.0 - Added Agent-related constants for Phase 1:
- *     - AGENT_ENDPOINTS in API_ENDPOINTS
- *     - AGENT_POLLING_INTERVAL for transitional status polling (2s)
- *     - AGENT_STATUS_CONFIG for UI rendering
- *     - Agent-related ERROR_MESSAGES and SUCCESS_MESSAGES
+ *     AGENT_ENDPOINTS in API_ENDPOINTS
+ *     AGENT_POLLING_INTERVAL for transitional status polling (2s)
+ *     AGENT_STATUS_CONFIG for UI rendering
+ *     Agent-related ERROR_MESSAGES and SUCCESS_MESSAGES
  *
  * Main Functionality: API endpoints, polling intervals, storage keys,
  *                     and application-wide configuration values
@@ -25,9 +43,14 @@
  * - AGENT_POLLING_INTERVAL (2000ms) is used by useAgent.ts for transitional states
  * - Agent endpoints use function patterns like NODE_DETAIL — pass node ID
  * - MPI_RECORD endpoint takes both nodeId and recordId
+ * - MPI graph endpoints (v2.4.0) accept string IDs (project/session/entity/artifact)
+ * - SuperNode task endpoints (v2.5.0) accept string task_id
+ * - WS_BASE_URL updated to /ws/chat in v1.3.0 (old /ws/frontend/tunnel still works
+ *   but is deprecated — backend maintains backward compat route)
  *
- * Last Modified: v1.2.0 - Added MPI endpoints for Memory Explorer
- * Previous: v1.1.0 - Added Agent constants for Phase 1
+ * Last Modified: v1.3.0 - Added MPI v2.4.0 graph + v2.5.0 SuperNode endpoints,
+ *   fixed WS_BASE_URL path
+ * Previous: v1.2.0 - Added MPI endpoints for Memory Explorer
  * ============================================
  */
 
@@ -62,14 +85,70 @@ export const API_ENDPOINTS = {
   AGENT_RESTART: (nodeId: string) => `/nodes/${nodeId}/restart_agent/`,
   AGENT_UNINSTALL: (nodeId: string) => `/nodes/${nodeId}/uninstall_agent/`,
 
-  // MemChain MPI — Memory Explorer (v1.2.0)
+  // ============================================================
+  // MemChain MPI — Core Memory (v1.2.0)
+  // ============================================================
   MPI_STATUS: (nodeId: string) => `/nodes/${nodeId}/mpi/status/`,
   MPI_OVERVIEW: (nodeId: string) => `/nodes/${nodeId}/mpi/overview/`,
+  MPI_RECALL: (nodeId: string) => `/nodes/${nodeId}/mpi/recall/`,
+  MPI_RECALL_DETAIL: (nodeId: string) => `/nodes/${nodeId}/mpi/recall_detail/`,
   MPI_SEARCH: (nodeId: string) => `/nodes/${nodeId}/mpi/search/`,
+  MPI_SEARCH_FTS: (nodeId: string) => `/nodes/${nodeId}/mpi/search_fts/`,
   MPI_RECORD: (nodeId: string, recordId: string) => `/nodes/${nodeId}/mpi/record/${recordId}/`,
   MPI_REMEMBER: (nodeId: string) => `/nodes/${nodeId}/mpi/remember/`,
   MPI_FORGET: (nodeId: string) => `/nodes/${nodeId}/mpi/forget/`,
   MPI_EMBED: (nodeId: string) => `/nodes/${nodeId}/mpi/embed/`,
+  MPI_CONTEXT_INJECT: (nodeId: string) => `/nodes/${nodeId}/mpi/context/`,
+
+  // ============================================================
+  // MemChain MPI — Cognitive Graph (v2.4.0)
+  // ============================================================
+
+  // 项目
+  MPI_PROJECTS: (nodeId: string) => `/nodes/${nodeId}/mpi/projects/`,
+  MPI_PROJECT_DETAIL: (nodeId: string, projectId: string) =>
+    `/nodes/${nodeId}/mpi/projects/${projectId}/`,
+  MPI_PROJECT_TIMELINE: (nodeId: string, projectId: string) =>
+    `/nodes/${nodeId}/mpi/projects/${projectId}/timeline/`,
+
+  // 会话
+  MPI_SESSION_DETAIL: (nodeId: string, sessionId: string) =>
+    `/nodes/${nodeId}/mpi/sessions/${sessionId}/`,
+  MPI_SESSION_CONVERSATION: (nodeId: string, sessionId: string) =>
+    `/nodes/${nodeId}/mpi/sessions/${sessionId}/conversation/`,
+  MPI_SESSION_ARTIFACTS: (nodeId: string, sessionId: string) =>
+    `/nodes/${nodeId}/mpi/sessions/${sessionId}/artifacts/`,
+
+  // 制品
+  MPI_ARTIFACT_DETAIL: (nodeId: string, artifactId: string) =>
+    `/nodes/${nodeId}/mpi/artifacts/${artifactId}/`,
+  MPI_ARTIFACT_VERSIONS: (nodeId: string, artifactId: string) =>
+    `/nodes/${nodeId}/mpi/artifacts/${artifactId}/versions/`,
+
+  // 实体
+  MPI_ENTITIES: (nodeId: string) => `/nodes/${nodeId}/mpi/entities/`,
+  MPI_ENTITY_DETAIL: (nodeId: string, entityId: string) =>
+    `/nodes/${nodeId}/mpi/entities/${entityId}/`,
+  MPI_ENTITY_GRAPH: (nodeId: string, entityId: string) =>
+    `/nodes/${nodeId}/mpi/entities/${entityId}/graph/`,
+  MPI_ENTITY_TIMELINE: (nodeId: string, entityId: string) =>
+    `/nodes/${nodeId}/mpi/entities/${entityId}/timeline/`,
+
+  // 社区
+  MPI_COMMUNITIES: (nodeId: string) => `/nodes/${nodeId}/mpi/communities/`,
+
+  // ============================================================
+  // MemChain MPI — SuperNode Management (v2.5.0)
+  // ============================================================
+  MPI_SUPERNODE_TASKS: (nodeId: string) => `/nodes/${nodeId}/mpi/supernode/tasks/`,
+  MPI_SUPERNODE_TASK_DETAIL: (nodeId: string, taskId: string) =>
+    `/nodes/${nodeId}/mpi/supernode/tasks/${taskId}/`,
+  MPI_SUPERNODE_TASK_RETRY: (nodeId: string, taskId: string) =>
+    `/nodes/${nodeId}/mpi/supernode/tasks/${taskId}/retry/`,
+  MPI_SUPERNODE_TASK_CANCEL: (nodeId: string, taskId: string) =>
+    `/nodes/${nodeId}/mpi/supernode/tasks/${taskId}/cancel/`,
+  MPI_SUPERNODE_USAGE: (nodeId: string) => `/nodes/${nodeId}/mpi/supernode/usage/`,
+  MPI_SUPERNODE_HEALTH: (nodeId: string) => `/nodes/${nodeId}/mpi/supernode/health/`,
 } as const;
 
 // ============================================
@@ -83,17 +162,49 @@ export const POLLING_INTERVALS = {
   CODES_LIST: 60000,
   /** Agent status polling during transitional states (installing/starting/stopping/etc.) */
   AGENT_TRANSITIONAL: 2000,
-  /** Agent status polling during stable states (running/stopped/etc.) — less frequent */
+  /** Agent status polling during stable states (running/stopped/etc.) */
   AGENT_STABLE: 30000,
-  /** Memory overview auto-refresh interval (not aggressive — user-triggered mostly) */
+  /** Memory overview auto-refresh (not aggressive — user-triggered mostly) */
   MEMORY_OVERVIEW: 60000,
+  /**
+   * SuperNode task queue polling interval.
+   * Only used when user is viewing the SuperNode management panel.
+   * Moderate frequency — tasks complete in seconds to minutes.
+   */
+  SUPERNODE_TASKS: 5000,
 } as const;
 
 // ============================================
-// WebSocket Configuration (Phase 2)
+// React Query Stale Times (in milliseconds)
 // ============================================
 
-export const WS_BASE_URL = 'wss://api.aeronyx.network/ws/frontend/tunnel';
+export const STALE_TIMES = {
+  /**
+   * Cognitive graph data (projects/entities/communities) is built by the
+   * Miner running every ~1h. Caching for 5 minutes is safe and avoids
+   * redundant MPI requests on tab switch.
+   */
+  MEMORY_GRAPH: 5 * 60 * 1000,
+  /**
+   * Session/artifact detail data is immutable once created — 10 min stale.
+   */
+  MEMORY_DETAIL: 10 * 60 * 1000,
+  /**
+   * SuperNode task status changes frequently during processing — short stale.
+   */
+  SUPERNODE_TASKS: 5000,
+} as const;
+
+// ============================================
+// WebSocket Configuration
+// ============================================
+
+/**
+ * v1.3.0: Updated to /ws/chat (aligned with backend v1.4.0 route).
+ * Old path /ws/frontend/tunnel still works (backend backward compat),
+ * but new connections should use /ws/chat.
+ */
+export const WS_BASE_URL = 'wss://api.aeronyx.network/ws/chat';
 
 /**
  * Build the full WebSocket URL for a node tunnel.
@@ -308,6 +419,57 @@ export const CODE_STATUS_CONFIG = {
 } as const;
 
 // ============================================
+// SuperNode Task Status Configuration (v2.5.0)
+// ============================================
+
+/**
+ * UI configuration for cognitive task statuses.
+ * Keys match CognitiveTaskStatus type in types/memory.ts.
+ */
+export const SUPERNODE_TASK_STATUS_CONFIG = {
+  pending: {
+    label: 'Pending',
+    bgColor: 'bg-yellow-500/20',
+    textColor: 'text-yellow-400',
+    borderColor: 'border-yellow-500/50',
+    dotColor: 'bg-yellow-400',
+    animate: true,
+  },
+  processing: {
+    label: 'Processing',
+    bgColor: 'bg-blue-500/20',
+    textColor: 'text-blue-400',
+    borderColor: 'border-blue-500/50',
+    dotColor: 'bg-blue-400',
+    animate: true,
+  },
+  completed: {
+    label: 'Completed',
+    bgColor: 'bg-emerald-500/20',
+    textColor: 'text-emerald-400',
+    borderColor: 'border-emerald-500/50',
+    dotColor: 'bg-emerald-400',
+    animate: false,
+  },
+  failed: {
+    label: 'Failed',
+    bgColor: 'bg-red-500/20',
+    textColor: 'text-red-400',
+    borderColor: 'border-red-500/50',
+    dotColor: 'bg-red-400',
+    animate: false,
+  },
+  cancelled: {
+    label: 'Cancelled',
+    bgColor: 'bg-gray-500/20',
+    textColor: 'text-gray-400',
+    borderColor: 'border-gray-500/50',
+    dotColor: 'bg-gray-400',
+    animate: false,
+  },
+} as const;
+
+// ============================================
 // Error Messages
 // ============================================
 
@@ -327,7 +489,7 @@ export const ERROR_MESSAGES = {
   AGENT_RESTART_FAILED: 'Failed to restart OpenClaw. Please try again.',
   AGENT_UNINSTALL_FAILED: 'Failed to uninstall OpenClaw. Please try again.',
   AGENT_STATUS_FAILED: 'Failed to fetch agent status.',
-  // Memory-specific errors (v1.2.0)
+  // Memory core errors (v1.2.0)
   MEMORY_STATUS_FAILED: 'Failed to fetch memory status.',
   MEMORY_OVERVIEW_FAILED: 'Failed to load memories.',
   MEMORY_SEARCH_FAILED: 'Memory search failed. Please try again.',
@@ -335,6 +497,19 @@ export const ERROR_MESSAGES = {
   MEMORY_FORGET_FAILED: 'Failed to delete memory. Please try again.',
   MEMORY_EDIT_FAILED: 'Failed to edit memory. The old memory was deleted but the new one could not be created. Please try again.',
   MEMORY_NODE_OFFLINE: 'Node is offline. Memory management requires an online node.',
+  // Memory graph errors (v1.3.0)
+  MEMORY_PROJECTS_FAILED: 'Failed to load projects.',
+  MEMORY_SESSION_FAILED: 'Failed to load session details.',
+  MEMORY_ENTITY_FAILED: 'Failed to load entity details.',
+  MEMORY_COMMUNITIES_FAILED: 'Failed to load communities.',
+  MEMORY_CONVERSATION_FAILED: 'Failed to load conversation replay.',
+  MEMORY_ARTIFACTS_FAILED: 'Failed to load code artifacts.',
+  // SuperNode errors (v1.3.0)
+  SUPERNODE_TASKS_FAILED: 'Failed to load SuperNode task queue.',
+  SUPERNODE_TASK_RETRY_FAILED: 'Failed to retry task.',
+  SUPERNODE_TASK_CANCEL_FAILED: 'Failed to cancel task.',
+  SUPERNODE_USAGE_FAILED: 'Failed to load usage statistics.',
+  SUPERNODE_HEALTH_FAILED: 'Failed to check SuperNode health.',
 } as const;
 
 // ============================================
@@ -355,9 +530,12 @@ export const SUCCESS_MESSAGES = {
   AGENT_STOP_TRIGGERED: 'OpenClaw is stopping...',
   AGENT_RESTART_TRIGGERED: 'OpenClaw is restarting...',
   AGENT_UNINSTALL_TRIGGERED: 'OpenClaw uninstall started.',
-  // Memory-specific messages (v1.2.0)
+  // Memory core messages (v1.2.0)
   MEMORY_CREATED: 'Memory created successfully.',
   MEMORY_DELETED: 'Memory deleted. AI will no longer recall this.',
   MEMORY_UPDATED: 'Memory updated successfully.',
   MEMORY_DUPLICATE: 'This memory already exists.',
+  // SuperNode messages (v1.3.0)
+  SUPERNODE_TASK_RETRIED: 'Task queued for retry.',
+  SUPERNODE_TASK_CANCELLED: 'Task cancelled.',
 } as const;
