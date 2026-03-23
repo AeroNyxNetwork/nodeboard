@@ -575,6 +575,14 @@ export interface KnowledgeEdge {
   fact_text: string | null;
 }
 
+export interface EntityListResponse {
+  success: boolean;
+  data: {
+    entities: Entity[];
+    total: number;
+  };
+}
+
 export interface EntityDetailResponse {
   success: boolean;
   data: Entity & {
