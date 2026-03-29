@@ -4,7 +4,7 @@
  * ============================================
  * File Path: hooks/useWebSocketChat.ts
  *
- * Modification Reason (v2.0.0):
+ * Modification Reason (v2.0.1):
  *   Integrated E2E encryption (XChaCha20-Poly1305 + X25519):
  *   - After auth_ok, sends e2e_init with ephemeral public key
  *   - On e2e_ready, completes handshake → all chat encrypted
