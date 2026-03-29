@@ -4,36 +4,47 @@
  * ============================================
  * File Path: components/dashboard/ChatTerminal.tsx
  *
- * Modification Reason (v2.1.0):
+ * Modification Reason (v2.2.0):
+ *   - Integrated `isWaitingForReply` from useWebSocketChat for better UX
+ *   - New "Thinking" phase indicator: shows animated stages while waiting
+ *     for AI to start responding (covers the 15-30s gap)
+ *   - Stages cycle through: "Recalling memories..." → "Analyzing context..."
+ *     → "Generating response..." to give users visual progress
+ *   - TypingIndicator now shows during BOTH waiting and streaming phases
+ *   - Input is disabled while waiting (prevents duplicate sends)
+ *   - MemoryChainIndicator shown during waiting phase (before streaming)
+ *
+ * Previous (v2.1.0):
  *   - Added "Memory Pulse" system: after each AI response completes,
  *     polls /mpi/status/ to detect new memories formed during conversation
  *   - Status bar shows memory count with pulse animation on change
  *   - New memory toast slides in showing what was learned
- *   - "Recalling memories..." indicator during AI thinking phase
  *
  * Main Functionality:
  *   - Connection status header with memory counter
  *   - Scrollable message area with smart auto-scroll
- *   - Memory chain indicator during AI thinking
+ *   - ⏳ Thinking phase indicator during AI processing (NEW)
+ *   - Memory chain indicator during AI thinking phase
  *   - New memory detection toast after AI responses
  *   - Input textarea with Enter-to-send
  *   - Reconnect/disconnect controls
  *
  * Dependencies:
- *   - hooks/useWebSocketChat.ts
+ *   - hooks/useWebSocketChat.ts (isWaitingForReply, isStreaming)
  *   - hooks/useMemories.ts (useMemoryStatus for polling)
  *   - components/dashboard/ChatMessage.tsx
  *   - components/common/Button.tsx
  *
  * ⚠️ Important Note for Next Developer:
- * - Memory detection works by comparing total_records before and after
- *   each AI response. If the count increased, we show a toast.
- * - The polling happens ONCE after streaming ends, not continuously.
- * - The memory counter in the status bar pulses briefly when count changes.
- * - All of this works without any backend changes.
+ * - isWaitingForReply = true from send until first chunk arrives
+ * - isStreaming = true from first chunk until done=true
+ * - Both can be false simultaneously (idle state)
+ * - The ThinkingIndicator cycles through stages on a timer for visual feedback
+ * - Memory detection works by comparing total_records before and after responses
+ * - The polling happens ONCE after streaming ends, not continuously
  *
- * Last Modified: v2.1.0 - Memory Pulse integration
- * Previous: v2.0.0 - Responsive chat UI overhaul
+ * Last Modified: v2.2.0 - Thinking phase UX integration
+ * Previous: v2.1.0 - Memory Pulse integration
  * ============================================
  */
 
@@ -184,17 +195,79 @@ function StatusBar({
 }
 
 // ============================================
-// Memory Chain Indicator
+// Thinking Indicator (v2.2.0 — replaces MemoryChainIndicator during wait)
 // ============================================
 
-function MemoryChainIndicator() {
+const THINKING_STAGES = [
+  { text: 'Recalling memories...', icon: 'memory' },
+  { text: 'Analyzing context...', icon: 'context' },
+  { text: 'Generating response...', icon: 'generate' },
+];
+
+function ThinkingIndicator() {
+  const [stageIndex, setStageIndex] = useState(0);
+  const [elapsedSecs, setElapsedSecs] = useState(0);
+
+  // Cycle through stages every 5 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setStageIndex((prev) => {
+        if (prev < THINKING_STAGES.length - 1) return prev + 1;
+        return prev; // Stay on last stage
+      });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Track elapsed time
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setElapsedSecs((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const stage = THINKING_STAGES[stageIndex];
+
   return (
-    <div className="flex items-center gap-2 mb-3 max-w-3xl mx-auto px-4 sm:px-0">
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 motion-safe:animate-[fadeIn_0.3s_ease-out]">
-        <svg className="w-3.5 h-3.5 text-purple-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <div className="flex gap-2.5 sm:gap-3 mb-4 max-w-3xl mx-auto px-4 sm:px-0">
+      {/* AI Avatar */}
+      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex-shrink-0 mt-1 bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-white/[0.08] flex items-center justify-center">
+        <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
         </svg>
-        <span className="text-[12px] text-purple-300 font-medium">Recalling memories...</span>
+      </div>
+
+      {/* Thinking bubble */}
+      <div className="flex-1 min-w-0">
+        <div className="inline-flex flex-col gap-2 px-4 py-3 rounded-2xl rounded-bl-md bg-white/[0.04] border border-white/[0.06]">
+          {/* Stage text with fade transition */}
+          <div className="flex items-center gap-2">
+            <svg className="w-3.5 h-3.5 text-purple-400 animate-pulse flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+            </svg>
+            <span className="text-sm text-purple-300 font-medium motion-safe:animate-[fadeIn_0.3s_ease-out]" key={stageIndex}>
+              {stage.text}
+            </span>
+          </div>
+
+          {/* Progress dots */}
+          <div className="flex items-center gap-2">
+            {THINKING_STAGES.map((_, i) => (
+              <div
+                key={i}
+                className={`h-1 rounded-full transition-all duration-500 ${
+                  i <= stageIndex
+                    ? 'bg-purple-400/60 w-6'
+                    : 'bg-white/[0.06] w-4'
+                }`}
+              />
+            ))}
+            {elapsedSecs >= 10 && (
+              <span className="text-[10px] text-gray-600 ml-1">{elapsedSecs}s</span>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -242,7 +315,7 @@ function NewMemoryToast({ count, onDismiss }: { count: number; onDismiss: () => 
 }
 
 // ============================================
-// Typing Indicator
+// Typing Indicator (shown during streaming)
 // ============================================
 
 function TypingIndicator() {
@@ -304,10 +377,23 @@ function EmptyState({ isConnected, onSuggestion }: { isConnected: boolean; onSug
 // Chat Input
 // ============================================
 
-function ChatInput({ onSend, disabled, isStreaming }: { onSend: (t: string) => void; disabled: boolean; isStreaming: boolean }) {
+function ChatInput({
+  onSend,
+  disabled,
+  isStreaming,
+  isWaitingForReply,
+}: {
+  onSend: (t: string) => void;
+  disabled: boolean;
+  isStreaming: boolean;
+  isWaitingForReply: boolean;
+}) {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
+
+  // v2.2.0: Input is also disabled while waiting for reply
+  const isBusy = isStreaming || isWaitingForReply;
 
   // Robust auto-resize: works across browsers including Safari iOS
   const resizeTextarea = useCallback(() => {
@@ -331,7 +417,7 @@ function ChatInput({ onSend, disabled, isStreaming }: { onSend: (t: string) => v
     // Don't send during IME composition (Chinese/Japanese/Korean input)
     if (composingRef.current) return;
     const trimmed = value.trim();
-    if (!trimmed || disabled || isStreaming) return;
+    if (!trimmed || disabled || isBusy) return;
     onSend(trimmed);
     setValue('');
     // Reset height after clearing
@@ -341,7 +427,7 @@ function ChatInput({ onSend, disabled, isStreaming }: { onSend: (t: string) => v
         textareaRef.current.style.overflowY = 'hidden';
       }
     });
-  }, [value, disabled, isStreaming, onSend]);
+  }, [value, disabled, isBusy, onSend]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Don't intercept Enter during IME composition
@@ -365,7 +451,16 @@ function ChatInput({ onSend, disabled, isStreaming }: { onSend: (t: string) => v
     setValue(e.target.value);
   }, []);
 
-  const canSend = value.trim().length > 0 && !disabled && !isStreaming;
+  const canSend = value.trim().length > 0 && !disabled && !isBusy;
+
+  // v2.2.0: Dynamic placeholder based on state
+  const placeholder = disabled
+    ? 'Waiting for connection...'
+    : isWaitingForReply
+    ? 'AI is thinking...'
+    : isStreaming
+    ? 'AI is responding...'
+    : 'Message...';
 
   return (
     <div
@@ -394,13 +489,7 @@ function ChatInput({ onSend, disabled, isStreaming }: { onSend: (t: string) => v
             onKeyDown={handleKeyDown}
             onCompositionStart={handleCompositionStart}
             onCompositionEnd={handleCompositionEnd}
-            placeholder={
-              disabled
-                ? 'Waiting for connection...'
-                : isStreaming
-                ? 'AI is responding...'
-                : 'Message...'
-            }
+            placeholder={placeholder}
             disabled={disabled}
             rows={1}
             className="
@@ -487,6 +576,7 @@ export default function ChatTerminal({ nodeId }: ChatTerminalProps) {
   const {
     messages, connectionState, nodeName, sendMessage,
     disconnect, reconnect, clearMessages, isStreaming,
+    isWaitingForReply, // ⏳ v2.2.0
   } = useWebSocketChat(nodeId);
 
   // Memory tracking
@@ -531,12 +621,13 @@ export default function ChatTerminal({ nodeId }: ChatTerminalProps) {
   const [showScrollButton, setShowScrollButton] = useState(false);
   const isUserScrolledUpRef = useRef(false);
 
+  // v2.2.0: Also auto-scroll when waiting state changes (ThinkingIndicator appears)
   useEffect(() => {
     if (isUserScrolledUpRef.current) return;
     requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     });
-  }, [messages]);
+  }, [messages, isWaitingForReply]);
 
   const handleScroll = useCallback(() => {
     const c = messagesContainerRef.current;
@@ -570,8 +661,11 @@ export default function ChatTerminal({ nodeId }: ChatTerminalProps) {
 
   const isConnected = connectionState === 'connected';
   const hasMessages = messages.filter((m) => m.role !== 'system').length > 0;
+
+  // v2.2.0: Show ThinkingIndicator when waiting for reply (before first chunk)
+  // Show TypingIndicator only when streaming has started but last message is still user's
+  const showThinkingIndicator = isWaitingForReply && !isStreaming;
   const showTypingIndicator = isStreaming && messages.length > 0 && messages[messages.length - 1].role === 'user';
-  const showMemoryIndicator = showTypingIndicator;
 
   return (
     <div className="flex flex-col h-full bg-[#0A0A0F]">
@@ -592,7 +686,7 @@ export default function ChatTerminal({ nodeId }: ChatTerminalProps) {
       />
 
       <div ref={messagesContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain relative select-text">
-        {!hasMessages ? (
+        {!hasMessages && !showThinkingIndicator ? (
           <EmptyState isConnected={isConnected} onSuggestion={handleSuggestion} />
         ) : (
           <div className="max-w-3xl mx-auto w-full px-3 sm:px-4 py-4">
@@ -601,7 +695,7 @@ export default function ChatTerminal({ nodeId }: ChatTerminalProps) {
               const msg = messages[item.index];
               return <ChatMessage key={msg.id} message={msg} />;
             })}
-            {showMemoryIndicator && <MemoryChainIndicator />}
+            {showThinkingIndicator && <ThinkingIndicator />}
             {showTypingIndicator && <TypingIndicator />}
             <div ref={messagesEndRef} className="h-1" />
           </div>
@@ -614,7 +708,12 @@ export default function ChatTerminal({ nodeId }: ChatTerminalProps) {
         )}
       </div>
 
-      <ChatInput onSend={sendMessage} disabled={!isConnected} isStreaming={isStreaming} />
+      <ChatInput
+        onSend={sendMessage}
+        disabled={!isConnected}
+        isStreaming={isStreaming}
+        isWaitingForReply={isWaitingForReply}
+      />
     </div>
   );
 }
