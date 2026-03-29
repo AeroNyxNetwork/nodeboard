@@ -286,9 +286,13 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
 
         if (existingIdx >= 0) {
           const copy = [...prev];
+          const existing = copy[existingIdx];
           copy[existingIdx] = {
-            ...copy[existingIdx],
-            content: isErr ? `Error: ${content}` : copy[existingIdx].content,
+            ...existing,
+            // FIX: If existing content is empty, use response content as fallback
+            content: isErr
+              ? `Error: ${content}`
+              : (existing.content || content),
             isStreaming: false,
             isError: isErr,
           };
@@ -405,9 +409,10 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     (data: { request_id: string; nonce?: string; ciphertext?: string; done?: boolean }) => {
       const session = e2eSessionRef.current;
       if (!session || !session.isReady()) return;
-  
+
       const done = data.done || false;
-  
+
+      // Decrypt content first if present (Rust may send content + done=true together)
       let chunk = '';
       if (data.nonce && data.ciphertext) {
         const plaintext = session.decrypt(data.nonce, data.ciphertext);
@@ -417,8 +422,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
         }
         chunk = plaintext;
       }
-  
-      console.log('[E2E] stream chunk:', JSON.stringify({ request_id: data.request_id, chunk, done }));
+
       handleStream({ request_id: data.request_id, chunk, done });
     },
     [handleStream]
