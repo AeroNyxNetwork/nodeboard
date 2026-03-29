@@ -491,6 +491,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        console.log('[WS] RAW message:', JSON.stringify(data).slice(0, 300));
 
         switch (data.type) {
           case 'auth_ok':
