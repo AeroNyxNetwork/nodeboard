@@ -401,14 +401,13 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
   }, []);
 
   /** 🔐 Encrypted stream chunk — decrypt then delegate to handleStream */
-  const handleE2eStream = useCallback(
+   const handleE2eStream = useCallback(
     (data: { request_id: string; nonce?: string; ciphertext?: string; done?: boolean }) => {
       const session = e2eSessionRef.current;
       if (!session || !session.isReady()) return;
   
       const done = data.done || false;
   
-      // Decrypt content first if present (Rust may send content + done=true together)
       let chunk = '';
       if (data.nonce && data.ciphertext) {
         const plaintext = session.decrypt(data.nonce, data.ciphertext);
@@ -419,6 +418,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
         chunk = plaintext;
       }
   
+      console.log('[E2E] stream chunk:', JSON.stringify({ request_id: data.request_id, chunk, done }));
       handleStream({ request_id: data.request_id, chunk, done });
     },
     [handleStream]
@@ -429,26 +429,27 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     (data: { request_id: string; nonce?: string; ciphertext?: string; status?: string }) => {
       const session = e2eSessionRef.current;
       if (!session || !session.isReady()) return;
-
+  
       if (!data.nonce || !data.ciphertext) {
         console.error('[E2E] Missing nonce/ciphertext in e2e_response');
         return;
       }
-
+  
       const plaintext = session.decrypt(data.nonce, data.ciphertext);
       if (plaintext === null) {
         console.error('[E2E] Decryption failed for response');
         return;
       }
-
-      // Decrypted content may be JSON or plain text
+  
+      console.log('[E2E] response plaintext:', plaintext.slice(0, 200));
+  
       let payload: { response?: string; error?: string };
       try {
         payload = JSON.parse(plaintext);
       } catch {
         payload = { response: plaintext };
       }
-
+  
       handleResponse({
         request_id: data.request_id,
         status: data.status || 'success',
@@ -457,7 +458,6 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     },
     [handleResponse]
   );
-
   // ============================================
   // WebSocket Connection
   // ============================================
