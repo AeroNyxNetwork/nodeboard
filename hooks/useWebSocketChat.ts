@@ -4,7 +4,15 @@
  * ============================================
  * File Path: hooks/useWebSocketChat.ts
  *
- * Modification Reason (v2.0.1):
+ * Modification Reason (v2.1.0):
+ *   Added `isWaitingForReply` state for UX improvement:
+ *   - Set to true immediately when user sends a message
+ *   - Set to false when first stream chunk or response arrives
+ *   - Allows ChatTerminal to show "Recalling memories..." indicator
+ *     during the 15-30s gap before LLM starts streaming
+ *   - Previously, users saw nothing between sending and first token
+ *
+ * Previous (v2.0.0):
  *   Integrated E2E encryption (XChaCha20-Poly1305 + X25519):
  *   - After auth_ok, sends e2e_init with ephemeral public key
  *   - On e2e_ready, completes handshake → all chat encrypted
@@ -13,9 +21,6 @@
  *   - MPI requests (Memory Explorer) do NOT use E2E — only chat
  *   - E2E session destroyed on disconnect, new session on reconnect
  *   - Exposed `isE2E` flag for UI (e.g. lock icon in status bar)
- *
- *   All changes marked with 🔐 E2E comments.
- *   Existing plaintext flow is UNTOUCHED — E2E wraps around it.
  *
  * Previous (v1.1.0):
  *   Adapted to actual CMS message types (stream, response, ack).
@@ -28,6 +33,7 @@
  *   - 🔐 Encrypted send (e2e_message) / receive (e2e_stream, e2e_response)
  *   - Stream assembly: collects chunks into complete messages
  *   - Connection state tracking
+ *   - ⏳ isWaitingForReply: tracks gap between send and first response
  *   - Graceful cleanup on unmount or manual disconnect
  *
  * Dependencies:
@@ -46,7 +52,7 @@
  *   ← {"type":"e2e_ready","x25519_pk":"hex"}
  *   → {"type":"e2e_message","request_id":"uuid","action":"chat","nonce":"hex","ciphertext":"hex"}
  *   ← {"type":"e2e_stream","request_id":"uuid","nonce":"hex","ciphertext":"hex","done":false}
- *   ← {"type":"e2e_stream","request_id":"uuid","done":true}  (no nonce/ct)
+ *   ← {"type":"e2e_stream","request_id":"uuid","nonce":"hex","ciphertext":"hex","done":true}
  *   ← {"type":"e2e_response","request_id":"uuid","nonce":"hex","ciphertext":"hex"}
  *
  * ⚠️ Important Note for Next Developer:
@@ -55,10 +61,11 @@
  * - If e2e_ready not received within 5s, falls back to plaintext silently.
  * - MPI requests (action != 'chat') always use plaintext agent_request.
  * - The 'isE2E' return value reflects current encryption state for UI.
+ * - The 'isWaitingForReply' state is true from send until first chunk/response.
  * - handleStream/handleResponse are reused by E2E handlers after decryption.
  *
- * Last Modified: v2.0.0 - E2E encryption integration
- * Previous: v1.1.0 - Adapted to actual CMS message types
+ * Last Modified: v2.1.0 - Added isWaitingForReply for UX
+ * Previous: v2.0.0 - E2E encryption integration
  * ============================================
  */
 
@@ -106,6 +113,8 @@ export interface UseWebSocketChatReturn {
   isStreaming: boolean;
   /** 🔐 Whether E2E encryption is active for this session */
   isE2E: boolean;
+  /** ⏳ Whether we're waiting for the AI to start responding (sent but no reply yet) */
+  isWaitingForReply: boolean;
 }
 
 interface SendOptions {
@@ -150,6 +159,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
   const [nodeName, setNodeName] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isE2E, setIsE2E] = useState(false); // 🔐 E2E
+  const [isWaitingForReply, setIsWaitingForReply] = useState(false); // ⏳ UX
 
   // ---- Refs ----
   const wsRef = useRef<WebSocket | null>(null);
@@ -281,6 +291,9 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
         ? (data.payload?.error || data.payload?.response || 'Unknown error')
         : (data.payload?.response || '');
 
+      // ⏳ First response arrived — stop waiting indicator
+      setIsWaitingForReply(false);
+
       setMessages((prev) => {
         const existingIdx = prev.findIndex((m) => m.id === data.request_id);
 
@@ -322,6 +335,9 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     (data: { request_id: string; chunk: string; done: boolean }) => {
       const { request_id, chunk, done } = data;
       const buffer = streamBufferRef.current;
+
+      // ⏳ First stream chunk arrived — stop waiting, start streaming
+      setIsWaitingForReply(false);
 
       const current = buffer.get(request_id) || '';
       const updated = current + (chunk || '');
@@ -369,6 +385,10 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
   const handleWsError = useCallback((data: { message?: string }) => {
     const errMsg = data.message || 'WebSocket error';
     console.error('[WS] Server error:', errMsg);
+
+    // ⏳ Error means reply won't come
+    setIsWaitingForReply(false);
+
     setMessages((prev) => [
       ...prev,
       {
@@ -405,7 +425,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
   }, []);
 
   /** 🔐 Encrypted stream chunk — decrypt then delegate to handleStream */
-   const handleE2eStream = useCallback(
+  const handleE2eStream = useCallback(
     (data: { request_id: string; nonce?: string; ciphertext?: string; done?: boolean }) => {
       const session = e2eSessionRef.current;
       if (!session || !session.isReady()) return;
@@ -433,27 +453,26 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     (data: { request_id: string; nonce?: string; ciphertext?: string; status?: string }) => {
       const session = e2eSessionRef.current;
       if (!session || !session.isReady()) return;
-  
+
       if (!data.nonce || !data.ciphertext) {
         console.error('[E2E] Missing nonce/ciphertext in e2e_response');
         return;
       }
-  
+
       const plaintext = session.decrypt(data.nonce, data.ciphertext);
       if (plaintext === null) {
         console.error('[E2E] Decryption failed for response');
         return;
       }
-  
-      console.log('[E2E] response plaintext:', plaintext.slice(0, 200));
-  
+
+      // Decrypted content may be JSON or plain text
       let payload: { response?: string; error?: string };
       try {
         payload = JSON.parse(plaintext);
       } catch {
         payload = { response: plaintext };
       }
-  
+
       handleResponse({
         request_id: data.request_id,
         status: data.status || 'success',
@@ -462,6 +481,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     },
     [handleResponse]
   );
+
   // ============================================
   // WebSocket Connection
   // ============================================
@@ -495,7 +515,6 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log('[WS] RAW message:', JSON.stringify(data).slice(0, 300));
 
         switch (data.type) {
           case 'auth_ok':
@@ -544,6 +563,9 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
       clearPingPong();
       destroyE2E(); // 🔐 Destroy E2E session on close
       wsRef.current = null;
+
+      // ⏳ Clean up waiting state on disconnect
+      setIsWaitingForReply(false);
 
       // Clean up streaming state
       if (activeStreamIdRef.current) {
@@ -638,6 +660,11 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
       const action = options?.action || 'chat';
       const e2e = e2eSessionRef.current;
 
+      // ⏳ User sent a message — start waiting indicator immediately
+      if (action === 'chat') {
+        setIsWaitingForReply(true);
+      }
+
       // 🔐 E2E: encrypt chat messages when handshake is complete
       // MPI and non-chat actions always use plaintext
       if (action === 'chat' && e2e && e2e.isReady()) {
@@ -689,6 +716,7 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     }
     setConnectionState('disconnected');
     setIsStreaming(false);
+    setIsWaitingForReply(false); // ⏳
     activeStreamIdRef.current = null;
   }, [clearReconnectTimer, clearPingPong, destroyE2E]);
 
@@ -736,5 +764,6 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     clearMessages,
     isStreaming,
     isE2E, // 🔐
+    isWaitingForReply, // ⏳
   };
 }
