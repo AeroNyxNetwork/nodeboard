@@ -405,27 +405,21 @@ export function useWebSocketChat(nodeId: string): UseWebSocketChatReturn {
     (data: { request_id: string; nonce?: string; ciphertext?: string; done?: boolean }) => {
       const session = e2eSessionRef.current;
       if (!session || !session.isReady()) return;
-
+  
       const done = data.done || false;
-
-      // done=true signal has no content
-      if (done) {
-        handleStream({ request_id: data.request_id, chunk: '', done: true });
-        return;
+  
+      // Decrypt content first if present (Rust may send content + done=true together)
+      let chunk = '';
+      if (data.nonce && data.ciphertext) {
+        const plaintext = session.decrypt(data.nonce, data.ciphertext);
+        if (plaintext === null) {
+          console.error('[E2E] Decryption failed for stream chunk');
+          return;
+        }
+        chunk = plaintext;
       }
-
-      if (!data.nonce || !data.ciphertext) {
-        console.error('[E2E] Missing nonce/ciphertext in e2e_stream');
-        return;
-      }
-
-      const plaintext = session.decrypt(data.nonce, data.ciphertext);
-      if (plaintext === null) {
-        console.error('[E2E] Decryption failed for stream chunk');
-        return;
-      }
-
-      handleStream({ request_id: data.request_id, chunk: plaintext, done: false });
+  
+      handleStream({ request_id: data.request_id, chunk, done });
     },
     [handleStream]
   );
