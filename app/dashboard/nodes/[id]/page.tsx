@@ -114,6 +114,7 @@ interface EditableNameProps {
 }
 
 
+
 function EditableName({ name, onSave, isLoading }: EditableNameProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(name);
@@ -160,11 +161,13 @@ function EditableName({ name, onSave, isLoading }: EditableNameProps) {
     if (e.key === 'Escape') handleCancel();
   }, [handleSave, handleCancel]);
 
-  // onBlur：若正在保存则跳过，避免竞态
+  // onBlur：触发保存（不是取消）
+  // 标准内联编辑 UX：移开焦点 = 确认保存，Escape = 取消
+  // 若正在保存中则跳过，避免重复提交
   const handleBlur = useCallback(() => {
     if (isSavingRef.current) return;
-    handleCancel();
-  }, [handleCancel]);
+    handleSave();
+  }, [handleSave]);
 
   if (isEditing) {
     return (
