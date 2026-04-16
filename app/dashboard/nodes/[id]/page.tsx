@@ -6,55 +6,42 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.4.0 - Added NodeSettings panel between AgentPanel and AI Memory card.
+ *     NodeSettings handles: visibility / region / city / is_vpn_node /
+ *     access_password. Name editing remains inline (EditableName).
  *   v1.3.0 - Added AI Memory entry card between AgentPanel and StatsGrid.
- *     - Shows only when node is online
- *     - Links to /dashboard/nodes/[id]/memories
- *     - Uses existing Card and Button components
  *   v1.2.0 - Integrated AgentPanel for Phase 1 Agent Lifecycle Management.
- *     - Imported AgentPanel component
- *     - Added AgentPanel between NodeHeader and StatsGrid
- *     - Passed nodeStatus and onToast callback to AgentPanel
- *     - Extracted showToast to be reusable by both page and AgentPanel
- *   v1.1.0 - Bug fixes and feature completion:
- *     - Removed unused framer-motion import
- *     - Implemented inline edit for node name (was TODO)
- *     - Used NodeStatus type instead of hardcoded union in NodeHeader
- *     - Added success toast after delete before redirect
- *     - Added Copy IP and Copy Node ID actions in header (moved from card)
- *     - Improved error handling in edit/delete flows
+ *   v1.1.0 - Bug fixes: inline name edit, toast, copy actions.
  *
- * Main Functionality: Display detailed node info, real-time stats,
- *                     sessions list, agent lifecycle panel, AI memory
- *                     entry card, and management actions
+ * Main Functionality:
+ *   1. Node header with inline name editing and delete action
+ *   2. AgentPanel — OpenClaw lifecycle management
+ *   3. NodeSettings — visibility / region / VPN / password config (v1.4.0)
+ *   4. AI Memory entry card (online nodes only)
+ *   5. Stats grid — uptime / sessions / traffic
+ *   6. Hardware info + node details
+ *   7. Recent sessions table
+ *
  * Dependencies:
- *   - src/hooks/useNodes.ts
- *   - src/hooks/useAgent.ts (via AgentPanel)
- *   - src/components/dashboard/AgentPanel.tsx (Phase 1)
- *   - src/components/common/Card.tsx
- *   - src/components/common/Button.tsx
- *   - src/components/common/Modal.tsx
- *   - src/types/index.ts (NodeStatus, NodeDetail)
+ *   - hooks/useNodes.ts (useNodeDetail, useNodeStats, useNodeSessions,
+ *                        useUpdateNode, useDeleteNode)
+ *   - components/dashboard/AgentPanel.tsx
+ *   - components/dashboard/NodeSettings.tsx (v1.4.0)
+ *   - components/common/Card.tsx
+ *   - components/common/Button.tsx
+ *   - components/common/Modal.tsx
  *
- * Main Logical Flow:
- * 1. Fetch node detail and stats via hooks (auth-guarded)
- * 2. Display node info header with actions (edit name, delete)
- * 3. Display AgentPanel (OpenClaw lifecycle management)
- * 4. Display AI Memory entry card (when online)
- * 5. Show real-time statistics grid
- * 6. Show hardware info + node details
- * 7. List recent sessions in table
+ * ⚠️ Important Notes for Next Developer:
+ *   - NodeSettings calls onSaved() on success → triggers refetch()
+ *     so the detail view reflects the latest values immediately
+ *   - Name editing (EditableName) is separate from NodeSettings intentionally:
+ *     name is a prominent identity field, deserves its own inline UX
+ *   - showToast is shared: AgentPanel, NodeSettings, and page all use it
+ *   - Memory card only shows when node.status === 'online'
+ *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * ⚠️ Important Note for Next Developer:
- * - Uses dynamic route [id] parameter
- * - Edit mode is inline — name field becomes an input on click
- * - Delete navigates back to /dashboard/nodes after success
- * - All data hooks have auth guards (see useNodes.ts v1.1.0)
- * - AgentPanel handles its own data fetching via useAgentStatus
- * - Toast is shared: both page actions and AgentPanel use showToast
- * - Memory entry card only shows when node.status === 'online'
- *
- * Last Modified: v1.3.0 - Added AI Memory entry card
- * Previous: v1.2.0 - Integrated AgentPanel for Phase 1
+ * Last Modified: v1.4.0 - Added NodeSettings panel
+ * Previous: v1.3.0 - Added AI Memory entry card
  * ============================================
  */
 
@@ -76,9 +63,10 @@ import Card, { StatCard } from '@/components/common/Card';
 import Button, { CopyButton } from '@/components/common/Button';
 import { ConfirmDialog } from '@/components/common/Modal';
 import AgentPanel from '@/components/dashboard/AgentPanel';
+import NodeSettings from '@/components/dashboard/NodeSettings';
 
 // ============================================
-// Toast Component (local — lightweight)
+// Toast Component
 // ============================================
 
 function Toast({ message, variant = 'success' }: { message: string; variant?: 'success' | 'error' }) {
@@ -97,12 +85,11 @@ function Toast({ message, variant = 'success' }: { message: string; variant?: 's
 }
 
 // ============================================
-// Back Button Component
+// Back Button
 // ============================================
 
 function BackButton() {
   const router = useRouter();
-
   return (
     <button
       onClick={() => router.back()}
@@ -117,7 +104,7 @@ function BackButton() {
 }
 
 // ============================================
-// Editable Node Name Component
+// Editable Name
 // ============================================
 
 interface EditableNameProps {
@@ -131,18 +118,12 @@ function EditableName({ name, onSave, isLoading }: EditableNameProps) {
   const [editValue, setEditValue] = useState(name);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Focus input when entering edit mode
   useEffect(() => {
     if (isEditing && inputRef.current) {
       inputRef.current.focus();
       inputRef.current.select();
     }
   }, [isEditing]);
-
-  const handleStartEdit = useCallback(() => {
-    setEditValue(name);
-    setIsEditing(true);
-  }, [name]);
 
   const handleCancel = useCallback(() => {
     setEditValue(name);
@@ -151,16 +132,11 @@ function EditableName({ name, onSave, isLoading }: EditableNameProps) {
 
   const handleSave = useCallback(async () => {
     const trimmed = editValue.trim();
-    if (!trimmed || trimmed === name) {
-      handleCancel();
-      return;
-    }
+    if (!trimmed || trimmed === name) { handleCancel(); return; }
     try {
       await onSave(trimmed);
       setIsEditing(false);
-    } catch {
-      // Keep edit mode open on error
-    }
+    } catch { /* keep edit mode open */ }
   }, [editValue, name, onSave, handleCancel]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -179,13 +155,13 @@ function EditableName({ name, onSave, isLoading }: EditableNameProps) {
           onKeyDown={handleKeyDown}
           onBlur={handleCancel}
           disabled={isLoading}
+          maxLength={100}
           className="
             text-2xl font-bold text-white bg-white/5
             border border-purple-500/50 rounded-lg
             px-3 py-1 outline-none
             focus:border-purple-500 focus:ring-1 focus:ring-purple-500/30
           "
-          maxLength={50}
         />
         {isLoading && (
           <div className="w-5 h-5 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
@@ -196,7 +172,7 @@ function EditableName({ name, onSave, isLoading }: EditableNameProps) {
 
   return (
     <button
-      onClick={handleStartEdit}
+      onClick={() => { setEditValue(name); setIsEditing(true); }}
       className="group/name flex items-center gap-2 text-left"
       title="Click to edit name"
     >
@@ -212,7 +188,7 @@ function EditableName({ name, onSave, isLoading }: EditableNameProps) {
 }
 
 // ============================================
-// Node Header Component
+// Node Header
 // ============================================
 
 interface NodeHeaderProps {
@@ -226,13 +202,13 @@ interface NodeHeaderProps {
     is_verified: boolean;
     last_heartbeat: string;
   };
-  onSaveName: (newName: string) => Promise<void>;
+  onSaveName: (name: string) => Promise<void>;
   isSavingName: boolean;
   onDelete: () => void;
 }
 
 function NodeHeader({ node, onSaveName, isSavingName, onDelete }: NodeHeaderProps) {
-  const statusConfig = NODE_STATUS_CONFIG[node.status] || {
+  const statusConfig = NODE_STATUS_CONFIG[node.status] ?? {
     label: 'Unknown',
     bgColor: 'bg-gray-500/20',
     textColor: 'text-gray-400',
@@ -242,42 +218,25 @@ function NodeHeader({ node, onSaveName, isSavingName, onDelete }: NodeHeaderProp
   return (
     <Card variant="glow" padding="lg" className="mb-6">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-        {/* Node Info */}
         <div className="flex items-start gap-4">
-          <div className="
-            w-16 h-16 rounded-2xl
-            bg-gradient-to-br from-purple-500/20 to-pink-500/20
-            flex items-center justify-center flex-shrink-0
-          ">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center flex-shrink-0">
             <svg className="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
             </svg>
           </div>
-
           <div>
             <div className="flex items-center gap-3 mb-1 flex-wrap">
-              {/* Editable Name */}
-              <EditableName
-                name={node.name}
-                onSave={onSaveName}
-                isLoading={isSavingName}
-              />
-
-              {/* Status Badge */}
+              <EditableName name={node.name} onSave={onSaveName} isLoading={isSavingName} />
               <div className={`
                 flex items-center gap-2 px-3 py-1 rounded-full
-                ${statusConfig.bgColor} ${statusConfig.textColor}
-                border ${statusConfig.borderColor}
+                ${statusConfig.bgColor} ${statusConfig.textColor} border ${statusConfig.borderColor}
               `}>
-                <span className={`
-                  w-2 h-2 rounded-full
-                  ${node.status === 'online' ? 'bg-emerald-400 animate-pulse' :
-                    node.status === 'offline' ? 'bg-gray-400' : 'bg-red-400'}
-                `} />
+                <span className={`w-2 h-2 rounded-full ${
+                  node.status === 'online' ? 'bg-emerald-400 animate-pulse' :
+                  node.status === 'offline' ? 'bg-gray-400' : 'bg-red-400'
+                }`} />
                 <span className="text-xs font-medium">{statusConfig.label}</span>
               </div>
-
-              {/* Verified Badge */}
               {node.is_verified && (
                 <span className="flex items-center gap-1 text-xs text-emerald-400">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -287,7 +246,6 @@ function NodeHeader({ node, onSaveName, isSavingName, onDelete }: NodeHeaderProp
                 </span>
               )}
             </div>
-
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-400">
               <div className="flex items-center gap-2 min-w-0">
                 <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -306,12 +264,8 @@ function NodeHeader({ node, onSaveName, isSavingName, onDelete }: NodeHeaderProp
             </div>
           </div>
         </div>
-
-        {/* Actions — only Delete (edit is inline now) */}
         <div className="flex items-center gap-3">
-          <Button variant="danger" onClick={onDelete}>
-            Delete Node
-          </Button>
+          <Button variant="danger" onClick={onDelete}>Delete Node</Button>
         </div>
       </div>
     </Card>
@@ -319,14 +273,10 @@ function NodeHeader({ node, onSaveName, isSavingName, onDelete }: NodeHeaderProp
 }
 
 // ============================================
-// Stats Grid Component
+// Stats Grid
 // ============================================
 
-interface StatsGridProps {
-  nodeId: string;
-}
-
-function StatsGrid({ nodeId }: StatsGridProps) {
+function StatsGrid({ nodeId }: { nodeId: string }) {
   const { stats, isLoading } = useNodeStats(nodeId, { days: 7 });
 
   if (isLoading || !stats) {
@@ -345,54 +295,34 @@ function StatsGrid({ nodeId }: StatsGridProps) {
         label="Uptime"
         value={`${stats.uptime_percentage.toFixed(1)}%`}
         subValue={`${stats.total_uptime_hours.toFixed(1)} hours`}
-        icon={
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        }
+        icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
       />
       <StatCard
         label="Active Sessions"
         value={stats.active_sessions}
         subValue={`${stats.total_sessions} total`}
-        icon={
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-        }
+        icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
       />
       <StatCard
         label="Total Traffic"
         value={`${stats.total_traffic_gb.toFixed(2)} GB`}
         subValue={`~${stats.avg_session_traffic_mb.toFixed(0)} MB/session`}
-        icon={
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-          </svg>
-        }
+        icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>}
       />
       <StatCard
         label="Avg Session"
         value={`${stats.avg_session_duration_minutes.toFixed(0)} min`}
-        icon={
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        }
+        icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
       />
     </div>
   );
 }
 
 // ============================================
-// Sessions Table Component
+// Sessions Table
 // ============================================
 
-interface SessionsTableProps {
-  nodeId: string;
-}
-
-function SessionsTable({ nodeId }: SessionsTableProps) {
+function SessionsTable({ nodeId }: { nodeId: string }) {
   const { sessions, isLoading } = useNodeSessions(nodeId, { limit: 10 });
 
   return (
@@ -400,7 +330,6 @@ function SessionsTable({ nodeId }: SessionsTableProps) {
       <div className="px-6 py-4 border-b border-white/5">
         <h3 className="font-semibold text-white">Recent Sessions</h3>
       </div>
-
       {isLoading ? (
         <div className="p-6 space-y-3">
           {[...Array(5)].map((_, i) => (
@@ -440,19 +369,14 @@ function SessionsTable({ nodeId }: SessionsTableProps) {
                     {session.total_bytes_mb.toFixed(2)} MB
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-400">
-                    {session.duration_seconds > 0
-                      ? formatDuration(session.duration_seconds)
-                      : 'Active'}
+                    {session.duration_seconds > 0 ? formatDuration(session.duration_seconds) : 'Active'}
                   </td>
                   <td className="px-6 py-4">
                     <span className={`
                       inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium
-                      ${session.status === 'active'
-                        ? 'bg-emerald-500/20 text-emerald-400'
-                        : session.status === 'completed'
-                        ? 'bg-gray-500/20 text-gray-400'
-                        : 'bg-red-500/20 text-red-400'
-                      }
+                      ${session.status === 'active' ? 'bg-emerald-500/20 text-emerald-400'
+                        : session.status === 'completed' ? 'bg-gray-500/20 text-gray-400'
+                        : 'bg-red-500/20 text-red-400'}
                     `}>
                       <span className={`w-1.5 h-1.5 rounded-full ${
                         session.status === 'active' ? 'bg-emerald-400 animate-pulse' :
@@ -472,7 +396,7 @@ function SessionsTable({ nodeId }: SessionsTableProps) {
 }
 
 // ============================================
-// Node Detail Page Component
+// Node Detail Page
 // ============================================
 
 export default function NodeDetailPage() {
@@ -487,50 +411,41 @@ export default function NodeDetailPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [toast, setToast] = useState<{ message: string; variant: 'success' | 'error' } | null>(null);
 
-  // Show toast helper — shared with AgentPanel via onToast prop
   const showToast = useCallback((message: string, variant: 'success' | 'error' = 'success') => {
     setToast({ message, variant });
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  // Handle save name
   const handleSaveName = useCallback(async (newName: string) => {
     try {
       await updateNodeMutation.mutateAsync({ nodeId, data: { name: newName } });
       refetch();
       showToast('Node name updated');
     } catch (err) {
-      console.error('Failed to update node name:', err);
       showToast('Failed to update name', 'error');
-      throw err; // Re-throw so EditableName stays in edit mode
+      throw err;
     }
   }, [nodeId, updateNodeMutation, refetch, showToast]);
 
-  // Handle delete
   const handleDelete = useCallback(async () => {
     try {
       await deleteNodeMutation.mutateAsync(nodeId);
       showToast('Node deleted successfully');
-      // Small delay so user sees the toast before redirect
-      setTimeout(() => {
-        router.push('/dashboard/nodes');
-      }, 1000);
-    } catch (err) {
-      console.error('Failed to delete node:', err);
+      setTimeout(() => router.push('/dashboard/nodes'), 1000);
+    } catch {
       showToast('Failed to delete node', 'error');
     }
   }, [nodeId, deleteNodeMutation, router, showToast]);
 
-  // Loading state
+  // ── Loading state ─────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div className="max-w-7xl mx-auto">
         <BackButton />
         <div className="space-y-6">
           <div className="h-40 rounded-2xl bg-white/5 animate-pulse" />
-          {/* Agent panel skeleton */}
           <div className="h-32 rounded-2xl bg-white/5 animate-pulse" />
-          {/* Memory card skeleton */}
+          <div className="h-64 rounded-2xl bg-white/5 animate-pulse" />
           <div className="h-20 rounded-2xl bg-white/5 animate-pulse" />
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
@@ -543,7 +458,7 @@ export default function NodeDetailPage() {
     );
   }
 
-  // Error state
+  // ── Error state ───────────────────────────────────────────────────────────
   if (isError || !node) {
     return (
       <div className="max-w-7xl mx-auto">
@@ -554,7 +469,7 @@ export default function NodeDetailPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <h2 className="text-xl font-semibold text-white mb-2">Node Not Found</h2>
-            <p className="text-gray-400 mb-6">The node you&apos;re looking for doesn&apos;t exist or has been deleted.</p>
+            <p className="text-gray-400 mb-6">This node doesn&apos;t exist or has been deleted.</p>
             <Button variant="secondary" onClick={() => router.push('/dashboard/nodes')}>
               Back to Nodes
             </Button>
@@ -564,14 +479,14 @@ export default function NodeDetailPage() {
     );
   }
 
+  // ── Main render ───────────────────────────────────────────────────────────
   return (
     <div className="max-w-7xl mx-auto">
-      {/* Toast */}
       {toast && <Toast message={toast.message} variant={toast.variant} />}
 
       <BackButton />
 
-      {/* Node Header — with inline edit and delete */}
+      {/* 1. Node Header */}
       <NodeHeader
         node={node}
         onSaveName={handleSaveName}
@@ -579,33 +494,33 @@ export default function NodeDetailPage() {
         onDelete={() => setShowDeleteDialog(true)}
       />
 
-      {/* ======== Phase 1: Agent Lifecycle Panel ======== */}
+      {/* 2. Agent Lifecycle Panel */}
       <AgentPanel
         nodeId={nodeId}
         nodeStatus={node.status}
         onToast={showToast}
       />
 
-      {/* ======== v1.3.0: AI Memory Entry Card ======== */}
+      {/* 3. Node Settings (v1.4.0) */}
+      <NodeSettings
+        node={node}
+        onSaved={refetch}
+        onToast={showToast}
+      />
+
+      {/* 4. AI Memory Entry Card (online only) */}
       {node.status === 'online' && (
         <Card variant="default" padding="md" className="mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="
-                w-10 h-10 rounded-xl
-                bg-gradient-to-br from-purple-500/20 to-blue-500/20
-                border border-white/[0.08]
-                flex items-center justify-center flex-shrink-0
-              ">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500/20 to-blue-500/20 border border-white/[0.08] flex items-center justify-center flex-shrink-0">
                 <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
                 </svg>
               </div>
               <div>
                 <h3 className="text-sm font-semibold text-white">AI Memory</h3>
-                <p className="text-xs text-gray-500">
-                  View and manage what the AI remembers about you
-                </p>
+                <p className="text-xs text-gray-500">View and manage what the AI remembers about you</p>
               </div>
             </div>
             <Button
@@ -624,10 +539,10 @@ export default function NodeDetailPage() {
         </Card>
       )}
 
-      {/* Stats Grid */}
+      {/* 5. Stats Grid */}
       <StatsGrid nodeId={nodeId} />
 
-      {/* Hardware Info + Node Details */}
+      {/* 6. Hardware Info + Node Details */}
       <div className="grid lg:grid-cols-3 gap-6 mb-6">
         <Card variant="default" padding="md" className="lg:col-span-1">
           <h3 className="font-semibold text-white mb-4">Hardware Info</h3>
@@ -660,13 +575,17 @@ export default function NodeDetailPage() {
             <div className="min-w-0">
               <span className="text-xs text-gray-500 uppercase tracking-wider">Public Key</span>
               <div className="flex items-center gap-2 mt-1 min-w-0">
-                <span className="text-sm font-mono text-gray-300 truncate">{node.public_key?.slice(0, 20)}...</span>
+                <span className="text-sm font-mono text-gray-300 truncate">
+                  {node.public_key?.slice(0, 20)}...
+                </span>
                 <CopyButton text={node.public_key || ''} />
               </div>
             </div>
             <div>
               <span className="text-xs text-gray-500 uppercase tracking-wider">Created</span>
-              <p className="text-sm text-gray-300 mt-1">{new Date(node.created_at).toLocaleDateString()}</p>
+              <p className="text-sm text-gray-300 mt-1">
+                {new Date(node.created_at).toLocaleDateString()}
+              </p>
             </div>
             <div>
               <span className="text-xs text-gray-500 uppercase tracking-wider">Last Updated</span>
@@ -676,16 +595,16 @@ export default function NodeDetailPage() {
         </Card>
       </div>
 
-      {/* Sessions Table */}
+      {/* 7. Sessions Table */}
       <SessionsTable nodeId={nodeId} />
 
-      {/* Delete Confirmation Dialog */}
+      {/* Delete Confirmation */}
       <ConfirmDialog
         isOpen={showDeleteDialog}
         onClose={() => setShowDeleteDialog(false)}
         onConfirm={handleDelete}
         title="Delete Node"
-        message={`Are you sure you want to delete "${node.name}"? This will remove the node from your account permanently.`}
+        message={`Are you sure you want to delete "${node.name}"? This will permanently remove the node and all associated data.`}
         confirmText="Delete Node"
         cancelText="Cancel"
         variant="danger"
