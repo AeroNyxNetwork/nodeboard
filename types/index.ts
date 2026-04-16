@@ -6,10 +6,20 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.2.0 - Added node visibility / region / VPN types:
+ *     NodeVisibility union type (private | public | password_protected | unlisted)
+ *     Node and NodeDetail extended with visibility, region_code, city,
+ *     auto_region, is_vpn_node, effective_region, has_access_password
+ *     NodeUpdateRequest type for PATCH /nodes/{id}/
+ *     PublicNode type for sanitized public pool response
+ *     PublicNodeListResponse / PublicNodeDetailResponse response types
+ *     VerifyAccessRequest / VerifyAccessResponse for password verification
+ *     PublicNodesParams for query parameter typing
  *   v1.1.0 - Added window.phantom type declaration for newer Phantom versions.
  *     Phantom injects at window.phantom.solana instead of window.solana.
  *     Also added phantom.solana.connect({ onlyIfTrusted }) overload and
  *     okxwallet.solana.disconnect() method used by authStore.
+ *
  * Main Functionality: TypeScript interfaces and types for API responses,
  *                     wallet connections, nodes, sessions, and UI state
  * Dependencies: None (base types file)
@@ -26,9 +36,15 @@
  * - Wallet types must support both ETH and SOL chains
  * - Keep types in sync with API documentation version
  * - Window declarations must cover ALL injection paths used in authStore.ts
+ * - NodeUpdateRequest.access_password semantics:
+ *     undefined  → key not sent → password unchanged
+ *     ""         → clear password
+ *     "xyz"      → set new password
+ * - PublicNode is SANITIZED — never contains owner / access_password_hash /
+ *   public_key / hardware_info / binary_hash
  *
- * Last Modified: v1.1.0 - Added window.phantom type declaration
- * Previous: v1.0.1 - Fixed duplicate NodeStatus identifier
+ * Last Modified: v1.2.0 - Added visibility / region / VPN types + public pool types
+ * Previous: v1.1.0 - Added window.phantom type declaration
  * ============================================
  */
 
@@ -114,6 +130,19 @@ export interface CodeListResponse {
 
 export type NodeStatus = 'online' | 'offline' | 'suspended';
 
+/**
+ * Node visibility options.
+ * private            → owner + staff only
+ * public             → all authenticated users (appears in public pool)
+ * password_protected → authenticated users who pass verify_access
+ * unlisted           → authenticated users with direct link (NOT in public pool list)
+ */
+export type NodeVisibility =
+  | 'private'
+  | 'public'
+  | 'password_protected'
+  | 'unlisted';
+
 export interface HardwareInfo {
   cpu: string;
   memory: string;
@@ -127,10 +156,21 @@ export interface CachedHeartbeat {
   active_sessions: number;
 }
 
+/** Owner-scoped node (list view) — includes all fields */
 export interface Node {
   id: string;
   name: string;
   status: NodeStatus;
+  // v1.2.0 — visibility & access
+  visibility: NodeVisibility;
+  // v1.2.0 — region
+  region_code: string;
+  city: string;
+  effective_region: string;
+  auto_region: string;
+  // v1.2.0 — VPN
+  is_vpn_node: boolean;
+  // network
   public_ip: string;
   port: number;
   version: string;
@@ -140,16 +180,75 @@ export interface Node {
   online_duration: number;
   total_traffic_gb: number;
   is_verified: boolean;
+  is_active: boolean;
   created_at: string;
 }
 
+/** Owner-scoped node (detail view) — full fields including sensitive ones */
 export interface NodeDetail extends Node {
   owner_wallet: string;
   public_key: string;
+  // v1.2.0 — password indicator (never exposes the hash)
+  has_access_password: boolean;
+  binary_hash: string;
   total_uptime_seconds: number;
   total_data_bytes: number;
   hardware_info: HardwareInfo;
   updated_at: string;
+}
+
+/**
+ * Sanitized public node — returned by GET /nodes/public/.
+ * Never contains: owner, access_password_hash, public_key,
+ * hardware_info, binary_hash, is_active.
+ */
+export interface PublicNode {
+  id: string;
+  name: string;
+  visibility: NodeVisibility;
+  /** True when visibility === 'password_protected' */
+  requires_password: boolean;
+  region_code: string;
+  city: string;
+  effective_region: string;
+  auto_region: string;
+  is_vpn_node: boolean;
+  public_ip: string;
+  port: number;
+  version: string;
+  status: NodeStatus;
+  current_sessions: number;
+  total_sessions: number;
+  is_verified: boolean;
+  last_heartbeat: string;
+  created_at: string;
+}
+
+/**
+ * Request body for PATCH /nodes/{id}/.
+ * All fields optional (partial update).
+ *
+ * access_password semantics:
+ *   undefined  → do not send the key → password unchanged
+ *   ""         → send empty string → clear existing password
+ *   "xyz"      → send string → set new password
+ */
+export interface NodeUpdateRequest {
+  name?: string;
+  is_active?: boolean;
+  visibility?: NodeVisibility;
+  access_password?: string;
+  region_code?: string;
+  city?: string;
+  is_vpn_node?: boolean;
+}
+
+/** Query parameters for GET /nodes/public/ */
+export interface PublicNodesParams {
+  region?: string;
+  vpn?: boolean;
+  status?: 'online' | 'offline';
+  page?: number;
 }
 
 export interface NodeStatusInfo {
@@ -180,6 +279,10 @@ export interface NodeStats {
   period_end: string;
 }
 
+// ============================================
+// Node API Response Types
+// ============================================
+
 export interface NodeListResponse {
   success: boolean;
   data: Node[];
@@ -199,6 +302,36 @@ export interface NodeStatusResponse {
 export interface NodeStatsResponse {
   success: boolean;
   data: NodeStats;
+}
+
+/** Response for GET /nodes/public/ (paginated) */
+export interface PublicNodeListResponse {
+  success: boolean;
+  count: number;
+  page: number;
+  page_size: number;
+  data: PublicNode[];
+}
+
+/** Response for GET /nodes/public/{id}/ */
+export interface PublicNodeDetailResponse {
+  success: boolean;
+  data: PublicNode;
+  /** Present when 403 + password_protected */
+  requires_password?: boolean;
+  error?: string;
+}
+
+/** Request body for POST /nodes/{id}/verify_access/ */
+export interface VerifyAccessRequest {
+  password: string;
+}
+
+/** Response for POST /nodes/{id}/verify_access/ */
+export interface VerifyAccessResponse {
+  success: boolean;
+  detail?: string;
+  error?: string;
 }
 
 // ============================================
@@ -233,6 +366,7 @@ export interface SessionListResponse {
 export interface ApiError {
   error: string;
   detail?: string;
+  requires_password?: boolean;
 }
 
 export interface SuccessResponse {
@@ -288,15 +422,12 @@ declare global {
   interface Window {
     /** Legacy Phantom injection path (older versions) */
     solana?: SolanaWalletProvider;
-
     /** Modern Phantom injection path (newer versions) */
     phantom?: {
       solana?: SolanaWalletProvider;
     };
-
     /** MetaMask / other EVM wallets */
     ethereum?: EthereumProvider;
-
     /** OKX Wallet — supports both Solana and Ethereum */
     okxwallet?: {
       solana?: SolanaWalletProvider;
