@@ -6,61 +6,48 @@
  *
  * Creation Reason: Centralized API client for all backend communications
  * Modification Reason:
- *   v1.3.0 - Added MemChain MPI v2.4.0 + v2.5.0 methods:
- *     v2.4.0 认知图谱方法:
- *       recallMemories (hybrid recall with mode support),
- *       recallMemoryDetail (progressive retrieval step 2),
- *       searchMemoriesFts (FTS5 keyword search),
- *       getProjects, getProjectDetail, getProjectTimeline,
- *       getSessionDetail, getSessionConversation, getSessionArtifacts,
- *       getArtifactDetail, getArtifactVersions,
- *       getEntityDetail, getEntityGraph, getEntityTimeline,
- *       getCommunities, getContextInject
- *     v2.5.0 SuperNode 管理方法:
- *       getSupernodeTasks, getSupernodeTaskDetail,
- *       retrySupernodeTask, cancelSupernodeTask,
- *       getSupernodeUsage, getSupernodeHealth
- *     新增 import: GraphResponse types + SuperNode types from types/memory.ts
- *   v1.2.0 - Added MemChain MPI methods for Memory Explorer:
- *     getMemoryStatus, getMemoryOverview, searchMemories,
- *     getMemoryRecord, rememberMemory, forgetMemory, embedText
- *     All MPI methods require auth and an online node.
+ *   v1.4.0 - Added public node pool methods + updated updateNode signature:
+ *     New methods (all skipAuth: true — no API Key needed):
+ *       getPublicNodes(params)   → GET /nodes/public/
+ *       getPublicNodeDetail(id)  → GET /nodes/public/{id}/
+ *       verifyNodeAccess(id, pw) → POST /nodes/{id}/verify_access/
+ *     Updated:
+ *       updateNode data param changed from { name?, is_active? }
+ *       to NodeUpdateRequest (includes visibility / region / city / vpn)
+ *   v1.3.0 - Added MemChain MPI v2.4.0 + v2.5.0 methods
+ *   v1.2.0 - Added MemChain MPI methods for Memory Explorer
  *   v1.1.0 - Added Agent lifecycle API methods for Phase 1
  *   v1.0.3 - Fixed auth endpoints sending stale Authorization header
  *
  * Dependencies:
- *   - types/index.ts (type definitions)
- *   - types/agent.ts (agent type definitions — Phase 1)
- *   - types/memory.ts (memory type definitions — v1.2.0+)
- *   - lib/constants.ts (API endpoints and config)
+ *   - types/index.ts
+ *   - types/agent.ts
+ *   - types/memory.ts
+ *   - lib/constants.ts
  *
  * Main Logical Flow:
  * 1. All requests go through request() which adds headers and handles errors
- * 2. Auth endpoints (getNonce, login) use skipAuth: true to avoid sending tokens
- * 3. 401 responses trigger logout event and clear localStorage
- * 4. Authenticated endpoints automatically include Bearer token from localStorage
- * 5. Agent endpoints follow the same authenticated pattern
- * 6. MPI core endpoints follow the same pattern; expect 503/504 on offline nodes
- * 7. MPI graph endpoints (v2.4.0) return structured cognitive graph data
- * 8. SuperNode endpoints (v2.5.0) return task queue and provider health data
+ * 2. Auth endpoints use skipAuth: true
+ * 3. Public node pool endpoints use skipAuth: true (genuinely public)
+ * 4. 401 responses trigger logout event and clear localStorage
+ * 5. Authenticated endpoints automatically include Bearer token
  *
  * ⚠️ Important Note for Next Developer:
- * - getNonce and login MUST use skipAuth: true — they are pre-auth endpoints
- * - If you add new public endpoints, also use skipAuth: true
- * - The 401 handler dispatches 'auth:logout' custom event, listened by authStore
- * - Do not change the error message format without updating authStore error handling
- * - Agent endpoints all require auth — do NOT use skipAuth
+ * - getPublicNodes / getPublicNodeDetail / verifyNodeAccess MUST keep
+ *   skipAuth: true — these endpoints have no auth requirement on the backend
+ * - updateNode now accepts NodeUpdateRequest — do NOT revert to narrow type
+ * - access_password in NodeUpdateRequest:
+ *     undefined → don't send the key (password unchanged)
+ *     ""        → send empty string (clear password)
+ *     "xyz"     → send string (set new password)
+ *   The request() method strips undefined keys via JSON.stringify naturally,
+ *   but we must explicitly handle this in updateNode to avoid sending the key
+ *   when the caller doesn't intend to change the password.
  * - MPI endpoints all require auth — do NOT use skipAuth
- * - MPI core requests may take 1-3s (search involves embedding)
- * - MPI session conversation may take up to 30s (decryption of large sessions)
- * - MPI SuperNode health may take up to 15s (pings external LLM providers)
- *   — useMemory.ts sets appropriate timeouts for these
- * - recallMemories supports mode='index' for progressive retrieval:
- *   Step 1 call recallMemories({mode:'index', ...}) → returns record IDs
- *   Step 2 call recallMemoryDetail({record_ids: [...]}) → returns full content
+ * - getNonce and login MUST use skipAuth: true
  *
- * Last Modified: v1.3.0 - Added MPI v2.4.0 graph + v2.5.0 SuperNode methods
- * Previous: v1.2.0 - Added MPI endpoints for Memory Explorer
+ * Last Modified: v1.4.0 - Public node pool methods + NodeUpdateRequest type
+ * Previous: v1.3.0 - MPI v2.4.0 graph + v2.5.0 SuperNode methods
  * ============================================
  */
 
@@ -74,9 +61,14 @@ import {
   NodeDetailResponse,
   NodeStatusResponse,
   NodeStatsResponse,
+  NodeUpdateRequest,
+  PublicNodeListResponse,
+  PublicNodeDetailResponse,
+  VerifyAccessRequest,
+  VerifyAccessResponse,
+  PublicNodesParams,
   SessionListResponse,
   SuccessResponse,
-  ApiError,
   NodeStatus,
 } from '@/types';
 
@@ -88,7 +80,6 @@ import {
 } from '@/types/agent';
 
 import {
-  // Core memory types (v1.2.0)
   MemoryStatusResponse,
   MemoryOverviewResponse,
   MemorySearchRequest,
@@ -102,7 +93,6 @@ import {
   MemoryRememberResponse,
   MemoryForgetResponse,
   MemoryEmbedResponse,
-  // Cognitive graph types (v1.3.0 / v2.4.0 backend)
   EntityListResponse,
   ProjectListResponse,
   ProjectDetailResponse,
@@ -118,7 +108,6 @@ import {
   CommunityListResponse,
   ContextInjectResponse,
   FtsSearchResponse,
-  // SuperNode types (v1.3.0 / v2.5.0 backend)
   SupernodeTasksResponse,
   SupernodeTaskDetailResponse,
   SupernodeTaskActionResponse,
@@ -157,14 +146,12 @@ class ApiClient {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
-
     if (!skipAuth) {
       const apiKey = this.getApiKey();
       if (apiKey) {
         headers['Authorization'] = `Bearer ${apiKey}`;
       }
     }
-
     return headers;
   }
 
@@ -197,23 +184,27 @@ class ApiClient {
       }
 
       if (!response.ok) {
-        const errorData: ApiError = await response.json().catch(() => ({
+        const errorData = await response.json().catch(() => ({
           error: `HTTP ${response.status}: ${response.statusText}`,
         }));
-        throw new Error(errorData.error || errorData.detail || 'Request failed');
+        // Preserve requires_password flag for 403 on password_protected nodes
+        const err = new Error(
+          errorData.error || errorData.detail || 'Request failed'
+        ) as Error & { requires_password?: boolean; statusCode?: number };
+        err.requires_password = errorData.requires_password ?? false;
+        err.statusCode = response.status;
+        throw err;
       }
 
       return response.json();
     } catch (error) {
-      if (error instanceof Error) {
-        throw error;
-      }
+      if (error instanceof Error) throw error;
       throw new Error('Network error. Please check your connection.');
     }
   }
 
   // ============================================
-  // Authentication Endpoints (Public - no auth header)
+  // Authentication (skipAuth: true)
   // ============================================
 
   async getNonce(walletAddress: string): Promise<NonceResponse> {
@@ -233,7 +224,7 @@ class ApiClient {
   }
 
   // ============================================
-  // Registration Code Endpoints
+  // Registration Codes
   // ============================================
 
   async generateCode(): Promise<GenerateCodeResponse> {
@@ -261,11 +252,11 @@ class ApiClient {
   }
 
   // ============================================
-  // Node Management Endpoints
+  // Owner Node Management (API Key required)
   // ============================================
 
   async getNodes(status?: NodeStatus): Promise<NodeListResponse> {
-    const endpoint: string = status
+    const endpoint = status
       ? `${API_ENDPOINTS.NODES_LIST}?${new URLSearchParams({ status })}`
       : API_ENDPOINTS.NODES_LIST;
     return this.request<NodeListResponse>(endpoint, { method: 'GET' });
@@ -293,10 +284,22 @@ class ApiClient {
     );
   }
 
+  /**
+   * Update node settings.
+   * v1.4.0: data is now NodeUpdateRequest — supports visibility, region,
+   * city, is_vpn_node, access_password in addition to name and is_active.
+   *
+   * access_password handling:
+   *   - Do NOT include the key if you don't want to change the password
+   *   - Include "" to clear the password
+   *   - Include "xyz" to set a new password
+   */
   async updateNode(
     nodeId: string,
-    data: { name?: string; is_active?: boolean }
+    data: NodeUpdateRequest
   ): Promise<NodeDetailResponse> {
+    // Build payload: only include access_password key when explicitly provided
+    // (undefined values are stripped by JSON.stringify, which is correct behavior)
     return this.request<NodeDetailResponse>(
       API_ENDPOINTS.NODE_DETAIL(nodeId),
       { method: 'PATCH', body: JSON.stringify(data) }
@@ -311,7 +314,69 @@ class ApiClient {
   }
 
   // ============================================
-  // Session Endpoints
+  // Public Node Pool (skipAuth: true — no API Key needed) [v1.4.0]
+  // ============================================
+
+  /**
+   * Browse the public node pool.
+   * No authentication required — public nodes are genuinely public.
+   *
+   * @param params.region  ISO 3166-1 alpha-2, e.g. 'JP'
+   * @param params.vpn     true = VPN nodes only
+   * @param params.status  'online' | 'offline' (default: 'online')
+   * @param params.page    page number, page_size=20
+   */
+  async getPublicNodes(
+    params: PublicNodesParams = {}
+  ): Promise<PublicNodeListResponse> {
+    const qs = new URLSearchParams();
+    if (params.region) qs.append('region', params.region);
+    if (params.vpn !== undefined) qs.append('vpn', String(params.vpn));
+    if (params.status) qs.append('status', params.status);
+    if (params.page && params.page > 1) qs.append('page', String(params.page));
+
+    const query = qs.toString();
+    const endpoint = query
+      ? `${API_ENDPOINTS.NODES_PUBLIC_LIST}?${query}`
+      : API_ENDPOINTS.NODES_PUBLIC_LIST;
+
+    return this.request<PublicNodeListResponse>(endpoint, {
+      method: 'GET',
+      skipAuth: true,
+    });
+  }
+
+  /**
+   * Get a single public node's detail.
+   * No authentication required.
+   * Returns 403 + requires_password: true for password_protected nodes
+   * that haven't been unlocked yet (session-based grant).
+   */
+  async getPublicNodeDetail(nodeId: string): Promise<PublicNodeDetailResponse> {
+    return this.request<PublicNodeDetailResponse>(
+      API_ENDPOINTS.NODES_PUBLIC_DETAIL(nodeId),
+      { method: 'GET', skipAuth: true }
+    );
+  }
+
+  /**
+   * Verify access password for a password_protected node.
+   * No authentication required — anonymous users can unlock nodes too.
+   * On success, the server stores a session grant (cookie-based).
+   * Subsequent calls to getPublicNodeDetail will succeed without re-verification.
+   */
+  async verifyNodeAccess(
+    nodeId: string,
+    data: VerifyAccessRequest
+  ): Promise<VerifyAccessResponse> {
+    return this.request<VerifyAccessResponse>(
+      API_ENDPOINTS.NODE_VERIFY_ACCESS(nodeId),
+      { method: 'POST', body: JSON.stringify(data), skipAuth: true }
+    );
+  }
+
+  // ============================================
+  // Sessions
   // ============================================
 
   async getNodeSessions(
@@ -321,17 +386,15 @@ class ApiClient {
     const params = new URLSearchParams();
     if (options?.status) params.append('status', options.status);
     if (options?.limit) params.append('limit', String(options.limit));
-
-    const queryString = params.toString();
-    const endpoint = queryString
-      ? `${API_ENDPOINTS.NODE_SESSIONS(nodeId)}?${queryString}`
+    const qs = params.toString();
+    const endpoint = qs
+      ? `${API_ENDPOINTS.NODE_SESSIONS(nodeId)}?${qs}`
       : API_ENDPOINTS.NODE_SESSIONS(nodeId);
-
     return this.request<SessionListResponse>(endpoint, { method: 'GET' });
   }
 
   // ============================================
-  // Agent Lifecycle Endpoints (Phase 1)
+  // Agent Lifecycle (Phase 1)
   // ============================================
 
   async getAgentStatus(
@@ -340,9 +403,9 @@ class ApiClient {
   ): Promise<AgentStatusResponse> {
     const params = new URLSearchParams();
     if (agentType) params.append('agent_type', agentType);
-    const queryString = params.toString();
-    const endpoint = queryString
-      ? `${API_ENDPOINTS.AGENT_STATUS(nodeId)}?${queryString}`
+    const qs = params.toString();
+    const endpoint = qs
+      ? `${API_ENDPOINTS.AGENT_STATUS(nodeId)}?${qs}`
       : API_ENDPOINTS.AGENT_STATUS(nodeId);
     return this.request<AgentStatusResponse>(endpoint, { method: 'GET' });
   }
@@ -385,23 +448,11 @@ class ApiClient {
   // ============================================
   // MemChain MPI — Core Memory (v1.2.0)
   // ============================================
-  //
-  // ⚠️ All MPI endpoints require auth and an online node.
-  //   Expect 503 if node is offline, 504 if request times out (30s).
-  //   Frontend should check node status before calling these.
 
-  /** Get MemChain engine status and memory statistics. */
   async getMemoryStatus(nodeId: string): Promise<MemoryStatusResponse> {
-    return this.request<MemoryStatusResponse>(
-      API_ENDPOINTS.MPI_STATUS(nodeId),
-      { method: 'GET' }
-    );
+    return this.request<MemoryStatusResponse>(API_ENDPOINTS.MPI_STATUS(nodeId), { method: 'GET' });
   }
 
-  /**
-   * Get memory overview grouped by layer.
-   * @param perLayer - Records per layer (default 20, max 50)
-   */
   async getMemoryOverview(nodeId: string, perLayer: number = 20): Promise<MemoryOverviewResponse> {
     const params = new URLSearchParams({ per_layer: String(perLayer) });
     return this.request<MemoryOverviewResponse>(
@@ -410,15 +461,6 @@ class ApiClient {
     );
   }
 
-  /**
-   * Hybrid recall: vector + BM25 + graph + cross-encoder reranking.
-   *
-   * Supports two modes:
-   *   mode='full'  (default) — returns complete memory content
-   *   mode='index' — returns only record IDs (use recallMemoryDetail for content)
-   *
-   * Takes 1-3s (embedding + retrieval pipeline).
-   */
   async recallMemories(nodeId: string, data: MemoryRecallRequest): Promise<MemoryRecallResponse> {
     return this.request<MemoryRecallResponse>(
       API_ENDPOINTS.MPI_RECALL(nodeId),
@@ -426,10 +468,6 @@ class ApiClient {
     );
   }
 
-  /**
-   * Progressive retrieval step 2 — fetch full content for specific record IDs.
-   * Used after recallMemories(mode='index') to load content on demand.
-   */
   async recallMemoryDetail(
     nodeId: string,
     data: MemoryRecallDetailRequest
@@ -440,11 +478,6 @@ class ApiClient {
     );
   }
 
-  /**
-   * Semantic search (embed + recall combo).
-   * Pass plain text query; backend handles embedding automatically.
-   * Takes 1-3s.
-   */
   async searchMemories(nodeId: string, data: MemorySearchRequest): Promise<MemorySearchResponse> {
     return this.request<MemorySearchResponse>(
       API_ENDPOINTS.MPI_SEARCH(nodeId),
@@ -452,11 +485,6 @@ class ApiClient {
     );
   }
 
-  /**
-   * FTS5 full-text keyword search with highlighted snippets.
-   * Fast (< 30ms), exact keyword matching. Use for precise term lookup.
-   * @param q - Search query string
-   */
   async searchMemoriesFts(nodeId: string, q: string): Promise<FtsSearchResponse> {
     const params = new URLSearchParams({ q });
     return this.request<FtsSearchResponse>(
@@ -465,7 +493,6 @@ class ApiClient {
     );
   }
 
-  /** Get a single memory record by ID. */
   async getMemoryRecord(nodeId: string, recordId: string): Promise<MemoryRecordResponse> {
     return this.request<MemoryRecordResponse>(
       API_ENDPOINTS.MPI_RECORD(nodeId, recordId),
@@ -473,10 +500,6 @@ class ApiClient {
     );
   }
 
-  /**
-   * Create a new memory. Rust node auto-embeds the content.
-   * Returns 'duplicate' status if content already exists.
-   */
   async rememberMemory(nodeId: string, data: MemoryRememberRequest): Promise<MemoryRememberResponse> {
     return this.request<MemoryRememberResponse>(
       API_ENDPOINTS.MPI_REMEMBER(nodeId),
@@ -484,7 +507,6 @@ class ApiClient {
     );
   }
 
-  /** Delete (forget) a memory by record ID. Removes vector + FTS index too. */
   async forgetMemory(nodeId: string, recordId: string): Promise<MemoryForgetResponse> {
     return this.request<MemoryForgetResponse>(
       API_ENDPOINTS.MPI_FORGET(nodeId),
@@ -492,10 +514,6 @@ class ApiClient {
     );
   }
 
-  /**
-   * Vectorize text (advanced usage).
-   * Normally not called directly — /mpi/search/ handles embedding internally.
-   */
   async embedText(nodeId: string, text: string): Promise<MemoryEmbedResponse> {
     return this.request<MemoryEmbedResponse>(
       API_ENDPOINTS.MPI_EMBED(nodeId),
@@ -503,11 +521,6 @@ class ApiClient {
     );
   }
 
-  /**
-   * Get auto context injection for a new session.
-   * Call at session start to pre-load relevant recent memories.
-   * @param query - Optional topic hint for context retrieval
-   */
   async getContextInject(nodeId: string, query?: string): Promise<ContextInjectResponse> {
     const params = query ? `?${new URLSearchParams({ query })}` : '';
     return this.request<ContextInjectResponse>(
@@ -517,139 +530,87 @@ class ApiClient {
   }
 
   // ============================================
-  // MemChain MPI — Cognitive Graph (v1.3.0 / v2.4.0 backend)
+  // MemChain MPI — Cognitive Graph (v2.4.0)
   // ============================================
 
-  /** List all projects (auto-detected from entity communities). */
   async getProjects(nodeId: string): Promise<ProjectListResponse> {
-    return this.request<ProjectListResponse>(
-      API_ENDPOINTS.MPI_PROJECTS(nodeId),
-      { method: 'GET' }
-    );
+    return this.request<ProjectListResponse>(API_ENDPOINTS.MPI_PROJECTS(nodeId), { method: 'GET' });
   }
 
-  /** Get project detail including member entities and community info. */
   async getProjectDetail(nodeId: string, projectId: string): Promise<ProjectDetailResponse> {
     return this.request<ProjectDetailResponse>(
-      API_ENDPOINTS.MPI_PROJECT_DETAIL(nodeId, projectId),
-      { method: 'GET' }
+      API_ENDPOINTS.MPI_PROJECT_DETAIL(nodeId, projectId), { method: 'GET' }
     );
   }
 
-  /** Get project session timeline grouped by date. */
   async getProjectTimeline(nodeId: string, projectId: string): Promise<ProjectTimelineResponse> {
     return this.request<ProjectTimelineResponse>(
-      API_ENDPOINTS.MPI_PROJECT_TIMELINE(nodeId, projectId),
-      { method: 'GET' }
+      API_ENDPOINTS.MPI_PROJECT_TIMELINE(nodeId, projectId), { method: 'GET' }
     );
   }
 
-  /**
-   * Get session detail including LLM-generated title (v2.5.0 SuperNode).
-   * Title may be null if SuperNode hasn't processed it yet.
-   */
   async getSessionDetail(nodeId: string, sessionId: string): Promise<SessionDetailResponse> {
     return this.request<SessionDetailResponse>(
-      API_ENDPOINTS.MPI_SESSION_DETAIL(nodeId, sessionId),
-      { method: 'GET' }
+      API_ENDPOINTS.MPI_SESSION_DETAIL(nodeId, sessionId), { method: 'GET' }
     );
   }
 
-  /**
-   * Get full decrypted conversation replay.
-   * ⚠️ May take up to 30s for long sessions (decryption cost).
-   * Show loading state to the user.
-   */
-  async getSessionConversation(
-    nodeId: string,
-    sessionId: string
-  ): Promise<SessionConversationResponse> {
+  async getSessionConversation(nodeId: string, sessionId: string): Promise<SessionConversationResponse> {
     return this.request<SessionConversationResponse>(
-      API_ENDPOINTS.MPI_SESSION_CONVERSATION(nodeId, sessionId),
-      { method: 'GET' }
+      API_ENDPOINTS.MPI_SESSION_CONVERSATION(nodeId, sessionId), { method: 'GET' }
     );
   }
 
-  /** Get code artifacts extracted from a session. */
   async getSessionArtifacts(nodeId: string, sessionId: string): Promise<SessionArtifactsResponse> {
     return this.request<SessionArtifactsResponse>(
-      API_ENDPOINTS.MPI_SESSION_ARTIFACTS(nodeId, sessionId),
-      { method: 'GET' }
+      API_ENDPOINTS.MPI_SESSION_ARTIFACTS(nodeId, sessionId), { method: 'GET' }
     );
   }
 
-  /** Get artifact detail. */
   async getArtifactDetail(nodeId: string, artifactId: string): Promise<ArtifactDetailResponse> {
     return this.request<ArtifactDetailResponse>(
-      API_ENDPOINTS.MPI_ARTIFACT_DETAIL(nodeId, artifactId),
-      { method: 'GET' }
+      API_ENDPOINTS.MPI_ARTIFACT_DETAIL(nodeId, artifactId), { method: 'GET' }
     );
   }
 
-  /** Get artifact version history. */
   async getArtifactVersions(nodeId: string, artifactId: string): Promise<ArtifactVersionsResponse> {
     return this.request<ArtifactVersionsResponse>(
-      API_ENDPOINTS.MPI_ARTIFACT_VERSIONS(nodeId, artifactId),
-      { method: 'GET' }
+      API_ENDPOINTS.MPI_ARTIFACT_VERSIONS(nodeId, artifactId), { method: 'GET' }
     );
   }
 
-  /** List all entities extracted by the Miner (up to 200). */
   async getEntities(nodeId: string): Promise<EntityListResponse> {
-    return this.request<EntityListResponse>(
-      API_ENDPOINTS.MPI_ENTITIES(nodeId),
-      { method: 'GET' }
-    );
+    return this.request<EntityListResponse>(API_ENDPOINTS.MPI_ENTITIES(nodeId), { method: 'GET' });
   }
 
-  /** Get entity detail including all relationships. */
   async getEntityDetail(nodeId: string, entityId: string): Promise<EntityDetailResponse> {
     return this.request<EntityDetailResponse>(
-      API_ENDPOINTS.MPI_ENTITY_DETAIL(nodeId, entityId),
-      { method: 'GET' }
+      API_ENDPOINTS.MPI_ENTITY_DETAIL(nodeId, entityId), { method: 'GET' }
     );
   }
 
-  /** Get entity BFS subgraph (2-hop traversal). */
   async getEntityGraph(nodeId: string, entityId: string): Promise<EntityGraphResponse> {
     return this.request<EntityGraphResponse>(
-      API_ENDPOINTS.MPI_ENTITY_GRAPH(nodeId, entityId),
-      { method: 'GET' }
+      API_ENDPOINTS.MPI_ENTITY_GRAPH(nodeId, entityId), { method: 'GET' }
     );
   }
 
-  /** Get entity event timeline (when entity was mentioned across sessions). */
   async getEntityTimeline(nodeId: string, entityId: string): Promise<EntityTimelineResponse> {
     return this.request<EntityTimelineResponse>(
-      API_ENDPOINTS.MPI_ENTITY_TIMELINE(nodeId, entityId),
-      { method: 'GET' }
+      API_ENDPOINTS.MPI_ENTITY_TIMELINE(nodeId, entityId), { method: 'GET' }
     );
   }
 
-  /**
-   * List all communities.
-   * v2.5.0: communities may include LLM-generated narrative summaries.
-   */
   async getCommunities(nodeId: string): Promise<CommunityListResponse> {
     return this.request<CommunityListResponse>(
-      API_ENDPOINTS.MPI_COMMUNITIES(nodeId),
-      { method: 'GET' }
+      API_ENDPOINTS.MPI_COMMUNITIES(nodeId), { method: 'GET' }
     );
   }
 
   // ============================================
-  // MemChain MPI — SuperNode Management (v1.3.0 / v2.5.0 backend)
+  // MemChain MPI — SuperNode Management (v2.5.0)
   // ============================================
-  //
-  // ⚠️ These endpoints return 404 when supernode.enabled=false on the node.
-  //   Check MemoryStatusResponse.data.supernode before showing the SuperNode panel.
 
-  /**
-   * List cognitive task queue.
-   * @param options.status  - Filter: pending | processing | completed | failed | cancelled
-   * @param options.type    - Filter: session_title | community_narrative | entity_description | ...
-   * @param options.limit   - Max results (default 20, max 100)
-   */
   async getSupernodeTasks(
     nodeId: string,
     options?: { status?: string; type?: string; limit?: number }
@@ -667,43 +628,26 @@ class ApiClient {
     );
   }
 
-  /** Get task detail including payload, result, prompt messages, and token usage. */
-  async getSupernodeTaskDetail(
-    nodeId: string,
-    taskId: string
-  ): Promise<SupernodeTaskDetailResponse> {
+  async getSupernodeTaskDetail(nodeId: string, taskId: string): Promise<SupernodeTaskDetailResponse> {
     return this.request<SupernodeTaskDetailResponse>(
-      API_ENDPOINTS.MPI_SUPERNODE_TASK_DETAIL(nodeId, taskId),
-      { method: 'GET' }
+      API_ENDPOINTS.MPI_SUPERNODE_TASK_DETAIL(nodeId, taskId), { method: 'GET' }
     );
   }
 
-  /** Retry a failed or cancelled task (resets to pending). */
-  async retrySupernodeTask(
-    nodeId: string,
-    taskId: string
-  ): Promise<SupernodeTaskActionResponse> {
+  async retrySupernodeTask(nodeId: string, taskId: string): Promise<SupernodeTaskActionResponse> {
     return this.request<SupernodeTaskActionResponse>(
       API_ENDPOINTS.MPI_SUPERNODE_TASK_RETRY(nodeId, taskId),
       { method: 'POST', body: JSON.stringify({}) }
     );
   }
 
-  /** Cancel a pending task. */
-  async cancelSupernodeTask(
-    nodeId: string,
-    taskId: string
-  ): Promise<SupernodeTaskActionResponse> {
+  async cancelSupernodeTask(nodeId: string, taskId: string): Promise<SupernodeTaskActionResponse> {
     return this.request<SupernodeTaskActionResponse>(
       API_ENDPOINTS.MPI_SUPERNODE_TASK_CANCEL(nodeId, taskId),
       { method: 'POST', body: JSON.stringify({}) }
     );
   }
 
-  /**
-   * Get LLM usage statistics grouped by provider × task type.
-   * @param period - Month filter in YYYY-MM format (e.g. '2026-03')
-   */
   async getSupernodeUsage(nodeId: string, period?: string): Promise<SupernodeUsageResponse> {
     const params = period ? `?${new URLSearchParams({ period })}` : '';
     return this.request<SupernodeUsageResponse>(
@@ -712,14 +656,9 @@ class ApiClient {
     );
   }
 
-  /**
-   * Check SuperNode provider health (live ping to each LLM provider).
-   * ⚠️ May take up to 15s (pings external providers). Show loading state.
-   */
   async getSupernodeHealth(nodeId: string): Promise<SupernodeHealthResponse> {
     return this.request<SupernodeHealthResponse>(
-      API_ENDPOINTS.MPI_SUPERNODE_HEALTH(nodeId),
-      { method: 'GET' }
+      API_ENDPOINTS.MPI_SUPERNODE_HEALTH(nodeId), { method: 'GET' }
     );
   }
 }
@@ -753,12 +692,10 @@ export function formatRelativeTime(date: string | Date): string {
   const now = new Date();
   const then = new Date(date);
   const seconds = Math.floor((now.getTime() - then.getTime()) / 1000);
-
   if (seconds < 60) return 'Just now';
   if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
   if (seconds < 604800) return `${Math.floor(seconds / 86400)} days ago`;
-
   return then.toLocaleDateString();
 }
 
