@@ -3,8 +3,38 @@
  * AeroNyx Dashboard Sidebar Component
  * ============================================
  * File Path: components/dashboard/Sidebar.tsx
- * 
- * Last Modified: v1.0.2 - Removed framer-motion, fixed store subscription
+ *
+ * Creation Reason: Main navigation sidebar for the dashboard layout.
+ * Modification Reason:
+ *   v1.1.0 - Added Explore nav item for the public node pool page:
+ *     New route: /dashboard/explore (ExploreCard + public node discovery)
+ *     Placed directly below Nodes in nav order (semantically adjacent)
+ *     Updated version string to v1.4.0
+ *   v1.0.2 - Removed framer-motion, fixed store subscription
+ *
+ * Main Functionality:
+ *   1. Logo + brand link
+ *   2. Navigation items with active state detection
+ *   3. Connected wallet info display + copy
+ *   4. Disconnect / logout button
+ *   5. Mobile overlay + slide-in behavior
+ *
+ * Dependencies:
+ *   - stores/authStore.ts (walletAddress, walletType, logout)
+ *   - components/common/Logo.tsx
+ *   - components/common/Button.tsx (CopyButton)
+ *   - lib/api.ts (truncateAddress)
+ *
+ * ⚠️ Important Notes for Next Developer:
+ *   - isActiveRoute uses pathname === for /dashboard (exact match)
+ *     and pathname.startsWith for all other routes
+ *   - navItems order determines visual order in sidebar — keep Explore
+ *     adjacent to Nodes (same conceptual group)
+ *   - Mobile overlay click calls onClose to collapse the sidebar
+ *   - Do NOT add auth guard here — AuthModal in layout handles that
+ *
+ * Last Modified: v1.1.0 - Added Explore nav item
+ * Previous: v1.0.2 - Removed framer-motion, fixed store subscription
  * ============================================
  */
 
@@ -47,6 +77,16 @@ const navItems: NavItem[] = [
       </svg>
     ),
   },
+  // v1.1.0: Explore — public node pool discovery
+  {
+    label: 'Explore',
+    href: '/dashboard/explore',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+    ),
+  },
   {
     label: 'Registration Codes',
     href: '/dashboard/codes',
@@ -79,8 +119,7 @@ interface SidebarProps {
 export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  
-  // Use selectors to prevent unnecessary re-renders
+
   const walletAddress = useAuthStore((state) => state.walletAddress);
   const walletType = useAuthStore((state) => state.walletType);
   const logout = useAuthStore((state) => state.logout);
@@ -135,7 +174,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         <nav className="flex-1 p-4 space-y-1">
           {navItems.map((item) => {
             const isActive = isActiveRoute(item.href);
-            
+
             return (
               <Link
                 key={item.href}
@@ -144,8 +183,8 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                 className={`
                   flex items-center gap-3 px-4 py-3 rounded-xl
                   transition-all duration-200
-                  ${isActive 
-                    ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' 
+                  ${isActive
+                    ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
                     : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'
                   }
                 `}
@@ -154,7 +193,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                   {item.icon}
                 </span>
                 <span className="font-medium">{item.label}</span>
-                
+
                 {isActive && (
                   <div className="ml-auto w-1.5 h-1.5 rounded-full bg-purple-400" />
                 )}
@@ -205,7 +244,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         {/* Version */}
         <div className="px-6 pb-4">
           <p className="text-xs text-gray-600 text-center">
-            Privacy Network v1.0.0
+            Privacy Network v1.4.0
           </p>
         </div>
       </aside>
@@ -229,7 +268,7 @@ export function MobileHeader({ onMenuToggle }: MobileHeaderProps) {
           <Logo className="w-8 h-8" />
           <span className="text-lg font-bold gradient-text">AERONYX</span>
         </Link>
-        
+
         <button
           onClick={onMenuToggle}
           className="p-2 rounded-lg hover:bg-white/5 transition-colors"
