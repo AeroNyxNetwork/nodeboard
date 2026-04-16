@@ -113,10 +113,13 @@ interface EditableNameProps {
   isLoading: boolean;
 }
 
+
 function EditableName({ name, onSave, isLoading }: EditableNameProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(name);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Ref 标记：当前是否正在执行保存，避免 onBlur 竞态取消保存
+  const isSavingRef = useRef(false);
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -128,21 +131,40 @@ function EditableName({ name, onSave, isLoading }: EditableNameProps) {
   const handleCancel = useCallback(() => {
     setEditValue(name);
     setIsEditing(false);
+    isSavingRef.current = false;
   }, [name]);
 
   const handleSave = useCallback(async () => {
     const trimmed = editValue.trim();
-    if (!trimmed || trimmed === name) { handleCancel(); return; }
+    if (!trimmed || trimmed === name) {
+      handleCancel();
+      return;
+    }
+    // 标记正在保存，防止 onBlur 触发 cancel
+    isSavingRef.current = true;
     try {
       await onSave(trimmed);
       setIsEditing(false);
-    } catch { /* keep edit mode open */ }
+    } catch {
+      // 保存失败，保持编辑模式
+    } finally {
+      isSavingRef.current = false;
+    }
   }, [editValue, name, onSave, handleCancel]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleSave();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSave();
+    }
     if (e.key === 'Escape') handleCancel();
   }, [handleSave, handleCancel]);
+
+  // onBlur：若正在保存则跳过，避免竞态
+  const handleBlur = useCallback(() => {
+    if (isSavingRef.current) return;
+    handleCancel();
+  }, [handleCancel]);
 
   if (isEditing) {
     return (
@@ -153,7 +175,7 @@ function EditableName({ name, onSave, isLoading }: EditableNameProps) {
           value={editValue}
           onChange={(e) => setEditValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          onBlur={handleCancel}
+          onBlur={handleBlur}   // 用 handleBlur 替代 handleCancel
           disabled={isLoading}
           maxLength={100}
           className="
@@ -181,7 +203,8 @@ function EditableName({ name, onSave, isLoading }: EditableNameProps) {
         className="w-4 h-4 text-gray-600 opacity-0 group-hover/name:opacity-100 transition-opacity"
         fill="none" stroke="currentColor" viewBox="0 0 24 24"
       >
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+          d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
       </svg>
     </button>
   );
