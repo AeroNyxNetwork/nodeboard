@@ -56,6 +56,35 @@ import Card from '@/components/common/Card';
 import Button from '@/components/common/Button';
 
 // ============================================
+// Region Data
+// ============================================
+
+const REGIONS: { code: string; label: string; flag: string }[] = [
+  { code: '',   label: 'Not Set',      flag: '🌐' },
+  { code: 'US', label: 'United States', flag: '🇺🇸' },
+  { code: 'GB', label: 'United Kingdom', flag: '🇬🇧' },
+  { code: 'DE', label: 'Germany',       flag: '🇩🇪' },
+  { code: 'FR', label: 'France',        flag: '🇫🇷' },
+  { code: 'NL', label: 'Netherlands',   flag: '🇳🇱' },
+  { code: 'JP', label: 'Japan',         flag: '🇯🇵' },
+  { code: 'SG', label: 'Singapore',     flag: '🇸🇬' },
+  { code: 'HK', label: 'Hong Kong',     flag: '🇭🇰' },
+  { code: 'TW', label: 'Taiwan',        flag: '🇹🇼' },
+  { code: 'KR', label: 'South Korea',   flag: '🇰🇷' },
+  { code: 'AU', label: 'Australia',     flag: '🇦🇺' },
+  { code: 'CA', label: 'Canada',        flag: '🇨🇦' },
+  { code: 'BR', label: 'Brazil',        flag: '🇧🇷' },
+  { code: 'IN', label: 'India',         flag: '🇮🇳' },
+  { code: 'RU', label: 'Russia',        flag: '🇷🇺' },
+  { code: 'TR', label: 'Turkey',        flag: '🇹🇷' },
+  { code: 'UA', label: 'Ukraine',       flag: '🇺🇦' },
+  { code: 'CH', label: 'Switzerland',   flag: '🇨🇭' },
+  { code: 'SE', label: 'Sweden',        flag: '🇸🇪' },
+  { code: 'NO', label: 'Norway',        flag: '🇳🇴' },
+  { code: 'FI', label: 'Finland',       flag: '🇫🇮' },
+];
+
+// ============================================
 // Props
 // ============================================
 
@@ -143,8 +172,8 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
     markDirty();
   }, [markDirty]);
 
-  const handleRegionChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setRegionCode(e.target.value.toUpperCase().slice(0, 2));
+  const handleRegionChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    setRegionCode(e.target.value);
     markDirty();
   }, [markDirty]);
 
@@ -171,14 +200,12 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
 
   // ── Client-side validation ────────────────────────────────────────────────
   const validate = useCallback((): string => {
-    if (regionCode && !/^[A-Z]{2}$/.test(regionCode)) {
-      return 'Region code must be exactly 2 uppercase letters (e.g. JP, US, SG).';
-    }
+    // region_code is now always from the dropdown — no format validation needed
     if (visibility === 'password_protected' && !password && !node.has_access_password) {
       return 'A password is required for password-protected nodes.';
     }
     return '';
-  }, [regionCode, visibility, password, node.has_access_password]);
+  }, [visibility, password, node.has_access_password]);
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
@@ -352,31 +379,50 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
         <section>
           <h4 className="text-sm font-medium text-gray-300 mb-3">Region</h4>
           <div className="grid grid-cols-2 gap-3">
+            {/* Country dropdown */}
             <div>
-              <label className="block text-xs text-gray-500 mb-1.5">Country Code</label>
-              <input
-                type="text"
-                value={regionCode}
-                onChange={handleRegionChange}
-                placeholder="JP"
-                maxLength={2}
-                className="
-                  w-full px-4 py-2.5 rounded-xl uppercase
-                  bg-white/5 border border-white/10
-                  text-white placeholder-gray-600
-                  focus:outline-none focus:border-purple-500/50
-                  transition-colors font-mono tracking-widest
-                "
-              />
-              <p className="text-xs text-gray-600 mt-1">ISO 3166-1 alpha-2 (e.g. JP, US, SG)</p>
+              <label className="block text-xs text-gray-500 mb-1.5">Country</label>
+              <div className="relative">
+                <select
+                  value={regionCode}
+                  onChange={handleRegionChange}
+                  className="
+                    w-full appearance-none px-4 py-2.5 pr-10 rounded-xl
+                    bg-white/5 border border-white/10
+                    text-white
+                    focus:outline-none focus:border-purple-500/50
+                    transition-colors cursor-pointer
+                  "
+                >
+                  {REGIONS.map((r) => (
+                    <option key={r.code} value={r.code} className="bg-[#1a1a24] text-white">
+                      {r.flag} {r.label}
+                    </option>
+                  ))}
+                </select>
+                {/* Custom chevron */}
+                <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+              {/* Show auto-detected region hint when nothing selected */}
+              {!regionCode && node.auto_region && (
+                <p className="text-xs text-gray-600 mt-1.5">
+                  Auto-detected: <span className="text-gray-400 font-mono">{node.auto_region}</span>
+                </p>
+              )}
             </div>
+
+            {/* City input */}
             <div>
-              <label className="block text-xs text-gray-500 mb-1.5">City</label>
+              <label className="block text-xs text-gray-500 mb-1.5">City <span className="text-gray-600">(optional)</span></label>
               <input
                 type="text"
                 value={city}
                 onChange={handleCityChange}
-                placeholder="Tokyo"
+                placeholder="e.g. Tokyo"
                 maxLength={100}
                 className="
                   w-full px-4 py-2.5 rounded-xl
@@ -388,12 +434,6 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
               />
             </div>
           </div>
-          {node.auto_region && !regionCode && (
-            <p className="text-xs text-gray-500 mt-2">
-              Auto-detected region: <span className="text-gray-400 font-mono">{node.auto_region}</span>
-              {' '}(set a country code above to override)
-            </p>
-          )}
         </section>
 
         {/* ── VPN Node ─────────────────────────────────────────────────────── */}
