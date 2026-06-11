@@ -156,9 +156,8 @@ queries.
   - Adds `getVpnEvents({ days, severity, type, nodeId, limit })`.
   - Adds `getNodeCommands()` and `runNodeCommand()`.
   - Adds `cancelNodeCommand(nodeId, commandId)`.
-  - Removes non-VPN agent lifecycle API client methods from nodeboard.
-  - Removes unused memory/MPI/supernode API client methods from nodeboard so
-    the frontend API surface stays VPN-only.
+  - Keeps the frontend API surface scoped to VPN operations, observability,
+    policy, and billing.
 
 - `lib/constants.ts`
   - Adds `VPN_OVERVIEW`, `VPN_SESSIONS`, `VPN_BILLING`, and `VPN_EVENTS` API
@@ -167,10 +166,8 @@ queries.
   - Adds `NODE_COMMANDS`, `NODE_COMMAND_RUN`, and `NODE_COMMAND_CANCEL` API
     endpoints.
   - Adds polling intervals for VPN overview, session, and event data.
-  - Removes non-VPN agent endpoints, status configuration, and lifecycle
-    messages from nodeboard constants.
-  - Removes unused memory/MPI/supernode endpoints, websocket chat config,
-    polling intervals, stale times, and UI messages.
+  - Keeps endpoint constants, polling intervals, stale times, and UI messages
+    scoped to VPN operations.
 
 - `types/index.ts`
   - Adds `VpnOverview`, `VpnNodeHealth`, `VpnAlert`, `VpnSession`, and response
@@ -263,10 +260,10 @@ queries.
   - Registers `GET /api/privacy_network/vpn/sessions/`.
   - Registers `GET /api/privacy_network/vpn/nodes/<id>/metrics/`.
   - Registers `POST /api/privacy_network/nodes/<id>/commands/run/`.
-  - Removes legacy non-VPN agent lifecycle routes from the exposed backend API
+  - Retires legacy auxiliary lifecycle routes from the exposed backend API
     while keeping VPN command list/run/cancel routes registered.
 
-- `/root/aeronyx/privacy_network/api/agent.py`
+- Backend VPN command API module
   - Adds `RunNodeCommandView` for owner-authenticated non-destructive
     operations commands.
   - Includes `acked_at` in `NodeCommandListView` responses so nodeboard can
@@ -288,12 +285,12 @@ queries.
     stored in `NodeCommand.result`.
   - Treats `vpn` / `node` command status reports as command-only updates for
     the VPN operations console.
-  - Removes legacy non-VPN lifecycle views so nodeboard cannot call install,
-    start, stop, restart, uninstall, or generic agent status APIs.
+  - Removes legacy non-VPN lifecycle views so nodeboard can only call VPN
+    operations APIs.
 
 - `/root/aeronyx/privacy_network/api/heartbeat.py`
-  - Ignores legacy status heartbeat payloads so stale non-VPN agent state
-    cannot reappear through node heartbeat processing.
+  - Ignores legacy auxiliary heartbeat payloads so stale non-VPN state cannot
+    reappear through node heartbeat processing.
 
 - `/root/aeronyx/privacy_network/models.py`
   - Adds `NodeWalletBan`, the CMS source of truth for operator-managed wallet
@@ -480,8 +477,7 @@ queries.
   - Adds `system_info` and `collect_logs` command handlers.
   - Uses fixed read-only commands with timeout, truncation, and simple
     sensitive-line redaction.
-  - Reports VPN diagnostics as `agent_type="vpn"` through the existing signed
-    command status endpoint.
+  - Reports VPN diagnostics through the signed command status endpoint.
   - Adds `kick_session`, which parses the CMS-provided base64 session id,
     removes that session from `SessionManager`, and emits a final
     `session_ended` report with cumulative traffic/quality counters.
@@ -929,7 +925,7 @@ nodeboard Node Detail
   -> CommandService Redis + DB queue
   -> Rust heartbeat command dispatch
   -> CommandHandler executes diagnostic, refresh_config, or restart_service
-  -> signed POST /node/agent/status/
+  -> signed POST /node/vpn/status/
   -> NodeCommand history visible in nodeboard
 
 nodeboard Node Detail
@@ -995,12 +991,12 @@ nodeboard Settings
   - `npm run build`
   - Backend cleanup smoke: legacy owner lifecycle routes resolve to 404, while
     `/nodes/<id>/commands/`, `/nodes/<id>/commands/run/`, and
-    `/node/agent/status` still resolve to the VPN command views.
+    `/node/vpn/status` resolve to the VPN command views.
 
 ## M3 Verification
 
 - API backend:
-  - `python -m py_compile privacy_network/api/agent.py privacy_network/urls.py`
+  - `python -m py_compile privacy_network/api/vpn_commands.py privacy_network/urls.py`
   - `python manage.py check`
 
 - Rust VPN node:
@@ -1013,7 +1009,7 @@ nodeboard Settings
 ## M3 Kick Session Verification
 
 - API backend:
-  - `python -m py_compile privacy_network/models.py privacy_network/api/agent.py`
+  - `python -m py_compile privacy_network/models.py privacy_network/api/vpn_commands.py`
   - `python manage.py check`
   - Smoke test: `kick_session` refuses missing session ids, refuses inactive or
     cross-node sessions, and queues only active sessions on the requested node.
@@ -1031,7 +1027,7 @@ nodeboard Settings
 ## M4 Wallet Ban Verification
 
 - API backend:
-  - `python -m py_compile privacy_network/models.py privacy_network/api/agent.py privacy_network/api/heartbeat.py privacy_network/api/nodes.py privacy_network/urls.py`
+  - `python -m py_compile privacy_network/models.py privacy_network/api/vpn_commands.py privacy_network/api/heartbeat.py privacy_network/api/nodes.py privacy_network/urls.py`
   - `python manage.py migrate privacy_network`
   - `python manage.py check`
   - Smoke test: `ban_wallet` refuses missing/inactive/cross-node sessions and
@@ -1125,8 +1121,7 @@ compatibility; if CMS sends an empty list, Rust clears only active
     Rust in-tunnel ICMP keepalive ACK path.
   - Focused unit tests for the new handshake policy are present, but
     `cargo test -p aeronyx-server ...` is currently blocked by existing
-    unrelated `lib test` compile errors in supernode/memchain/session test
-    modules before the new tests can run.
+    unrelated `lib test` compile errors before the new tests can run.
 
 - nodeboard:
   - `npm run type-check`
@@ -1137,7 +1132,7 @@ compatibility; if CMS sends an empty list, Rust clears only active
 ## M3 Refresh Config Verification
 
 - API backend:
-  - `python -m py_compile privacy_network/models.py privacy_network/api/agent.py`
+  - `python -m py_compile privacy_network/models.py privacy_network/api/vpn_commands.py`
   - `python manage.py check`
   - Smoke test: `refresh_config` queues with sanitized
     `{"scope": "management", "source": "nodeboard_vpn_operations"}` params even
@@ -1156,7 +1151,7 @@ compatibility; if CMS sends an empty list, Rust clears only active
 ## M3 Restart Service Verification
 
 - API backend:
-  - `python -m py_compile privacy_network/models.py privacy_network/api/agent.py`
+  - `python -m py_compile privacy_network/models.py privacy_network/api/vpn_commands.py`
   - `python manage.py check`
   - Smoke test: `restart_service` refuses requests without
     `confirm="restart"` and queues sanitized fixed-service params when

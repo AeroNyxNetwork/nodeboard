@@ -37,7 +37,7 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.5.0 - Removed non-VPN agent UI from nodeboard
+ * Last Modified: v1.5.0 - Focused nodeboard on VPN operations UI
  * Previous: v1.4.0 - Added NodeSettings panel
  * ============================================
  */

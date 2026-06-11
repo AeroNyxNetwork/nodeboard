@@ -14,7 +14,7 @@
  *     Updated:
  *       updateNode data param changed from { name?, is_active? }
  *       to NodeUpdateRequest (includes visibility / region / city / vpn)
- *   v1.5.0 - Removed non-VPN agent/memory client methods
+ *   v1.5.0 - Focused client methods on VPN operations
  *   v1.0.3 - Fixed auth endpoints sending stale Authorization header
  *
  * Dependencies:

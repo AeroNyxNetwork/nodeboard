@@ -11,7 +11,7 @@
  *       NODE_VERIFY_ACCESS
  *     New constants: NODE_VISIBILITY_CONFIG, EXPLORE_PAGE_SIZE
  *     New polling: EXPLORE_PUBLIC_NODES (60s, low frequency)
- *   v1.5.0 - Removed non-VPN agent/memory endpoints and websocket config
+ *   v1.5.0 - Focused endpoints and polling on VPN operations
  *
  * Main Functionality: API endpoints, polling intervals, storage keys,
  *                     and application-wide configuration values
