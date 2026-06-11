@@ -31,7 +31,8 @@ queries.
   - Shows summary cards, node health table, operational alerts, and VPN session
     table.
   - Displays stored `last_rx_at`, `last_tx_at`, and packet-loss telemetry from
-    the API. RTT remains `pending` until keepalive ACK telemetry is added.
+    the API. Displays Rust-reported `rtt_ms` once the in-tunnel keepalive probe
+    receives an ICMP Echo Reply from the session's assigned virtual IP.
   - Adds a `Kick` operation for active sessions. The button queues a
     `kick_session` command through the CMS instead of calling the node directly.
   - Adds a guarded `Ban Wallet` operation for active sessions. The backend
@@ -253,6 +254,8 @@ queries.
     traffic deltas every heartbeat period.
   - Adds quality fields to session event reports and sends
     `session_traffic_snapshot` as cumulative byte totals.
+  - Includes stored RTT samples from session stats in `session_traffic_snapshot`
+    and final `session_ended` reports.
   - Synchronizes CMS `operator_bans` into the runtime `DenyList` before the
     legacy membership enforcement gate, so operator controls remain active
     while voucher auth is authoritative.
@@ -303,12 +306,24 @@ queries.
   - Applies `bandwidth_limit_mbps` to both decrypted client-to-VPN packets and
     TUN-to-client packets before byte counters are recorded or packets are
     re-encrypted.
+  - Builds encrypted ICMP Echo Request keepalive probes from the gateway IP to
+    each session's assigned virtual IP.
+  - Consumes matching ICMP Echo Replies after decrypting client packets,
+    records RTT on the session, and prevents keepalive ACKs from being written
+    back to TUN or counted as billable user traffic.
+  - Preserves the privacy boundary: probes target only assigned virtual IPs and
+    never include user destination IPs, destination domains, DNS query contents,
+    packet payloads, or browsing history.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/services/session.rs`
   - Existing session manager tracks active VPN sessions, wallet/device indexes,
     and session cleanup.
   - Records real RX/TX timestamps and packet/replay counters in each session
     stats snapshot.
+  - Tracks bounded pending keepalive probes per session and stores completed
+    RTT samples as microseconds in the session stats snapshot.
+  - Adds `record_control_tx()` so operational keepalive probes refresh transmit
+    activity without inflating bytes, packet counters, billing, or quota usage.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/services/deny_list.rs`
   - Maintains the in-memory wallet deny list checked by VPN handshake.
@@ -324,6 +339,8 @@ queries.
     and handshake enforcement use the same runtime control plane.
   - Injects the shared `NodePolicyRuntime` into `HeartbeatReporter`,
     `HandshakeService`, and `PacketHandler`.
+  - Starts a periodic keepalive task that probes established sessions and lets
+    `PacketHandler` consume ACKs on the encrypted VPN data path.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/management/command_handler.rs`
   - Adds `system_info` and `collect_logs` command handlers.
@@ -347,6 +364,7 @@ queries.
     then schedules a delayed restart of the fixed `aeronyx-server` systemd
     service. The delayed restart lets the CMS store command completion before
     the process exits.
+  - Includes stored RTT in command-triggered final session quality reports.
 
 ## API Contract
 
@@ -593,10 +611,11 @@ Response shape:
 server stores wallet, epoch, tier, and count, never blinded tokens or final
 voucher tokens.
 
-`last_rx_at`, `last_tx_at`, `packet_loss`, packet counters, replay rejection
-counters, and bytes are stored from signed Rust session reports. `rtt_ms` is
-reserved for M2 follow-up keepalive ACK telemetry and remains `null` until the
-protocol sends round-trip samples.
+`last_rx_at`, `last_tx_at`, `rtt_ms`, `packet_loss`, packet counters, replay
+rejection counters, and bytes are stored from signed Rust session reports.
+`rtt_ms` comes from a Rust server-side ICMP Echo keepalive sent inside the VPN
+tunnel to the session's assigned virtual IP. It remains `null` until an active
+client replies to a probe.
 
 When a Rust process restart changes `system.runtime_id`, the backend marks
 previously active sessions as `error` with `last_error` explaining the reset.
@@ -915,6 +934,9 @@ compatibility; if CMS sends an empty list, Rust clears only active
 
 - Rust VPN node:
   - `cargo check -p aeronyx-server`
+  - `cargo build -p aeronyx-server --release`
+  - `systemctl restart aeronyx-server`
+  - `systemctl is-active aeronyx-server` returns `active`.
   - Heartbeat reporter applies CMS `next_heartbeat_in` by rebuilding its tokio
     interval and logs `node_policy`.
   - Local `GET /api/vpn/health` returns `status="ok"` with checks:
@@ -924,10 +946,10 @@ compatibility; if CMS sends an empty list, Rust clears only active
     Rust health check entries after one heartbeat cycle.
   - Backend `_node_payload()` returns the Rust VPN checks in nodeboard
     `checks[]`.
-  - `cargo build -p aeronyx-server --release`
-  - `systemctl restart aeronyx-server`
-  - `systemctl is-active aeronyx-server` returns `active`.
   - Journal shows `[NODE_POLICY] CMS operator policy updated` after restart.
+  - `Korean1` heartbeat cache shows `vpn_health.status="ok"` and
+    `active_sessions=0` after restart; live RTT storage awaits an active VPN
+    client because probes are only sent to established sessions.
   - Focused unit tests for the new handshake policy are present, but
     `cargo test -p aeronyx-server ...` is currently blocked by existing
     unrelated `lib test` compile errors in supernode/memchain/session test
@@ -994,6 +1016,12 @@ compatibility; if CMS sends an empty list, Rust clears only active
   - `cargo build -p aeronyx-server --release`
   - `systemctl restart aeronyx-server`
   - `systemctl is-active aeronyx-server`
+  - Local `GET /api/vpn/health` returns `status="ok"` after restart.
+  - Backend heartbeat cache receives the health payload after the next
+    heartbeat.
+  - The deployed node currently has `active_sessions=0`, so `rtt_ms` remains
+    absent until a client establishes a VPN session and replies to an in-tunnel
+    ICMP keepalive probe.
 
 - nodeboard:
   - VPN Operations table renders `last_error` below the session status, so reset
@@ -1004,8 +1032,6 @@ compatibility; if CMS sends an empty list, Rust clears only active
 The following fields still need protocol or control-plane work before they can
 be considered commercial-grade:
 
-- keepalive ACK
-- RTT
 - tunnel degraded reason
 - automatic reconnect events
 - MTU probe results
