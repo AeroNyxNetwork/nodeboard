@@ -383,6 +383,16 @@ export interface VpnHealthCheck {
   detail: string;
 }
 
+export interface VpnNodeAvailability {
+  percent: number;
+  window_hours: number;
+  sample_count: number;
+  valid_sample_count: number;
+  first_seen_at: string | null;
+  last_sample_at: string | null;
+  last_gap_seconds: number;
+}
+
 export interface VpnNodeHealth {
   id: string;
   name: string;
@@ -395,6 +405,7 @@ export interface VpnNodeHealth {
   is_vpn_node: boolean;
   health_status: VpnHealthStatus;
   health_score: number;
+  availability_24h: VpnNodeAvailability;
   last_heartbeat: string | null;
   last_seen_seconds: number | null;
   active_sessions: number;
@@ -485,6 +496,7 @@ export interface VpnOverviewSummary {
   traffic_in_mb: number;
   traffic_out_mb: number;
   open_alerts: number;
+  availability_24h_percent: number | null;
 }
 
 export interface VpnOverview {

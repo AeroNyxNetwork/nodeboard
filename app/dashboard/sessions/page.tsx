@@ -164,6 +164,11 @@ function formatMemory(used: number | null, total: number | null) {
   return total ? `${used} / ${total} MB` : `${used} MB`;
 }
 
+function formatAvailability(value: number | null | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'pending';
+  return `${value.toFixed(value >= 99.95 ? 2 : 1)}%`;
+}
+
 function NodeHealthTable({ nodes }: { nodes: VpnNodeHealth[] }) {
   if (nodes.length === 0) {
     return (
@@ -185,11 +190,12 @@ function NodeHealthTable({ nodes }: { nodes: VpnNodeHealth[] }) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[980px] text-sm">
+        <table className="w-full min-w-[1120px] text-sm">
           <thead className="text-xs uppercase text-gray-500 bg-white/[0.02]">
             <tr>
               <th className="text-left font-medium px-5 py-3">Node</th>
               <th className="text-left font-medium px-4 py-3">Health</th>
+              <th className="text-left font-medium px-4 py-3">Availability</th>
               <th className="text-left font-medium px-4 py-3">Sessions</th>
               <th className="text-left font-medium px-4 py-3">Load</th>
               <th className="text-left font-medium px-4 py-3">Traffic</th>
@@ -214,6 +220,19 @@ function NodeHealthTable({ nodes }: { nodes: VpnNodeHealth[] }) {
                       <HealthBadge status={node.health_status} />
                       <span className="text-xs text-gray-500">{node.health_score}/100 score</span>
                     </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="text-white font-medium">
+                      {formatAvailability(node.availability_24h?.percent)}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {node.availability_24h?.sample_count ?? 0} samples / {node.availability_24h?.window_hours ?? 24}h
+                    </div>
+                    {node.availability_24h?.last_gap_seconds ? (
+                      <div className="text-xs text-yellow-300">
+                        gap {formatDuration(node.availability_24h.last_gap_seconds)}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-4 py-4 text-gray-300">
                     <span className="text-white font-medium">{node.active_sessions}</span>
@@ -502,15 +521,20 @@ export default function SessionsPage() {
       ) : null}
 
       {overviewLoading ? (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {[...Array(4)].map((_, i) => <LoadingCard key={i} />)}
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+          {[...Array(5)].map((_, i) => <LoadingCard key={i} />)}
         </div>
       ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
           <StatCard
             label="Healthy Nodes"
             value={`${summary?.healthy_nodes ?? 0}/${summary?.total_nodes ?? 0}`}
             subValue={`${summary?.degraded_nodes ?? 0} degraded, ${summary?.offline_nodes ?? 0} offline`}
+          />
+          <StatCard
+            label="24h Availability"
+            value={formatAvailability(summary?.availability_24h_percent)}
+            subValue="sampled heartbeat average"
           />
           <StatCard
             label="Active Tunnels"

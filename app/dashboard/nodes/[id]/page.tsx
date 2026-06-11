@@ -432,6 +432,11 @@ function formatMemoryUsage(health: VpnNodeHealth) {
   return total ? `${used} / ${total} MB` : `${used} MB`;
 }
 
+function formatAvailability(value: number | null | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'pending';
+  return `${value.toFixed(value >= 99.95 ? 2 : 1)}%`;
+}
+
 function commandStatusClass(status: string) {
   if (status === 'completed') return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25';
   if (status === 'failed' || status === 'timeout') return 'bg-red-500/15 text-red-300 border-red-500/25';
@@ -622,11 +627,23 @@ function VpnHealthPanel({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-5">
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
           <p className="text-xs text-gray-500">Active Tunnels</p>
           <p className="text-lg font-semibold text-white mt-1">{health.active_sessions}</p>
           <p className="text-xs text-gray-600">{health.total_sessions} total</p>
+        </div>
+        <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+          <p className="text-xs text-gray-500">24h Availability</p>
+          <p className="text-lg font-semibold text-white mt-1">
+            {formatAvailability(health.availability_24h?.percent)}
+          </p>
+          <p className="text-xs text-gray-600">
+            {health.availability_24h?.sample_count ?? 0} samples
+            {health.availability_24h?.last_gap_seconds
+              ? ` · gap ${formatDuration(health.availability_24h.last_gap_seconds)}`
+              : ''}
+          </p>
         </div>
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
           <p className="text-xs text-gray-500">CPU</p>

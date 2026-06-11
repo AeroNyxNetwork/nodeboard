@@ -30,6 +30,9 @@ queries.
   - Replaces the old aggregate-only Sessions page with the VPN Operations view.
   - Shows summary cards, node health table, operational alerts, and VPN session
     table.
+  - Shows 24h node availability from backend-derived sampled heartbeat
+    history. The table includes sample count and current stale gap so operators
+    can judge confidence instead of reading it as packet-level monitoring.
   - Displays stored `last_rx_at`, `last_tx_at`, and packet-loss telemetry from
     the API. Displays Rust-reported `rtt_ms` once the in-tunnel keepalive probe
     receives an ICMP Echo Reply from the session's assigned virtual IP.
@@ -46,6 +49,8 @@ queries.
   - Adds a per-node VPN Health panel to the node detail page.
   - Shows the same live heartbeat source, health score, checks, CPU, memory,
     and tunnel counters without requiring the operator to leave the node page.
+  - Shows per-node 24h availability, sample count, and last stale gap to make
+    intermittent node instability visible without SSH access.
   - Adds safe `System Info` and `Collect Logs` command buttons plus recent VPN
     command history.
   - Adds `Refresh Config`, which queues a bounded `refresh_config` command for
@@ -126,6 +131,11 @@ queries.
     heartbeat cadence instead of the lower-frequency DB sampling cadence.
   - Derives `health_status` as `healthy`, `degraded`, `offline`, or
     `overloaded`.
+  - Derives `availability_24h` from sampled `NodeHeartbeat` rows and the latest
+    heartbeat age. The value reports percent, sample count, valid sample count,
+    first/last sample time, and current stale gap. It is an operational uptime
+    signal only and does not inspect packet payloads, browsing destinations, or
+    DNS contents.
   - Emits node health checks for heartbeat freshness, resource load, traffic
     counters, and Rust-reported VPN checks: UDP listener, TUN device, MTU
     config, IPv4 forwarding, NAT masquerade, DNS stub, DNS query, and Internet
