@@ -89,6 +89,8 @@ queries.
   - Currently allows only `system_info` and `collect_logs`.
   - Increases command status message size so short diagnostic summaries can be
     stored in `NodeCommand.result`.
+  - Treats `vpn` / `node` command status reports as command-only updates, so
+    VPN diagnostics do not create or mutate OpenClaw `AgentInstance` records.
 
 ### Rust VPN node
 
@@ -113,7 +115,9 @@ queries.
   - Adds `system_info` and `collect_logs` command handlers.
   - Uses fixed read-only commands with timeout, truncation, and simple
     sensitive-line redaction.
-  - Reports lifecycle through the existing signed command status endpoint.
+  - Reports VPN diagnostics as `agent_type="vpn"` through the existing signed
+    command status endpoint; OpenClaw lifecycle commands still report as
+    `agent_type="openclaw"`.
 
 ## API Contract
 
