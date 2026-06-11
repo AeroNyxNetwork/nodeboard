@@ -55,6 +55,7 @@ export const API_ENDPOINTS = {
   NODE_STATUS: (id: string) => `/nodes/${id}/status/`,
   NODE_STATS: (id: string) => `/nodes/${id}/stats/`,
   NODE_SESSIONS: (id: string) => `/nodes/${id}/sessions/`,
+  NODE_WALLET_BANS: (id: string) => `/nodes/${id}/wallet_bans/`,
   NODE_COMMANDS: (id: string) => `/nodes/${id}/commands/`,
   NODE_COMMAND_RUN: (id: string) => `/nodes/${id}/commands/run/`,
 

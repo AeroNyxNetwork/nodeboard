@@ -61,6 +61,7 @@ import {
   VerifyAccessResponse,
   VpnOverview,
   VpnSession,
+  NodeWalletBan,
   NodeCommand,
   RunNodeCommandRequest,
   RunNodeCommandResponse,
@@ -82,6 +83,8 @@ export const nodeKeys = {
     ['nodes', 'sessions', id, options] as const,
   vpnOverview: () => ['nodes', 'vpn', 'overview'] as const,
   vpnSessions: (options?: UseVpnSessionsOptions) => ['nodes', 'vpn', 'sessions', options] as const,
+  walletBans: (id: string, status: 'active' | 'inactive' | 'all') =>
+    ['nodes', 'wallet-bans', id, status] as const,
   commands: (id: string, options?: UseNodeCommandsOptions) =>
     ['nodes', 'commands', id, options] as const,
   // Public pool
@@ -309,6 +312,43 @@ export function useVpnSessions(options: UseVpnSessionsOptions = {}): UseVpnSessi
   };
 }
 
+interface UseNodeWalletBansResult {
+  bans: NodeWalletBan[];
+  count: number;
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  refetch: () => void;
+}
+
+export function useNodeWalletBans(
+  nodeId: string,
+  status: 'active' | 'inactive' | 'all' = 'active'
+): UseNodeWalletBansResult {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  const query = useQuery({
+    queryKey: nodeKeys.walletBans(nodeId, status),
+    queryFn: async () => {
+      const res = await api.getNodeWalletBans(nodeId, status);
+      return res;
+    },
+    enabled: isAuthenticated && !!nodeId,
+    staleTime: POLLING_INTERVALS.VPN_SESSIONS,
+    refetchInterval: POLLING_INTERVALS.VPN_SESSIONS,
+    refetchOnWindowFocus: true,
+  });
+
+  return {
+    bans: query.data?.data ?? [],
+    count: query.data?.count ?? 0,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
 export interface UseNodeCommandsOptions {
   status?: string;
   action?: string;
@@ -525,6 +565,10 @@ export function useRunNodeCommand() {
       });
       queryClient.invalidateQueries({
         queryKey: ['nodes', 'vpn', 'sessions'],
+        refetchType: 'all',
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['nodes', 'wallet-bans', variables.nodeId],
         refetchType: 'all',
       });
     },

@@ -466,6 +466,28 @@ export interface VpnSessionListResponse {
   count: number;
 }
 
+export interface NodeWalletBan {
+  id: string;
+  node_id: string;
+  wallet_hex: string;
+  wallet_short: string;
+  reason: string;
+  source: string;
+  is_active: boolean;
+  banned_by_wallet: string;
+  command_id: string | null;
+  banned_at: string;
+  unbanned_at: string | null;
+  updated_at: string;
+}
+
+export interface NodeWalletBanListResponse {
+  success: boolean;
+  data: NodeWalletBan[];
+  count: number;
+  status: 'active' | 'inactive' | 'all';
+}
+
 export type NodeCommandAction =
   | 'system_info'
   | 'collect_logs'

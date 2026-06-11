@@ -48,14 +48,19 @@ queries.
     the node to validate and summarize its management configuration without SSH.
   - Adds a guarded `Restart VPN` operation that requires browser confirmation
     and queues a CMS `restart_service` command.
+  - Adds Wallet Ban Policies, an active policy table backed by
+    `GET /nodes/<id>/wallet_bans/`, with copy and unban controls.
 
 - `hooks/useNodes.ts`
   - Adds `useVpnOverview()` with 30 second polling.
   - Adds `useVpnSessions()` with 15 second polling.
+  - Adds `useNodeWalletBans()` with 15 second polling for active CMS wallet ban
+    policies on the node detail page.
   - Adds `useNodeCommands()` and `useRunNodeCommand()` for node-level
     operations history and enqueue mutations.
-  - Invalidates VPN overview and session queries after node commands so kicked
-    sessions disappear from the active view after the node reports completion.
+  - Invalidates VPN overview, session, and wallet-ban queries after node
+    commands so policy and session state refresh after the node reports
+    completion.
   - Keeps authentication gating consistent with existing owner-only hooks.
 
 - `lib/api.ts`
@@ -154,6 +159,13 @@ queries.
   - Adds `operator_bans` to heartbeat responses as the full active wallet ban
     list for the node. Rust uses this to recover policy after restart or a
     missed command.
+
+- `/root/aeronyx/privacy_network/api/nodes.py`
+  - Adds owner-scoped `GET /nodes/<id>/wallet_bans/?status=active|inactive|all`
+    for nodeboard policy visibility.
+  - Returns only operator ban policy metadata: wallet hex, reason, source,
+    command id, and timestamps. It does not expose traffic destinations,
+    packet payloads, DNS queries, or browsing activity.
 
 ### Rust VPN node
 
@@ -309,6 +321,38 @@ Response shape:
 }
 ```
 
+### `GET /api/privacy_network/nodes/{id}/wallet_bans/`
+
+Query parameters:
+
+- `status`: `active`, `inactive`, or `all`; default `active`
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "count": 1,
+  "status": "active",
+  "data": [
+    {
+      "id": "uuid",
+      "node_id": "node-uuid",
+      "wallet_hex": "64-char-lowercase-hex",
+      "wallet_short": "abcdef12...123456",
+      "reason": "operator_ban",
+      "source": "nodeboard_vpn_operations",
+      "is_active": true,
+      "banned_by_wallet": "operator-wallet",
+      "command_id": "command-uuid",
+      "banned_at": "2026-06-11T11:00:00Z",
+      "unbanned_at": null,
+      "updated_at": "2026-06-11T11:00:00Z"
+    }
+  ]
+}
+```
+
 `last_rx_at`, `last_tx_at`, `packet_loss`, packet counters, replay rejection
 counters, and bytes are stored from signed Rust session reports. `rtt_ms` is
 reserved for M2 follow-up keepalive ACK telemetry and remains `null` until the
@@ -416,11 +460,19 @@ nodeboard VPN Sessions
 nodeboard VPN Sessions
   -> POST /nodes/{id}/commands/run/ action=ban_wallet
   -> backend derives wallet_hex from the active ClientSession
+  -> backend persists active NodeWalletBan policy
   -> Rust heartbeat command dispatch
   -> DenyList.add(wallet, OperatorBan)
   -> SessionManager removes all active sessions for that wallet
   -> handshake rejects reconnects while the runtime deny entry exists
   -> signed session_ended + command status audit
+
+nodeboard Node Detail
+  -> GET /nodes/{id}/wallet_bans/?status=active
+  -> operator sees active CMS wallet ban policies
+  -> POST /nodes/{id}/commands/run/ action=unban_wallet
+  -> backend marks NodeWalletBan inactive
+  -> next heartbeat removes OperatorBan from Rust runtime DenyList
 ```
 
 ## M1 Verification
@@ -468,13 +520,15 @@ nodeboard VPN Sessions
 ## M4 Wallet Ban Verification
 
 - API backend:
-  - `python -m py_compile privacy_network/models.py privacy_network/api/agent.py privacy_network/api/heartbeat.py`
+  - `python -m py_compile privacy_network/models.py privacy_network/api/agent.py privacy_network/api/heartbeat.py privacy_network/api/nodes.py privacy_network/urls.py`
   - `python manage.py migrate privacy_network`
   - `python manage.py check`
   - Smoke test: `ban_wallet` refuses missing/inactive/cross-node sessions and
     queues only sanitized wallet params derived from a target-node active
     session. It also creates an active `NodeWalletBan`; `unban_wallet` marks it
     inactive.
+  - Smoke test: `GET /nodes/<id>/wallet_bans/` returns active policy rows and
+    `unban_wallet` succeeds for an active policy even without session history.
 
 - Rust VPN node:
   - `cargo check -p aeronyx-server`

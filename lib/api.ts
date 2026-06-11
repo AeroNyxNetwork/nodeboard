@@ -70,6 +70,7 @@ import {
   SessionListResponse,
   VpnOverviewResponse,
   VpnSessionListResponse,
+  NodeWalletBanListResponse,
   NodeCommandListResponse,
   RunNodeCommandRequest,
   RunNodeCommandResponse,
@@ -417,6 +418,17 @@ class ApiClient {
       ? `${API_ENDPOINTS.VPN_SESSIONS}?${qs}`
       : API_ENDPOINTS.VPN_SESSIONS;
     return this.request<VpnSessionListResponse>(endpoint, { method: 'GET' });
+  }
+
+  async getNodeWalletBans(
+    nodeId: string,
+    status: 'active' | 'inactive' | 'all' = 'active'
+  ): Promise<NodeWalletBanListResponse> {
+    const params = new URLSearchParams({ status });
+    return this.request<NodeWalletBanListResponse>(
+      `${API_ENDPOINTS.NODE_WALLET_BANS(nodeId)}?${params}`,
+      { method: 'GET' }
+    );
   }
 
   async getNodeCommands(

@@ -55,12 +55,13 @@ import {
   useNodeStats,
   useNodeSessions,
   useVpnOverview,
+  useNodeWalletBans,
   useNodeCommands,
   useRunNodeCommand,
   useUpdateNode,
   useDeleteNode,
 } from '@/hooks/useNodes';
-import { NodeCommand, NodeStatus, VpnHealthStatus, VpnNodeHealth } from '@/types';
+import { NodeCommand, NodeStatus, NodeWalletBan, VpnHealthStatus, VpnNodeHealth } from '@/types';
 import { formatRelativeTime, formatDuration, copyToClipboard } from '@/lib/api';
 import { NODE_STATUS_CONFIG } from '@/lib/constants';
 import Card, { StatCard } from '@/components/common/Card';
@@ -429,6 +430,12 @@ function commandMessage(command: NodeCommand) {
   return 'Waiting for the node heartbeat to pick up this command.';
 }
 
+function formatPolicySource(source: string) {
+  if (source === 'nodeboard_vpn_operations') return 'nodeboard';
+  if (source === 'codex_smoke_test') return 'smoke test';
+  return source.replace(/_/g, ' ');
+}
+
 function VpnHealthPanel({
   nodeId,
   isVpnNode,
@@ -688,6 +695,158 @@ function VpnHealthPanel({
 }
 
 // ============================================
+// Wallet Ban Policies
+// ============================================
+
+function WalletBanPolicyRow({
+  ban,
+  onUnban,
+  isBusy,
+}: {
+  ban: NodeWalletBan;
+  onUnban: (walletHex: string) => void;
+  isBusy: boolean;
+}) {
+  return (
+    <tr className="hover:bg-white/[0.02]">
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-mono text-sm text-gray-200">{ban.wallet_short}</span>
+          <CopyButton text={ban.wallet_hex} />
+        </div>
+      </td>
+      <td className="px-4 py-3">
+        <span className="text-sm text-gray-300">{ban.reason || 'operator_ban'}</span>
+      </td>
+      <td className="px-4 py-3">
+        <span className="text-sm text-gray-400">{formatPolicySource(ban.source)}</span>
+      </td>
+      <td className="px-4 py-3">
+        <span className="text-sm text-gray-400">{formatRelativeTime(ban.banned_at)}</span>
+      </td>
+      <td className="px-4 py-3">
+        {ban.command_id ? (
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-mono text-xs text-gray-500 truncate max-w-[120px]">
+              {ban.command_id.slice(0, 8)}
+            </span>
+            <CopyButton text={ban.command_id} />
+          </div>
+        ) : (
+          <span className="text-sm text-gray-600">manual</span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-right">
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={isBusy}
+          onClick={() => onUnban(ban.wallet_hex)}
+        >
+          Unban
+        </Button>
+      </td>
+    </tr>
+  );
+}
+
+function WalletBanPolicyPanel({
+  nodeId,
+  isVpnNode,
+  onToast,
+}: {
+  nodeId: string;
+  isVpnNode: boolean;
+  onToast: (message: string, variant?: 'success' | 'error') => void;
+}) {
+  const { bans, isLoading, isError, refetch } = useNodeWalletBans(nodeId, 'active');
+  const runCommand = useRunNodeCommand();
+
+  const handleUnban = async (walletHex: string) => {
+    if (!window.confirm(`Unban wallet ${walletHex.slice(0, 8)}...?`)) {
+      return;
+    }
+
+    try {
+      await runCommand.mutateAsync({
+        nodeId,
+        data: {
+          action: 'unban_wallet',
+          params: { wallet_hex: walletHex },
+          priority: 3,
+        },
+      });
+      await refetch();
+      onToast('Wallet unban queued');
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Failed to queue wallet unban', 'error');
+    }
+  };
+
+  if (!isVpnNode) return null;
+
+  return (
+    <Card variant="default" padding="none" className="mb-6">
+      <div className="px-6 py-4 border-b border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-white">Wallet Ban Policies</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            Currently enforced wallet blocks for this node.
+          </p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => refetch()}>
+          Refresh
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="p-6 space-y-3">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-12 bg-white/5 rounded-lg animate-pulse" />
+          ))}
+        </div>
+      ) : isError ? (
+        <div className="p-6 flex items-center justify-between gap-4">
+          <p className="text-sm text-yellow-300">Wallet ban policies could not be loaded.</p>
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      ) : bans.length === 0 ? (
+        <div className="p-8 text-center">
+          <p className="text-sm text-gray-500">No active wallet bans on this node.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="text-left text-xs text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 font-medium">Wallet</th>
+                <th className="px-4 py-3 font-medium">Reason</th>
+                <th className="px-4 py-3 font-medium">Source</th>
+                <th className="px-4 py-3 font-medium">Banned</th>
+                <th className="px-4 py-3 font-medium">Command</th>
+                <th className="px-4 py-3 font-medium text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {bans.map((ban) => (
+                <WalletBanPolicyRow
+                  key={ban.id}
+                  ban={ban}
+                  isBusy={runCommand.isPending}
+                  onUnban={handleUnban}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ============================================
 // Sessions Table
 // ============================================
 
@@ -880,7 +1039,10 @@ export default function NodeDetailPage() {
       {/* 4. VPN Health Panel */}
       <VpnHealthPanel nodeId={nodeId} isVpnNode={node.is_vpn_node} onToast={showToast} />
 
-      {/* 5. AI Memory Entry Card (online only) */}
+      {/* 5. Wallet Ban Policies */}
+      <WalletBanPolicyPanel nodeId={nodeId} isVpnNode={node.is_vpn_node} onToast={showToast} />
+
+      {/* 6. AI Memory Entry Card (online only) */}
       {node.status === 'online' && (
         <Card variant="default" padding="md" className="mb-6">
           <div className="flex items-center justify-between">
@@ -911,10 +1073,10 @@ export default function NodeDetailPage() {
         </Card>
       )}
 
-      {/* 6. Stats Grid */}
+      {/* 7. Stats Grid */}
       <StatsGrid nodeId={nodeId} />
 
-      {/* 7. Hardware Info + Node Details */}
+      {/* 8. Hardware Info + Node Details */}
       <div className="grid lg:grid-cols-3 gap-6 mb-6">
         <Card variant="default" padding="md" className="lg:col-span-1">
           <h3 className="font-semibold text-white mb-4">Hardware Info</h3>
@@ -967,7 +1129,7 @@ export default function NodeDetailPage() {
         </Card>
       </div>
 
-      {/* 8. Sessions Table */}
+      {/* 9. Sessions Table */}
       <SessionsTable nodeId={nodeId} />
 
       {/* Delete Confirmation */}
