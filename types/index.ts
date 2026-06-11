@@ -360,6 +360,111 @@ export interface SessionListResponse {
 }
 
 // ============================================
+// VPN Observability Types
+// ============================================
+
+export type VpnHealthStatus = 'healthy' | 'degraded' | 'offline' | 'overloaded';
+
+export interface VpnHealthCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface VpnNodeHealth {
+  id: string;
+  name: string;
+  public_ip: string | null;
+  port: number;
+  version: string;
+  region_code: string;
+  city: string;
+  node_tier: 'public' | 'premium' | string;
+  is_vpn_node: boolean;
+  health_status: VpnHealthStatus;
+  health_score: number;
+  last_heartbeat: string | null;
+  last_seen_seconds: number | null;
+  active_sessions: number;
+  total_sessions: number;
+  traffic_in_mb: number;
+  traffic_out_mb: number;
+  system: {
+    source: 'cache' | 'sample' | string | null;
+    cpu_usage: number | null;
+    memory_mb: number | null;
+    memory_total_mb: number | null;
+    cpu_count: number | null;
+    net_rx_bytes: number | null;
+    net_tx_bytes: number | null;
+    reported_active_sessions: number | null;
+  };
+  checks: VpnHealthCheck[];
+}
+
+export interface VpnAlert {
+  id: string;
+  severity: 'info' | 'warning' | 'critical';
+  node_id: string;
+  node_name: string;
+  type: string;
+  message: string;
+  created_at: string | null;
+}
+
+export interface VpnOverviewSummary {
+  total_nodes: number;
+  healthy_nodes: number;
+  degraded_nodes: number;
+  offline_nodes: number;
+  overloaded_nodes: number;
+  active_sessions: number;
+  traffic_in_mb: number;
+  traffic_out_mb: number;
+  open_alerts: number;
+}
+
+export interface VpnOverview {
+  summary: VpnOverviewSummary;
+  nodes: VpnNodeHealth[];
+  alerts: VpnAlert[];
+  generated_at: string;
+}
+
+export interface VpnOverviewResponse {
+  success: boolean;
+  data: VpnOverview;
+}
+
+export interface VpnSession {
+  id: string;
+  session_id: string;
+  node_id: string;
+  node_name: string;
+  client_wallet: string;
+  virtual_ip: string;
+  voucher_id: string;
+  bytes_in: number;
+  bytes_out: number;
+  total_bytes_mb: number;
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: number;
+  status: SessionStatus;
+  last_rx_at: string | null;
+  last_tx_at: string | null;
+  rtt_ms: number | null;
+  packet_loss: number | null;
+  last_error: string;
+}
+
+export interface VpnSessionListResponse {
+  success: boolean;
+  data: VpnSession[];
+  count: number;
+}
+
+// ============================================
 // API Response Types
 // ============================================
 

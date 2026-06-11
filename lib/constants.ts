@@ -56,6 +56,10 @@ export const API_ENDPOINTS = {
   NODE_STATS: (id: string) => `/nodes/${id}/stats/`,
   NODE_SESSIONS: (id: string) => `/nodes/${id}/sessions/`,
 
+  // VPN Observability (operator control plane)
+  VPN_OVERVIEW: '/vpn/overview/',
+  VPN_SESSIONS: '/vpn/sessions/',
+
   // Public Node Pool (no API Key required) [v1.4.0]
   NODES_PUBLIC_LIST: '/nodes/public/',
   NODES_PUBLIC_DETAIL: (id: string) => `/nodes/public/${id}/`,
@@ -127,6 +131,8 @@ export const POLLING_INTERVALS = {
   NODES_LIST: 30000,
   NODE_STATUS: 30000,
   SESSIONS_LIST: 60000,
+  VPN_OVERVIEW: 30000,
+  VPN_SESSIONS: 15000,
   CODES_LIST: 60000,
   AGENT_TRANSITIONAL: 2000,
   AGENT_STABLE: 30000,

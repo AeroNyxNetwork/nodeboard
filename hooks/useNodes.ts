@@ -59,8 +59,10 @@ import {
   PublicNodesParams,
   VerifyAccessRequest,
   VerifyAccessResponse,
+  VpnOverview,
+  VpnSession,
 } from '@/types';
-import { STALE_TIMES } from '@/lib/constants';
+import { POLLING_INTERVALS, STALE_TIMES } from '@/lib/constants';
 
 // ============================================
 // Query Keys
@@ -75,6 +77,8 @@ export const nodeKeys = {
   stats: (id: string, days: number) => ['nodes', 'stats', id, days] as const,
   sessions: (id: string, options?: UseNodeSessionsOptions) =>
     ['nodes', 'sessions', id, options] as const,
+  vpnOverview: () => ['nodes', 'vpn', 'overview'] as const,
+  vpnSessions: (options?: UseVpnSessionsOptions) => ['nodes', 'vpn', 'sessions', options] as const,
   // Public pool
   publicList: (params: PublicNodesParams) => ['nodes', 'public', 'list', params] as const,
   publicDetail: (id: string) => ['nodes', 'public', 'detail', id] as const,
@@ -219,6 +223,76 @@ export function useNodeSessions(
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
     refetchOnMount: false,
+  });
+
+  return {
+    sessions: query.data ?? [],
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
+interface UseVpnOverviewResult {
+  overview: VpnOverview | null;
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  refetch: () => void;
+}
+
+export function useVpnOverview(): UseVpnOverviewResult {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  const query = useQuery({
+    queryKey: nodeKeys.vpnOverview(),
+    queryFn: async () => {
+      const res = await api.getVpnOverview();
+      return res.data;
+    },
+    enabled: isAuthenticated,
+    staleTime: POLLING_INTERVALS.VPN_OVERVIEW,
+    refetchInterval: POLLING_INTERVALS.VPN_OVERVIEW,
+    refetchOnWindowFocus: true,
+  });
+
+  return {
+    overview: query.data ?? null,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
+export interface UseVpnSessionsOptions {
+  status?: 'all' | 'active' | 'completed' | 'error';
+  nodeId?: string;
+  limit?: number;
+}
+
+interface UseVpnSessionsResult {
+  sessions: VpnSession[];
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  refetch: () => void;
+}
+
+export function useVpnSessions(options: UseVpnSessionsOptions = {}): UseVpnSessionsResult {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  const query = useQuery({
+    queryKey: nodeKeys.vpnSessions(options),
+    queryFn: async () => {
+      const res = await api.getVpnSessions(options);
+      return res.data;
+    },
+    enabled: isAuthenticated,
+    staleTime: POLLING_INTERVALS.VPN_SESSIONS,
+    refetchInterval: POLLING_INTERVALS.VPN_SESSIONS,
+    refetchOnWindowFocus: true,
   });
 
   return {

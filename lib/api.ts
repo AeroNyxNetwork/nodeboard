@@ -68,6 +68,8 @@ import {
   VerifyAccessResponse,
   PublicNodesParams,
   SessionListResponse,
+  VpnOverviewResponse,
+  VpnSessionListResponse,
   SuccessResponse,
   NodeStatus,
 } from '@/types';
@@ -391,6 +393,27 @@ class ApiClient {
       ? `${API_ENDPOINTS.NODE_SESSIONS(nodeId)}?${qs}`
       : API_ENDPOINTS.NODE_SESSIONS(nodeId);
     return this.request<SessionListResponse>(endpoint, { method: 'GET' });
+  }
+
+  async getVpnOverview(): Promise<VpnOverviewResponse> {
+    return this.request<VpnOverviewResponse>(
+      API_ENDPOINTS.VPN_OVERVIEW,
+      { method: 'GET' }
+    );
+  }
+
+  async getVpnSessions(
+    options?: { status?: 'all' | 'active' | 'completed' | 'error'; nodeId?: string; limit?: number }
+  ): Promise<VpnSessionListResponse> {
+    const params = new URLSearchParams();
+    if (options?.status && options.status !== 'all') params.append('status', options.status);
+    if (options?.nodeId) params.append('node_id', options.nodeId);
+    if (options?.limit) params.append('limit', String(options.limit));
+    const qs = params.toString();
+    const endpoint = qs
+      ? `${API_ENDPOINTS.VPN_SESSIONS}?${qs}`
+      : API_ENDPOINTS.VPN_SESSIONS;
+    return this.request<VpnSessionListResponse>(endpoint, { method: 'GET' });
   }
 
   // ============================================

@@ -1,214 +1,409 @@
 /**
  * ============================================
- * AeroNyx Sessions Page
+ * AeroNyx VPN Operations Page
  * ============================================
  * File Path: app/dashboard/sessions/page.tsx
- * 
- * Creation Reason: Display all sessions across all nodes
- * Main Functionality: Aggregated sessions view with filtering
- * 
- * Last Modified: v1.0.0 - Initial sessions page
+ *
+ * Modification Reason:
+ *   Replace the aggregate-only sessions placeholder with an operator-grade VPN
+ *   observability view backed by /vpn/overview/ and /vpn/sessions/.
+ *
+ * Source Map:
+ *   - Frontend API client: lib/api.ts
+ *   - React Query hooks: hooks/useNodes.ts (useVpnOverview/useVpnSessions)
+ *   - Shared types: types/index.ts (VpnOverview/VpnSession)
+ *   - Backend API: /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   - Implementation notes: docs/vpn-observability-mvp.md
+ *
+ * Implementation Notes:
+ *   - M1 uses existing backend NodeHeartbeat and ClientSession records, so RTT,
+ *     packet loss, and exact RX/TX timestamps are shown as pending until M2
+ *     Rust telemetry lands.
+ *   - The UI intentionally shows operational metadata only. It must not display
+ *     traffic destinations, DNS queries, packet payloads, or browsing history.
+ *
+ * Last Modified: v1.1.0 - VPN observability MVP
  * ============================================
  */
 
 'use client';
 
-import React, { useState } from 'react';
-import { motion } from 'framer-motion';
-import { useNodes } from '@/hooks/useNodes';
-import { formatDuration, formatRelativeTime } from '@/lib/api';
-import Card, { EmptyState } from '@/components/common/Card';
+import React, { useMemo, useState } from 'react';
+import { useVpnOverview, useVpnSessions } from '@/hooks/useNodes';
+import { VpnHealthStatus, VpnNodeHealth, VpnSession } from '@/types';
+import { formatBytes, formatDuration, formatRelativeTime, truncateAddress } from '@/lib/api';
+import Card, { EmptyState, LoadingCard, StatCard } from '@/components/common/Card';
 import Button from '@/components/common/Button';
 
-// ============================================
-// Session Status Badge
-// ============================================
+type SessionFilter = 'all' | 'active' | 'completed' | 'error';
 
-function SessionStatusBadge({ status }: { status: string }) {
-  const styles = {
-    active: 'bg-emerald-500/20 text-emerald-400',
-    completed: 'bg-gray-500/20 text-gray-400',
-    error: 'bg-red-500/20 text-red-400',
-  };
+const healthStyles: Record<VpnHealthStatus, { label: string; badge: string; dot: string }> = {
+  healthy: {
+    label: 'Healthy',
+    badge: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    dot: 'bg-emerald-400',
+  },
+  degraded: {
+    label: 'Degraded',
+    badge: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30',
+    dot: 'bg-yellow-400',
+  },
+  overloaded: {
+    label: 'Overloaded',
+    badge: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+    dot: 'bg-orange-400',
+  },
+  offline: {
+    label: 'Offline',
+    badge: 'bg-red-500/15 text-red-300 border-red-500/30',
+    dot: 'bg-red-400',
+  },
+};
 
+function HealthBadge({ status }: { status: VpnHealthStatus }) {
+  const style = healthStyles[status];
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium ${styles[status as keyof typeof styles] || styles.completed}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${
-        status === 'active' ? 'bg-emerald-400 animate-pulse' :
-        status === 'completed' ? 'bg-gray-400' : 'bg-red-400'
-      }`} />
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${style.badge}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+      {style.label}
+    </span>
+  );
+}
+
+function SessionStatusBadge({ status }: { status: VpnSession['status'] }) {
+  const styles = {
+    active: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    completed: 'bg-gray-500/15 text-gray-300 border-gray-500/30',
+    error: 'bg-red-500/15 text-red-300 border-red-500/30',
+  };
+  return (
+    <span className={`inline-flex items-center px-2 py-1 rounded-full border text-xs font-medium ${styles[status]}`}>
       {status}
     </span>
   );
 }
 
-// ============================================
-// Sessions Page Component
-// ============================================
+function EmptyIcon() {
+  return (
+    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 12h14M12 5v14" />
+    </svg>
+  );
+}
+
+function formatMaybeTime(value: string | null) {
+  return value ? formatRelativeTime(value) : 'pending';
+}
+
+function formatMetric(value: number | null, suffix: string) {
+  return value === null || Number.isNaN(value) ? 'pending' : `${value}${suffix}`;
+}
+
+function formatMemory(used: number | null, total: number | null) {
+  if (used === null) return 'pending';
+  return total ? `${used} / ${total} MB` : `${used} MB`;
+}
+
+function NodeHealthTable({ nodes }: { nodes: VpnNodeHealth[] }) {
+  if (nodes.length === 0) {
+    return (
+      <EmptyState
+        icon={<EmptyIcon />}
+        title="No VPN Nodes"
+        description="VPN nodes will appear here after the first signed heartbeat."
+      />
+    );
+  }
+
+  return (
+    <Card variant="default" padding="none">
+      <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-white">Node Health</h2>
+          <p className="text-xs text-gray-500 mt-1">Live status from signed node heartbeats</p>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[980px] text-sm">
+          <thead className="text-xs uppercase text-gray-500 bg-white/[0.02]">
+            <tr>
+              <th className="text-left font-medium px-5 py-3">Node</th>
+              <th className="text-left font-medium px-4 py-3">Health</th>
+              <th className="text-left font-medium px-4 py-3">Sessions</th>
+              <th className="text-left font-medium px-4 py-3">Load</th>
+              <th className="text-left font-medium px-4 py-3">Traffic</th>
+              <th className="text-left font-medium px-4 py-3">Checks</th>
+              <th className="text-left font-medium px-5 py-3">Last Seen</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5">
+            {nodes.map((node) => {
+              const failedChecks = node.checks.filter((check) => !check.ok);
+              return (
+                <tr key={node.id} className="hover:bg-white/[0.03] transition-colors">
+                  <td className="px-5 py-4">
+                    <div className="font-medium text-white">{node.name}</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {node.public_ip || 'no ip'}:{node.port}
+                      {node.region_code ? ` - ${node.region_code}` : ''}
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex flex-col gap-1.5">
+                      <HealthBadge status={node.health_status} />
+                      <span className="text-xs text-gray-500">{node.health_score}/100 score</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 text-gray-300">
+                    <span className="text-white font-medium">{node.active_sessions}</span>
+                    <span className="text-gray-500"> active</span>
+                    <div className="text-xs text-gray-500">{node.total_sessions} total</div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="text-gray-300">
+                      CPU {formatMetric(node.system.cpu_usage, '%')}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Mem {formatMemory(node.system.memory_mb, node.system.memory_total_mb)}
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      {node.system.cpu_count ? `${node.system.cpu_count} cores` : 'cores pending'}
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 text-gray-300">
+                    <div>{node.traffic_in_mb.toFixed(1)} MB in</div>
+                    <div className="text-xs text-gray-500">{node.traffic_out_mb.toFixed(1)} MB out</div>
+                    <div className="text-xs text-gray-600">
+                      {node.system.source === 'cache' ? 'live heartbeat' : 'sample fallback'}
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    {failedChecks.length === 0 ? (
+                      <span className="text-xs text-emerald-300">all clear</span>
+                    ) : (
+                      <div className="space-y-1">
+                        {failedChecks.slice(0, 2).map((check) => (
+                          <div key={check.name} className="text-xs text-yellow-300">
+                            {check.name}: {check.detail}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-5 py-4 text-gray-400">
+                    {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : 'never'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+function SessionTable({ sessions }: { sessions: VpnSession[] }) {
+  if (sessions.length === 0) {
+    return (
+      <EmptyState
+        icon={<EmptyIcon />}
+        title="No Matching Sessions"
+        description="Sessions appear here as nodes report VPN connection events."
+      />
+    );
+  }
+
+  return (
+    <Card variant="default" padding="none">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1040px] text-sm">
+          <thead className="text-xs uppercase text-gray-500 bg-white/[0.02]">
+            <tr>
+              <th className="text-left font-medium px-5 py-3">Session</th>
+              <th className="text-left font-medium px-4 py-3">Node</th>
+              <th className="text-left font-medium px-4 py-3">Client</th>
+              <th className="text-left font-medium px-4 py-3">Status</th>
+              <th className="text-left font-medium px-4 py-3">Duration</th>
+              <th className="text-left font-medium px-4 py-3">Traffic</th>
+              <th className="text-left font-medium px-4 py-3">Quality</th>
+              <th className="text-left font-medium px-5 py-3">Last Activity</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5">
+            {sessions.map((session) => (
+              <tr key={session.id} className="hover:bg-white/[0.03] transition-colors">
+                <td className="px-5 py-4">
+                  <div className="font-mono text-xs text-white">{truncateAddress(session.session_id, 8)}</div>
+                  <div className="text-xs text-gray-500 mt-1">{session.virtual_ip || 'virtual ip pending'}</div>
+                </td>
+                <td className="px-4 py-4 text-gray-300">{session.node_name}</td>
+                <td className="px-4 py-4">
+                  <span className="font-mono text-xs text-gray-300">
+                    {truncateAddress(session.client_wallet || 'anonymous', 6)}
+                  </span>
+                </td>
+                <td className="px-4 py-4">
+                  <SessionStatusBadge status={session.status} />
+                </td>
+                <td className="px-4 py-4 text-gray-300">
+                  {formatDuration(session.duration_seconds)}
+                  <div className="text-xs text-gray-500">{formatRelativeTime(session.started_at)}</div>
+                </td>
+                <td className="px-4 py-4 text-gray-300">
+                  {session.total_bytes_mb.toFixed(1)} MB
+                  <div className="text-xs text-gray-500">
+                    {formatBytes(session.bytes_in, 1)} in / {formatBytes(session.bytes_out, 1)} out
+                  </div>
+                </td>
+                <td className="px-4 py-4 text-gray-300">
+                  {formatMetric(session.rtt_ms, ' ms')}
+                  <div className="text-xs text-gray-500">
+                    loss {formatMetric(session.packet_loss, '%')}
+                  </div>
+                </td>
+                <td className="px-5 py-4 text-gray-400">
+                  {formatMaybeTime(session.last_rx_at || session.last_tx_at)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
 
 export default function SessionsPage() {
-  const { nodes, isLoading } = useNodes();
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<SessionFilter>('active');
+  const { overview, isLoading: overviewLoading, isError: overviewError, refetch: refetchOverview } = useVpnOverview();
+  const { sessions, isLoading: sessionsLoading, isError: sessionsError, refetch: refetchSessions } =
+    useVpnSessions({ status: statusFilter, limit: 300 });
 
-  // Aggregate sessions from all nodes (for demo - in production you'd have a dedicated API)
-  const totalActiveSessions = nodes.reduce((sum, node) => sum + node.current_sessions, 0);
-  const totalSessions = nodes.reduce((sum, node) => sum + node.total_sessions, 0);
+  const sortedNodes = useMemo(() => {
+    const order: Record<VpnHealthStatus, number> = {
+      offline: 0,
+      overloaded: 1,
+      degraded: 2,
+      healthy: 3,
+    };
+    return [...(overview?.nodes ?? [])].sort(
+      (a, b) => order[a.health_status] - order[b.health_status] || a.name.localeCompare(b.name)
+    );
+  }, [overview?.nodes]);
+
+  const summary = overview?.summary;
+  const totalTrafficBytes = summary
+    ? (summary.traffic_in_mb + summary.traffic_out_mb) * 1024 * 1024
+    : 0;
+
+  const handleRefresh = () => {
+    refetchOverview();
+    refetchSessions();
+  };
 
   return (
     <div className="max-w-7xl mx-auto">
-      {/* Page Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">Sessions</h1>
-        <p className="text-sm text-gray-400 mt-1">
-          Monitor active and historical sessions across all your nodes
-        </p>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <Card variant="default" padding="md">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-400">Active Sessions</p>
-              <p className="text-2xl font-bold text-white">{totalActiveSessions}</p>
-            </div>
-            <div className="p-3 rounded-xl bg-emerald-500/20">
-              <svg className="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-            </div>
-          </div>
-        </Card>
-
-        <Card variant="default" padding="md">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-400">Total Sessions</p>
-              <p className="text-2xl font-bold text-white">{totalSessions.toLocaleString()}</p>
-            </div>
-            <div className="p-3 rounded-xl bg-purple-500/20">
-              <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-          </div>
-        </Card>
-
-        <Card variant="default" padding="md">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-400">Active Nodes</p>
-              <p className="text-2xl font-bold text-white">
-                {nodes.filter(n => n.status === 'online').length} / {nodes.length}
-              </p>
-            </div>
-            <div className="p-3 rounded-xl bg-cyan-500/20">
-              <svg className="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
-              </svg>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Filter Tabs */}
-      <div className="flex items-center gap-2 mb-6">
-        {['all', 'active', 'completed'].map((filter) => (
-          <button
-            key={filter}
-            onClick={() => setStatusFilter(filter)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              statusFilter === filter
-                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'
-            }`}
-          >
-            {filter.charAt(0).toUpperCase() + filter.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      {/* Sessions by Node */}
-      {isLoading ? (
-        <div className="space-y-4">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-32 rounded-2xl bg-white/5 animate-pulse" />
-          ))}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">VPN Operations</h1>
+          <p className="text-sm text-gray-400 mt-1">
+            Node health, active tunnels, and operational alerts
+          </p>
         </div>
-      ) : nodes.length === 0 ? (
-        <EmptyState
-          icon={
-            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          }
-          title="No Sessions Yet"
-          description="Sessions will appear here once your nodes start receiving connections."
-        />
+        <Button variant="secondary" onClick={handleRefresh}>
+          Refresh
+        </Button>
+      </div>
+
+      {overviewError || sessionsError ? (
+        <Card variant="outline" padding="md" className="mb-6 border-red-500/30">
+          <div className="text-sm text-red-300">VPN observability data is unavailable.</div>
+        </Card>
+      ) : null}
+
+      {overviewLoading ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          {[...Array(4)].map((_, i) => <LoadingCard key={i} />)}
+        </div>
       ) : (
-        <div className="space-y-4">
-          {nodes.map((node) => (
-            <motion.div
-              key={node.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <Card variant="default" padding="none">
-                <div className="p-4 border-b border-white/5 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-2 h-2 rounded-full ${
-                      node.status === 'online' ? 'bg-emerald-400' : 'bg-gray-500'
-                    }`} />
-                    <h3 className="font-medium text-white">{node.name}</h3>
-                    <span className="text-sm text-gray-500">{node.public_ip}</span>
-                  </div>
-                  <div className="flex items-center gap-4 text-sm">
-                    <span className="text-gray-400">
-                      <span className="text-white font-medium">{node.current_sessions}</span> active
-                    </span>
-                    <span className="text-gray-400">
-                      <span className="text-white font-medium">{node.total_sessions.toLocaleString()}</span> total
-                    </span>
-                  </div>
-                </div>
-                
-                {node.current_sessions > 0 ? (
-                  <div className="p-4">
-                    <div className="flex items-center gap-2 text-sm text-gray-400">
-                      <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      <span>{node.current_sessions} active session{node.current_sessions !== 1 ? 's' : ''} right now</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-4 text-sm text-gray-500">
-                    No active sessions
-                  </div>
-                )}
-              </Card>
-            </motion.div>
-          ))}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <StatCard
+            label="Healthy Nodes"
+            value={`${summary?.healthy_nodes ?? 0}/${summary?.total_nodes ?? 0}`}
+            subValue={`${summary?.degraded_nodes ?? 0} degraded, ${summary?.offline_nodes ?? 0} offline`}
+          />
+          <StatCard
+            label="Active Tunnels"
+            value={summary?.active_sessions ?? 0}
+            subValue={`${sessions.length} sessions in view`}
+          />
+          <StatCard
+            label="VPN Traffic"
+            value={formatBytes(totalTrafficBytes, 1)}
+            subValue={`${(summary?.traffic_in_mb ?? 0).toFixed(1)} MB in`}
+          />
+          <StatCard
+            label="Open Alerts"
+            value={summary?.open_alerts ?? 0}
+            subValue={overview?.generated_at ? `Updated ${formatRelativeTime(overview.generated_at)}` : 'Awaiting data'}
+          />
         </div>
       )}
 
-      {/* Info Card */}
-      <Card variant="outline" padding="md" className="mt-8">
-        <div className="flex items-start gap-4">
-          <div className="p-2 rounded-lg bg-blue-500/20">
-            <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div>
-            <h4 className="font-medium text-white mb-1">Session Privacy</h4>
-            <p className="text-sm text-gray-400">
-              For privacy reasons, detailed session information is only visible in the individual node detail pages. 
-              This overview shows aggregate statistics across all your nodes.
-            </p>
-          </div>
+      {overview?.alerts.length ? (
+        <div className="grid md:grid-cols-2 gap-3 mb-6">
+          {overview.alerts.slice(0, 4).map((alert) => (
+            <div
+              key={alert.id}
+              className="rounded-xl border border-yellow-500/20 bg-yellow-500/[0.06] px-4 py-3"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium text-yellow-200">{alert.message}</span>
+                <span className="text-xs text-yellow-300">{alert.severity}</span>
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {alert.created_at ? formatRelativeTime(alert.created_at) : 'no heartbeat'}
+              </div>
+            </div>
+          ))}
         </div>
-      </Card>
+      ) : null}
+
+      <div className="mb-8">
+        {overviewLoading ? <LoadingCard className="h-64" /> : <NodeHealthTable nodes={sortedNodes} />}
+      </div>
+
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <div>
+          <h2 className="text-lg font-semibold text-white">VPN Sessions</h2>
+          <p className="text-xs text-gray-500 mt-1">Session identity is operational only; traffic destinations are not collected.</p>
+        </div>
+        <div className="flex items-center gap-2 p-1 rounded-xl bg-white/5 border border-white/10">
+          {(['all', 'active', 'completed', 'error'] as SessionFilter[]).map((filter) => (
+            <button
+              key={filter}
+              onClick={() => setStatusFilter(filter)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                statusFilter === filter
+                  ? 'bg-purple-500/20 text-purple-200 border border-purple-500/30'
+                  : 'text-gray-400 hover:text-white border border-transparent'
+              }`}
+            >
+              {filter}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {sessionsLoading ? (
+        <div className="space-y-3">
+          {[...Array(4)].map((_, i) => <LoadingCard key={i} />)}
+        </div>
+      ) : (
+        <SessionTable sessions={sessions} />
+      )}
     </div>
   );
 }

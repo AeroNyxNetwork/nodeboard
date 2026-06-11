@@ -21,6 +21,7 @@
  *   5. Stats grid — uptime / sessions / traffic
  *   6. Hardware info + node details
  *   7. Recent sessions table
+ *   8. VPN Health panel from /vpn/overview/ for live heartbeat diagnostics
  *
  * Dependencies:
  *   - hooks/useNodes.ts (useNodeDetail, useNodeStats, useNodeSessions,
@@ -53,10 +54,11 @@ import {
   useNodeDetail,
   useNodeStats,
   useNodeSessions,
+  useVpnOverview,
   useUpdateNode,
   useDeleteNode,
 } from '@/hooks/useNodes';
-import { NodeStatus } from '@/types';
+import { NodeStatus, VpnHealthStatus, VpnNodeHealth } from '@/types';
 import { formatRelativeTime, formatDuration, copyToClipboard } from '@/lib/api';
 import { NODE_STATUS_CONFIG } from '@/lib/constants';
 import Card, { StatCard } from '@/components/common/Card';
@@ -64,6 +66,47 @@ import Button, { CopyButton } from '@/components/common/Button';
 import { ConfirmDialog } from '@/components/common/Modal';
 import AgentPanel from '@/components/dashboard/AgentPanel';
 import NodeSettings from '@/components/dashboard/NodeSettings';
+
+// ============================================
+// VPN Health Config
+// ============================================
+
+const VPN_HEALTH_CONFIG: Record<VpnHealthStatus, {
+  label: string;
+  bgColor: string;
+  textColor: string;
+  borderColor: string;
+  dotColor: string;
+}> = {
+  healthy: {
+    label: 'Healthy',
+    bgColor: 'bg-emerald-500/15',
+    textColor: 'text-emerald-300',
+    borderColor: 'border-emerald-500/30',
+    dotColor: 'bg-emerald-400',
+  },
+  degraded: {
+    label: 'Degraded',
+    bgColor: 'bg-yellow-500/15',
+    textColor: 'text-yellow-300',
+    borderColor: 'border-yellow-500/30',
+    dotColor: 'bg-yellow-400',
+  },
+  overloaded: {
+    label: 'Overloaded',
+    bgColor: 'bg-orange-500/15',
+    textColor: 'text-orange-300',
+    borderColor: 'border-orange-500/30',
+    dotColor: 'bg-orange-400',
+  },
+  offline: {
+    label: 'Offline',
+    bgColor: 'bg-red-500/15',
+    textColor: 'text-red-300',
+    borderColor: 'border-red-500/30',
+    dotColor: 'bg-red-400',
+  },
+};
 
 // ============================================
 // Toast Component
@@ -345,6 +388,160 @@ function StatsGrid({ nodeId }: { nodeId: string }) {
 }
 
 // ============================================
+// VPN Health Panel
+// ============================================
+
+function VpnHealthBadge({ status }: { status: VpnHealthStatus }) {
+  const config = VPN_HEALTH_CONFIG[status];
+  return (
+    <span className={`
+      inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium
+      ${config.bgColor} ${config.textColor} ${config.borderColor}
+    `}>
+      <span className={`w-1.5 h-1.5 rounded-full ${config.dotColor}`} />
+      {config.label}
+    </span>
+  );
+}
+
+function formatMemoryUsage(health: VpnNodeHealth) {
+  const used = health.system.memory_mb;
+  const total = health.system.memory_total_mb;
+  if (used === null) return 'pending';
+  return total ? `${used} / ${total} MB` : `${used} MB`;
+}
+
+function VpnHealthPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNode: boolean }) {
+  const { overview, isLoading, isError, refetch } = useVpnOverview();
+  const health = overview?.nodes.find((item) => item.id === nodeId) ?? null;
+
+  if (!isVpnNode) {
+    return (
+      <Card variant="outline" padding="md" className="mb-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h3 className="font-semibold text-white">VPN Health</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              VPN mode is disabled for this node. Enable it in Node Settings to expose tunnel diagnostics.
+            </p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <Card variant="default" padding="md" className="mb-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-4 w-32 rounded bg-white/10" />
+          <div className="grid sm:grid-cols-4 gap-3">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-16 rounded-xl bg-white/5" />
+            ))}
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  if (isError || !health) {
+    return (
+      <Card variant="outline" padding="md" className="mb-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h3 className="font-semibold text-white">VPN Health</h3>
+            <p className="text-sm text-yellow-300 mt-1">
+              Live VPN health is not available yet. The node may not have reported a signed heartbeat.
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
+  const failedChecks = health.checks.filter((check) => !check.ok);
+
+  return (
+    <Card variant="default" padding="md" className="mb-6">
+      <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-5">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3 flex-wrap mb-2">
+            <h3 className="font-semibold text-white">VPN Health</h3>
+            <VpnHealthBadge status={health.health_status} />
+            <span className="text-xs text-gray-500">{health.health_score}/100 score</span>
+          </div>
+          <p className="text-sm text-gray-500">
+            Live tunnel diagnostics from {health.system.source === 'cache' ? 'heartbeat cache' : 'sample fallback'}.
+          </p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => refetch()}>
+          Refresh
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
+        <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+          <p className="text-xs text-gray-500">Active Tunnels</p>
+          <p className="text-lg font-semibold text-white mt-1">{health.active_sessions}</p>
+          <p className="text-xs text-gray-600">{health.total_sessions} total</p>
+        </div>
+        <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+          <p className="text-xs text-gray-500">CPU</p>
+          <p className="text-lg font-semibold text-white mt-1">
+            {health.system.cpu_usage === null ? 'pending' : `${health.system.cpu_usage}%`}
+          </p>
+          <p className="text-xs text-gray-600">{health.system.cpu_count || 'pending'} cores</p>
+        </div>
+        <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+          <p className="text-xs text-gray-500">Memory</p>
+          <p className="text-lg font-semibold text-white mt-1">{formatMemoryUsage(health)}</p>
+          <p className="text-xs text-gray-600">reported by node</p>
+        </div>
+        <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+          <p className="text-xs text-gray-500">Last Heartbeat</p>
+          <p className="text-lg font-semibold text-white mt-1">
+            {health.last_heartbeat ? formatRelativeTime(health.last_heartbeat) : 'never'}
+          </p>
+          <p className="text-xs text-gray-600">{health.last_seen_seconds ?? 'pending'}s age</p>
+        </div>
+      </div>
+
+      <div className="mt-5 grid md:grid-cols-2 gap-3">
+        {health.checks.map((check) => (
+          <div
+            key={check.name}
+            className={`
+              rounded-xl border px-3 py-2.5
+              ${check.ok ? 'bg-emerald-500/[0.04] border-emerald-500/15' : 'bg-yellow-500/[0.06] border-yellow-500/20'}
+            `}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-white">{check.name}</span>
+              <span className={check.ok ? 'text-xs text-emerald-300' : 'text-xs text-yellow-300'}>
+                {check.ok ? 'ok' : 'attention'}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">{check.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      {failedChecks.length > 0 && (
+        <div className="mt-4 rounded-xl bg-yellow-500/[0.06] border border-yellow-500/20 px-4 py-3">
+          <p className="text-sm text-yellow-200">
+            {failedChecks.length} health check{failedChecks.length === 1 ? '' : 's'} need attention.
+          </p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ============================================
 // Sessions Table
 // ============================================
 
@@ -534,7 +731,10 @@ export default function NodeDetailPage() {
         onToast={showToast}
       />
 
-      {/* 4. AI Memory Entry Card (online only) */}
+      {/* 4. VPN Health Panel */}
+      <VpnHealthPanel nodeId={nodeId} isVpnNode={node.is_vpn_node} />
+
+      {/* 5. AI Memory Entry Card (online only) */}
       {node.status === 'online' && (
         <Card variant="default" padding="md" className="mb-6">
           <div className="flex items-center justify-between">
@@ -565,10 +765,10 @@ export default function NodeDetailPage() {
         </Card>
       )}
 
-      {/* 5. Stats Grid */}
+      {/* 6. Stats Grid */}
       <StatsGrid nodeId={nodeId} />
 
-      {/* 6. Hardware Info + Node Details */}
+      {/* 7. Hardware Info + Node Details */}
       <div className="grid lg:grid-cols-3 gap-6 mb-6">
         <Card variant="default" padding="md" className="lg:col-span-1">
           <h3 className="font-semibold text-white mb-4">Hardware Info</h3>
@@ -621,7 +821,7 @@ export default function NodeDetailPage() {
         </Card>
       </div>
 
-      {/* 7. Sessions Table */}
+      {/* 8. Sessions Table */}
       <SessionsTable nodeId={nodeId} />
 
       {/* Delete Confirmation */}
