@@ -129,6 +129,7 @@ export interface CodeListResponse {
 // ============================================
 
 export type NodeStatus = 'online' | 'offline' | 'suspended';
+export type NodeTier = 'public' | 'premium';
 
 /**
  * Node visibility options.
@@ -170,6 +171,12 @@ export interface Node {
   auto_region: string;
   // v1.2.0 — VPN
   is_vpn_node: boolean;
+  // v1.3+ — commercial VPN operator policy
+  node_tier: NodeTier | string;
+  maintenance_mode: boolean;
+  max_sessions: number;
+  bandwidth_limit_mbps: number;
+  heartbeat_interval_seconds: number;
   // network
   public_ip: string;
   port: number;
@@ -241,6 +248,11 @@ export interface NodeUpdateRequest {
   region_code?: string;
   city?: string;
   is_vpn_node?: boolean;
+  node_tier?: NodeTier;
+  maintenance_mode?: boolean;
+  max_sessions?: number;
+  bandwidth_limit_mbps?: number;
+  heartbeat_interval_seconds?: number;
 }
 
 /** Query parameters for GET /nodes/public/ */

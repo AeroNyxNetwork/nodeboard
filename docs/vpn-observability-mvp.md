@@ -63,9 +63,16 @@ queries.
   - Displays derived node health events, session errors/resets, command
     failures, stuck commands, service restarts, and operator actions.
 
+- `app/dashboard/settings/page.tsx`
+  - Adds Settings as the node operator policy center.
+  - Lets operators select a node and edit node tier, maintenance mode, maximum
+    sessions, bandwidth cap, and heartbeat interval.
+  - Saves through the existing owner-scoped `PATCH /nodes/<id>/` endpoint.
+
 - `components/dashboard/Sidebar.tsx`
   - Adds the `Traffic & Billing` navigation item at `/dashboard/billing`.
   - Adds the `Alerts / Events` navigation item at `/dashboard/events`.
+  - Adds the `Settings` navigation item at `/dashboard/settings`.
 
 - `hooks/useNodes.ts`
   - Adds `useVpnOverview()` with 30 second polling.
@@ -98,6 +105,9 @@ queries.
   - Adds `VpnOverview`, `VpnNodeHealth`, `VpnAlert`, `VpnSession`, and response
     types.
   - Adds `VpnEvent`, `VpnEventsOverview`, and `VpnEventsResponse` types.
+  - Extends `Node`, `NodeDetail`, and `NodeUpdateRequest` with commercial VPN
+    operator policy fields: `node_tier`, `maintenance_mode`, `max_sessions`,
+    `bandwidth_limit_mbps`, and `heartbeat_interval_seconds`.
   - Adds `NodeCommand`, `NodeCommandListResponse`, and
     `RunNodeCommandResponse` types.
 
@@ -176,11 +186,26 @@ queries.
     bans per node.
   - `ban_wallet` upserts an active policy row after queuing the Rust command;
     `unban_wallet` marks the policy inactive with `unbanned_at`.
+  - Adds node operator policy fields:
+    `maintenance_mode`, `max_sessions`, `bandwidth_limit_mbps`, and
+    `heartbeat_interval_seconds`.
+  - Existing `node_tier` remains the authoritative commercial access tier.
+
+- `/root/aeronyx/privacy_network/serializers.py`
+  - Exposes operator policy fields in owner `NodeListSerializer` and
+    `NodeDetailSerializer`.
+  - Allows owner `NodeUpdateSerializer` to update `node_tier`,
+    `maintenance_mode`, `max_sessions`, `bandwidth_limit_mbps`, and
+    `heartbeat_interval_seconds` with bounds validation.
 
 - `/root/aeronyx/privacy_network/api/heartbeat.py`
   - Adds `operator_bans` to heartbeat responses as the full active wallet ban
     list for the node. Rust uses this to recover policy after restart or a
     missed command.
+  - Adds `node_policy` to heartbeat responses so Rust can read the operator
+    Settings policy on each heartbeat.
+  - Overrides `next_heartbeat_in` from `Node.heartbeat_interval_seconds`, so the
+    Settings page can change heartbeat cadence without SSH.
 
 - `/root/aeronyx/privacy_network/api/nodes.py`
   - Adds owner-scoped `GET /nodes/<id>/wallet_bans/?status=active|inactive|all`
@@ -226,11 +251,17 @@ queries.
   - Synchronizes CMS `operator_bans` into the runtime `DenyList` before the
     legacy membership enforcement gate, so operator controls remain active
     while voucher auth is authoritative.
+  - Applies CMS-requested `next_heartbeat_in` by rebuilding the tokio heartbeat
+    interval at runtime.
+  - Parses and logs `node_policy` from Settings and keeps `node_tier` cache in
+    sync with policy.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/management/client.rs`
   - Adds `runtime_id` and `runtime_started_at` to signed heartbeat
     `system_stats`. The id is regenerated each Rust process start and lets the
     CMS identify server resets.
+  - Adds `NodePolicy` to the heartbeat response model for Settings-driven node
+    policy delivery.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/services/traffic_tracker.rs`
   - Existing traffic tracker aggregates per-wallet byte deltas for billing and
@@ -396,6 +427,59 @@ Response shape:
   ]
 }
 ```
+
+### `PATCH /api/privacy_network/nodes/{id}/`
+
+Settings uses the existing owner node update endpoint.
+
+Operator policy fields:
+
+```json
+{
+  "node_tier": "premium",
+  "maintenance_mode": false,
+  "max_sessions": 500,
+  "bandwidth_limit_mbps": 1000,
+  "heartbeat_interval_seconds": 30
+}
+```
+
+Validation:
+
+- `node_tier`: `public` or `premium`
+- `maintenance_mode`: boolean
+- `max_sessions`: 0 to 100000; `0` means local default
+- `bandwidth_limit_mbps`: 0 to 100000; `0` means unlimited / local default
+- `heartbeat_interval_seconds`: 10 to 300
+
+The full node list/detail responses include these fields so nodeboard can show
+and edit policy without opening SSH.
+
+### Heartbeat `node_policy`
+
+`POST /api/privacy_network/node/heartbeat/` returns the operator policy on every
+successful heartbeat:
+
+```json
+{
+  "success": true,
+  "next_heartbeat_in": 30,
+  "node_tier": "premium",
+  "node_policy": {
+    "node_tier": "premium",
+    "maintenance_mode": false,
+    "max_sessions": 500,
+    "bandwidth_limit_mbps": 1000,
+    "heartbeat_interval_seconds": 30,
+    "updated_at": "2026-06-12T00:00:00Z"
+  }
+}
+```
+
+Rust immediately applies `next_heartbeat_in` to the heartbeat loop and caches
+`node_policy.node_tier` for access-tier enforcement. Maintenance, max-session,
+and bandwidth enforcement are intentionally delivered as policy first; the next
+Rust work item is enforcing them inside handshake/session/packet paths.
 
 ### `GET /api/privacy_network/vpn/billing/`
 
@@ -662,6 +746,12 @@ nodeboard Alerts / Events
   -> GET /vpn/events/?days=7&severity=all
   -> backend derives events from current node health, ClientSession errors, and NodeCommand audits
   -> operator sees offline/degraded/overloaded nodes, session resets, command failures, and operator actions
+
+nodeboard Settings
+  -> PATCH /nodes/{id}/ operator policy fields
+  -> backend stores commercial policy on Node
+  -> Rust heartbeat receives node_policy + next_heartbeat_in
+  -> heartbeat interval updates without SSH
 ```
 
 ## M1 Verification
@@ -763,6 +853,29 @@ compatibility; if CMS sends an empty list, Rust clears only active
   - `npm run type-check`
   - `npm run build`
   - `/dashboard/events` is included in the build output and the sidebar links
+    to it.
+
+## M4 Settings Verification
+
+- API backend:
+  - `python -m py_compile privacy_network/models.py privacy_network/serializers.py privacy_network/api/heartbeat.py privacy_network/migrations/0008_node_operator_policy.py`
+  - `python manage.py migrate privacy_network`
+  - `python manage.py check`
+  - Smoke test: owner `PATCH /nodes/<id>/` accepts `node_tier`,
+    `maintenance_mode`, `max_sessions`, `bandwidth_limit_mbps`, and
+    `heartbeat_interval_seconds`.
+  - Smoke test: heartbeat response includes `node_policy` and
+    `next_heartbeat_in` equals `heartbeat_interval_seconds`.
+
+- Rust VPN node:
+  - `cargo check -p aeronyx-server`
+  - Heartbeat reporter applies CMS `next_heartbeat_in` by rebuilding its tokio
+    interval and logs `node_policy`.
+
+- nodeboard:
+  - `npm run type-check`
+  - `npm run build`
+  - `/dashboard/settings` is included in the build output and the sidebar links
     to it.
 
 ## M3 Refresh Config Verification
