@@ -30,7 +30,8 @@ queries.
   - Replaces the old aggregate-only Sessions page with the VPN Operations view.
   - Shows summary cards, node health table, operational alerts, and VPN session
     table.
-  - Leaves RTT and packet-loss cells as `pending` until Rust M2 telemetry lands.
+  - Displays stored `last_rx_at`, `last_tx_at`, and packet-loss telemetry from
+    the API. RTT remains `pending` until keepalive ACK telemetry is added.
 
 - `app/dashboard/nodes/[id]/page.tsx`
   - Adds a per-node VPN Health panel to the node detail page.
@@ -66,8 +67,7 @@ queries.
 
 - `/root/aeronyx/privacy_network/api/vpn_observability.py`
   - Adds owner-authenticated observability endpoints.
-  - Builds the MVP from existing `Node`, `NodeHeartbeat`, and `ClientSession`
-    models, so no database migration is required for M1.
+  - Builds the MVP from `Node`, `NodeHeartbeat`, and `ClientSession` models.
   - Prefers the live Redis heartbeat cache written by
     `HeartbeatService._cache_heartbeat()` and uses sampled `NodeHeartbeat`
     rows only as a fallback. This keeps nodeboard aligned with the real
@@ -77,6 +77,25 @@ queries.
   - Emits node health checks for heartbeat freshness, node online state, and
     resource load.
   - Emits operational alerts from derived node health.
+  - Returns stored session quality fields from M2: `last_rx_at`, `last_tx_at`,
+    `rtt_ms`, and `packet_loss`. If `packet_loss` has not been stored, it can
+    estimate a percentage from packet/replay rejection counters.
+
+- `/root/aeronyx/privacy_network/models.py`
+  - Extends `ClientSession` with stored VPN quality telemetry:
+    `last_rx_at`, `last_tx_at`, `rtt_ms`, `packet_loss`,
+    `replay_rejections`, `too_old_rejections`, `packets_rx`, and `packets_tx`.
+
+- `/root/aeronyx/privacy_network/serializers.py`
+  - Allows Rust nodes to submit `session_traffic_snapshot` reports in addition
+    to created, updated, and ended events.
+  - Accepts optional quality telemetry on session reports.
+
+- `/root/aeronyx/privacy_network/services/session_service.py`
+  - Adds cumulative snapshot upsert handling so Rust session snapshots do not
+    double-count bytes when a report is retried.
+  - Treats `session_ended` as a final cumulative snapshot, then completes the
+    session and updates node totals once.
 
 - `/root/aeronyx/privacy_network/urls.py`
   - Registers `GET /api/privacy_network/vpn/overview/`.
@@ -102,6 +121,8 @@ queries.
 - `/root/a/AeroNyx/crates/aeronyx-server/src/management/reporter.rs`
   - Existing heartbeat reporter already collects connected wallets and drains
     traffic deltas every heartbeat period.
+  - Adds quality fields to session event reports and sends
+    `session_traffic_snapshot` as cumulative byte totals.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/services/traffic_tracker.rs`
   - Existing traffic tracker aggregates per-wallet byte deltas for billing and
@@ -110,6 +131,12 @@ queries.
 - `/root/a/AeroNyx/crates/aeronyx-server/src/services/session.rs`
   - Existing session manager tracks active VPN sessions, wallet/device indexes,
     and session cleanup.
+  - Records real RX/TX timestamps and packet/replay counters in each session
+    stats snapshot.
+
+- `/root/a/AeroNyx/crates/aeronyx-server/src/server.rs`
+  - Converts session stats snapshots into privacy-minimal quality telemetry for
+    periodic traffic snapshots and final session-ended reports.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/management/command_handler.rs`
   - Adds `system_info` and `collect_logs` command handlers.
@@ -197,13 +224,18 @@ Response shape:
       "last_rx_at": "2026-06-11T11:02:00Z",
       "last_tx_at": "2026-06-11T11:02:00Z",
       "rtt_ms": null,
-      "packet_loss": null,
+      "packet_loss": 0.5,
       "last_error": ""
     }
   ],
   "count": 1
 }
 ```
+
+`last_rx_at`, `last_tx_at`, `packet_loss`, packet counters, replay rejection
+counters, and bytes are stored from signed Rust session reports. `rtt_ms` is
+reserved for M2 follow-up keepalive ACK telemetry and remains `null` until the
+protocol sends round-trip samples.
 
 ### `POST /api/privacy_network/nodes/{id}/commands/run/`
 
@@ -255,7 +287,7 @@ Rust VPN node
 
 Rust VPN node
   -> signed session report /api/privacy_network/node/sessions/report/
-  -> existing ClientSession rows
+  -> cumulative ClientSession snapshot upsert
   -> VPN session API
   -> nodeboard VPN Sessions table
 
@@ -292,20 +324,38 @@ nodeboard Node Detail
   - `npm run type-check`
   - `npm run build`
 
+## M2 Verification
+
+- API backend:
+  - `python -m py_compile privacy_network/models.py privacy_network/serializers.py privacy_network/services/session_service.py privacy_network/api/vpn_observability.py privacy_network/migrations/0005_clientsession_quality_metrics.py`
+  - `python manage.py check`
+  - `python manage.py migrate privacy_network`
+  - Smoke test: duplicate `session_traffic_snapshot` reports keep bytes
+    cumulative, while final `session_ended` updates total bytes and stored
+    quality fields.
+
+- Rust VPN node:
+  - `cargo check -p aeronyx-server`
+  - `cargo build -p aeronyx-server --release`
+  - `systemctl restart aeronyx-server`
+  - `systemctl is-active aeronyx-server`
+
+- nodeboard:
+  - No UI code change is required for this slice because the VPN Operations
+    table already renders the fields. The API now returns real values for
+    `last_rx_at`, `last_tx_at`, and `packet_loss`.
+
 ## M2 Backlog
 
-The following fields are intentionally present in the frontend contract but are
-`pending` or `null` until the Rust and API schema are extended:
+The following fields still need protocol or control-plane work before they can
+be considered commercial-grade:
 
 - keepalive ACK
 - RTT
-- last real RX timestamp
-- last real TX timestamp
-- packet-loss estimate
 - tunnel degraded reason
 - automatic reconnect events
 - server reset recovery events
 - MTU probe results
 
-These should be added as stored telemetry rather than inferred from generic
-session `updated_at`.
+These should continue to be added as stored telemetry rather than inferred from
+generic session `updated_at`.
