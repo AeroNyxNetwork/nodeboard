@@ -207,10 +207,12 @@ function NodeHealthTable({ nodes }: { nodes: VpnNodeHealth[] }) {
 interface SessionTableProps {
   sessions: VpnSession[];
   kickingSessionId: string | null;
+  banningSessionId: string | null;
   onKickSession: (session: VpnSession) => void;
+  onBanWallet: (session: VpnSession) => void;
 }
 
-function SessionTable({ sessions, kickingSessionId, onKickSession }: SessionTableProps) {
+function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSession, onBanWallet }: SessionTableProps) {
   if (sessions.length === 0) {
     return (
       <EmptyState
@@ -280,15 +282,26 @@ function SessionTable({ sessions, kickingSessionId, onKickSession }: SessionTabl
                 </td>
                 <td className="px-5 py-4 text-right">
                   {session.status === 'active' ? (
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      isLoading={kickingSessionId === session.id}
-                      disabled={Boolean(kickingSessionId)}
-                      onClick={() => onKickSession(session)}
-                    >
-                      Kick
-                    </Button>
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        isLoading={kickingSessionId === session.id}
+                        disabled={Boolean(kickingSessionId || banningSessionId)}
+                        onClick={() => onKickSession(session)}
+                      >
+                        Kick
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        isLoading={banningSessionId === session.id}
+                        disabled={Boolean(kickingSessionId || banningSessionId) || !session.client_wallet}
+                        onClick={() => onBanWallet(session)}
+                      >
+                        Ban Wallet
+                      </Button>
+                    </div>
                   ) : (
                     <span className="text-xs text-gray-600">-</span>
                   )}
@@ -305,6 +318,7 @@ function SessionTable({ sessions, kickingSessionId, onKickSession }: SessionTabl
 export default function SessionsPage() {
   const [statusFilter, setStatusFilter] = useState<SessionFilter>('active');
   const [kickingSessionId, setKickingSessionId] = useState<string | null>(null);
+  const [banningSessionId, setBanningSessionId] = useState<string | null>(null);
   const [operationMessage, setOperationMessage] = useState<string>('');
   const { overview, isLoading: overviewLoading, isError: overviewError, refetch: refetchOverview } = useVpnOverview();
   const { sessions, isLoading: sessionsLoading, isError: sessionsError, refetch: refetchSessions } =
@@ -356,6 +370,36 @@ export default function SessionsPage() {
       setOperationMessage(error instanceof Error ? error.message : 'Failed to queue kick command');
     } finally {
       setKickingSessionId(null);
+    }
+  };
+
+  const handleBanWallet = async (session: VpnSession) => {
+    if (!window.confirm(`Ban wallet ${truncateAddress(session.client_wallet, 6)} on ${session.node_name}? Active tunnels for this wallet will be disconnected.`)) {
+      return;
+    }
+
+    setBanningSessionId(session.id);
+    setOperationMessage('');
+
+    try {
+      await runCommand.mutateAsync({
+        nodeId: session.node_id,
+        data: {
+          action: 'ban_wallet',
+          params: {
+            session_id: session.session_id,
+            reason: 'operator_ban',
+          },
+          priority: 1,
+        },
+      });
+      setOperationMessage(`Ban queued for wallet ${truncateAddress(session.client_wallet, 6)}`);
+      refetchOverview();
+      refetchSessions();
+    } catch (error) {
+      setOperationMessage(error instanceof Error ? error.message : 'Failed to queue wallet ban');
+    } finally {
+      setBanningSessionId(null);
     }
   };
 
@@ -467,7 +511,9 @@ export default function SessionsPage() {
         <SessionTable
           sessions={sessions}
           kickingSessionId={kickingSessionId}
+          banningSessionId={banningSessionId}
           onKickSession={handleKickSession}
+          onBanWallet={handleBanWallet}
         />
       )}
     </div>

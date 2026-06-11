@@ -34,6 +34,9 @@ queries.
     the API. RTT remains `pending` until keepalive ACK telemetry is added.
   - Adds a `Kick` operation for active sessions. The button queues a
     `kick_session` command through the CMS instead of calling the node directly.
+  - Adds a guarded `Ban Wallet` operation for active sessions. The backend
+    derives the wallet from the selected session, and the Rust node adds it to
+    the VPN deny list before disconnecting that wallet's active tunnels.
 
 - `app/dashboard/nodes/[id]/page.tsx`
   - Adds a per-node VPN Health panel to the node detail page.
@@ -124,9 +127,14 @@ queries.
   - Adds `RunNodeCommandView` for owner-authenticated non-destructive
     operations commands.
   - Allows `system_info`, `collect_logs`, and the bounded control action
-    `kick_session`, plus `refresh_config` and guarded `restart_service`.
+    `kick_session`, wallet controls `ban_wallet` / `unban_wallet`, plus
+    `refresh_config` and guarded `restart_service`.
   - Validates `kick_session` against the target node and requires the session to
     still be active before the command is queued.
+  - Validates `ban_wallet` from a target-node active session, normalizes the
+    64-character wallet hex, and strips caller-provided wallet values.
+  - Validates `unban_wallet` against wallets that have session history on the
+    requested node.
   - Rewrites `refresh_config` params to fixed `scope="management"` so callers
     cannot provide arbitrary local paths or shell arguments.
   - Validates `restart_service` with `confirm="restart"` and rewrites params so
@@ -164,9 +172,16 @@ queries.
   - Records real RX/TX timestamps and packet/replay counters in each session
     stats snapshot.
 
+- `/root/a/AeroNyx/crates/aeronyx-server/src/services/deny_list.rs`
+  - Maintains the in-memory wallet deny list checked by VPN handshake.
+  - Adds `OperatorBan`, a permanent operator-controlled reason that is not
+    auto-cleared by membership or quota heartbeat updates.
+
 - `/root/a/AeroNyx/crates/aeronyx-server/src/server.rs`
   - Converts session stats snapshots into privacy-minimal quality telemetry for
     periodic traffic snapshots and final session-ended reports.
+  - Injects the shared `DenyList` into `CommandHandler` so nodeboard operations
+    and handshake enforcement use the same runtime control plane.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/management/command_handler.rs`
   - Adds `system_info` and `collect_logs` command handlers.
@@ -178,6 +193,10 @@ queries.
   - Adds `kick_session`, which parses the CMS-provided base64 session id,
     removes that session from `SessionManager`, and emits a final
     `session_ended` report with cumulative traffic/quality counters.
+  - Adds `ban_wallet` and `unban_wallet`. `ban_wallet` validates 64-character
+    wallet hex, inserts `OperatorBan` into the shared `DenyList`, disconnects
+    all active sessions for that wallet, and emits final session reports.
+    `unban_wallet` removes the wallet from the runtime deny list.
   - Adds `refresh_config`, which validates the running management config and
     summarizes the fixed node binding file. This creates the nodeboard control
     path for future centralized policy refresh without exposing SSH or arbitrary
@@ -311,6 +330,12 @@ Allowed actions:
 - `kick_session`: removes one active VPN session from the Rust node. The backend
   only queues this command when the session belongs to the requested node and is
   still active.
+- `ban_wallet`: operator ban for the wallet attached to an active VPN session.
+  The backend derives `wallet_hex` from the selected session, and Rust enforces
+  it through the handshake `DenyList`.
+- `unban_wallet`: removes a wallet from the Rust node runtime deny list after
+  the backend verifies that the wallet has session history on the requested
+  node.
 - `restart_service`: restarts the VPN node service. The backend requires
   `confirm="restart"` and strips caller-provided service names; the Rust node
   only restarts `aeronyx-server`.
@@ -370,6 +395,15 @@ nodeboard VPN Sessions
   -> signed session_ended report
   -> ClientSession leaves active view
   -> signed command status audit
+
+nodeboard VPN Sessions
+  -> POST /nodes/{id}/commands/run/ action=ban_wallet
+  -> backend derives wallet_hex from the active ClientSession
+  -> Rust heartbeat command dispatch
+  -> DenyList.add(wallet, OperatorBan)
+  -> SessionManager removes all active sessions for that wallet
+  -> handshake rejects reconnects while the runtime deny entry exists
+  -> signed session_ended + command status audit
 ```
 
 ## M1 Verification
@@ -413,6 +447,29 @@ nodeboard VPN Sessions
 - nodeboard:
   - `npm run type-check`
   - `npm run build`
+
+## M4 Wallet Ban Verification
+
+- API backend:
+  - `python -m py_compile privacy_network/models.py privacy_network/api/agent.py`
+  - `python manage.py check`
+  - Smoke test: `ban_wallet` refuses missing/inactive/cross-node sessions and
+    queues only sanitized wallet params derived from a target-node active
+    session.
+
+- Rust VPN node:
+  - `cargo check -p aeronyx-server`
+  - `cargo build -p aeronyx-server --release`
+  - `systemctl restart aeronyx-server`
+  - `systemctl is-active aeronyx-server`
+
+- nodeboard:
+  - `npm run type-check`
+  - `npm run build`
+
+Current persistence boundary: `OperatorBan` lives in the Rust node runtime deny
+list. A future M4 policy model should persist operator bans in the CMS and
+repopulate the deny list via heartbeat/config refresh after node restart.
 
 ## M3 Refresh Config Verification
 
