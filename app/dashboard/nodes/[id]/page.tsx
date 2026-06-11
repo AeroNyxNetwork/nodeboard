@@ -500,16 +500,22 @@ function parseCommandResult(command: NodeCommand) {
 
 function CommandResultPanel({ command }: { command: NodeCommand }) {
   const parsed = parseCommandResult(command);
+  const copyText = parsed.kind === 'logs'
+    ? (parsed.body || parsed.summary)
+    : commandMessage(command);
 
   return (
     <div className="mt-3 rounded-xl border border-white/5 bg-black/20 overflow-hidden">
       <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between gap-3">
         <span className="text-xs font-medium text-gray-300">{parsed.title}</span>
-        {command.result?.timestamp ? (
-          <span className="text-[11px] text-gray-600">
-            node time {String(command.result.timestamp)}
-          </span>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {command.result?.timestamp ? (
+            <span className="text-[11px] text-gray-600">
+              node time {String(command.result.timestamp)}
+            </span>
+          ) : null}
+          <CopyButton text={copyText} />
+        </div>
       </div>
 
       {parsed.kind === 'logs' ? (
@@ -739,7 +745,7 @@ function VpnHealthPanel({
   onToast: (message: string, variant?: 'success' | 'error') => void;
 }) {
   const { overview, isLoading, isError, refetch } = useVpnOverview();
-  const { commands, isLoading: commandsLoading } = useNodeCommands(nodeId, { limit: 5 });
+  const { commands, isLoading: commandsLoading } = useNodeCommands(nodeId, { limit: 20 });
   const { metrics, isLoading: metricsLoading } = useVpnNodeMetrics(nodeId, { hours: 24 });
   const runCommand = useRunNodeCommand();
   const cancelCommand = useCancelNodeCommand();

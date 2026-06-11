@@ -1131,6 +1131,13 @@ compatibility; if CMS sends an empty list, Rust clears only active
 
 ## M3 Refresh Config Verification
 
+- nodeboard Node Detail operations:
+  - `/root/open/nodeboard/app/dashboard/nodes/[id]/page.tsx`
+  - Shows the latest 20 VPN operation commands so collected logs and
+    diagnostics are less likely to be pushed out by other operator actions.
+  - Adds a copy action to each command result panel, allowing operators to copy
+    collected service logs or diagnostic output without SSH.
+
 - API backend:
   - `python -m py_compile privacy_network/models.py privacy_network/api/vpn_commands.py`
   - `python manage.py check`
@@ -1147,6 +1154,8 @@ compatibility; if CMS sends an empty list, Rust clears only active
 - nodeboard:
   - `npm run type-check`
   - `npm run build`
+  - Node Detail command result panels include copyable output for `system_info`,
+    `collect_logs`, `refresh_config`, and `restart_service` results.
 
 ## M3 Restart Service Verification
 
