@@ -174,7 +174,47 @@ function QueryBar({
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function formatDetailValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '-';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function shortValue(value: unknown, maxLength = 120): string {
+  const text = formatDetailValue(value);
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
+}
+
+function getChangedFields(event: VpnEvent): string[] {
+  const fields = event.details?.changed_fields;
+  if (Array.isArray(fields)) {
+    return fields.filter((field): field is string => typeof field === 'string');
+  }
+  const changes = event.details?.changes;
+  return isRecord(changes) ? Object.keys(changes) : [];
+}
+
 function DetailsPreview({ event }: { event: VpnEvent }) {
+  const changedFields = getChangedFields(event);
+  if (event.type === 'node_policy_changed' && changedFields.length) {
+    return (
+      <span className="text-xs text-gray-500">
+        {changedFields.slice(0, 3).join(', ')}
+        {changedFields.length > 3 ? ` +${changedFields.length - 3}` : ''}
+      </span>
+    );
+  }
+
   const detailEntries = Object.entries(event.details || {}).filter(([, value]) => (
     value !== null && value !== undefined && typeof value !== 'object'
   ));
@@ -196,13 +236,102 @@ function DetailsPreview({ event }: { event: VpnEvent }) {
   );
 }
 
+type DetailRow = {
+  label: string;
+  value: React.ReactNode;
+};
+
+function buildDetailRows(event: VpnEvent): DetailRow[] {
+  const details = event.details || {};
+  const rows: DetailRow[] = [];
+
+  if (event.type === 'node_policy_changed') {
+    const changes = isRecord(details.changes) ? details.changes : {};
+    Object.entries(changes).slice(0, 10).forEach(([field, value]) => {
+      const change = isRecord(value) ? value : {};
+      rows.push({
+        label: field,
+        value: (
+          <span className="font-mono">
+            {shortValue(change.old, 48)}
+            <span className="mx-2 text-gray-600">-&gt;</span>
+            {shortValue(change.new, 48)}
+          </span>
+        ),
+      });
+    });
+
+    rows.push(
+      { label: 'Changed by', value: shortValue(details.changed_by_wallet, 80) },
+      { label: 'Source', value: shortValue(details.source, 80) },
+      { label: 'Audit ID', value: shortValue(details.audit_id, 80) }
+    );
+    return rows.filter((row) => row.value !== '-');
+  }
+
+  const preferredKeys = [
+    'error_message',
+    'degraded_reason',
+    'quality_status',
+    'quality_score',
+    'last_activity_age_seconds',
+    'rtt_ms',
+    'packet_loss',
+    'bytes_in',
+    'bytes_out',
+    'client_wallet',
+    'retry_count',
+    'expires_at',
+    'params',
+    'result',
+    'check',
+    'health_status',
+    'health_score',
+    'last_seen_seconds',
+  ];
+
+  preferredKeys.forEach((key) => {
+    if (details[key] !== undefined && details[key] !== null && details[key] !== '') {
+      rows.push({ label: key, value: shortValue(details[key], 180) });
+    }
+  });
+
+  if (!rows.length) {
+    Object.entries(details).slice(0, 8).forEach(([key, value]) => {
+      rows.push({ label: key, value: shortValue(value, 180) });
+    });
+  }
+
+  return rows;
+}
+
+function EventDetailPanel({ event }: { event: VpnEvent }) {
+  const rows = buildDetailRows(event);
+  if (!rows.length) {
+    return <div className="text-xs text-gray-600">No structured details for this event.</div>;
+  }
+
+  return (
+    <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+      {rows.map((row) => (
+        <div key={row.label} className="min-w-0 rounded-md border border-white/10 bg-black/20 px-3 py-2">
+          <div className="text-[11px] uppercase tracking-wide text-gray-600">{row.label}</div>
+          <div className="mt-1 text-xs text-gray-300 break-words">{row.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function EventsTable({ events }: { events: VpnEvent[] }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   if (!events.length) {
     return (
       <EmptyState
         icon={<EventIcon />}
         title="No Events"
-        description="Matching VPN health, session, and command events will appear here."
+        description="Matching VPN health, session, command, and policy events will appear here."
       />
     );
   }
@@ -212,7 +341,7 @@ function EventsTable({ events }: { events: VpnEvent[] }) {
       <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold text-white">Event Stream</h2>
-          <p className="text-xs text-gray-500 mt-1">Node health, session errors, and operator commands</p>
+          <p className="text-xs text-gray-500 mt-1">Node health, session errors, operator commands, and policy changes</p>
         </div>
       </div>
       <div className="overflow-x-auto">
@@ -229,37 +358,59 @@ function EventsTable({ events }: { events: VpnEvent[] }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
-            {events.map((event) => (
-              <tr key={event.id} className="hover:bg-white/[0.03] transition-colors">
-                <td className="px-5 py-4">
-                  <SeverityBadge severity={event.severity} />
-                </td>
-                <td className="px-4 py-4">
-                  <div className="font-medium text-white">{event.title}</div>
-                  <div className="text-xs text-gray-500 mt-1 max-w-[360px] truncate">{event.message}</div>
-                  <div className="text-xs text-gray-600 mt-1">{event.type}</div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="text-gray-300">{event.node_name || 'all nodes'}</div>
-                  {event.node_id && (
-                    <div className="text-xs text-gray-600 font-mono mt-1">{event.node_id.slice(0, 8)}</div>
+            {events.map((event) => {
+              const isExpanded = expandedId === event.id;
+              return (
+                <React.Fragment key={event.id}>
+                  <tr className="hover:bg-white/[0.03] transition-colors">
+                    <td className="px-5 py-4">
+                      <SeverityBadge severity={event.severity} />
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="font-medium text-white">{event.title}</div>
+                      <div className="text-xs text-gray-500 mt-1 max-w-[360px] truncate">{event.message}</div>
+                      <div className="text-xs text-gray-600 mt-1">{event.type}</div>
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="text-gray-300">{event.node_name || 'all nodes'}</div>
+                      {event.node_id && (
+                        <div className="text-xs text-gray-600 font-mono mt-1">{event.node_id.slice(0, 8)}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-4 text-gray-400">{event.source}</td>
+                    <td className="px-4 py-4">
+                      <span className="inline-flex px-2 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-gray-300">
+                        {event.status || 'open'}
+                      </span>
+                      {event.action && <div className="text-xs text-gray-600 mt-1">{event.action}</div>}
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="space-y-2">
+                        <DetailsPreview event={event} />
+                        <button
+                          type="button"
+                          aria-expanded={isExpanded}
+                          onClick={() => setExpandedId(isExpanded ? null : event.id)}
+                          className="block text-xs font-medium text-purple-300 hover:text-purple-200"
+                        >
+                          {isExpanded ? 'Hide' : 'Details'}
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-5 py-4 text-gray-400">
+                      {event.created_at ? formatRelativeTime(event.created_at) : 'now'}
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="bg-white/[0.015]">
+                      <td colSpan={7} className="px-5 py-4">
+                        <EventDetailPanel event={event} />
+                      </td>
+                    </tr>
                   )}
-                </td>
-                <td className="px-4 py-4 text-gray-400">{event.source}</td>
-                <td className="px-4 py-4">
-                  <span className="inline-flex px-2 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-gray-300">
-                    {event.status || 'open'}
-                  </span>
-                  {event.action && <div className="text-xs text-gray-600 mt-1">{event.action}</div>}
-                </td>
-                <td className="px-4 py-4">
-                  <DetailsPreview event={event} />
-                </td>
-                <td className="px-5 py-4 text-gray-400">
-                  {event.created_at ? formatRelativeTime(event.created_at) : 'now'}
-                </td>
-              </tr>
-            ))}
+                </React.Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>

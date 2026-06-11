@@ -1228,6 +1228,14 @@ shown through the existing Alerts / Events API.
   - Event details include `audit_id`, `changed_fields`, `changes`, `snapshot`,
     `changed_by_wallet`, and `source`.
 
+- `/root/open/nodeboard/app/dashboard/events/page.tsx`
+  - Adds a compact Details / Hide expander for each event row.
+  - Renders policy changes as readable `old -> new` field rows instead of
+    requiring operators to inspect raw JSON.
+  - Prioritizes actionable session and command fields such as
+    `degraded_reason`, `quality_status`, `rtt_ms`, `packet_loss`,
+    `error_message`, `params`, and `result`.
+
 nodeboard Settings
   -> PATCH /nodes/{id}/ operator policy fields
   -> backend stores NodePolicyAudit
@@ -1246,6 +1254,12 @@ nodeboard Settings
     returned `node_policy_changed` events with `node_policy` source and
     details keys `audit_id`, `changed_by_wallet`, `changed_fields`, `changes`,
     `snapshot`, and `source`.
+
+- nodeboard:
+  - `npm run type-check`
+  - `npm run build`
+  - `/dashboard/events` includes expandable structured details for policy,
+    session, health, and command events.
 
 ## M2 Backlog
 
