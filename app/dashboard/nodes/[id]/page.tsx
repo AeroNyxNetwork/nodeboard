@@ -477,7 +477,7 @@ function commandLabel(command: NodeCommand) {
 }
 
 function canCancelCommand(command: NodeCommand) {
-  return command.status === 'pending' || command.status === 'sent' || command.status === 'executing';
+  return command.status === 'pending' || command.status === 'sent';
 }
 
 function formatPolicySource(source: string) {
@@ -695,7 +695,7 @@ function VpnHealthPanel({
 
   const handleCancelCommand = async (command: NodeCommand) => {
     if (!canCancelCommand(command)) return;
-    if (!window.confirm(`Cancel ${commandLabel(command)}?`)) return;
+    if (!window.confirm(`Cancel queued ${commandLabel(command)}? Commands already executing on the node cannot be interrupted.`)) return;
 
     setCancellingCommandId(command.id);
     try {

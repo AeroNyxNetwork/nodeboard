@@ -77,8 +77,10 @@ queries.
     the node to validate and summarize its management configuration without SSH.
   - Adds a guarded `Restart VPN` operation that requires browser confirmation
     and queues a CMS `restart_service` command.
-  - Adds `Cancel` controls for pending, sent, or executing VPN commands so
-    operators can stop stale or accidental queued actions without SSH.
+  - Adds `Cancel` controls for pending or sent VPN commands so operators can
+    stop stale or accidental queued actions without SSH. Commands already
+    executing on the Rust node are shown as in-flight and are not presented as
+    interruptible.
   - Adds Wallet Ban Policies, an active policy table backed by
     `GET /nodes/<id>/wallet_bans/`, with copy and unban controls.
 
@@ -846,7 +848,9 @@ Response shape:
 
 Authenticated with the existing nodeboard API key and node ownership check.
 Nodeboard calls this from Node Detail command history for commands that are
-still `pending`, `sent`, or `executing`.
+still `pending` or `sent`. A sent command may already have reached the node, so
+the UI describes this as cancelling a queued command rather than interrupting a
+running process.
 
 Response shape:
 
@@ -888,7 +892,7 @@ nodeboard Node Detail
 
 nodeboard Node Detail
   -> POST /nodes/{id}/commands/{cmd_id}/cancel/
-  -> CommandService cancels pending/sent/executing command when allowed
+  -> CommandService cancels pending/sent command when allowed
   -> NodeCommand history and Events refresh in nodeboard
 
 nodeboard VPN Sessions
