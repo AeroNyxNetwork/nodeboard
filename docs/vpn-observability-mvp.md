@@ -255,6 +255,9 @@ queries.
     interval at runtime.
   - Parses and logs `node_policy` from Settings and keeps `node_tier` cache in
     sync with policy.
+  - Updates the shared runtime `NodePolicyRuntime` on each heartbeat so
+    nodeboard Settings can affect handshake and packet paths without SSH or
+    service restart.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/management/client.rs`
   - Adds `runtime_id` and `runtime_started_at` to signed heartbeat
@@ -266,6 +269,24 @@ queries.
 - `/root/a/AeroNyx/crates/aeronyx-server/src/services/traffic_tracker.rs`
   - Existing traffic tracker aggregates per-wallet byte deltas for billing and
     quota accounting.
+
+- `/root/a/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs`
+  - Keeps the latest CMS `node_policy` in a thread-safe runtime snapshot.
+  - Validates new-session admission for `maintenance_mode` and `max_sessions`.
+  - Enforces a node-wide one-second byte window for `bandwidth_limit_mbps` in
+    the VPN packet hot path. A value of `0` remains unlimited.
+
+- `/root/a/AeroNyx/crates/aeronyx-server/src/services/handshake.rs`
+  - Checks `NodePolicyRuntime::validate_new_session()` before deny-list checks,
+    IP allocation, or session creation.
+  - Rejects new handshakes during maintenance mode.
+  - Rejects new handshakes when active sessions have reached nodeboard
+    `max_sessions`.
+
+- `/root/a/AeroNyx/crates/aeronyx-server/src/handlers/packet.rs`
+  - Applies `bandwidth_limit_mbps` to both decrypted client-to-VPN packets and
+    TUN-to-client packets before byte counters are recorded or packets are
+    re-encrypted.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/services/session.rs`
   - Existing session manager tracks active VPN sessions, wallet/device indexes,
@@ -285,6 +306,8 @@ queries.
     periodic traffic snapshots and final session-ended reports.
   - Injects the shared `DenyList` into `CommandHandler` so nodeboard operations
     and handshake enforcement use the same runtime control plane.
+  - Injects the shared `NodePolicyRuntime` into `HeartbeatReporter`,
+    `HandshakeService`, and `PacketHandler`.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/management/command_handler.rs`
   - Adds `system_info` and `collect_logs` command handlers.
@@ -476,10 +499,13 @@ successful heartbeat:
 }
 ```
 
-Rust immediately applies `next_heartbeat_in` to the heartbeat loop and caches
-`node_policy.node_tier` for access-tier enforcement. Maintenance, max-session,
-and bandwidth enforcement are intentionally delivered as policy first; the next
-Rust work item is enforcing them inside handshake/session/packet paths.
+Rust immediately applies `next_heartbeat_in` to the heartbeat loop, caches
+`node_policy.node_tier`, and updates the shared runtime policy. New handshakes
+are rejected when `maintenance_mode=true` or when `max_sessions` is reached.
+Packet handling enforces `bandwidth_limit_mbps` as a node-wide per-second byte
+window in both traffic directions. Existing sessions are not kicked by
+maintenance mode; operators can use `kick_session` or wallet bans for explicit
+disconnects.
 
 ### `GET /api/privacy_network/vpn/billing/`
 
@@ -752,6 +778,8 @@ nodeboard Settings
   -> backend stores commercial policy on Node
   -> Rust heartbeat receives node_policy + next_heartbeat_in
   -> heartbeat interval updates without SSH
+  -> new handshakes enforce maintenance_mode and max_sessions
+  -> packet paths enforce bandwidth_limit_mbps in both directions
 ```
 
 ## M1 Verification
@@ -871,6 +899,14 @@ compatibility; if CMS sends an empty list, Rust clears only active
   - `cargo check -p aeronyx-server`
   - Heartbeat reporter applies CMS `next_heartbeat_in` by rebuilding its tokio
     interval and logs `node_policy`.
+  - `cargo build -p aeronyx-server --release`
+  - `systemctl restart aeronyx-server`
+  - `systemctl is-active aeronyx-server` returns `active`.
+  - Journal shows `[NODE_POLICY] CMS operator policy updated` after restart.
+  - Focused unit tests for the new handshake policy are present, but
+    `cargo test -p aeronyx-server ...` is currently blocked by existing
+    unrelated `lib test` compile errors in supernode/memchain/session test
+    modules before the new tests can run.
 
 - nodeboard:
   - `npm run type-check`
