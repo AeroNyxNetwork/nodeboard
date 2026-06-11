@@ -61,6 +61,7 @@ import {
   VerifyAccessResponse,
   VpnOverview,
   VpnSession,
+  VpnBillingOverview,
   NodeWalletBan,
   NodeCommand,
   RunNodeCommandRequest,
@@ -83,6 +84,7 @@ export const nodeKeys = {
     ['nodes', 'sessions', id, options] as const,
   vpnOverview: () => ['nodes', 'vpn', 'overview'] as const,
   vpnSessions: (options?: UseVpnSessionsOptions) => ['nodes', 'vpn', 'sessions', options] as const,
+  vpnBilling: (options?: UseVpnBillingOptions) => ['nodes', 'vpn', 'billing', options] as const,
   walletBans: (id: string, status: 'active' | 'inactive' | 'all') =>
     ['nodes', 'wallet-bans', id, status] as const,
   commands: (id: string, options?: UseNodeCommandsOptions) =>
@@ -305,6 +307,44 @@ export function useVpnSessions(options: UseVpnSessionsOptions = {}): UseVpnSessi
 
   return {
     sessions: query.data ?? [],
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
+export interface UseVpnBillingOptions {
+  days?: number;
+  status?: 'all' | 'active' | 'completed' | 'error';
+  nodeId?: string;
+}
+
+interface UseVpnBillingResult {
+  billing: VpnBillingOverview | null;
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  refetch: () => void;
+}
+
+export function useVpnBilling(options: UseVpnBillingOptions = {}): UseVpnBillingResult {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  const query = useQuery({
+    queryKey: nodeKeys.vpnBilling(options),
+    queryFn: async () => {
+      const res = await api.getVpnBilling(options);
+      return res.data;
+    },
+    enabled: isAuthenticated,
+    staleTime: POLLING_INTERVALS.VPN_OVERVIEW,
+    refetchInterval: POLLING_INTERVALS.VPN_OVERVIEW,
+    refetchOnWindowFocus: true,
+  });
+
+  return {
+    billing: query.data ?? null,
     isLoading: query.isLoading,
     isError: query.isError,
     error: query.error,

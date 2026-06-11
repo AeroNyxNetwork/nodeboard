@@ -466,6 +466,134 @@ export interface VpnSessionListResponse {
   count: number;
 }
 
+export interface VpnBillingSummary {
+  total_nodes: number;
+  filtered_nodes: number;
+  total_sessions: number;
+  active_sessions: number;
+  completed_sessions: number;
+  error_sessions: number;
+  bytes_in: number;
+  bytes_out: number;
+  total_bytes: number;
+  traffic_in_mb: number;
+  traffic_out_mb: number;
+  total_traffic_mb: number;
+  duration_seconds: number;
+  avg_mb_per_session: number;
+}
+
+export interface VpnBillingQuota {
+  monthly: {
+    tier: string;
+    year: number;
+    month: number;
+    quota_bytes: number;
+    used_bytes: number;
+    remaining_bytes: number | null;
+    is_exceeded: boolean;
+    usage_percent: number | null;
+    is_unlimited: boolean;
+  } | null;
+  monthly_row_exists: boolean;
+  daily_vpn_usage: {
+    tier: string;
+    day: string;
+    is_unlimited: boolean;
+    quota_seconds: number;
+    used_seconds: number;
+    reserved_seconds: number;
+    has_reserved_access: boolean;
+    billable_seconds: number;
+    remaining_seconds: number | null;
+    usage_percent: number | null;
+    is_exceeded: boolean;
+    can_connect: boolean;
+    renews_at: string;
+  };
+  daily_row_exists: boolean;
+}
+
+export interface VpnBillingVoucherAccounting {
+  epoch: string;
+  issued_vouchers: number;
+  issue_events: number;
+  last_issued_at: string | null;
+  privacy_note: string;
+}
+
+export interface VpnBillingNodeRow {
+  node_id: string;
+  node_name: string;
+  region_code: string;
+  city: string;
+  node_tier: string;
+  sessions: number;
+  active_sessions: number;
+  bytes_in: number;
+  bytes_out: number;
+  total_bytes: number;
+  total_traffic_mb: number;
+  duration_seconds: number;
+  first_seen: string | null;
+  last_seen: string | null;
+}
+
+export interface VpnBillingIdentityRow {
+  client_wallet: string;
+  wallet_short: string;
+  tier: string;
+  sessions: number;
+  active_sessions: number;
+  bytes_in: number;
+  bytes_out: number;
+  total_bytes: number;
+  total_traffic_mb: number;
+  duration_seconds: number;
+  first_seen: string | null;
+  last_seen: string | null;
+}
+
+export interface VpnBillingDailyRow {
+  day: string;
+  sessions: number;
+  bytes_in: number;
+  bytes_out: number;
+  total_bytes: number;
+  total_traffic_mb: number;
+  duration_seconds: number;
+}
+
+export interface VpnBillingTierRow {
+  tier: string;
+  sessions: number;
+  share_percent: number | null;
+}
+
+export interface VpnBillingOverview {
+  filters: {
+    days: number;
+    status: string;
+    node_id: string;
+    start_at: string;
+    end_at: string;
+  };
+  summary: VpnBillingSummary;
+  quota: VpnBillingQuota;
+  voucher_accounting: VpnBillingVoucherAccounting;
+  nodes: VpnBillingNodeRow[];
+  identities: VpnBillingIdentityRow[];
+  daily: VpnBillingDailyRow[];
+  tiers: VpnBillingTierRow[];
+  known_identity_count: number;
+  generated_at: string;
+}
+
+export interface VpnBillingOverviewResponse {
+  success: boolean;
+  data: VpnBillingOverview;
+}
+
 export interface NodeWalletBan {
   id: string;
   node_id: string;

@@ -62,6 +62,7 @@ export const API_ENDPOINTS = {
   // VPN Observability (operator control plane)
   VPN_OVERVIEW: '/vpn/overview/',
   VPN_SESSIONS: '/vpn/sessions/',
+  VPN_BILLING: '/vpn/billing/',
 
   // Public Node Pool (no API Key required) [v1.4.0]
   NODES_PUBLIC_LIST: '/nodes/public/',

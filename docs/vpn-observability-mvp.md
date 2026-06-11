@@ -51,9 +51,19 @@ queries.
   - Adds Wallet Ban Policies, an active policy table backed by
     `GET /nodes/<id>/wallet_bans/`, with copy and unban controls.
 
+- `app/dashboard/billing/page.tsx`
+  - Adds Traffic & Billing with filters for days, node, and session status.
+  - Shows traffic, session, monthly quota, voucher time, voucher issue count,
+    node rows, identity rows, and daily rows.
+  - Exports the current table as CSV directly from the browser.
+
+- `components/dashboard/Sidebar.tsx`
+  - Adds the `Traffic & Billing` navigation item at `/dashboard/billing`.
+
 - `hooks/useNodes.ts`
   - Adds `useVpnOverview()` with 30 second polling.
   - Adds `useVpnSessions()` with 15 second polling.
+  - Adds `useVpnBilling()` with 30 second polling for Traffic & Billing.
   - Adds `useNodeWalletBans()` with 15 second polling for active CMS wallet ban
     policies on the node detail page.
   - Adds `useNodeCommands()` and `useRunNodeCommand()` for node-level
@@ -66,6 +76,7 @@ queries.
 - `lib/api.ts`
   - Adds `getVpnOverview()`.
   - Adds `getVpnSessions({ status, nodeId, limit })`.
+  - Adds `getVpnBilling({ days, status, nodeId })`.
   - Adds `getNodeCommands()` and `runNodeCommand()`.
 
 - `lib/constants.ts`
@@ -166,6 +177,14 @@ queries.
   - Returns only operator ban policy metadata: wallet hex, reason, source,
     command id, and timestamps. It does not expose traffic destinations,
     packet payloads, DNS queries, or browsing activity.
+
+- `/root/aeronyx/privacy_network/api/vpn_billing.py`
+  - Adds owner-scoped `GET /vpn/billing/`.
+  - Aggregates existing `ClientSession`, `UserTrafficQuota`,
+    `UserVpnDailyUsage`, and `VoucherIssueLog` rows.
+  - Preserves the blind-voucher privacy boundary: no blinded tokens, final
+    voucher tokens, signatures, destinations, DNS queries, or packet payloads
+    are returned.
 
 ### Rust VPN node
 
@@ -353,6 +372,74 @@ Response shape:
 }
 ```
 
+### `GET /api/privacy_network/vpn/billing/`
+
+Query parameters:
+
+- `days`: 1 to 90, default 30
+- `status`: `all`, `active`, `completed`, or `error`
+- `node_id`: optional node UUID
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "filters": {
+      "days": 30,
+      "status": "all",
+      "node_id": "",
+      "start_at": "2026-05-12T00:00:00Z",
+      "end_at": "2026-06-11T00:00:00Z"
+    },
+    "summary": {
+      "total_nodes": 3,
+      "filtered_nodes": 2,
+      "total_sessions": 128,
+      "active_sessions": 9,
+      "total_traffic_mb": 10240.5,
+      "duration_seconds": 86400
+    },
+    "quota": {
+      "monthly": {
+        "tier": "free",
+        "quota_bytes": 5368709120,
+        "used_bytes": 1073741824,
+        "remaining_bytes": 4294967296,
+        "usage_percent": 20.0,
+        "is_unlimited": false
+      },
+      "daily_vpn_usage": {
+        "quota_seconds": 3600,
+        "reserved_seconds": 900,
+        "billable_seconds": 900,
+        "remaining_seconds": 2700,
+        "usage_percent": 25.0
+      }
+    },
+    "voucher_accounting": {
+      "epoch": "2026-06",
+      "issued_vouchers": 12,
+      "issue_events": 12,
+      "last_issued_at": "2026-06-11T11:00:00Z",
+      "privacy_note": "blind voucher tokens and signatures are not stored"
+    },
+    "nodes": [],
+    "identities": [],
+    "daily": [],
+    "tiers": [],
+    "known_identity_count": 0,
+    "generated_at": "2026-06-11T11:30:14Z"
+  }
+}
+```
+
+`nodes[]`, `identities[]`, and `daily[]` are aggregate views over
+`ClientSession`. `voucher_accounting` is issuance-side accounting only: the
+server stores wallet, epoch, tier, and count, never blinded tokens or final
+voucher tokens.
+
 `last_rx_at`, `last_tx_at`, `packet_loss`, packet counters, replay rejection
 counters, and bytes are stored from signed Rust session reports. `rtt_ms` is
 reserved for M2 follow-up keepalive ACK telemetry and remains `null` until the
@@ -473,6 +560,12 @@ nodeboard Node Detail
   -> POST /nodes/{id}/commands/run/ action=unban_wallet
   -> backend marks NodeWalletBan inactive
   -> next heartbeat removes OperatorBan from Rust runtime DenyList
+
+nodeboard Traffic & Billing
+  -> GET /vpn/billing/?days=30&status=all
+  -> aggregate ClientSession traffic by node, identity, and day
+  -> attach owner quota, daily voucher allowance, and voucher issue counts
+  -> browser exports current table as CSV
 ```
 
 ## M1 Verification
@@ -546,6 +639,21 @@ the `OperatorBan` subset from heartbeat responses. If CMS omits the
 `operator_bans` field, Rust keeps its current runtime state for backward
 compatibility; if CMS sends an empty list, Rust clears only active
 `OperatorBan` entries.
+
+## M4 Traffic & Billing Verification
+
+- API backend:
+  - `python -m py_compile privacy_network/api/vpn_billing.py privacy_network/urls.py`
+  - `python manage.py check`
+  - Smoke test: `GET /api/privacy_network/vpn/billing/?days=30&status=all`
+    returns `summary`, `quota`, `voucher_accounting`, `nodes`, `identities`,
+    `daily`, and `tiers`.
+
+- nodeboard:
+  - `npm run type-check`
+  - `npm run build`
+  - `/dashboard/billing` is included in the build output and the sidebar links
+    to it.
 
 ## M3 Refresh Config Verification
 

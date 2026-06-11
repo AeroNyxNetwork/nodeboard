@@ -70,6 +70,7 @@ import {
   SessionListResponse,
   VpnOverviewResponse,
   VpnSessionListResponse,
+  VpnBillingOverviewResponse,
   NodeWalletBanListResponse,
   NodeCommandListResponse,
   RunNodeCommandRequest,
@@ -418,6 +419,20 @@ class ApiClient {
       ? `${API_ENDPOINTS.VPN_SESSIONS}?${qs}`
       : API_ENDPOINTS.VPN_SESSIONS;
     return this.request<VpnSessionListResponse>(endpoint, { method: 'GET' });
+  }
+
+  async getVpnBilling(
+    options?: { days?: number; status?: 'all' | 'active' | 'completed' | 'error'; nodeId?: string }
+  ): Promise<VpnBillingOverviewResponse> {
+    const params = new URLSearchParams();
+    if (options?.days) params.append('days', String(options.days));
+    if (options?.status && options.status !== 'all') params.append('status', options.status);
+    if (options?.nodeId) params.append('node_id', options.nodeId);
+    const qs = params.toString();
+    const endpoint = qs
+      ? `${API_ENDPOINTS.VPN_BILLING}?${qs}`
+      : API_ENDPOINTS.VPN_BILLING;
+    return this.request<VpnBillingOverviewResponse>(endpoint, { method: 'GET' });
   }
 
   async getNodeWalletBans(
