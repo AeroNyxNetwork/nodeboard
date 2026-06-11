@@ -66,41 +66,56 @@ import { api } from '@/lib/api';
 interface VpnServerRaw {
   id?: string;
   name?: string;
+  address?: string | null;
   ip?: string;
   host?: string;
   port?: number;
   country?: string;
   country_code?: string;
+  country_name?: string;
   city?: string;
+  available?: boolean;
   is_online?: boolean;
+  health_status?: string;
+  health_score?: number;
+  unavailable_reason?: string | null;
   status?: string;
   sessions?: number;
+  current_sessions?: number;
   total_sessions?: number;
   version?: string;
   is_verified?: boolean;
+  last_seen?: string | null;
   last_heartbeat?: string;
   created_at?: string;
 }
 
 function trustedToPublicNode(raw: VpnServerRaw, index: number): PublicNode {
+  const region = raw.country_code ?? raw.country ?? '';
+  const isOnline = raw.available ?? raw.is_online ?? (
+    raw.status === 'online' ||
+    raw.health_status === 'healthy' ||
+    raw.health_status === 'degraded'
+  );
+
   return {
     id: raw.id ?? `trusted-${index}`,
     name: raw.name ?? `Trusted Node ${index + 1}`,
     visibility: 'public',
     requires_password: false,
-    region_code: raw.country_code ?? raw.country ?? '',
-    city: raw.city ?? '',
-    effective_region: raw.country_code ?? raw.country ?? '',
-    auto_region: raw.country_code ?? '',
+    region_code: region,
+    city: raw.city ?? raw.country_name ?? '',
+    effective_region: region,
+    auto_region: region,
     is_vpn_node: true,
-    public_ip: raw.ip ?? raw.host ?? '',
+    public_ip: raw.address ?? raw.ip ?? raw.host ?? '',
     port: raw.port ?? 8001,
     version: raw.version ?? '0.0.0',
-    status: raw.is_online || raw.status === 'online' ? 'online' : 'offline',
-    current_sessions: raw.sessions ?? 0,
+    status: isOnline ? 'online' : 'offline',
+    current_sessions: raw.current_sessions ?? raw.sessions ?? 0,
     total_sessions: raw.total_sessions ?? 0,
     is_verified: raw.is_verified ?? true,
-    last_heartbeat: raw.last_heartbeat ?? new Date().toISOString(),
+    last_heartbeat: raw.last_seen ?? raw.last_heartbeat ?? new Date().toISOString(),
     created_at: raw.created_at ?? new Date().toISOString(),
   };
 }
@@ -249,7 +264,9 @@ export default function ExplorePage() {
     fetch('https://api.aeronyx.network/api/privacy_network/vpn/servers/')
       .then((r) => r.json())
       .then((data) => {
-        const raw: VpnServerRaw[] = Array.isArray(data) ? data : data.data ?? data.results ?? [];
+        const raw: VpnServerRaw[] = Array.isArray(data)
+          ? data
+          : data.servers ?? data.data ?? data.results ?? [];
         setTrustedNodes(raw.map(trustedToPublicNode));
       })
       .catch(() => setTrustedNodes([]))

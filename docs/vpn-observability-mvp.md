@@ -119,6 +119,13 @@ queries.
     across all owner nodes through the existing node update endpoint.
   - Saves through the existing owner-scoped `PATCH /nodes/<id>/` endpoint.
 
+- `app/dashboard/explore/page.tsx`
+  - Reads trusted VPN candidates from `GET /vpn/servers/`.
+  - Supports the backend `servers` response key plus legacy `data` / `results`
+    fallbacks so trusted nodes render reliably.
+  - Maps health-aware server candidates into the existing public node card
+    shape without exposing unavailable node IP addresses.
+
 - `components/dashboard/Sidebar.tsx`
   - Adds the `Traffic & Billing` navigation item at `/dashboard/billing`.
   - Adds the `Alerts / Events` navigation item at `/dashboard/events`.
@@ -349,6 +356,16 @@ queries.
   - Keeps the same privacy boundary as the other VPN APIs: no packet payloads,
     DNS contents, destination domains, destination IPs, browsing history, blind
     tokens, or final voucher tokens.
+
+- `/root/aeronyx/privacy_network/api/vpn_servers.py`
+  - Adds health-aware VPN server candidate ranking for client failover and
+    public trusted-node discovery.
+  - Returns only active public VPN nodes.
+  - Marks maintenance, full, overloaded, or stale-heartbeat nodes unavailable
+    and hides their address.
+  - Adds `health_status`, `health_score`, `capacity_remaining`,
+    `unavailable_reason`, and `failover_rank` while preserving the existing
+    `servers` response shape and adding a `data` compatibility alias.
 
 ### Rust VPN node
 
