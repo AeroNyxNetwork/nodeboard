@@ -466,7 +466,12 @@ export interface VpnSessionListResponse {
   count: number;
 }
 
-export type NodeCommandAction = 'system_info' | 'collect_logs' | 'kick_session' | string;
+export type NodeCommandAction =
+  | 'system_info'
+  | 'collect_logs'
+  | 'kick_session'
+  | 'restart_service'
+  | string;
 export type NodeCommandStatus =
   | 'pending'
   | 'sent'
@@ -512,7 +517,7 @@ export interface NodeCommandListResponse {
 }
 
 export interface RunNodeCommandRequest {
-  action: 'system_info' | 'collect_logs' | 'kick_session';
+  action: 'system_info' | 'collect_logs' | 'kick_session' | 'restart_service';
   params?: Record<string, unknown>;
   priority?: number;
 }

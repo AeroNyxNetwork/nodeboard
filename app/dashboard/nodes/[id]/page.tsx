@@ -443,7 +443,9 @@ function VpnHealthPanel({
   const runCommand = useRunNodeCommand();
   const health = overview?.nodes.find((item) => item.id === nodeId) ?? null;
   const vpnCommands = commands.filter((command) =>
-    command.action === 'system_info' || command.action === 'collect_logs'
+    command.action === 'system_info' ||
+    command.action === 'collect_logs' ||
+    command.action === 'restart_service'
   );
 
   const handleRunCommand = async (action: 'system_info' | 'collect_logs') => {
@@ -458,6 +460,28 @@ function VpnHealthPanel({
       onToast(action === 'system_info' ? 'System diagnostics queued' : 'Log collection queued');
     } catch (error) {
       onToast(error instanceof Error ? error.message : 'Failed to queue command', 'error');
+    }
+  };
+
+  const handleRestartService = async () => {
+    if (!window.confirm('Restart the VPN service on this node? Active tunnels will reconnect.')) {
+      return;
+    }
+
+    try {
+      await runCommand.mutateAsync({
+        nodeId,
+        data: {
+          action: 'restart_service',
+          params: {
+            confirm: 'restart',
+          },
+          priority: 1,
+        },
+      });
+      onToast('VPN service restart queued');
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Failed to queue restart', 'error');
     }
   };
 
@@ -543,6 +567,14 @@ function VpnHealthPanel({
             onClick={() => handleRunCommand('collect_logs')}
           >
             Collect Logs
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            disabled={runCommand.isPending}
+            onClick={handleRestartService}
+          >
+            Restart VPN
           </Button>
         </div>
       </div>
