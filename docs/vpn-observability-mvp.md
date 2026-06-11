@@ -51,6 +51,9 @@ queries.
     and tunnel counters without requiring the operator to leave the node page.
   - Shows per-node 24h availability, sample count, and last stale gap to make
     intermittent node instability visible without SSH access.
+  - Shows 24h CPU and bandwidth trends from sampled heartbeat history,
+    including average CPU, peak bandwidth, traffic delta, max sessions, and
+    invalid sample count.
   - Adds safe `System Info` and `Collect Logs` command buttons plus recent VPN
     command history.
   - Adds `Refresh Config`, which queues a bounded `refresh_config` command for
@@ -88,6 +91,8 @@ queries.
   - Adds `useVpnSessions()` with 15 second polling.
   - Adds `useVpnBilling()` with 30 second polling for Traffic & Billing.
   - Adds `useVpnEvents()` with 15 second polling for Alerts / Events.
+  - Adds `useVpnNodeMetrics()` with 30 second polling for per-node 24h
+    heartbeat metrics history on the node detail page.
   - Adds `useNodeWalletBans()` with 15 second polling for active CMS wallet ban
     policies on the node detail page.
   - Adds `useNodeCommands()` and `useRunNodeCommand()` for node-level
@@ -99,6 +104,7 @@ queries.
 
 - `lib/api.ts`
   - Adds `getVpnOverview()`.
+  - Adds `getVpnNodeMetrics(nodeId, { hours })`.
   - Adds `getVpnSessions({ status, nodeId, limit })`.
   - Adds `getVpnBilling({ days, status, nodeId })`.
   - Adds `getVpnEvents({ days, severity, type, nodeId, limit })`.
@@ -107,12 +113,15 @@ queries.
 - `lib/constants.ts`
   - Adds `VPN_OVERVIEW`, `VPN_SESSIONS`, `VPN_BILLING`, and `VPN_EVENTS` API
     endpoints.
+  - Adds `VPN_NODE_METRICS` for `GET /vpn/nodes/<id>/metrics/`.
   - Adds `NODE_COMMANDS` and `NODE_COMMAND_RUN` API endpoints.
   - Adds polling intervals for VPN overview, session, and event data.
 
 - `types/index.ts`
   - Adds `VpnOverview`, `VpnNodeHealth`, `VpnAlert`, `VpnSession`, and response
     types.
+  - Adds `VpnNodeMetrics` and `VpnNodeMetricPoint` types for sampled CPU,
+    memory, sessions, bandwidth, and heartbeat validity history.
   - Adds `VpnEvent`, `VpnEventsOverview`, and `VpnEventsResponse` types.
   - Extends `Node`, `NodeDetail`, and `NodeUpdateRequest` with commercial VPN
     operator policy fields: `node_tier`, `maintenance_mode`, `max_sessions`,
@@ -136,6 +145,10 @@ queries.
     first/last sample time, and current stale gap. It is an operational uptime
     signal only and does not inspect packet payloads, browsing destinations, or
     DNS contents.
+  - Adds `GET /vpn/nodes/<id>/metrics/` for owner-scoped per-node heartbeat
+    history. The endpoint returns sampled CPU, memory, active sessions, net
+    counter deltas, calculated bandwidth, invalid sample count, and summary
+    values for nodeboard charts.
   - Emits node health checks for heartbeat freshness, resource load, traffic
     counters, and Rust-reported VPN checks: UDP listener, TUN device, MTU
     config, IPv4 forwarding, NAT masquerade, DNS stub, DNS query, and Internet
@@ -152,6 +165,10 @@ queries.
     and replay-window rejection totals.
 
 - `/root/aeronyx/privacy_network/models.py`
+  - Extends `NodeHeartbeat` with privacy-safe extended metrics:
+    `net_rx_bytes`, `net_tx_bytes`, `memory_total_mb`, `cpu_count`, and
+    `vpn_health_status`, enabling trend charts without storing destinations,
+    DNS contents, or packet payloads.
   - Extends `ClientSession` with stored VPN quality telemetry:
     `last_rx_at`, `last_tx_at`, `rtt_ms`, `packet_loss`,
     `replay_rejections`, `too_old_rejections`, `packets_rx`, and `packets_tx`.
@@ -176,10 +193,13 @@ queries.
   - Detects Rust `runtime_id` changes in heartbeat `system_stats`.
   - On runtime change, closes stale active sessions for that node before
     storing the new heartbeat counters.
+  - Persists sampled extended heartbeat counters from Rust `system_stats` so
+    nodeboard can show historical CPU, memory, sessions, and bandwidth.
 
 - `/root/aeronyx/privacy_network/urls.py`
   - Registers `GET /api/privacy_network/vpn/overview/`.
   - Registers `GET /api/privacy_network/vpn/sessions/`.
+  - Registers `GET /api/privacy_network/vpn/nodes/<id>/metrics/`.
   - Registers `POST /api/privacy_network/nodes/<id>/commands/run/`.
 
 - `/root/aeronyx/privacy_network/api/agent.py`

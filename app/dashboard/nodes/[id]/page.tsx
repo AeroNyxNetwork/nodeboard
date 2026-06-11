@@ -55,14 +55,15 @@ import {
   useNodeStats,
   useNodeSessions,
   useVpnOverview,
+  useVpnNodeMetrics,
   useNodeWalletBans,
   useNodeCommands,
   useRunNodeCommand,
   useUpdateNode,
   useDeleteNode,
 } from '@/hooks/useNodes';
-import { NodeCommand, NodeStatus, NodeWalletBan, VpnHealthStatus, VpnNodeHealth } from '@/types';
-import { formatRelativeTime, formatDuration, copyToClipboard } from '@/lib/api';
+import { NodeCommand, NodeStatus, NodeWalletBan, VpnHealthStatus, VpnNodeHealth, VpnNodeMetrics } from '@/types';
+import { formatRelativeTime, formatDuration, formatBytes, copyToClipboard } from '@/lib/api';
 import { NODE_STATUS_CONFIG } from '@/lib/constants';
 import Card, { StatCard } from '@/components/common/Card';
 import Button, { CopyButton } from '@/components/common/Button';
@@ -437,6 +438,14 @@ function formatAvailability(value: number | null | undefined) {
   return `${value.toFixed(value >= 99.95 ? 2 : 1)}%`;
 }
 
+function formatBitsPerSecond(value: number | null | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'pending';
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)} Gbps`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)} Mbps`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)} Kbps`;
+  return `${Math.round(value)} bps`;
+}
+
 function commandStatusClass(status: string) {
   if (status === 'completed') return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25';
   if (status === 'failed' || status === 'timeout') return 'bg-red-500/15 text-red-300 border-red-500/25';
@@ -459,6 +468,145 @@ function formatPolicySource(source: string) {
   return source.replace(/_/g, ' ');
 }
 
+function TrendBars({
+  points,
+  getValue,
+  maxValue,
+  colorClass,
+  formatValue,
+}: {
+  points: VpnNodeMetrics['points'];
+  getValue: (point: VpnNodeMetrics['points'][number]) => number | null;
+  maxValue: number;
+  colorClass: string;
+  formatValue: (value: number | null) => string;
+}) {
+  const visiblePoints = points.slice(-36);
+
+  if (visiblePoints.length === 0) {
+    return <div className="h-24 rounded-lg bg-white/[0.03]" />;
+  }
+
+  return (
+    <div className="h-24 flex items-end gap-1 rounded-lg bg-white/[0.03] border border-white/5 px-2 py-2">
+      {visiblePoints.map((point) => {
+        const value = getValue(point);
+        const pct = value === null || maxValue <= 0 ? 0 : Math.max(0.04, Math.min(value / maxValue, 1));
+        return (
+          <div
+            key={`${point.timestamp}-${point.interval_seconds ?? 'sample'}`}
+            className="flex-1 min-w-[3px] rounded-t bg-white/10"
+            title={`${formatRelativeTime(point.timestamp)} · ${formatValue(value)}`}
+            style={{ height: `${pct * 100}%` }}
+          >
+            <div className={`h-full rounded-t ${value === null ? 'bg-white/10' : colorClass}`} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function NodeMetricsTrendPanel({
+  metrics,
+  isLoading,
+}: {
+  metrics: VpnNodeMetrics | null;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <div className="mt-5 border-t border-white/5 pt-4">
+        <div className="animate-pulse grid md:grid-cols-2 gap-3">
+          <div className="h-36 rounded-xl bg-white/5" />
+          <div className="h-36 rounded-xl bg-white/5" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!metrics || metrics.sample_count === 0) {
+    return (
+      <div className="mt-5 border-t border-white/5 pt-4">
+        <h4 className="text-sm font-semibold text-white">24h Metrics</h4>
+        <p className="text-sm text-gray-500 mt-2">Metrics history will appear after sampled heartbeats are stored.</p>
+      </div>
+    );
+  }
+
+  const cpuMax = 100;
+  const bandwidthMax = Math.max(...metrics.points.map((point) => point.total_bps ?? 0), 1);
+  const totalTraffic = metrics.summary.total_rx_bytes + metrics.summary.total_tx_bytes;
+
+  return (
+    <div className="mt-5 border-t border-white/5 pt-4">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div>
+          <h4 className="text-sm font-semibold text-white">24h Metrics</h4>
+          <p className="text-xs text-gray-500 mt-1">
+            {metrics.sample_count} sampled heartbeats · updated {formatRelativeTime(metrics.generated_at)}
+          </p>
+        </div>
+        <div className="text-xs text-gray-500">
+          {metrics.summary.invalid_samples} invalid samples
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+          <p className="text-xs text-gray-500">Avg CPU</p>
+          <p className="text-lg font-semibold text-white mt-1">
+            {metrics.summary.avg_cpu_usage === null ? 'pending' : `${metrics.summary.avg_cpu_usage}%`}
+          </p>
+        </div>
+        <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+          <p className="text-xs text-gray-500">Peak Bandwidth</p>
+          <p className="text-lg font-semibold text-white mt-1">
+            {formatBitsPerSecond(metrics.summary.peak_total_bps)}
+          </p>
+        </div>
+        <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+          <p className="text-xs text-gray-500">Traffic Delta</p>
+          <p className="text-lg font-semibold text-white mt-1">{formatBytes(totalTraffic, 1)}</p>
+        </div>
+        <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+          <p className="text-xs text-gray-500">Max Sessions</p>
+          <p className="text-lg font-semibold text-white mt-1">{metrics.summary.max_active_sessions}</p>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-3">
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-gray-300">CPU Load</span>
+            <span className="text-xs text-gray-500">{metrics.summary.max_cpu_usage ?? 0}% peak</span>
+          </div>
+          <TrendBars
+            points={metrics.points}
+            getValue={(point) => point.cpu_usage}
+            maxValue={cpuMax}
+            colorClass="bg-emerald-400/80"
+            formatValue={(value) => value === null ? 'pending' : `${value}%`}
+          />
+        </div>
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-gray-300">Bandwidth</span>
+            <span className="text-xs text-gray-500">{formatBitsPerSecond(metrics.summary.peak_total_bps)} peak</span>
+          </div>
+          <TrendBars
+            points={metrics.points}
+            getValue={(point) => point.total_bps}
+            maxValue={bandwidthMax}
+            colorClass="bg-cyan-400/80"
+            formatValue={formatBitsPerSecond}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function VpnHealthPanel({
   nodeId,
   isVpnNode,
@@ -470,6 +618,7 @@ function VpnHealthPanel({
 }) {
   const { overview, isLoading, isError, refetch } = useVpnOverview();
   const { commands, isLoading: commandsLoading } = useNodeCommands(nodeId, { limit: 5 });
+  const { metrics, isLoading: metricsLoading } = useVpnNodeMetrics(nodeId, { hours: 24 });
   const runCommand = useRunNodeCommand();
   const health = overview?.nodes.find((item) => item.id === nodeId) ?? null;
   const vpnCommands = commands.filter((command) =>
@@ -665,6 +814,8 @@ function VpnHealthPanel({
           <p className="text-xs text-gray-600">{health.last_seen_seconds ?? 'pending'}s age</p>
         </div>
       </div>
+
+      <NodeMetricsTrendPanel metrics={metrics} isLoading={metricsLoading} />
 
       <div className="mt-5 grid md:grid-cols-2 gap-3">
         {health.checks.map((check) => (

@@ -60,6 +60,7 @@ import {
   VerifyAccessRequest,
   VerifyAccessResponse,
   VpnOverview,
+  VpnNodeMetrics,
   VpnSession,
   VpnBillingOverview,
   VpnEventsOverview,
@@ -85,6 +86,7 @@ export const nodeKeys = {
   sessions: (id: string, options?: UseNodeSessionsOptions) =>
     ['nodes', 'sessions', id, options] as const,
   vpnOverview: () => ['nodes', 'vpn', 'overview'] as const,
+  vpnNodeMetrics: (id: string, hours: number) => ['nodes', 'vpn', 'metrics', id, hours] as const,
   vpnSessions: (options?: UseVpnSessionsOptions) => ['nodes', 'vpn', 'sessions', options] as const,
   vpnBilling: (options?: UseVpnBillingOptions) => ['nodes', 'vpn', 'billing', options] as const,
   vpnEvents: (options?: UseVpnEventsOptions) => ['nodes', 'vpn', 'events', options] as const,
@@ -272,6 +274,42 @@ export function useVpnOverview(): UseVpnOverviewResult {
 
   return {
     overview: query.data ?? null,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
+interface UseVpnNodeMetricsResult {
+  metrics: VpnNodeMetrics | null;
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  refetch: () => void;
+}
+
+export function useVpnNodeMetrics(
+  nodeId: string,
+  options: { hours?: number } = {}
+): UseVpnNodeMetricsResult {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const hours = options.hours ?? 24;
+
+  const query = useQuery({
+    queryKey: nodeKeys.vpnNodeMetrics(nodeId, hours),
+    queryFn: async () => {
+      const res = await api.getVpnNodeMetrics(nodeId, { hours });
+      return res.data;
+    },
+    enabled: isAuthenticated && !!nodeId,
+    staleTime: POLLING_INTERVALS.VPN_NODE_METRICS,
+    refetchInterval: POLLING_INTERVALS.VPN_NODE_METRICS,
+    refetchOnWindowFocus: true,
+  });
+
+  return {
+    metrics: query.data ?? null,
     isLoading: query.isLoading,
     isError: query.isError,
     error: query.error,

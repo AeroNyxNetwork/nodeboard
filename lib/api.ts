@@ -69,6 +69,7 @@ import {
   PublicNodesParams,
   SessionListResponse,
   VpnOverviewResponse,
+  VpnNodeMetricsResponse,
   VpnSessionListResponse,
   VpnBillingOverviewResponse,
   VpnEventsResponse,
@@ -406,6 +407,19 @@ class ApiClient {
       API_ENDPOINTS.VPN_OVERVIEW,
       { method: 'GET' }
     );
+  }
+
+  async getVpnNodeMetrics(
+    nodeId: string,
+    options?: { hours?: number }
+  ): Promise<VpnNodeMetricsResponse> {
+    const params = new URLSearchParams();
+    if (options?.hours) params.append('hours', String(options.hours));
+    const qs = params.toString();
+    const endpoint = qs
+      ? `${API_ENDPOINTS.VPN_NODE_METRICS(nodeId)}?${qs}`
+      : API_ENDPOINTS.VPN_NODE_METRICS(nodeId);
+    return this.request<VpnNodeMetricsResponse>(endpoint, { method: 'GET' });
   }
 
   async getVpnSessions(

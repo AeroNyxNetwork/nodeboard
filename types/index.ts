@@ -511,6 +511,54 @@ export interface VpnOverviewResponse {
   data: VpnOverview;
 }
 
+export interface VpnNodeMetricPoint {
+  timestamp: string;
+  cpu_usage: number | null;
+  memory_mb: number | null;
+  memory_total_mb: number | null;
+  cpu_count: number | null;
+  active_sessions: number;
+  net_rx_bytes: number | null;
+  net_tx_bytes: number | null;
+  rx_delta_bytes: number | null;
+  tx_delta_bytes: number | null;
+  rx_bps: number | null;
+  tx_bps: number | null;
+  total_bps: number | null;
+  interval_seconds: number | null;
+  vpn_health_status: string;
+  is_valid: boolean;
+}
+
+export interface VpnNodeMetrics {
+  node: {
+    id: string;
+    name: string;
+    public_ip: string | null;
+    region_code: string;
+  };
+  window_hours: number;
+  sample_count: number;
+  points: VpnNodeMetricPoint[];
+  summary: {
+    avg_cpu_usage: number | null;
+    max_cpu_usage: number | null;
+    avg_memory_mb: number | null;
+    max_memory_mb: number | null;
+    max_active_sessions: number;
+    total_rx_bytes: number;
+    total_tx_bytes: number;
+    peak_total_bps: number | null;
+    invalid_samples: number;
+  };
+  generated_at: string;
+}
+
+export interface VpnNodeMetricsResponse {
+  success: boolean;
+  data: VpnNodeMetrics;
+}
+
 export type SessionQualityStatus = 'healthy' | 'degraded' | 'stale' | 'error' | 'pending' | 'completed';
 
 export interface VpnSession {
