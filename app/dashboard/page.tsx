@@ -11,10 +11,11 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import { useNodes, useAggregatedStats, useDeleteNode } from '@/hooks/useNodes';
+import Link from 'next/link';
+import { useNodes, useAggregatedStats, useDeleteNode, useVpnOverview } from '@/hooks/useNodes';
 import { useAuthStore } from '@/stores/authStore';
-import { Node } from '@/types';
-import { truncateAddress } from '@/lib/api';
+import { Node, VpnHealthStatus } from '@/types';
+import { formatBytes, formatRelativeTime, truncateAddress } from '@/lib/api';
 import Card, { StatCard, EmptyState } from '@/components/common/Card';
 import Button from '@/components/common/Button';
 import NodeCard, { NodeCardSkeleton } from '@/components/dashboard/NodeCard';
@@ -113,6 +114,142 @@ function StatsGrid() {
 }
 
 // ============================================
+// VPN Operations Snapshot
+// ============================================
+
+const healthDotClass: Record<VpnHealthStatus, string> = {
+  healthy: 'bg-emerald-400',
+  degraded: 'bg-yellow-400',
+  overloaded: 'bg-orange-400',
+  offline: 'bg-red-400',
+};
+
+function formatAvailability(value: number | null | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'pending';
+  return `${value.toFixed(value >= 99.95 ? 2 : 1)}%`;
+}
+
+function VpnOperationsSnapshot() {
+  const { overview, isLoading, isError } = useVpnOverview();
+  const summary = overview?.summary;
+  const attentionNodes = (overview?.nodes ?? [])
+    .filter((node) => node.health_status !== 'healthy')
+    .sort((a, b) => a.health_score - b.health_score)
+    .slice(0, 4);
+  const totalTrafficBytes = summary
+    ? (summary.traffic_in_mb + summary.traffic_out_mb) * 1024 * 1024
+    : 0;
+
+  if (isLoading) {
+    return (
+      <div className="mb-8 grid lg:grid-cols-[1.6fr_1fr] gap-4">
+        <div className="h-48 rounded-2xl bg-white/5 animate-pulse" />
+        <div className="h-48 rounded-2xl bg-white/5 animate-pulse" />
+      </div>
+    );
+  }
+
+  if (isError || !overview) {
+    return (
+      <Card variant="outline" padding="md" className="mb-8 border-yellow-500/25">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-base font-semibold text-white">VPN Operations</h2>
+            <p className="text-sm text-yellow-300 mt-1">VPN observability data is temporarily unavailable.</p>
+          </div>
+          <Link href="/dashboard/sessions" className="text-sm text-purple-300 hover:text-purple-200">
+            Open VPN Operations
+          </Link>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="mb-8 grid lg:grid-cols-[1.6fr_1fr] gap-4">
+      <Card variant="default" padding="md">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-5">
+          <div>
+            <h2 className="text-base font-semibold text-white">VPN Operations</h2>
+            <p className="text-xs text-gray-500 mt-1">
+              Updated {formatRelativeTime(overview.generated_at)}
+            </p>
+          </div>
+          <Link href="/dashboard/sessions" className="text-sm text-purple-300 hover:text-purple-200">
+            Open Operations
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+            <p className="text-xs text-gray-500">Healthy VPN Nodes</p>
+            <p className="text-xl font-semibold text-white mt-1">
+              {summary?.healthy_nodes ?? 0}/{summary?.total_nodes ?? 0}
+            </p>
+            <p className="text-xs text-gray-600">
+              {(summary?.degraded_nodes ?? 0) + (summary?.overloaded_nodes ?? 0)} degraded
+            </p>
+          </div>
+          <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+            <p className="text-xs text-gray-500">24h Availability</p>
+            <p className="text-xl font-semibold text-white mt-1">
+              {formatAvailability(summary?.availability_24h_percent)}
+            </p>
+            <p className="text-xs text-gray-600">sampled heartbeats</p>
+          </div>
+          <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+            <p className="text-xs text-gray-500">Active Tunnels</p>
+            <p className="text-xl font-semibold text-white mt-1">{summary?.active_sessions ?? 0}</p>
+            <p className="text-xs text-gray-600">live sessions</p>
+          </div>
+          <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+            <p className="text-xs text-gray-500">VPN Traffic</p>
+            <p className="text-xl font-semibold text-white mt-1">{formatBytes(totalTrafficBytes, 1)}</p>
+            <p className="text-xs text-gray-600">{summary?.open_alerts ?? 0} open alerts</p>
+          </div>
+        </div>
+      </Card>
+
+      <Card variant="default" padding="md">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-white">Needs Attention</h2>
+          <Link href="/dashboard/events" className="text-sm text-purple-300 hover:text-purple-200">
+            Events
+          </Link>
+        </div>
+
+        {attentionNodes.length === 0 ? (
+          <p className="text-sm text-emerald-300">All VPN nodes are currently healthy.</p>
+        ) : (
+          <div className="space-y-3">
+            {attentionNodes.map((node) => (
+              <Link
+                key={node.id}
+                href={`/dashboard/nodes/${node.id}`}
+                className="block rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5 hover:bg-white/[0.05] transition-colors"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${healthDotClass[node.health_status]}`} />
+                      <span className="text-sm font-medium text-white truncate">{node.name}</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1 truncate">
+                      {node.public_ip || 'no ip'} · {node.region_code || 'no region'}
+                    </p>
+                  </div>
+                  <span className="text-xs text-gray-400">{node.health_score}/100</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ============================================
 // Dashboard Page Component
 // ============================================
 
@@ -159,6 +296,9 @@ export default function DashboardPage() {
 
       {/* Stats Grid */}
       <StatsGrid />
+
+      {/* VPN Operations Snapshot */}
+      <VpnOperationsSnapshot />
 
       {/* Nodes Section */}
       <div className="mb-6">

@@ -26,6 +26,20 @@ queries.
 
 ### nodeboard frontend
 
+- `app/dashboard/page.tsx`
+  - Adds a VPN Operations snapshot to the main dashboard entry point.
+  - Shows healthy VPN node count, 24h availability, active tunnels, VPN traffic,
+    open alert count, and the top nodes needing attention.
+  - Links directly to VPN Operations, Events, and Node Detail so operators can
+    triage without starting from SSH or a generic node card.
+
+- `app/dashboard/nodes/page.tsx`
+  - Adds a dense VPN Node Operations table above the existing node cards.
+  - Shows region, IP/port, version, health status, health score, 24h
+    availability, active sessions, CPU, memory, and last heartbeat age.
+  - Sorts unhealthy VPN nodes first so degraded/offline/overloaded nodes are
+    visible before the generic node card grid.
+
 - `app/dashboard/sessions/page.tsx`
   - Replaces the old aggregate-only Sessions page with the VPN Operations view.
   - Shows summary cards, node health table, operational alerts, and VPN session

@@ -11,10 +11,12 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import { useNodes, useDeleteNode } from '@/hooks/useNodes';
-import { Node, NodeStatus } from '@/types';
+import Link from 'next/link';
+import { useNodes, useDeleteNode, useVpnOverview } from '@/hooks/useNodes';
+import { Node, NodeStatus, VpnHealthStatus, VpnNodeHealth } from '@/types';
+import { formatRelativeTime } from '@/lib/api';
 import Button from '@/components/common/Button';
-import { EmptyState } from '@/components/common/Card';
+import Card, { EmptyState } from '@/components/common/Card';
 import NodeCard, { NodeCardSkeleton } from '@/components/dashboard/NodeCard';
 import AddNodeModal from '@/components/dashboard/AddNodeModal';
 import { ConfirmDialog } from '@/components/common/Modal';
@@ -131,11 +133,175 @@ function ActionsBar({ searchQuery, onSearchChange, onAddNode }: ActionsBarProps)
 }
 
 // ============================================
+// VPN Node Operations Table
+// ============================================
+
+const vpnHealthStyles: Record<VpnHealthStatus, { label: string; badge: string; dot: string }> = {
+  healthy: {
+    label: 'Healthy',
+    badge: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    dot: 'bg-emerald-400',
+  },
+  degraded: {
+    label: 'Degraded',
+    badge: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30',
+    dot: 'bg-yellow-400',
+  },
+  overloaded: {
+    label: 'Overloaded',
+    badge: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+    dot: 'bg-orange-400',
+  },
+  offline: {
+    label: 'Offline',
+    badge: 'bg-red-500/15 text-red-300 border-red-500/30',
+    dot: 'bg-red-400',
+  },
+};
+
+function formatAvailability(value: number | null | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'pending';
+  return `${value.toFixed(value >= 99.95 ? 2 : 1)}%`;
+}
+
+function formatMetric(value: number | null | undefined, suffix: string) {
+  return typeof value === 'number' && !Number.isNaN(value) ? `${value}${suffix}` : 'pending';
+}
+
+function formatMemory(used: number | null, total: number | null) {
+  if (used === null) return 'pending';
+  return total ? `${used}/${total} MB` : `${used} MB`;
+}
+
+function VpnHealthBadge({ status }: { status: VpnHealthStatus }) {
+  const style = vpnHealthStyles[status];
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full border text-xs font-medium ${style.badge}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+      {style.label}
+    </span>
+  );
+}
+
+function VpnNodeOperationsTable({
+  nodes,
+  isLoading,
+}: {
+  nodes: VpnNodeHealth[];
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <Card variant="default" padding="md" className="mb-6">
+        <div className="animate-pulse space-y-3">
+          <div className="h-4 w-40 rounded bg-white/10" />
+          <div className="h-32 rounded-xl bg-white/5" />
+        </div>
+      </Card>
+    );
+  }
+
+  if (nodes.length === 0) {
+    return null;
+  }
+
+  const sortedNodes = [...nodes].sort((a, b) => {
+    const order: Record<VpnHealthStatus, number> = {
+      offline: 0,
+      overloaded: 1,
+      degraded: 2,
+      healthy: 3,
+    };
+    return order[a.health_status] - order[b.health_status] || a.name.localeCompare(b.name);
+  });
+
+  return (
+    <Card variant="default" padding="none" className="mb-6">
+      <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-white">VPN Node Operations</h2>
+          <p className="text-xs text-gray-500 mt-1">Health, load, sessions, and heartbeat freshness from signed VPN telemetry</p>
+        </div>
+        <Link href="/dashboard/sessions" className="text-sm text-purple-300 hover:text-purple-200">
+          VPN Operations
+        </Link>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1060px] text-sm">
+          <thead className="text-xs uppercase text-gray-500 bg-white/[0.02]">
+            <tr>
+              <th className="text-left font-medium px-5 py-3">Node</th>
+              <th className="text-left font-medium px-4 py-3">Region</th>
+              <th className="text-left font-medium px-4 py-3">Health</th>
+              <th className="text-left font-medium px-4 py-3">Availability</th>
+              <th className="text-left font-medium px-4 py-3">Sessions</th>
+              <th className="text-left font-medium px-4 py-3">Load</th>
+              <th className="text-left font-medium px-4 py-3">Version</th>
+              <th className="text-left font-medium px-5 py-3">Last Heartbeat</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5">
+            {sortedNodes.map((node) => (
+              <tr key={node.id} className="hover:bg-white/[0.03] transition-colors">
+                <td className="px-5 py-4">
+                  <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
+                    {node.name}
+                  </Link>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {node.public_ip || 'no ip'}:{node.port}
+                  </div>
+                </td>
+                <td className="px-4 py-4 text-gray-300">
+                  {node.region_code || 'pending'}
+                  {node.city ? <div className="text-xs text-gray-500">{node.city}</div> : null}
+                </td>
+                <td className="px-4 py-4">
+                  <div className="flex flex-col gap-1.5">
+                    <VpnHealthBadge status={node.health_status} />
+                    <span className="text-xs text-gray-500">{node.health_score}/100 score</span>
+                  </div>
+                </td>
+                <td className="px-4 py-4 text-gray-300">
+                  <span className="text-white font-medium">{formatAvailability(node.availability_24h?.percent)}</span>
+                  <div className="text-xs text-gray-500">
+                    {node.availability_24h?.sample_count ?? 0} samples
+                  </div>
+                </td>
+                <td className="px-4 py-4 text-gray-300">
+                  <span className="text-white font-medium">{node.active_sessions}</span>
+                  <span className="text-gray-500"> active</span>
+                  <div className="text-xs text-gray-500">{node.total_sessions} total</div>
+                </td>
+                <td className="px-4 py-4 text-gray-300">
+                  CPU {formatMetric(node.system.cpu_usage, '%')}
+                  <div className="text-xs text-gray-500">
+                    Mem {formatMemory(node.system.memory_mb, node.system.memory_total_mb)}
+                  </div>
+                </td>
+                <td className="px-4 py-4 text-gray-400">{node.version || 'unknown'}</td>
+                <td className="px-5 py-4 text-gray-400">
+                  {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : 'never'}
+                  <div className="text-xs text-gray-600">
+                    {node.last_seen_seconds === null ? 'age pending' : `${node.last_seen_seconds}s age`}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+// ============================================
 // Nodes Page Component
 // ============================================
 
 export default function NodesPage() {
   const { nodes, isLoading } = useNodes();
+  const { overview, isLoading: vpnOverviewLoading } = useVpnOverview();
   const deleteNodeMutation = useDeleteNode();
 
   const [activeFilter, setActiveFilter] = useState<FilterOption>('all');
@@ -238,6 +404,12 @@ export default function NodesPage() {
           onAddNode={handleOpenAddModal}
         />
       </div>
+
+      {/* VPN Node Operations */}
+      <VpnNodeOperationsTable
+        nodes={overview?.nodes ?? []}
+        isLoading={vpnOverviewLoading}
+      />
 
       {/* Nodes Grid */}
       {isLoading ? (
