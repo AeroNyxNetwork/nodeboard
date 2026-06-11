@@ -144,6 +144,17 @@ queries.
   - Treats `vpn` / `node` command status reports as command-only updates, so
     VPN diagnostics do not create or mutate OpenClaw `AgentInstance` records.
 
+- `/root/aeronyx/privacy_network/models.py`
+  - Adds `NodeWalletBan`, the CMS source of truth for operator-managed wallet
+    bans per node.
+  - `ban_wallet` upserts an active policy row after queuing the Rust command;
+    `unban_wallet` marks the policy inactive with `unbanned_at`.
+
+- `/root/aeronyx/privacy_network/api/heartbeat.py`
+  - Adds `operator_bans` to heartbeat responses as the full active wallet ban
+    list for the node. Rust uses this to recover policy after restart or a
+    missed command.
+
 ### Rust VPN node
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/management/client.rs`
@@ -156,6 +167,9 @@ queries.
     traffic deltas every heartbeat period.
   - Adds quality fields to session event reports and sends
     `session_traffic_snapshot` as cumulative byte totals.
+  - Synchronizes CMS `operator_bans` into the runtime `DenyList` before the
+    legacy membership enforcement gate, so operator controls remain active
+    while voucher auth is authoritative.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/management/client.rs`
   - Adds `runtime_id` and `runtime_started_at` to signed heartbeat
@@ -176,6 +190,8 @@ queries.
   - Maintains the in-memory wallet deny list checked by VPN handshake.
   - Adds `OperatorBan`, a permanent operator-controlled reason that is not
     auto-cleared by membership or quota heartbeat updates.
+  - Exposes reason-scoped listing so heartbeat sync only reconciles
+    `OperatorBan` entries and leaves membership/quota entries alone.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/server.rs`
   - Converts session stats snapshots into privacy-minimal quality telemetry for
@@ -332,10 +348,11 @@ Allowed actions:
   still active.
 - `ban_wallet`: operator ban for the wallet attached to an active VPN session.
   The backend derives `wallet_hex` from the selected session, and Rust enforces
-  it through the handshake `DenyList`.
+  it through the handshake `DenyList`. The backend also persists the active
+  policy in `NodeWalletBan` for heartbeat recovery.
 - `unban_wallet`: removes a wallet from the Rust node runtime deny list after
   the backend verifies that the wallet has session history on the requested
-  node.
+  node, and marks the CMS policy inactive.
 - `restart_service`: restarts the VPN node service. The backend requires
   `confirm="restart"` and strips caller-provided service names; the Rust node
   only restarts `aeronyx-server`.
@@ -451,11 +468,13 @@ nodeboard VPN Sessions
 ## M4 Wallet Ban Verification
 
 - API backend:
-  - `python -m py_compile privacy_network/models.py privacy_network/api/agent.py`
+  - `python -m py_compile privacy_network/models.py privacy_network/api/agent.py privacy_network/api/heartbeat.py`
+  - `python manage.py migrate privacy_network`
   - `python manage.py check`
   - Smoke test: `ban_wallet` refuses missing/inactive/cross-node sessions and
     queues only sanitized wallet params derived from a target-node active
-    session.
+    session. It also creates an active `NodeWalletBan`; `unban_wallet` marks it
+    inactive.
 
 - Rust VPN node:
   - `cargo check -p aeronyx-server`
@@ -467,9 +486,12 @@ nodeboard VPN Sessions
   - `npm run type-check`
   - `npm run build`
 
-Current persistence boundary: `OperatorBan` lives in the Rust node runtime deny
-list. A future M4 policy model should persist operator bans in the CMS and
-repopulate the deny list via heartbeat/config refresh after node restart.
+Operator ban persistence boundary: CMS `NodeWalletBan` is the source of truth.
+Rust keeps an in-memory `DenyList` for fast handshake rejection and reconciles
+the `OperatorBan` subset from heartbeat responses. If CMS omits the
+`operator_bans` field, Rust keeps its current runtime state for backward
+compatibility; if CMS sends an empty list, Rust clears only active
+`OperatorBan` entries.
 
 ## M3 Refresh Config Verification
 
