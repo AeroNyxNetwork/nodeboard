@@ -55,10 +55,12 @@ import {
   useNodeStats,
   useNodeSessions,
   useVpnOverview,
+  useNodeCommands,
+  useRunNodeCommand,
   useUpdateNode,
   useDeleteNode,
 } from '@/hooks/useNodes';
-import { NodeStatus, VpnHealthStatus, VpnNodeHealth } from '@/types';
+import { NodeCommand, NodeStatus, VpnHealthStatus, VpnNodeHealth } from '@/types';
 import { formatRelativeTime, formatDuration, copyToClipboard } from '@/lib/api';
 import { NODE_STATUS_CONFIG } from '@/lib/constants';
 import Card, { StatCard } from '@/components/common/Card';
@@ -411,9 +413,53 @@ function formatMemoryUsage(health: VpnNodeHealth) {
   return total ? `${used} / ${total} MB` : `${used} MB`;
 }
 
-function VpnHealthPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNode: boolean }) {
+function commandStatusClass(status: string) {
+  if (status === 'completed') return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25';
+  if (status === 'failed' || status === 'timeout') return 'bg-red-500/15 text-red-300 border-red-500/25';
+  if (status === 'pending' || status === 'sent' || status === 'executing') {
+    return 'bg-yellow-500/15 text-yellow-300 border-yellow-500/25';
+  }
+  return 'bg-white/5 text-gray-300 border-white/10';
+}
+
+function commandMessage(command: NodeCommand) {
+  const message = command.result?.message;
+  if (typeof message === 'string' && message.trim()) return message;
+  if (command.error_message) return command.error_message;
+  return 'Waiting for the node heartbeat to pick up this command.';
+}
+
+function VpnHealthPanel({
+  nodeId,
+  isVpnNode,
+  onToast,
+}: {
+  nodeId: string;
+  isVpnNode: boolean;
+  onToast: (message: string, variant?: 'success' | 'error') => void;
+}) {
   const { overview, isLoading, isError, refetch } = useVpnOverview();
+  const { commands, isLoading: commandsLoading } = useNodeCommands(nodeId, { limit: 5 });
+  const runCommand = useRunNodeCommand();
   const health = overview?.nodes.find((item) => item.id === nodeId) ?? null;
+  const vpnCommands = commands.filter((command) =>
+    command.action === 'system_info' || command.action === 'collect_logs'
+  );
+
+  const handleRunCommand = async (action: 'system_info' | 'collect_logs') => {
+    try {
+      await runCommand.mutateAsync({
+        nodeId,
+        data: {
+          action,
+          priority: action === 'system_info' ? 5 : 10,
+        },
+      });
+      onToast(action === 'system_info' ? 'System diagnostics queued' : 'Log collection queued');
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Failed to queue command', 'error');
+    }
+  };
 
   if (!isVpnNode) {
     return (
@@ -478,9 +524,27 @@ function VpnHealthPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNode: bool
             Live tunnel diagnostics from {health.system.source === 'cache' ? 'heartbeat cache' : 'sample fallback'}.
           </p>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => refetch()}>
-          Refresh
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            Refresh
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={runCommand.isPending}
+            onClick={() => handleRunCommand('system_info')}
+          >
+            System Info
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={runCommand.isPending}
+            onClick={() => handleRunCommand('collect_logs')}
+          >
+            Collect Logs
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
@@ -537,6 +601,39 @@ function VpnHealthPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNode: bool
           </p>
         </div>
       )}
+
+      <div className="mt-5 border-t border-white/5 pt-4">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h4 className="text-sm font-semibold text-white">Recent VPN Commands</h4>
+          {commandsLoading && <span className="text-xs text-gray-500">loading</span>}
+        </div>
+        {vpnCommands.length === 0 ? (
+          <p className="text-sm text-gray-500">No VPN diagnostic commands have been queued yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {vpnCommands.map((command) => (
+              <div key={command.id} className="rounded-xl bg-white/[0.03] border border-white/5 p-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white">
+                      {command.action === 'system_info' ? 'System diagnostics' : 'Recent service logs'}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Queued {formatRelativeTime(command.created_at)}
+                    </p>
+                  </div>
+                  <span className={`inline-flex self-start px-2 py-1 rounded-full border text-xs ${commandStatusClass(command.status)}`}>
+                    {command.status_display || command.status}
+                  </span>
+                </div>
+                <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words text-xs text-gray-400 font-mono">
+                  {commandMessage(command)}
+                </pre>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </Card>
   );
 }
@@ -732,7 +829,7 @@ export default function NodeDetailPage() {
       />
 
       {/* 4. VPN Health Panel */}
-      <VpnHealthPanel nodeId={nodeId} isVpnNode={node.is_vpn_node} />
+      <VpnHealthPanel nodeId={nodeId} isVpnNode={node.is_vpn_node} onToast={showToast} />
 
       {/* 5. AI Memory Entry Card (online only) */}
       {node.status === 'online' && (

@@ -70,6 +70,9 @@ import {
   SessionListResponse,
   VpnOverviewResponse,
   VpnSessionListResponse,
+  NodeCommandListResponse,
+  RunNodeCommandRequest,
+  RunNodeCommandResponse,
   SuccessResponse,
   NodeStatus,
 } from '@/types';
@@ -414,6 +417,32 @@ class ApiClient {
       ? `${API_ENDPOINTS.VPN_SESSIONS}?${qs}`
       : API_ENDPOINTS.VPN_SESSIONS;
     return this.request<VpnSessionListResponse>(endpoint, { method: 'GET' });
+  }
+
+  async getNodeCommands(
+    nodeId: string,
+    options?: { status?: string; action?: string; limit?: number; offset?: number }
+  ): Promise<NodeCommandListResponse> {
+    const params = new URLSearchParams();
+    if (options?.status) params.append('status', options.status);
+    if (options?.action) params.append('action', options.action);
+    if (options?.limit) params.append('limit', String(options.limit));
+    if (options?.offset) params.append('offset', String(options.offset));
+    const qs = params.toString();
+    const endpoint = qs
+      ? `${API_ENDPOINTS.NODE_COMMANDS(nodeId)}?${qs}`
+      : API_ENDPOINTS.NODE_COMMANDS(nodeId);
+    return this.request<NodeCommandListResponse>(endpoint, { method: 'GET' });
+  }
+
+  async runNodeCommand(
+    nodeId: string,
+    data: RunNodeCommandRequest
+  ): Promise<RunNodeCommandResponse> {
+    return this.request<RunNodeCommandResponse>(API_ENDPOINTS.NODE_COMMAND_RUN(nodeId), {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   }
 
   // ============================================

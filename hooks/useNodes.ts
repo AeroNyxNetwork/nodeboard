@@ -61,6 +61,9 @@ import {
   VerifyAccessResponse,
   VpnOverview,
   VpnSession,
+  NodeCommand,
+  RunNodeCommandRequest,
+  RunNodeCommandResponse,
 } from '@/types';
 import { POLLING_INTERVALS, STALE_TIMES } from '@/lib/constants';
 
@@ -79,6 +82,8 @@ export const nodeKeys = {
     ['nodes', 'sessions', id, options] as const,
   vpnOverview: () => ['nodes', 'vpn', 'overview'] as const,
   vpnSessions: (options?: UseVpnSessionsOptions) => ['nodes', 'vpn', 'sessions', options] as const,
+  commands: (id: string, options?: UseNodeCommandsOptions) =>
+    ['nodes', 'commands', id, options] as const,
   // Public pool
   publicList: (params: PublicNodesParams) => ['nodes', 'public', 'list', params] as const,
   publicDetail: (id: string) => ['nodes', 'public', 'detail', id] as const,
@@ -304,6 +309,48 @@ export function useVpnSessions(options: UseVpnSessionsOptions = {}): UseVpnSessi
   };
 }
 
+export interface UseNodeCommandsOptions {
+  status?: string;
+  action?: string;
+  limit?: number;
+  offset?: number;
+}
+
+interface UseNodeCommandsResult {
+  commands: NodeCommand[];
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  refetch: () => void;
+}
+
+export function useNodeCommands(
+  nodeId: string,
+  options: UseNodeCommandsOptions = {}
+): UseNodeCommandsResult {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  const query = useQuery({
+    queryKey: nodeKeys.commands(nodeId, options),
+    queryFn: async () => {
+      const res = await api.getNodeCommands(nodeId, options);
+      return res.data;
+    },
+    enabled: isAuthenticated && !!nodeId,
+    staleTime: POLLING_INTERVALS.VPN_SESSIONS,
+    refetchInterval: POLLING_INTERVALS.VPN_SESSIONS,
+    refetchOnWindowFocus: true,
+  });
+
+  return {
+    commands: query.data ?? [],
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
 // ============================================
 // Public Node Pool Hooks (no auth required) [v1.2.0]
 // ============================================
@@ -452,6 +499,28 @@ export function useDeleteNode() {
       queryClient.removeQueries({ queryKey: nodeKeys.detail(nodeId) });
       queryClient.invalidateQueries({
         queryKey: nodeKeys.list(),
+        refetchType: 'all',
+      });
+    },
+  });
+}
+
+export function useRunNodeCommand() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    RunNodeCommandResponse,
+    Error,
+    { nodeId: string; data: RunNodeCommandRequest }
+  >({
+    mutationFn: ({ nodeId, data }) => api.runNodeCommand(nodeId, data),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: nodeKeys.commands(variables.nodeId),
+        refetchType: 'all',
+      });
+      queryClient.invalidateQueries({
+        queryKey: nodeKeys.vpnOverview(),
         refetchType: 'all',
       });
     },

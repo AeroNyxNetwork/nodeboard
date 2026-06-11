@@ -4,6 +4,12 @@ This document records the first commercial VPN operations milestone: node
 operators can inspect VPN node health and active tunnel impact from nodeboard
 without SSH access.
 
+M3 starts a narrow, non-destructive operations path: nodeboard can enqueue VPN
+diagnostic commands and read their command history. Destructive actions such as
+service restart, session kick, config mutation, tier switching, and rate-limit
+changes remain intentionally closed until confirmation, audit, and permission
+rules are added.
+
 ## Goal
 
 Give operators answers to three production questions:
@@ -30,23 +36,31 @@ queries.
   - Adds a per-node VPN Health panel to the node detail page.
   - Shows the same live heartbeat source, health score, checks, CPU, memory,
     and tunnel counters without requiring the operator to leave the node page.
+  - Adds safe `System Info` and `Collect Logs` command buttons plus recent VPN
+    command history.
 
 - `hooks/useNodes.ts`
   - Adds `useVpnOverview()` with 30 second polling.
   - Adds `useVpnSessions()` with 15 second polling.
+  - Adds `useNodeCommands()` and `useRunNodeCommand()` for node-level
+    operations history and enqueue mutations.
   - Keeps authentication gating consistent with existing owner-only hooks.
 
 - `lib/api.ts`
   - Adds `getVpnOverview()`.
   - Adds `getVpnSessions({ status, nodeId, limit })`.
+  - Adds `getNodeCommands()` and `runNodeCommand()`.
 
 - `lib/constants.ts`
   - Adds `VPN_OVERVIEW` and `VPN_SESSIONS` API endpoints.
+  - Adds `NODE_COMMANDS` and `NODE_COMMAND_RUN` API endpoints.
   - Adds polling intervals for VPN overview and session data.
 
 - `types/index.ts`
   - Adds `VpnOverview`, `VpnNodeHealth`, `VpnAlert`, `VpnSession`, and response
     types.
+  - Adds `NodeCommand`, `NodeCommandListResponse`, and
+    `RunNodeCommandResponse` types.
 
 ### API backend
 
@@ -67,6 +81,14 @@ queries.
 - `/root/aeronyx/privacy_network/urls.py`
   - Registers `GET /api/privacy_network/vpn/overview/`.
   - Registers `GET /api/privacy_network/vpn/sessions/`.
+  - Registers `POST /api/privacy_network/nodes/<id>/commands/run/`.
+
+- `/root/aeronyx/privacy_network/api/agent.py`
+  - Adds `RunNodeCommandView` for owner-authenticated non-destructive
+    operations commands.
+  - Currently allows only `system_info` and `collect_logs`.
+  - Increases command status message size so short diagnostic summaries can be
+    stored in `NodeCommand.result`.
 
 ### Rust VPN node
 
@@ -86,6 +108,12 @@ queries.
 - `/root/a/AeroNyx/crates/aeronyx-server/src/services/session.rs`
   - Existing session manager tracks active VPN sessions, wallet/device indexes,
     and session cleanup.
+
+- `/root/a/AeroNyx/crates/aeronyx-server/src/management/command_handler.rs`
+  - Adds `system_info` and `collect_logs` command handlers.
+  - Uses fixed read-only commands with timeout, truncation, and simple
+    sensitive-line redaction.
+  - Reports lifecycle through the existing signed command status endpoint.
 
 ## API Contract
 
@@ -173,6 +201,45 @@ Response shape:
 }
 ```
 
+### `POST /api/privacy_network/nodes/{id}/commands/run/`
+
+Authenticated with the existing nodeboard API key and node ownership check.
+
+Allowed request body:
+
+```json
+{
+  "action": "system_info",
+  "params": {},
+  "priority": 5
+}
+```
+
+Allowed actions:
+
+- `system_info`: collects uptime, kernel, service status, TUN device state,
+  UDP listeners, and IPv4 forwarding state.
+- `collect_logs`: collects a short redacted `journalctl` tail for the VPN
+  service.
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "command": {
+      "id": "command-uuid",
+      "action": "system_info",
+      "params": {},
+      "priority": 5,
+      "issued_at": "2026-06-11T11:30:14Z"
+    }
+  },
+  "message": "System info collection queued for US VPN 1"
+}
+```
+
 ## Data Flow
 
 ```text
@@ -187,6 +254,14 @@ Rust VPN node
   -> existing ClientSession rows
   -> VPN session API
   -> nodeboard VPN Sessions table
+
+nodeboard Node Detail
+  -> POST /nodes/{id}/commands/run/
+  -> CommandService Redis + DB queue
+  -> Rust heartbeat command dispatch
+  -> CommandHandler executes read-only diagnostic
+  -> signed POST /node/agent/status/
+  -> NodeCommand history visible in nodeboard
 ```
 
 ## M1 Verification
@@ -195,6 +270,19 @@ Rust VPN node
   - `python manage.py check`
   - `GET /api/privacy_network/vpn/overview/` returns `200`
   - `GET /api/privacy_network/vpn/sessions/?limit=1` returns `200`
+
+- nodeboard:
+  - `npm run type-check`
+  - `npm run build`
+
+## M3 Verification
+
+- API backend:
+  - `python -m py_compile privacy_network/api/agent.py privacy_network/urls.py`
+  - `python manage.py check`
+
+- Rust VPN node:
+  - `cargo check -p aeronyx-server`
 
 - nodeboard:
   - `npm run type-check`

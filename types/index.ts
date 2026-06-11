@@ -464,6 +464,71 @@ export interface VpnSessionListResponse {
   count: number;
 }
 
+export type NodeCommandAction = 'system_info' | 'collect_logs' | string;
+export type NodeCommandStatus =
+  | 'pending'
+  | 'sent'
+  | 'executing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'timeout'
+  | string;
+
+export interface NodeCommand {
+  id: string;
+  action: NodeCommandAction;
+  action_display: string;
+  params: Record<string, unknown>;
+  status: NodeCommandStatus;
+  status_display: string;
+  priority: number;
+  result: Record<string, unknown>;
+  error_message: string;
+  retry_count: number;
+  created_at: string;
+  sent_at: string | null;
+  completed_at: string | null;
+}
+
+export interface NodeCommandStats {
+  total: number;
+  pending: number;
+  sent: number;
+  executing: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+  timeout: number;
+  [key: string]: number;
+}
+
+export interface NodeCommandListResponse {
+  success: boolean;
+  data: NodeCommand[];
+  stats: NodeCommandStats;
+}
+
+export interface RunNodeCommandRequest {
+  action: 'system_info' | 'collect_logs';
+  params?: Record<string, unknown>;
+  priority?: number;
+}
+
+export interface RunNodeCommandResponse {
+  success: boolean;
+  data: {
+    command: {
+      id: string;
+      action: string;
+      params: Record<string, unknown>;
+      priority: number;
+      issued_at: string;
+    };
+  };
+  message: string;
+}
+
 // ============================================
 // API Response Types
 // ============================================
