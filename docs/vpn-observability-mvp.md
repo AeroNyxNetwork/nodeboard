@@ -100,6 +100,11 @@ queries.
   - Adds Settings as the node operator policy center.
   - Lets operators select a node and edit node tier, maintenance mode, maximum
     sessions, bandwidth cap, and heartbeat interval.
+  - Adds Fleet Presets for common commercial operating modes:
+    `Public Standard`, `Premium Capacity`, `Maintenance Drain`, and
+    `Limited Recovery`.
+  - Presets can be loaded into the selected node form or confirmed and applied
+    across all owner nodes through the existing node update endpoint.
   - Saves through the existing owner-scoped `PATCH /nodes/<id>/` endpoint.
 
 - `components/dashboard/Sidebar.tsx`

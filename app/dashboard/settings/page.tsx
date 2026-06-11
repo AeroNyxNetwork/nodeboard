@@ -26,6 +26,63 @@ const DEFAULT_POLICY = {
 };
 
 type PolicyForm = typeof DEFAULT_POLICY;
+type PolicyPreset = {
+  id: string;
+  name: string;
+  description: string;
+  policy: PolicyForm;
+};
+
+const POLICY_PRESETS: PolicyPreset[] = [
+  {
+    id: 'public-standard',
+    name: 'Public Standard',
+    description: 'Open capacity pool with normal heartbeat and no hard session cap.',
+    policy: {
+      node_tier: 'public',
+      maintenance_mode: false,
+      max_sessions: 0,
+      bandwidth_limit_mbps: 0,
+      heartbeat_interval_seconds: 30,
+    },
+  },
+  {
+    id: 'premium-capacity',
+    name: 'Premium Capacity',
+    description: 'Premium routing pool with faster policy refresh for paid traffic.',
+    policy: {
+      node_tier: 'premium',
+      maintenance_mode: false,
+      max_sessions: 0,
+      bandwidth_limit_mbps: 0,
+      heartbeat_interval_seconds: 20,
+    },
+  },
+  {
+    id: 'maintenance-drain',
+    name: 'Maintenance Drain',
+    description: 'Stop new handshakes and keep telemetry fast while draining sessions.',
+    policy: {
+      node_tier: 'public',
+      maintenance_mode: true,
+      max_sessions: 0,
+      bandwidth_limit_mbps: 10,
+      heartbeat_interval_seconds: 15,
+    },
+  },
+  {
+    id: 'limited-recovery',
+    name: 'Limited Recovery',
+    description: 'Bring unstable nodes back gently with bounded sessions and bandwidth.',
+    policy: {
+      node_tier: 'public',
+      maintenance_mode: false,
+      max_sessions: 50,
+      bandwidth_limit_mbps: 100,
+      heartbeat_interval_seconds: 15,
+    },
+  },
+];
 
 function clampNumber(value: number, min: number, max: number) {
   if (Number.isNaN(value)) return min;
@@ -257,6 +314,64 @@ function PolicyEditor({
   );
 }
 
+function FleetPresets({
+  selectedNodeName,
+  nodeCount,
+  onUsePreset,
+  onApplyFleet,
+  savingPresetId,
+}: {
+  selectedNodeName: string;
+  nodeCount: number;
+  onUsePreset: (preset: PolicyPreset) => void;
+  onApplyFleet: (preset: PolicyPreset) => void;
+  savingPresetId: string;
+}) {
+  return (
+    <Card variant="default" padding="none">
+      <div className="px-5 py-4 border-b border-white/5">
+        <h2 className="text-base font-semibold text-white">Fleet Presets</h2>
+      </div>
+      <div className="grid lg:grid-cols-2 gap-4 p-5">
+        {POLICY_PRESETS.map((preset) => (
+          <div key={preset.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-medium text-white">{preset.name}</h3>
+                <p className="text-xs text-gray-500 mt-1">{preset.description}</p>
+              </div>
+              {preset.policy.maintenance_mode && (
+                <span className="px-2 py-1 rounded-full bg-yellow-500/15 text-yellow-300 border border-yellow-500/30 text-xs">
+                  maintenance
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2 mt-4 text-xs text-gray-400">
+              <span>tier {preset.policy.node_tier}</span>
+              <span>{preset.policy.heartbeat_interval_seconds}s heartbeat</span>
+              <span>{preset.policy.max_sessions || 'unlimited'} sessions</span>
+              <span>{preset.policy.bandwidth_limit_mbps || 'unlimited'} Mbps</span>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 mt-4">
+              <Button variant="secondary" onClick={() => onUsePreset(preset)}>
+                Use on {selectedNodeName}
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => onApplyFleet(preset)}
+                disabled={Boolean(savingPresetId)}
+                isLoading={savingPresetId === preset.id}
+              >
+                Apply to {nodeCount}
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const { nodes, isLoading, isError, error, refetch } = useNodes();
   const updateNode = useUpdateNode();
@@ -267,6 +382,7 @@ export default function SettingsPage() {
   );
   const [form, setForm] = useState<PolicyForm>(DEFAULT_POLICY);
   const [message, setMessage] = useState('');
+  const [savingPresetId, setSavingPresetId] = useState('');
 
   useEffect(() => {
     if (!selectedId && nodes[0]) setSelectedId(nodes[0].id);
@@ -293,6 +409,34 @@ export default function SettingsPage() {
       refetch();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to save policy.');
+    }
+  };
+
+  const usePreset = (preset: PolicyPreset) => {
+    setForm(preset.policy);
+    setMessage(`${preset.name} loaded for ${selectedNode?.name || 'selected node'}.`);
+  };
+
+  const applyFleetPreset = async (preset: PolicyPreset) => {
+    if (!nodes.length) return;
+    const confirmed = window.confirm(
+      `Apply "${preset.name}" to all ${nodes.length} nodes?`
+    );
+    if (!confirmed) return;
+
+    setSavingPresetId(preset.id);
+    setMessage('');
+    try {
+      for (const node of nodes) {
+        await updateNode.mutateAsync({ nodeId: node.id, data: preset.policy });
+      }
+      if (selectedNode) setForm(preset.policy);
+      setMessage(`${preset.name} applied to ${nodes.length} nodes.`);
+      refetch();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Failed to apply fleet preset.');
+    } finally {
+      setSavingPresetId('');
     }
   };
 
@@ -342,6 +486,14 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      <FleetPresets
+        selectedNodeName={selectedNode.name}
+        nodeCount={nodes.length}
+        onUsePreset={usePreset}
+        onApplyFleet={applyFleetPreset}
+        savingPresetId={savingPresetId}
+      />
 
       <div className="grid xl:grid-cols-[360px_1fr] gap-6 items-start">
         <NodeList nodes={nodes} selectedId={selectedNode.id} onSelect={setSelectedId} />
