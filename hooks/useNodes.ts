@@ -359,6 +359,7 @@ export interface UseVpnBillingOptions {
   days?: number;
   status?: 'all' | 'active' | 'completed' | 'error';
   nodeId?: string;
+  q?: string;
 }
 
 interface UseVpnBillingResult {

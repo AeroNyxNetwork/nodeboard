@@ -79,9 +79,13 @@ queries.
 
 - `app/dashboard/billing/page.tsx`
   - Adds Traffic & Billing with filters for days, node, and session status.
+  - Adds wallet/session search backed by the billing API `q` parameter.
   - Shows traffic, session, monthly quota, voucher time, voucher issue count,
-    node rows, identity rows, and daily rows.
+    node rows, identity rows, session rows, and daily rows.
   - Exports the current table as CSV directly from the browser.
+  - Keeps the privacy boundary visible in the UI. Voucher attribution is
+    represented by a reserved `voucher_id` field until voucher IDs are stored
+    separately from blind voucher secrets.
 
 - `app/dashboard/events/page.tsx`
   - Adds Alerts / Events with filters for days, severity, type, and node.
@@ -120,7 +124,7 @@ queries.
   - Adds `getVpnOverview()`.
   - Adds `getVpnNodeMetrics(nodeId, { hours })`.
   - Adds `getVpnSessions({ status, nodeId, limit })`.
-  - Adds `getVpnBilling({ days, status, nodeId })`.
+  - Adds `getVpnBilling({ days, status, nodeId, q })`.
   - Adds `getVpnEvents({ days, severity, type, nodeId, limit })`.
   - Adds `getNodeCommands()` and `runNodeCommand()`.
 
@@ -274,6 +278,9 @@ queries.
   - Adds owner-scoped `GET /vpn/billing/`.
   - Aggregates existing `ClientSession`, `UserTrafficQuota`,
     `UserVpnDailyUsage`, and `VoucherIssueLog` rows.
+  - Supports `q` search over `client_wallet` and `session_id` only.
+  - Returns `sessions` rows with operational counters and a reserved
+    `voucher_id` placeholder. It does not expose or derive voucher secrets.
   - Preserves the blind-voucher privacy boundary: no blinded tokens, final
     voucher tokens, signatures, destinations, DNS queries, or packet payloads
     are returned.
@@ -615,6 +622,8 @@ Query parameters:
 - `days`: 1 to 90, default 30
 - `status`: `all`, `active`, `completed`, or `error`
 - `node_id`: optional node UUID
+- `q`: optional wallet/session search string. Matches `client_wallet` and
+  `session_id` only.
 
 Response shape:
 
@@ -866,8 +875,8 @@ nodeboard Node Detail
   -> next heartbeat removes OperatorBan from Rust runtime DenyList
 
 nodeboard Traffic & Billing
-  -> GET /vpn/billing/?days=30&status=all
-  -> aggregate ClientSession traffic by node, identity, and day
+  -> GET /vpn/billing/?days=30&status=all&q=<wallet-or-session>
+  -> aggregate ClientSession traffic by node, identity, session, and day
   -> attach owner quota, daily voucher allowance, and voucher issue counts
   -> browser exports current table as CSV
 
@@ -964,7 +973,10 @@ compatibility; if CMS sends an empty list, Rust clears only active
   - `python manage.py check`
   - Smoke test: `GET /api/privacy_network/vpn/billing/?days=30&status=all`
     returns `summary`, `quota`, `voucher_accounting`, `nodes`, `identities`,
-    `daily`, and `tiers`.
+    `sessions`, `daily`, and `tiers`.
+  - Smoke test: `GET /api/privacy_network/vpn/billing/?q=<session-or-wallet>`
+    filters by `client_wallet` or `session_id` and still returns no destination
+    IPs, DNS contents, packet payloads, blind voucher tokens, or signatures.
 
 - nodeboard:
   - `npm run type-check`

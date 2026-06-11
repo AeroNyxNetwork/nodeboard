@@ -610,6 +610,7 @@ export interface VpnBillingSummary {
   total_traffic_mb: number;
   duration_seconds: number;
   avg_mb_per_session: number;
+  matched_session_count: number;
 }
 
 export interface VpnBillingQuota {
@@ -693,6 +694,29 @@ export interface VpnBillingDailyRow {
   duration_seconds: number;
 }
 
+export interface VpnBillingSessionRow {
+  session_id: string;
+  voucher_id: string;
+  client_wallet: string;
+  wallet_short: string;
+  node_id: string;
+  node_name: string;
+  status: SessionStatus;
+  bytes_in: number;
+  bytes_out: number;
+  total_bytes: number;
+  total_traffic_mb: number;
+  duration_seconds: number;
+  started_at: string;
+  ended_at: string | null;
+  updated_at: string;
+  last_rx_at: string | null;
+  last_tx_at: string | null;
+  rtt_ms: number | null;
+  packet_loss: number | null;
+  last_error: string;
+}
+
 export interface VpnBillingTierRow {
   tier: string;
   sessions: number;
@@ -704,6 +728,7 @@ export interface VpnBillingOverview {
     days: number;
     status: string;
     node_id: string;
+    q: string;
     start_at: string;
     end_at: string;
   };
@@ -713,8 +738,10 @@ export interface VpnBillingOverview {
   nodes: VpnBillingNodeRow[];
   identities: VpnBillingIdentityRow[];
   daily: VpnBillingDailyRow[];
+  sessions: VpnBillingSessionRow[];
   tiers: VpnBillingTierRow[];
   known_identity_count: number;
+  privacy_note: string;
   generated_at: string;
 }
 

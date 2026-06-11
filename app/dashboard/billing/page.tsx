@@ -12,12 +12,12 @@
 
 import React, { useMemo, useState } from 'react';
 import { useNodes, useVpnBilling, UseVpnBillingOptions } from '@/hooks/useNodes';
-import { VpnBillingDailyRow, VpnBillingIdentityRow, VpnBillingNodeRow } from '@/types';
+import { VpnBillingDailyRow, VpnBillingIdentityRow, VpnBillingNodeRow, VpnBillingSessionRow } from '@/types';
 import { formatDuration, formatRelativeTime } from '@/lib/api';
 import Card from '@/components/common/Card';
 import Button from '@/components/common/Button';
 
-type BillingTab = 'nodes' | 'identities' | 'daily';
+type BillingTab = 'nodes' | 'identities' | 'sessions' | 'daily';
 
 const STATUS_OPTIONS: Array<NonNullable<UseVpnBillingOptions['status']>> = [
   'all',
@@ -107,9 +107,11 @@ function QueryBar({
   days,
   status,
   nodeId,
+  query,
   onDays,
   onStatus,
   onNode,
+  onQuery,
   nodes,
   onRefresh,
   onExport,
@@ -117,16 +119,18 @@ function QueryBar({
   days: number;
   status: NonNullable<UseVpnBillingOptions['status']>;
   nodeId: string;
+  query: string;
   onDays: (value: number) => void;
   onStatus: (value: NonNullable<UseVpnBillingOptions['status']>) => void;
   onNode: (value: string) => void;
+  onQuery: (value: string) => void;
   nodes: { id: string; name: string }[];
   onRefresh: () => void;
   onExport: () => void;
 }) {
   return (
     <Card variant="default" padding="md">
-      <div className="grid md:grid-cols-[120px_150px_1fr_auto_auto] gap-3 items-end">
+      <div className="grid md:grid-cols-[120px_150px_1fr_1.2fr_auto_auto] gap-3 items-end">
         <label className="block">
           <span className="text-xs text-gray-500">Days</span>
           <select
@@ -169,6 +173,16 @@ function QueryBar({
               </option>
             ))}
           </select>
+        </label>
+        <label className="block">
+          <span className="text-xs text-gray-500">Wallet / Session</span>
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => onQuery(event.target.value)}
+            placeholder="Search wallet or session_id"
+            className="mt-1 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-purple-500/50"
+          />
         </label>
         <Button variant="secondary" onClick={onRefresh}>Refresh</Button>
         <Button variant="primary" onClick={onExport}>Export CSV</Button>
@@ -230,6 +244,29 @@ function DailyTable({ rows }: { rows: VpnBillingDailyRow[] }) {
   );
 }
 
+function SessionTable({ rows }: { rows: VpnBillingSessionRow[] }) {
+  if (!rows.length) return <EmptyTable label="No session traffic matches these filters." />;
+  return (
+    <DataTable
+      headers={['Session', 'Identity', 'Node', 'Status', 'Traffic', 'Duration', 'Last Activity', 'Quality']}
+      rows={rows.map((row) => {
+        const lastActivity = row.last_rx_at || row.last_tx_at || row.updated_at;
+        return [
+          row.session_id,
+          row.wallet_short || 'unknown',
+          row.node_name,
+          row.status,
+          mb(row.total_traffic_mb),
+          formatDuration(row.duration_seconds),
+          lastActivity ? formatRelativeTime(lastActivity) : 'pending',
+          row.last_error || `RTT ${row.rtt_ms === null ? 'pending' : `${row.rtt_ms} ms`}`,
+        ];
+      })}
+      monoFirstColumn
+    />
+  );
+}
+
 function EmptyTable({ label }: { label: string }) {
   return (
     <div className="p-10 text-center">
@@ -280,18 +317,21 @@ export default function BillingPage() {
   const [days, setDays] = useState(30);
   const [status, setStatus] = useState<NonNullable<UseVpnBillingOptions['status']>>('all');
   const [nodeId, setNodeId] = useState('');
+  const [query, setQuery] = useState('');
   const [tab, setTab] = useState<BillingTab>('nodes');
   const { nodes } = useNodes();
   const options = useMemo(() => ({
     days,
     status,
     nodeId: nodeId || undefined,
-  }), [days, status, nodeId]);
+    q: query.trim() || undefined,
+  }), [days, status, nodeId, query]);
   const { billing, isLoading, isError, refetch } = useVpnBilling(options);
 
   const exportRows = useMemo(() => {
     if (!billing) return [];
     if (tab === 'identities') return billing.identities;
+    if (tab === 'sessions') return billing.sessions;
     if (tab === 'daily') return billing.daily;
     return billing.nodes;
   }, [billing, tab]);
@@ -318,10 +358,12 @@ export default function BillingPage() {
         days={days}
         status={status}
         nodeId={nodeId}
+        query={query}
         nodes={nodes.map((node) => ({ id: node.id, name: node.name }))}
         onDays={setDays}
         onStatus={setStatus}
         onNode={setNodeId}
+        onQuery={setQuery}
         onRefresh={refetch}
         onExport={handleExport}
       />
@@ -370,10 +412,15 @@ export default function BillingPage() {
             </Card>
           </div>
 
+          <Card variant="outline" padding="md">
+            <p className="text-xs text-gray-500">Privacy Boundary</p>
+            <p className="text-sm text-gray-300 mt-1">{billing.privacy_note}</p>
+          </Card>
+
           <Card variant="default" padding="none">
             <div className="px-6 py-4 border-b border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex gap-2">
-                {(['nodes', 'identities', 'daily'] as BillingTab[]).map((value) => (
+                {(['nodes', 'identities', 'sessions', 'daily'] as BillingTab[]).map((value) => (
                   <button
                     key={value}
                     onClick={() => setTab(value)}
@@ -383,16 +430,18 @@ export default function BillingPage() {
                         : 'bg-white/[0.03] text-gray-400 border-white/10 hover:text-white'
                     }`}
                   >
-                    {value === 'nodes' ? 'Nodes' : value === 'identities' ? 'Identities' : 'Daily'}
+                    {value === 'nodes' ? 'Nodes' : value === 'identities' ? 'Identities' : value === 'sessions' ? 'Sessions' : 'Daily'}
                   </button>
                 ))}
               </div>
               <p className="text-xs text-gray-600">
                 {billing.filters.days}d · {billing.filters.status}
+                {billing.filters.q ? ` · ${billing.summary.matched_session_count} matches` : ''}
               </p>
             </div>
             {tab === 'nodes' && <NodeTable rows={billing.nodes} />}
             {tab === 'identities' && <IdentityTable rows={billing.identities} />}
+            {tab === 'sessions' && <SessionTable rows={billing.sessions} />}
             {tab === 'daily' && <DailyTable rows={billing.daily} />}
           </Card>
         </>

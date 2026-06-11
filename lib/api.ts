@@ -437,12 +437,13 @@ class ApiClient {
   }
 
   async getVpnBilling(
-    options?: { days?: number; status?: 'all' | 'active' | 'completed' | 'error'; nodeId?: string }
+    options?: { days?: number; status?: 'all' | 'active' | 'completed' | 'error'; nodeId?: string; q?: string }
   ): Promise<VpnBillingOverviewResponse> {
     const params = new URLSearchParams();
     if (options?.days) params.append('days', String(options.days));
     if (options?.status && options.status !== 'all') params.append('status', options.status);
     if (options?.nodeId) params.append('node_id', options.nodeId);
+    if (options?.q) params.append('q', options.q);
     const qs = params.toString();
     const endpoint = qs
       ? `${API_ENDPOINTS.VPN_BILLING}?${qs}`
