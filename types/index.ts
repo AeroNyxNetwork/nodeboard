@@ -398,6 +398,8 @@ export interface VpnNodeHealth {
     net_rx_bytes: number | null;
     net_tx_bytes: number | null;
     reported_active_sessions: number | null;
+    runtime_id?: string | null;
+    runtime_started_at?: string | null;
   };
   checks: VpnHealthCheck[];
 }

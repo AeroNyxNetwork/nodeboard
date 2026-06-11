@@ -85,6 +85,8 @@ queries.
   - Extends `ClientSession` with stored VPN quality telemetry:
     `last_rx_at`, `last_tx_at`, `rtt_ms`, `packet_loss`,
     `replay_rejections`, `too_old_rejections`, `packets_rx`, and `packets_tx`.
+  - Stores `Node.runtime_id` / `Node.runtime_started_at` and
+    `ClientSession.last_error` so server resets can be diagnosed without SSH.
 
 - `/root/aeronyx/privacy_network/serializers.py`
   - Allows Rust nodes to submit `session_traffic_snapshot` reports in addition
@@ -96,6 +98,14 @@ queries.
     double-count bytes when a report is retried.
   - Treats `session_ended` as a final cumulative snapshot, then completes the
     session and updates node totals once.
+  - Adds node-level session interruption handling for Rust process resets.
+    Active sessions that existed only in the previous node runtime are marked
+    `error` with a human-readable `last_error` reason.
+
+- `/root/aeronyx/privacy_network/services/heartbeat_service.py`
+  - Detects Rust `runtime_id` changes in heartbeat `system_stats`.
+  - On runtime change, closes stale active sessions for that node before
+    storing the new heartbeat counters.
 
 - `/root/aeronyx/privacy_network/urls.py`
   - Registers `GET /api/privacy_network/vpn/overview/`.
@@ -123,6 +133,11 @@ queries.
     traffic deltas every heartbeat period.
   - Adds quality fields to session event reports and sends
     `session_traffic_snapshot` as cumulative byte totals.
+
+- `/root/a/AeroNyx/crates/aeronyx-server/src/management/client.rs`
+  - Adds `runtime_id` and `runtime_started_at` to signed heartbeat
+    `system_stats`. The id is regenerated each Rust process start and lets the
+    CMS identify server resets.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/services/traffic_tracker.rs`
   - Existing traffic tracker aggregates per-wallet byte deltas for billing and
@@ -188,6 +203,7 @@ Each `nodes[]` item includes:
   `traffic_in_mb`, `traffic_out_mb`
 - session counters: `active_sessions`, `total_sessions`,
   `system.reported_active_sessions`
+- runtime: `system.runtime_id`, `system.runtime_started_at`
 
 `system.source` is `cache` for live heartbeat cache data and `sample` when the
 API had to fall back to the sampled heartbeat table.
@@ -225,7 +241,7 @@ Response shape:
       "last_tx_at": "2026-06-11T11:02:00Z",
       "rtt_ms": null,
       "packet_loss": 0.5,
-      "last_error": ""
+      "last_error": "node runtime reset; previous in-memory VPN sessions were marked stale by heartbeat recovery"
     }
   ],
   "count": 1
@@ -236,6 +252,11 @@ Response shape:
 counters, and bytes are stored from signed Rust session reports. `rtt_ms` is
 reserved for M2 follow-up keepalive ACK telemetry and remains `null` until the
 protocol sends round-trip samples.
+
+When a Rust process restart changes `system.runtime_id`, the backend marks
+previously active sessions as `error` with `last_error` explaining the reset.
+This prevents nodeboard from showing sessions that no longer exist in node
+memory as active.
 
 ### `POST /api/privacy_network/nodes/{id}/commands/run/`
 
@@ -286,6 +307,12 @@ Rust VPN node
   -> nodeboard VPN Operations page
 
 Rust VPN node
+  -> signed heartbeat with runtime_id/runtime_started_at
+  -> HeartbeatService detects Rust process reset
+  -> stale active sessions marked error with last_error
+  -> nodeboard VPN Sessions table
+
+Rust VPN node
   -> signed session report /api/privacy_network/node/sessions/report/
   -> cumulative ClientSession snapshot upsert
   -> VPN session API
@@ -333,6 +360,8 @@ nodeboard Node Detail
   - Smoke test: duplicate `session_traffic_snapshot` reports keep bytes
     cumulative, while final `session_ended` updates total bytes and stored
     quality fields.
+  - Smoke test: heartbeat runtime id change marks stale active sessions as
+    `error` and exposes the interruption reason through VPN session API.
 
 - Rust VPN node:
   - `cargo check -p aeronyx-server`
@@ -341,9 +370,8 @@ nodeboard Node Detail
   - `systemctl is-active aeronyx-server`
 
 - nodeboard:
-  - No UI code change is required for this slice because the VPN Operations
-    table already renders the fields. The API now returns real values for
-    `last_rx_at`, `last_tx_at`, and `packet_loss`.
+  - VPN Operations table renders `last_error` below the session status, so reset
+    recovery reasons are visible without SSH.
 
 ## M2 Backlog
 
@@ -354,7 +382,6 @@ be considered commercial-grade:
 - RTT
 - tunnel degraded reason
 - automatic reconnect events
-- server reset recovery events
 - MTU probe results
 
 These should continue to be added as stored telemetry rather than inferred from

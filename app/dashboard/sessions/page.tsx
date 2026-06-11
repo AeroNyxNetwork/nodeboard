@@ -246,6 +246,11 @@ function SessionTable({ sessions }: { sessions: VpnSession[] }) {
                 </td>
                 <td className="px-4 py-4">
                   <SessionStatusBadge status={session.status} />
+                  {session.last_error ? (
+                    <div className="mt-1 max-w-[180px] truncate text-xs text-red-300" title={session.last_error}>
+                      {session.last_error}
+                    </div>
+                  ) : null}
                 </td>
                 <td className="px-4 py-4 text-gray-300">
                   {formatDuration(session.duration_seconds)}
