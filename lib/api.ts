@@ -16,12 +16,10 @@
  *       to NodeUpdateRequest (includes visibility / region / city / vpn)
  *   v1.3.0 - Added MemChain MPI v2.4.0 + v2.5.0 methods
  *   v1.2.0 - Added MemChain MPI methods for Memory Explorer
- *   v1.1.0 - Added Agent lifecycle API methods for Phase 1
  *   v1.0.3 - Fixed auth endpoints sending stale Authorization header
  *
  * Dependencies:
  *   - types/index.ts
- *   - types/agent.ts
  *   - types/memory.ts
  *   - lib/constants.ts
  *
@@ -80,13 +78,6 @@ import {
   SuccessResponse,
   NodeStatus,
 } from '@/types';
-
-import {
-  AgentStatusResponse,
-  AgentActionResponse,
-  InstallAgentRequest,
-  AgentType,
-} from '@/types/agent';
 
 import {
   MemoryStatusResponse,
@@ -520,58 +511,6 @@ class ApiClient {
       API_ENDPOINTS.NODE_COMMAND_CANCEL(nodeId, commandId),
       { method: 'POST', body: JSON.stringify({}) }
     );
-  }
-
-  // ============================================
-  // Agent Lifecycle (Phase 1)
-  // ============================================
-
-  async getAgentStatus(
-    nodeId: string,
-    agentType?: AgentType
-  ): Promise<AgentStatusResponse> {
-    const params = new URLSearchParams();
-    if (agentType) params.append('agent_type', agentType);
-    const qs = params.toString();
-    const endpoint = qs
-      ? `${API_ENDPOINTS.AGENT_STATUS(nodeId)}?${qs}`
-      : API_ENDPOINTS.AGENT_STATUS(nodeId);
-    return this.request<AgentStatusResponse>(endpoint, { method: 'GET' });
-  }
-
-  async installAgent(nodeId: string, data?: InstallAgentRequest): Promise<AgentActionResponse> {
-    return this.request<AgentActionResponse>(API_ENDPOINTS.AGENT_INSTALL(nodeId), {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    });
-  }
-
-  async startAgent(nodeId: string, agentType: AgentType = 'openclaw'): Promise<AgentActionResponse> {
-    return this.request<AgentActionResponse>(API_ENDPOINTS.AGENT_START(nodeId), {
-      method: 'POST',
-      body: JSON.stringify({ agent_type: agentType }),
-    });
-  }
-
-  async stopAgent(nodeId: string, agentType: AgentType = 'openclaw'): Promise<AgentActionResponse> {
-    return this.request<AgentActionResponse>(API_ENDPOINTS.AGENT_STOP(nodeId), {
-      method: 'POST',
-      body: JSON.stringify({ agent_type: agentType }),
-    });
-  }
-
-  async restartAgent(nodeId: string, agentType: AgentType = 'openclaw'): Promise<AgentActionResponse> {
-    return this.request<AgentActionResponse>(API_ENDPOINTS.AGENT_RESTART(nodeId), {
-      method: 'POST',
-      body: JSON.stringify({ agent_type: agentType }),
-    });
-  }
-
-  async uninstallAgent(nodeId: string, agentType: AgentType = 'openclaw'): Promise<AgentActionResponse> {
-    return this.request<AgentActionResponse>(API_ENDPOINTS.AGENT_UNINSTALL(nodeId), {
-      method: 'POST',
-      body: JSON.stringify({ agent_type: agentType }),
-    });
   }
 
   // ============================================

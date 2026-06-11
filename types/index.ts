@@ -805,6 +805,7 @@ export interface NodeCommand {
   retry_count: number;
   created_at: string;
   sent_at: string | null;
+  acked_at: string | null;
   completed_at: string | null;
 }
 

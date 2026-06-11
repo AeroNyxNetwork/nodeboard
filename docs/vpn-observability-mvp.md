@@ -64,6 +64,8 @@ queries.
 
 - `app/dashboard/nodes/[id]/page.tsx`
   - Adds a per-node VPN Health panel to the node detail page.
+  - Removes non-VPN auxiliary entry points so Node Detail stays focused on VPN
+    operations.
   - Shows the same live heartbeat source, health score, checks, CPU, memory,
     and tunnel counters without requiring the operator to leave the node page.
   - Shows per-node 24h availability, sample count, and last stale gap to make
@@ -81,6 +83,9 @@ queries.
     stop stale or accidental queued actions without SSH. Commands already
     executing on the Rust node are shown as in-flight and are not presented as
     interruptible.
+  - Displays command lifecycle timing (`queued`, `sent`, `acked`, `done`) so
+    operators can see whether a command is still in CMS, dispatched by
+    heartbeat, acknowledged by Rust, or complete.
   - Adds Wallet Ban Policies, an active policy table backed by
     `GET /nodes/<id>/wallet_bans/`, with copy and unban controls.
 
@@ -141,6 +146,7 @@ queries.
   - Adds `getVpnEvents({ days, severity, type, nodeId, limit })`.
   - Adds `getNodeCommands()` and `runNodeCommand()`.
   - Adds `cancelNodeCommand(nodeId, commandId)`.
+  - Removes non-VPN agent lifecycle API client methods from nodeboard.
 
 - `lib/constants.ts`
   - Adds `VPN_OVERVIEW`, `VPN_SESSIONS`, `VPN_BILLING`, and `VPN_EVENTS` API
@@ -149,6 +155,8 @@ queries.
   - Adds `NODE_COMMANDS`, `NODE_COMMAND_RUN`, and `NODE_COMMAND_CANCEL` API
     endpoints.
   - Adds polling intervals for VPN overview, session, and event data.
+  - Removes non-VPN agent endpoints, status configuration, and lifecycle
+    messages from nodeboard constants.
 
 - `types/index.ts`
   - Adds `VpnOverview`, `VpnNodeHealth`, `VpnAlert`, `VpnSession`, and response
@@ -161,6 +169,7 @@ queries.
     `bandwidth_limit_mbps`, and `heartbeat_interval_seconds`.
   - Adds `NodeCommand`, `NodeCommandListResponse`, and
     `RunNodeCommandResponse` types.
+  - Adds `NodeCommand.acked_at` for Rust ACK timing in command history.
 
 ### API backend
 
@@ -244,6 +253,8 @@ queries.
 - `/root/aeronyx/privacy_network/api/agent.py`
   - Adds `RunNodeCommandView` for owner-authenticated non-destructive
     operations commands.
+  - Includes `acked_at` in `NodeCommandListView` responses so nodeboard can
+    distinguish heartbeat dispatch from Rust command acknowledgement.
   - Allows `system_info`, `collect_logs`, and the bounded control action
     `kick_session`, wallet controls `ban_wallet` / `unban_wallet`, plus
     `refresh_config` and guarded `restart_service`.
@@ -259,8 +270,8 @@ queries.
     the node can only restart the fixed `aeronyx-server` service.
   - Increases command status message size so short diagnostic summaries can be
     stored in `NodeCommand.result`.
-  - Treats `vpn` / `node` command status reports as command-only updates, so
-    VPN diagnostics do not create or mutate OpenClaw `AgentInstance` records.
+  - Treats `vpn` / `node` command status reports as command-only updates for
+    the VPN operations console.
 
 - `/root/aeronyx/privacy_network/models.py`
   - Adds `NodeWalletBan`, the CMS source of truth for operator-managed wallet
@@ -438,8 +449,7 @@ queries.
   - Uses fixed read-only commands with timeout, truncation, and simple
     sensitive-line redaction.
   - Reports VPN diagnostics as `agent_type="vpn"` through the existing signed
-    command status endpoint; OpenClaw lifecycle commands still report as
-    `agent_type="openclaw"`.
+    command status endpoint.
   - Adds `kick_session`, which parses the CMS-provided base64 session id,
     removes that session from `SessionManager`, and emits a final
     `session_ended` report with cumulative traffic/quality counters.

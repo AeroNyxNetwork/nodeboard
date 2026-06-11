@@ -13,7 +13,6 @@
  *     New polling: EXPLORE_PUBLIC_NODES (60s, low frequency)
  *   v1.3.0 - Added MemChain MPI v2.4.0 + v2.5.0 endpoints
  *   v1.2.0 - Added MemChain MPI endpoints for Memory Explorer
- *   v1.1.0 - Added Agent-related constants for Phase 1
  *
  * Main Functionality: API endpoints, polling intervals, storage keys,
  *                     and application-wide configuration values
@@ -24,7 +23,6 @@
  *   because public nodes are genuinely public (no API Key required)
  * - NODE_VERIFY_ACCESS also uses skipAuth: true (anonymous users can unlock)
  * - NODE_VISIBILITY_CONFIG keys MUST match NodeVisibility type in types/index.ts
- * - AGENT_STATUS_CONFIG keys MUST match AgentStatus type in types/agent.ts
  * - MPI_RECORD endpoint takes both nodeId and recordId
  * - WS_BASE_URL updated to /ws/chat in v1.3.0
  *
@@ -71,14 +69,6 @@ export const API_ENDPOINTS = {
   NODES_PUBLIC_LIST: '/nodes/public/',
   NODES_PUBLIC_DETAIL: (id: string) => `/nodes/public/${id}/`,
   NODE_VERIFY_ACCESS: (id: string) => `/nodes/${id}/verify_access/`,
-
-  // Agent Management (Phase 1)
-  AGENT_STATUS: (nodeId: string) => `/nodes/${nodeId}/agent_status/`,
-  AGENT_INSTALL: (nodeId: string) => `/nodes/${nodeId}/install_agent/`,
-  AGENT_START: (nodeId: string) => `/nodes/${nodeId}/start_agent/`,
-  AGENT_STOP: (nodeId: string) => `/nodes/${nodeId}/stop_agent/`,
-  AGENT_RESTART: (nodeId: string) => `/nodes/${nodeId}/restart_agent/`,
-  AGENT_UNINSTALL: (nodeId: string) => `/nodes/${nodeId}/uninstall_agent/`,
 
   // MemChain MPI — Core Memory (v1.2.0)
   MPI_STATUS: (nodeId: string) => `/nodes/${nodeId}/mpi/status/`,
@@ -143,8 +133,6 @@ export const POLLING_INTERVALS = {
   VPN_EVENTS: 15000,
   VPN_NODE_METRICS: 30000,
   CODES_LIST: 60000,
-  AGENT_TRANSITIONAL: 2000,
-  AGENT_STABLE: 30000,
   MEMORY_OVERVIEW: 60000,
   SUPERNODE_TASKS: 5000,
   /** Public node pool — low frequency, data doesn't change rapidly */
@@ -286,103 +274,6 @@ export const NODE_VISIBILITY_CONFIG = {
 } as const;
 
 // ============================================
-// Agent Status Configuration (Phase 1)
-// ============================================
-
-export const AGENT_STATUS_CONFIG = {
-  not_installed: {
-    label: 'Not Installed',
-    description: 'Deploy OpenClaw AI engine on this node',
-    bgColor: 'bg-gray-500/20',
-    textColor: 'text-gray-400',
-    borderColor: 'border-gray-500/50',
-    dotColor: 'bg-gray-400',
-    animate: false,
-  },
-  installing: {
-    label: 'Installing',
-    description: 'OpenClaw is being installed...',
-    bgColor: 'bg-purple-500/20',
-    textColor: 'text-purple-400',
-    borderColor: 'border-purple-500/50',
-    dotColor: 'bg-purple-400',
-    animate: true,
-  },
-  installed: {
-    label: 'Installed',
-    description: 'OpenClaw is installed and ready to start',
-    bgColor: 'bg-blue-500/20',
-    textColor: 'text-blue-400',
-    borderColor: 'border-blue-500/50',
-    dotColor: 'bg-blue-400',
-    animate: false,
-  },
-  starting: {
-    label: 'Starting',
-    description: 'OpenClaw is starting up...',
-    bgColor: 'bg-blue-500/20',
-    textColor: 'text-blue-400',
-    borderColor: 'border-blue-500/50',
-    dotColor: 'bg-blue-400',
-    animate: true,
-  },
-  running: {
-    label: 'Running',
-    description: 'OpenClaw is active and serving requests',
-    bgColor: 'bg-emerald-500/20',
-    textColor: 'text-emerald-400',
-    borderColor: 'border-emerald-500/50',
-    dotColor: 'bg-emerald-400',
-    animate: true,
-  },
-  stopping: {
-    label: 'Stopping',
-    description: 'OpenClaw is shutting down...',
-    bgColor: 'bg-yellow-500/20',
-    textColor: 'text-yellow-400',
-    borderColor: 'border-yellow-500/50',
-    dotColor: 'bg-yellow-400',
-    animate: true,
-  },
-  stopped: {
-    label: 'Stopped',
-    description: 'OpenClaw is installed but not running',
-    bgColor: 'bg-yellow-500/20',
-    textColor: 'text-yellow-400',
-    borderColor: 'border-yellow-500/50',
-    dotColor: 'bg-yellow-400',
-    animate: false,
-  },
-  error: {
-    label: 'Error',
-    description: 'OpenClaw encountered an error',
-    bgColor: 'bg-red-500/20',
-    textColor: 'text-red-400',
-    borderColor: 'border-red-500/50',
-    dotColor: 'bg-red-400',
-    animate: false,
-  },
-  updating: {
-    label: 'Updating',
-    description: 'OpenClaw is being updated...',
-    bgColor: 'bg-purple-500/20',
-    textColor: 'text-purple-400',
-    borderColor: 'border-purple-500/50',
-    dotColor: 'bg-purple-400',
-    animate: true,
-  },
-  uninstalling: {
-    label: 'Uninstalling',
-    description: 'OpenClaw is being removed...',
-    bgColor: 'bg-red-500/20',
-    textColor: 'text-red-400',
-    borderColor: 'border-red-500/50',
-    dotColor: 'bg-red-400',
-    animate: true,
-  },
-} as const;
-
-// ============================================
 // Registration Code Status Configuration
 // ============================================
 
@@ -479,13 +370,6 @@ export const ERROR_MESSAGES = {
   // Public node pool [v1.4.0]
   EXPLORE_LOAD_FAILED: 'Failed to load nodes. Please try again.',
   VERIFY_ACCESS_FAILED: 'Invalid password. Please try again.',
-  // Agent-specific errors (Phase 1)
-  AGENT_INSTALL_FAILED: 'Failed to install OpenClaw. Please try again.',
-  AGENT_START_FAILED: 'Failed to start OpenClaw. Please try again.',
-  AGENT_STOP_FAILED: 'Failed to stop OpenClaw. Please try again.',
-  AGENT_RESTART_FAILED: 'Failed to restart OpenClaw. Please try again.',
-  AGENT_UNINSTALL_FAILED: 'Failed to uninstall OpenClaw. Please try again.',
-  AGENT_STATUS_FAILED: 'Failed to fetch agent status.',
   // Memory errors (v1.2.0)
   MEMORY_STATUS_FAILED: 'Failed to fetch memory status.',
   MEMORY_OVERVIEW_FAILED: 'Failed to load memories.',
@@ -522,12 +406,6 @@ export const SUCCESS_MESSAGES = {
   COPIED_TO_CLIPBOARD: 'Copied to clipboard!',
   // Public node pool [v1.4.0]
   VERIFY_ACCESS_SUCCESS: 'Access granted.',
-  // Agent messages (Phase 1)
-  AGENT_INSTALL_TRIGGERED: 'OpenClaw installation started!',
-  AGENT_START_TRIGGERED: 'OpenClaw is starting...',
-  AGENT_STOP_TRIGGERED: 'OpenClaw is stopping...',
-  AGENT_RESTART_TRIGGERED: 'OpenClaw is restarting...',
-  AGENT_UNINSTALL_TRIGGERED: 'OpenClaw uninstall started.',
   // Memory messages (v1.2.0)
   MEMORY_CREATED: 'Memory created successfully.',
   MEMORY_DELETED: 'Memory deleted.',

@@ -6,28 +6,25 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
- *   v1.4.0 - Added NodeSettings panel between AgentPanel and AI Memory card.
+ *   v1.5.0 - Removed non-VPN auxiliary entry points from nodeboard.
+ *   v1.4.0 - Added NodeSettings panel.
  *     NodeSettings handles: visibility / region / city / is_vpn_node /
  *     access_password. Name editing remains inline (EditableName).
- *   v1.3.0 - Added AI Memory entry card between AgentPanel and StatsGrid.
- *   v1.2.0 - Integrated AgentPanel for Phase 1 Agent Lifecycle Management.
  *   v1.1.0 - Bug fixes: inline name edit, toast, copy actions.
  *
  * Main Functionality:
  *   1. Node header with inline name editing and delete action
- *   2. AgentPanel — OpenClaw lifecycle management
- *   3. NodeSettings — visibility / region / VPN / password config (v1.4.0)
- *   4. AI Memory entry card (online nodes only)
+ *   2. NodeSettings — visibility / region / VPN / password config
+ *   3. VPN Health panel from /vpn/overview/ for live heartbeat diagnostics
+ *   4. Wallet ban policies and VPN command history
  *   5. Stats grid — uptime / sessions / traffic
  *   6. Hardware info + node details
  *   7. Recent sessions table
- *   8. VPN Health panel from /vpn/overview/ for live heartbeat diagnostics
  *
  * Dependencies:
  *   - hooks/useNodes.ts (useNodeDetail, useNodeStats, useNodeSessions,
  *                        useUpdateNode, useDeleteNode)
- *   - components/dashboard/AgentPanel.tsx
- *   - components/dashboard/NodeSettings.tsx (v1.4.0)
+ *   - components/dashboard/NodeSettings.tsx
  *   - components/common/Card.tsx
  *   - components/common/Button.tsx
  *   - components/common/Modal.tsx
@@ -37,12 +34,11 @@
  *     so the detail view reflects the latest values immediately
  *   - Name editing (EditableName) is separate from NodeSettings intentionally:
  *     name is a prominent identity field, deserves its own inline UX
- *   - showToast is shared: AgentPanel, NodeSettings, and page all use it
- *   - Memory card only shows when node.status === 'online'
+ *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.4.0 - Added NodeSettings panel
- * Previous: v1.3.0 - Added AI Memory entry card
+ * Last Modified: v1.5.0 - Removed non-VPN agent UI from nodeboard
+ * Previous: v1.4.0 - Added NodeSettings panel
  * ============================================
  */
 
@@ -69,7 +65,6 @@ import { NODE_STATUS_CONFIG } from '@/lib/constants';
 import Card, { StatCard } from '@/components/common/Card';
 import Button, { CopyButton } from '@/components/common/Button';
 import { ConfirmDialog } from '@/components/common/Modal';
-import AgentPanel from '@/components/dashboard/AgentPanel';
 import NodeSettings from '@/components/dashboard/NodeSettings';
 
 // ============================================
@@ -478,6 +473,28 @@ function commandLabel(command: NodeCommand) {
 
 function canCancelCommand(command: NodeCommand) {
   return command.status === 'pending' || command.status === 'sent';
+}
+
+function CommandLifecycle({ command }: { command: NodeCommand }) {
+  const steps = [
+    { label: 'queued', value: command.created_at },
+    { label: 'sent', value: command.sent_at },
+    { label: 'acked', value: command.acked_at },
+    { label: 'done', value: command.completed_at },
+  ];
+
+  return (
+    <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {steps.map((step) => (
+        <div key={step.label} className="rounded-lg bg-white/[0.03] border border-white/5 px-2 py-1.5">
+          <p className="text-[11px] uppercase text-gray-600">{step.label}</p>
+          <p className={`text-xs mt-0.5 ${step.value ? 'text-gray-300' : 'text-gray-600'}`}>
+            {step.value ? formatRelativeTime(step.value) : 'pending'}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function formatPolicySource(source: string) {
@@ -918,6 +935,7 @@ function VpnHealthPanel({
                 <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words text-xs text-gray-400 font-mono">
                   {commandMessage(command)}
                 </pre>
+                <CommandLifecycle command={command} />
               </div>
             ))}
           </div>
@@ -1255,61 +1273,23 @@ export default function NodeDetailPage() {
         onDelete={() => setShowDeleteDialog(true)}
       />
 
-      {/* 2. Agent Lifecycle Panel */}
-      <AgentPanel
-        nodeId={nodeId}
-        nodeStatus={node.status}
-        onToast={showToast}
-      />
-
-      {/* 3. Node Settings (v1.4.0) */}
+      {/* 2. Node Settings */}
       <NodeSettings
         node={node}
         onSaved={refetch}
         onToast={showToast}
       />
 
-      {/* 4. VPN Health Panel */}
+      {/* 3. VPN Health Panel */}
       <VpnHealthPanel nodeId={nodeId} isVpnNode={node.is_vpn_node} onToast={showToast} />
 
-      {/* 5. Wallet Ban Policies */}
+      {/* 4. Wallet Ban Policies */}
       <WalletBanPolicyPanel nodeId={nodeId} isVpnNode={node.is_vpn_node} onToast={showToast} />
 
-      {/* 6. AI Memory Entry Card (online only) */}
-      {node.status === 'online' && (
-        <Card variant="default" padding="md" className="mb-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500/20 to-blue-500/20 border border-white/[0.08] flex items-center justify-center flex-shrink-0">
-                <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-white">AI Memory</h3>
-                <p className="text-xs text-gray-500">View and manage what the AI remembers about you</p>
-              </div>
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => router.push(`/dashboard/nodes/${nodeId}/memories`)}
-            >
-              <span className="flex items-center gap-1.5">
-                Manage
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </span>
-            </Button>
-          </div>
-        </Card>
-      )}
-
-      {/* 7. Stats Grid */}
+      {/* 5. Stats Grid */}
       <StatsGrid nodeId={nodeId} />
 
-      {/* 8. Hardware Info + Node Details */}
+      {/* 6. Hardware Info + Node Details */}
       <div className="grid lg:grid-cols-3 gap-6 mb-6">
         <Card variant="default" padding="md" className="lg:col-span-1">
           <h3 className="font-semibold text-white mb-4">Hardware Info</h3>
