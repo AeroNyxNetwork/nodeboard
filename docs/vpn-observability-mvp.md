@@ -947,9 +947,9 @@ compatibility; if CMS sends an empty list, Rust clears only active
   - Backend `_node_payload()` returns the Rust VPN checks in nodeboard
     `checks[]`.
   - Journal shows `[NODE_POLICY] CMS operator policy updated` after restart.
-  - `Korean1` heartbeat cache shows `vpn_health.status="ok"` and
-    `active_sessions=0` after restart; live RTT storage awaits an active VPN
-    client because probes are only sent to established sessions.
+  - `Korean1` heartbeat cache shows `vpn_health.status="ok"` after restart.
+  - With one active VPN session, the backend stored `rtt_ms=80.844` from the
+    Rust in-tunnel ICMP keepalive ACK path.
   - Focused unit tests for the new handshake policy are present, but
     `cargo test -p aeronyx-server ...` is currently blocked by existing
     unrelated `lib test` compile errors in supernode/memchain/session test
@@ -1019,9 +1019,8 @@ compatibility; if CMS sends an empty list, Rust clears only active
   - Local `GET /api/vpn/health` returns `status="ok"` after restart.
   - Backend heartbeat cache receives the health payload after the next
     heartbeat.
-  - The deployed node currently has `active_sessions=0`, so `rtt_ms` remains
-    absent until a client establishes a VPN session and replies to an in-tunnel
-    ICMP keepalive probe.
+  - With one active VPN session, backend `ClientSession.rtt_ms` stores a live
+    sample (`80.844` ms observed on the deployed `Korean1` node).
 
 - nodeboard:
   - VPN Operations table renders `last_error` below the session status, so reset
