@@ -701,6 +701,32 @@ export function useRunNodeCommand() {
   });
 }
 
+export function useCancelNodeCommand() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    { success: boolean; message: string },
+    Error,
+    { nodeId: string; commandId: string }
+  >({
+    mutationFn: ({ nodeId, commandId }) => api.cancelNodeCommand(nodeId, commandId),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: nodeKeys.commands(variables.nodeId),
+        refetchType: 'all',
+      });
+      queryClient.invalidateQueries({
+        queryKey: nodeKeys.vpnOverview(),
+        refetchType: 'all',
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['nodes', 'vpn', 'events'],
+        refetchType: 'all',
+      });
+    },
+  });
+}
+
 /**
  * Verify access password for a password_protected node.
  * No auth required. On success, server stores a session grant.

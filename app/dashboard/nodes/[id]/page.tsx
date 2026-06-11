@@ -59,6 +59,7 @@ import {
   useNodeWalletBans,
   useNodeCommands,
   useRunNodeCommand,
+  useCancelNodeCommand,
   useUpdateNode,
   useDeleteNode,
 } from '@/hooks/useNodes';
@@ -462,6 +463,23 @@ function commandMessage(command: NodeCommand) {
   return 'Waiting for the node heartbeat to pick up this command.';
 }
 
+function commandLabel(command: NodeCommand) {
+  const labels: Record<string, string> = {
+    system_info: 'System diagnostics',
+    collect_logs: 'Recent service logs',
+    refresh_config: 'Config refresh',
+    restart_service: 'Service restart',
+    kick_session: 'Session kick',
+    ban_wallet: 'Wallet ban',
+    unban_wallet: 'Wallet unban',
+  };
+  return labels[command.action] || command.action_display || command.action;
+}
+
+function canCancelCommand(command: NodeCommand) {
+  return command.status === 'pending' || command.status === 'sent' || command.status === 'executing';
+}
+
 function formatPolicySource(source: string) {
   if (source === 'nodeboard_vpn_operations') return 'nodeboard';
   if (source === 'codex_smoke_test') return 'smoke test';
@@ -620,6 +638,8 @@ function VpnHealthPanel({
   const { commands, isLoading: commandsLoading } = useNodeCommands(nodeId, { limit: 5 });
   const { metrics, isLoading: metricsLoading } = useVpnNodeMetrics(nodeId, { hours: 24 });
   const runCommand = useRunNodeCommand();
+  const cancelCommand = useCancelNodeCommand();
+  const [cancellingCommandId, setCancellingCommandId] = useState<string | null>(null);
   const health = overview?.nodes.find((item) => item.id === nodeId) ?? null;
   const vpnCommands = commands.filter((command) =>
     command.action === 'system_info' ||
@@ -670,6 +690,21 @@ function VpnHealthPanel({
       onToast('VPN service restart queued');
     } catch (error) {
       onToast(error instanceof Error ? error.message : 'Failed to queue restart', 'error');
+    }
+  };
+
+  const handleCancelCommand = async (command: NodeCommand) => {
+    if (!canCancelCommand(command)) return;
+    if (!window.confirm(`Cancel ${commandLabel(command)}?`)) return;
+
+    setCancellingCommandId(command.id);
+    try {
+      await cancelCommand.mutateAsync({ nodeId, commandId: command.id });
+      onToast('Command cancelled');
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Failed to cancel command', 'error');
+    } finally {
+      setCancellingCommandId(null);
     }
   };
 
@@ -858,16 +893,27 @@ function VpnHealthPanel({
               <div key={command.id} className="rounded-xl bg-white/[0.03] border border-white/5 p-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-white">
-                      {command.action === 'system_info' ? 'System diagnostics' : 'Recent service logs'}
-                    </p>
+                    <p className="text-sm font-medium text-white">{commandLabel(command)}</p>
                     <p className="text-xs text-gray-500 mt-0.5">
                       Queued {formatRelativeTime(command.created_at)}
                     </p>
                   </div>
-                  <span className={`inline-flex self-start px-2 py-1 rounded-full border text-xs ${commandStatusClass(command.status)}`}>
-                    {command.status_display || command.status}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex self-start px-2 py-1 rounded-full border text-xs ${commandStatusClass(command.status)}`}>
+                      {command.status_display || command.status}
+                    </span>
+                    {canCancelCommand(command) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleCancelCommand(command)}
+                        disabled={Boolean(cancellingCommandId)}
+                        isLoading={cancellingCommandId === command.id}
+                      >
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words text-xs text-gray-400 font-mono">
                   {commandMessage(command)}

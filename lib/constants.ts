@@ -58,6 +58,7 @@ export const API_ENDPOINTS = {
   NODE_WALLET_BANS: (id: string) => `/nodes/${id}/wallet_bans/`,
   NODE_COMMANDS: (id: string) => `/nodes/${id}/commands/`,
   NODE_COMMAND_RUN: (id: string) => `/nodes/${id}/commands/run/`,
+  NODE_COMMAND_CANCEL: (id: string, commandId: string) => `/nodes/${id}/commands/${commandId}/cancel/`,
 
   // VPN Observability (operator control plane)
   VPN_OVERVIEW: '/vpn/overview/',

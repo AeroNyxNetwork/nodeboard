@@ -512,6 +512,16 @@ class ApiClient {
     });
   }
 
+  async cancelNodeCommand(
+    nodeId: string,
+    commandId: string
+  ): Promise<SuccessResponse> {
+    return this.request<SuccessResponse>(
+      API_ENDPOINTS.NODE_COMMAND_CANCEL(nodeId, commandId),
+      { method: 'POST', body: JSON.stringify({}) }
+    );
+  }
+
   // ============================================
   // Agent Lifecycle (Phase 1)
   // ============================================

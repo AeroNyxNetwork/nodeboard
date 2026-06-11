@@ -77,6 +77,8 @@ queries.
     the node to validate and summarize its management configuration without SSH.
   - Adds a guarded `Restart VPN` operation that requires browser confirmation
     and queues a CMS `restart_service` command.
+  - Adds `Cancel` controls for pending, sent, or executing VPN commands so
+    operators can stop stale or accidental queued actions without SSH.
   - Adds Wallet Ban Policies, an active policy table backed by
     `GET /nodes/<id>/wallet_bans/`, with copy and unban controls.
 
@@ -121,8 +123,9 @@ queries.
     heartbeat metrics history on the node detail page.
   - Adds `useNodeWalletBans()` with 15 second polling for active CMS wallet ban
     policies on the node detail page.
-  - Adds `useNodeCommands()` and `useRunNodeCommand()` for node-level
-    operations history and enqueue mutations.
+  - Adds `useNodeCommands()`, `useRunNodeCommand()`, and
+    `useCancelNodeCommand()` for node-level operations history, enqueue, and
+    cancel mutations.
   - Invalidates VPN overview, session, and wallet-ban queries after node
     commands so policy and session state refresh after the node reports
     completion.
@@ -135,12 +138,14 @@ queries.
   - Adds `getVpnBilling({ days, status, nodeId, q })`.
   - Adds `getVpnEvents({ days, severity, type, nodeId, limit })`.
   - Adds `getNodeCommands()` and `runNodeCommand()`.
+  - Adds `cancelNodeCommand(nodeId, commandId)`.
 
 - `lib/constants.ts`
   - Adds `VPN_OVERVIEW`, `VPN_SESSIONS`, `VPN_BILLING`, and `VPN_EVENTS` API
     endpoints.
   - Adds `VPN_NODE_METRICS` for `GET /vpn/nodes/<id>/metrics/`.
-  - Adds `NODE_COMMANDS` and `NODE_COMMAND_RUN` API endpoints.
+  - Adds `NODE_COMMANDS`, `NODE_COMMAND_RUN`, and `NODE_COMMAND_CANCEL` API
+    endpoints.
   - Adds polling intervals for VPN overview, session, and event data.
 
 - `types/index.ts`
@@ -837,6 +842,21 @@ Response shape:
 }
 ```
 
+### `POST /api/privacy_network/nodes/{id}/commands/{cmd_id}/cancel/`
+
+Authenticated with the existing nodeboard API key and node ownership check.
+Nodeboard calls this from Node Detail command history for commands that are
+still `pending`, `sent`, or `executing`.
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "message": "Command cancelled"
+}
+```
+
 ## Data Flow
 
 ```text
@@ -865,6 +885,11 @@ nodeboard Node Detail
   -> CommandHandler executes diagnostic, refresh_config, or restart_service
   -> signed POST /node/agent/status/
   -> NodeCommand history visible in nodeboard
+
+nodeboard Node Detail
+  -> POST /nodes/{id}/commands/{cmd_id}/cancel/
+  -> CommandService cancels pending/sent/executing command when allowed
+  -> NodeCommand history and Events refresh in nodeboard
 
 nodeboard VPN Sessions
   -> POST /nodes/{id}/commands/run/ action=kick_session
