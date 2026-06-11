@@ -147,6 +147,8 @@ queries.
   - Adds `getNodeCommands()` and `runNodeCommand()`.
   - Adds `cancelNodeCommand(nodeId, commandId)`.
   - Removes non-VPN agent lifecycle API client methods from nodeboard.
+  - Removes unused memory/MPI/supernode API client methods from nodeboard so
+    the frontend API surface stays VPN-only.
 
 - `lib/constants.ts`
   - Adds `VPN_OVERVIEW`, `VPN_SESSIONS`, `VPN_BILLING`, and `VPN_EVENTS` API
@@ -157,6 +159,8 @@ queries.
   - Adds polling intervals for VPN overview, session, and event data.
   - Removes non-VPN agent endpoints, status configuration, and lifecycle
     messages from nodeboard constants.
+  - Removes unused memory/MPI/supernode endpoints, websocket chat config,
+    polling intervals, stale times, and UI messages.
 
 - `types/index.ts`
   - Adds `VpnOverview`, `VpnNodeHealth`, `VpnAlert`, `VpnSession`, and response

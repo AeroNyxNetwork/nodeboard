@@ -14,13 +14,11 @@
  *     Updated:
  *       updateNode data param changed from { name?, is_active? }
  *       to NodeUpdateRequest (includes visibility / region / city / vpn)
- *   v1.3.0 - Added MemChain MPI v2.4.0 + v2.5.0 methods
- *   v1.2.0 - Added MemChain MPI methods for Memory Explorer
+ *   v1.5.0 - Removed non-VPN agent/memory client methods
  *   v1.0.3 - Fixed auth endpoints sending stale Authorization header
  *
  * Dependencies:
  *   - types/index.ts
- *   - types/memory.ts
  *   - lib/constants.ts
  *
  * Main Logical Flow:
@@ -41,11 +39,10 @@
  *   The request() method strips undefined keys via JSON.stringify naturally,
  *   but we must explicitly handle this in updateNode to avoid sending the key
  *   when the caller doesn't intend to change the password.
- * - MPI endpoints all require auth — do NOT use skipAuth
  * - getNonce and login MUST use skipAuth: true
  *
- * Last Modified: v1.4.0 - Public node pool methods + NodeUpdateRequest type
- * Previous: v1.3.0 - MPI v2.4.0 graph + v2.5.0 SuperNode methods
+ * Last Modified: v1.5.0 - VPN-only nodeboard API client surface
+ * Previous: v1.4.0 - Public node pool methods + NodeUpdateRequest type
  * ============================================
  */
 
@@ -78,42 +75,6 @@ import {
   SuccessResponse,
   NodeStatus,
 } from '@/types';
-
-import {
-  MemoryStatusResponse,
-  MemoryOverviewResponse,
-  MemorySearchRequest,
-  MemorySearchResponse,
-  MemoryRecallRequest,
-  MemoryRecallResponse,
-  MemoryRecallDetailRequest,
-  MemoryRecallDetailResponse,
-  MemoryRecordResponse,
-  MemoryRememberRequest,
-  MemoryRememberResponse,
-  MemoryForgetResponse,
-  MemoryEmbedResponse,
-  EntityListResponse,
-  ProjectListResponse,
-  ProjectDetailResponse,
-  ProjectTimelineResponse,
-  SessionDetailResponse,
-  SessionConversationResponse,
-  SessionArtifactsResponse,
-  ArtifactDetailResponse,
-  ArtifactVersionsResponse,
-  EntityDetailResponse,
-  EntityGraphResponse,
-  EntityTimelineResponse,
-  CommunityListResponse,
-  ContextInjectResponse,
-  FtsSearchResponse,
-  SupernodeTasksResponse,
-  SupernodeTaskDetailResponse,
-  SupernodeTaskActionResponse,
-  SupernodeUsageResponse,
-  SupernodeHealthResponse,
-} from '@/types/memory';
 
 import { API_BASE_URL, API_ENDPOINTS, STORAGE_KEYS } from './constants';
 
@@ -513,222 +474,6 @@ class ApiClient {
     );
   }
 
-  // ============================================
-  // MemChain MPI — Core Memory (v1.2.0)
-  // ============================================
-
-  async getMemoryStatus(nodeId: string): Promise<MemoryStatusResponse> {
-    return this.request<MemoryStatusResponse>(API_ENDPOINTS.MPI_STATUS(nodeId), { method: 'GET' });
-  }
-
-  async getMemoryOverview(nodeId: string, perLayer: number = 20): Promise<MemoryOverviewResponse> {
-    const params = new URLSearchParams({ per_layer: String(perLayer) });
-    return this.request<MemoryOverviewResponse>(
-      `${API_ENDPOINTS.MPI_OVERVIEW(nodeId)}?${params}`,
-      { method: 'GET' }
-    );
-  }
-
-  async recallMemories(nodeId: string, data: MemoryRecallRequest): Promise<MemoryRecallResponse> {
-    return this.request<MemoryRecallResponse>(
-      API_ENDPOINTS.MPI_RECALL(nodeId),
-      { method: 'POST', body: JSON.stringify(data) }
-    );
-  }
-
-  async recallMemoryDetail(
-    nodeId: string,
-    data: MemoryRecallDetailRequest
-  ): Promise<MemoryRecallDetailResponse> {
-    return this.request<MemoryRecallDetailResponse>(
-      API_ENDPOINTS.MPI_RECALL_DETAIL(nodeId),
-      { method: 'POST', body: JSON.stringify(data) }
-    );
-  }
-
-  async searchMemories(nodeId: string, data: MemorySearchRequest): Promise<MemorySearchResponse> {
-    return this.request<MemorySearchResponse>(
-      API_ENDPOINTS.MPI_SEARCH(nodeId),
-      { method: 'POST', body: JSON.stringify(data) }
-    );
-  }
-
-  async searchMemoriesFts(nodeId: string, q: string): Promise<FtsSearchResponse> {
-    const params = new URLSearchParams({ q });
-    return this.request<FtsSearchResponse>(
-      `${API_ENDPOINTS.MPI_SEARCH_FTS(nodeId)}?${params}`,
-      { method: 'GET' }
-    );
-  }
-
-  async getMemoryRecord(nodeId: string, recordId: string): Promise<MemoryRecordResponse> {
-    return this.request<MemoryRecordResponse>(
-      API_ENDPOINTS.MPI_RECORD(nodeId, recordId),
-      { method: 'GET' }
-    );
-  }
-
-  async rememberMemory(nodeId: string, data: MemoryRememberRequest): Promise<MemoryRememberResponse> {
-    return this.request<MemoryRememberResponse>(
-      API_ENDPOINTS.MPI_REMEMBER(nodeId),
-      { method: 'POST', body: JSON.stringify(data) }
-    );
-  }
-
-  async forgetMemory(nodeId: string, recordId: string): Promise<MemoryForgetResponse> {
-    return this.request<MemoryForgetResponse>(
-      API_ENDPOINTS.MPI_FORGET(nodeId),
-      { method: 'POST', body: JSON.stringify({ record_id: recordId }) }
-    );
-  }
-
-  async embedText(nodeId: string, text: string): Promise<MemoryEmbedResponse> {
-    return this.request<MemoryEmbedResponse>(
-      API_ENDPOINTS.MPI_EMBED(nodeId),
-      { method: 'POST', body: JSON.stringify({ text }) }
-    );
-  }
-
-  async getContextInject(nodeId: string, query?: string): Promise<ContextInjectResponse> {
-    const params = query ? `?${new URLSearchParams({ query })}` : '';
-    return this.request<ContextInjectResponse>(
-      `${API_ENDPOINTS.MPI_CONTEXT_INJECT(nodeId)}${params}`,
-      { method: 'GET' }
-    );
-  }
-
-  // ============================================
-  // MemChain MPI — Cognitive Graph (v2.4.0)
-  // ============================================
-
-  async getProjects(nodeId: string): Promise<ProjectListResponse> {
-    return this.request<ProjectListResponse>(API_ENDPOINTS.MPI_PROJECTS(nodeId), { method: 'GET' });
-  }
-
-  async getProjectDetail(nodeId: string, projectId: string): Promise<ProjectDetailResponse> {
-    return this.request<ProjectDetailResponse>(
-      API_ENDPOINTS.MPI_PROJECT_DETAIL(nodeId, projectId), { method: 'GET' }
-    );
-  }
-
-  async getProjectTimeline(nodeId: string, projectId: string): Promise<ProjectTimelineResponse> {
-    return this.request<ProjectTimelineResponse>(
-      API_ENDPOINTS.MPI_PROJECT_TIMELINE(nodeId, projectId), { method: 'GET' }
-    );
-  }
-
-  async getSessionDetail(nodeId: string, sessionId: string): Promise<SessionDetailResponse> {
-    return this.request<SessionDetailResponse>(
-      API_ENDPOINTS.MPI_SESSION_DETAIL(nodeId, sessionId), { method: 'GET' }
-    );
-  }
-
-  async getSessionConversation(nodeId: string, sessionId: string): Promise<SessionConversationResponse> {
-    return this.request<SessionConversationResponse>(
-      API_ENDPOINTS.MPI_SESSION_CONVERSATION(nodeId, sessionId), { method: 'GET' }
-    );
-  }
-
-  async getSessionArtifacts(nodeId: string, sessionId: string): Promise<SessionArtifactsResponse> {
-    return this.request<SessionArtifactsResponse>(
-      API_ENDPOINTS.MPI_SESSION_ARTIFACTS(nodeId, sessionId), { method: 'GET' }
-    );
-  }
-
-  async getArtifactDetail(nodeId: string, artifactId: string): Promise<ArtifactDetailResponse> {
-    return this.request<ArtifactDetailResponse>(
-      API_ENDPOINTS.MPI_ARTIFACT_DETAIL(nodeId, artifactId), { method: 'GET' }
-    );
-  }
-
-  async getArtifactVersions(nodeId: string, artifactId: string): Promise<ArtifactVersionsResponse> {
-    return this.request<ArtifactVersionsResponse>(
-      API_ENDPOINTS.MPI_ARTIFACT_VERSIONS(nodeId, artifactId), { method: 'GET' }
-    );
-  }
-
-  async getEntities(nodeId: string): Promise<EntityListResponse> {
-    return this.request<EntityListResponse>(API_ENDPOINTS.MPI_ENTITIES(nodeId), { method: 'GET' });
-  }
-
-  async getEntityDetail(nodeId: string, entityId: string): Promise<EntityDetailResponse> {
-    return this.request<EntityDetailResponse>(
-      API_ENDPOINTS.MPI_ENTITY_DETAIL(nodeId, entityId), { method: 'GET' }
-    );
-  }
-
-  async getEntityGraph(nodeId: string, entityId: string): Promise<EntityGraphResponse> {
-    return this.request<EntityGraphResponse>(
-      API_ENDPOINTS.MPI_ENTITY_GRAPH(nodeId, entityId), { method: 'GET' }
-    );
-  }
-
-  async getEntityTimeline(nodeId: string, entityId: string): Promise<EntityTimelineResponse> {
-    return this.request<EntityTimelineResponse>(
-      API_ENDPOINTS.MPI_ENTITY_TIMELINE(nodeId, entityId), { method: 'GET' }
-    );
-  }
-
-  async getCommunities(nodeId: string): Promise<CommunityListResponse> {
-    return this.request<CommunityListResponse>(
-      API_ENDPOINTS.MPI_COMMUNITIES(nodeId), { method: 'GET' }
-    );
-  }
-
-  // ============================================
-  // MemChain MPI — SuperNode Management (v2.5.0)
-  // ============================================
-
-  async getSupernodeTasks(
-    nodeId: string,
-    options?: { status?: string; type?: string; limit?: number }
-  ): Promise<SupernodeTasksResponse> {
-    const params = new URLSearchParams();
-    if (options?.status) params.append('status', options.status);
-    if (options?.type) params.append('type', options.type);
-    if (options?.limit) params.append('limit', String(options.limit));
-    const qs = params.toString();
-    return this.request<SupernodeTasksResponse>(
-      qs
-        ? `${API_ENDPOINTS.MPI_SUPERNODE_TASKS(nodeId)}?${qs}`
-        : API_ENDPOINTS.MPI_SUPERNODE_TASKS(nodeId),
-      { method: 'GET' }
-    );
-  }
-
-  async getSupernodeTaskDetail(nodeId: string, taskId: string): Promise<SupernodeTaskDetailResponse> {
-    return this.request<SupernodeTaskDetailResponse>(
-      API_ENDPOINTS.MPI_SUPERNODE_TASK_DETAIL(nodeId, taskId), { method: 'GET' }
-    );
-  }
-
-  async retrySupernodeTask(nodeId: string, taskId: string): Promise<SupernodeTaskActionResponse> {
-    return this.request<SupernodeTaskActionResponse>(
-      API_ENDPOINTS.MPI_SUPERNODE_TASK_RETRY(nodeId, taskId),
-      { method: 'POST', body: JSON.stringify({}) }
-    );
-  }
-
-  async cancelSupernodeTask(nodeId: string, taskId: string): Promise<SupernodeTaskActionResponse> {
-    return this.request<SupernodeTaskActionResponse>(
-      API_ENDPOINTS.MPI_SUPERNODE_TASK_CANCEL(nodeId, taskId),
-      { method: 'POST', body: JSON.stringify({}) }
-    );
-  }
-
-  async getSupernodeUsage(nodeId: string, period?: string): Promise<SupernodeUsageResponse> {
-    const params = period ? `?${new URLSearchParams({ period })}` : '';
-    return this.request<SupernodeUsageResponse>(
-      `${API_ENDPOINTS.MPI_SUPERNODE_USAGE(nodeId)}${params}`,
-      { method: 'GET' }
-    );
-  }
-
-  async getSupernodeHealth(nodeId: string): Promise<SupernodeHealthResponse> {
-    return this.request<SupernodeHealthResponse>(
-      API_ENDPOINTS.MPI_SUPERNODE_HEALTH(nodeId), { method: 'GET' }
-    );
-  }
 }
 
 // ============================================

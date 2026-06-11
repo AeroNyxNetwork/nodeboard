@@ -11,8 +11,7 @@
  *       NODE_VERIFY_ACCESS
  *     New constants: NODE_VISIBILITY_CONFIG, EXPLORE_PAGE_SIZE
  *     New polling: EXPLORE_PUBLIC_NODES (60s, low frequency)
- *   v1.3.0 - Added MemChain MPI v2.4.0 + v2.5.0 endpoints
- *   v1.2.0 - Added MemChain MPI endpoints for Memory Explorer
+ *   v1.5.0 - Removed non-VPN agent/memory endpoints and websocket config
  *
  * Main Functionality: API endpoints, polling intervals, storage keys,
  *                     and application-wide configuration values
@@ -23,11 +22,9 @@
  *   because public nodes are genuinely public (no API Key required)
  * - NODE_VERIFY_ACCESS also uses skipAuth: true (anonymous users can unlock)
  * - NODE_VISIBILITY_CONFIG keys MUST match NodeVisibility type in types/index.ts
- * - MPI_RECORD endpoint takes both nodeId and recordId
- * - WS_BASE_URL updated to /ws/chat in v1.3.0
  *
- * Last Modified: v1.4.0 - Public node pool endpoints + visibility config
- * Previous: v1.3.0 - MPI v2.4.0 graph + v2.5.0 SuperNode endpoints
+ * Last Modified: v1.5.0 - VPN-only nodeboard constants
+ * Previous: v1.4.0 - Public node pool endpoints + visibility config
  * ============================================
  */
 
@@ -70,54 +67,6 @@ export const API_ENDPOINTS = {
   NODES_PUBLIC_DETAIL: (id: string) => `/nodes/public/${id}/`,
   NODE_VERIFY_ACCESS: (id: string) => `/nodes/${id}/verify_access/`,
 
-  // MemChain MPI — Core Memory (v1.2.0)
-  MPI_STATUS: (nodeId: string) => `/nodes/${nodeId}/mpi/status/`,
-  MPI_OVERVIEW: (nodeId: string) => `/nodes/${nodeId}/mpi/overview/`,
-  MPI_RECALL: (nodeId: string) => `/nodes/${nodeId}/mpi/recall/`,
-  MPI_RECALL_DETAIL: (nodeId: string) => `/nodes/${nodeId}/mpi/recall_detail/`,
-  MPI_SEARCH: (nodeId: string) => `/nodes/${nodeId}/mpi/search/`,
-  MPI_SEARCH_FTS: (nodeId: string) => `/nodes/${nodeId}/mpi/search_fts/`,
-  MPI_RECORD: (nodeId: string, recordId: string) => `/nodes/${nodeId}/mpi/record/${recordId}/`,
-  MPI_REMEMBER: (nodeId: string) => `/nodes/${nodeId}/mpi/remember/`,
-  MPI_FORGET: (nodeId: string) => `/nodes/${nodeId}/mpi/forget/`,
-  MPI_EMBED: (nodeId: string) => `/nodes/${nodeId}/mpi/embed/`,
-  MPI_CONTEXT_INJECT: (nodeId: string) => `/nodes/${nodeId}/mpi/context/`,
-
-  // MemChain MPI — Cognitive Graph (v2.4.0)
-  MPI_PROJECTS: (nodeId: string) => `/nodes/${nodeId}/mpi/projects/`,
-  MPI_PROJECT_DETAIL: (nodeId: string, projectId: string) =>
-    `/nodes/${nodeId}/mpi/projects/${projectId}/`,
-  MPI_PROJECT_TIMELINE: (nodeId: string, projectId: string) =>
-    `/nodes/${nodeId}/mpi/projects/${projectId}/timeline/`,
-  MPI_SESSION_DETAIL: (nodeId: string, sessionId: string) =>
-    `/nodes/${nodeId}/mpi/sessions/${sessionId}/`,
-  MPI_SESSION_CONVERSATION: (nodeId: string, sessionId: string) =>
-    `/nodes/${nodeId}/mpi/sessions/${sessionId}/conversation/`,
-  MPI_SESSION_ARTIFACTS: (nodeId: string, sessionId: string) =>
-    `/nodes/${nodeId}/mpi/sessions/${sessionId}/artifacts/`,
-  MPI_ARTIFACT_DETAIL: (nodeId: string, artifactId: string) =>
-    `/nodes/${nodeId}/mpi/artifacts/${artifactId}/`,
-  MPI_ARTIFACT_VERSIONS: (nodeId: string, artifactId: string) =>
-    `/nodes/${nodeId}/mpi/artifacts/${artifactId}/versions/`,
-  MPI_ENTITIES: (nodeId: string) => `/nodes/${nodeId}/mpi/entities/`,
-  MPI_ENTITY_DETAIL: (nodeId: string, entityId: string) =>
-    `/nodes/${nodeId}/mpi/entities/${entityId}/`,
-  MPI_ENTITY_GRAPH: (nodeId: string, entityId: string) =>
-    `/nodes/${nodeId}/mpi/entities/${entityId}/graph/`,
-  MPI_ENTITY_TIMELINE: (nodeId: string, entityId: string) =>
-    `/nodes/${nodeId}/mpi/entities/${entityId}/timeline/`,
-  MPI_COMMUNITIES: (nodeId: string) => `/nodes/${nodeId}/mpi/communities/`,
-
-  // MemChain MPI — SuperNode Management (v2.5.0)
-  MPI_SUPERNODE_TASKS: (nodeId: string) => `/nodes/${nodeId}/mpi/supernode/tasks/`,
-  MPI_SUPERNODE_TASK_DETAIL: (nodeId: string, taskId: string) =>
-    `/nodes/${nodeId}/mpi/supernode/tasks/${taskId}/`,
-  MPI_SUPERNODE_TASK_RETRY: (nodeId: string, taskId: string) =>
-    `/nodes/${nodeId}/mpi/supernode/tasks/${taskId}/retry/`,
-  MPI_SUPERNODE_TASK_CANCEL: (nodeId: string, taskId: string) =>
-    `/nodes/${nodeId}/mpi/supernode/tasks/${taskId}/cancel/`,
-  MPI_SUPERNODE_USAGE: (nodeId: string) => `/nodes/${nodeId}/mpi/supernode/usage/`,
-  MPI_SUPERNODE_HEALTH: (nodeId: string) => `/nodes/${nodeId}/mpi/supernode/health/`,
 } as const;
 
 // ============================================
@@ -133,8 +82,6 @@ export const POLLING_INTERVALS = {
   VPN_EVENTS: 15000,
   VPN_NODE_METRICS: 30000,
   CODES_LIST: 60000,
-  MEMORY_OVERVIEW: 60000,
-  SUPERNODE_TASKS: 5000,
   /** Public node pool — low frequency, data doesn't change rapidly */
   EXPLORE_PUBLIC_NODES: 60000,
 } as const;
@@ -144,9 +91,6 @@ export const POLLING_INTERVALS = {
 // ============================================
 
 export const STALE_TIMES = {
-  MEMORY_GRAPH: 5 * 60 * 1000,
-  MEMORY_DETAIL: 10 * 60 * 1000,
-  SUPERNODE_TASKS: 5000,
   /** Public nodes list — 30s stale, refreshes on window focus */
   PUBLIC_NODES: 30 * 1000,
 } as const;
@@ -156,23 +100,6 @@ export const STALE_TIMES = {
 // ============================================
 
 export const EXPLORE_PAGE_SIZE = 20;
-
-// ============================================
-// WebSocket Configuration
-// ============================================
-
-export const WS_BASE_URL = 'wss://api.aeronyx.network/ws/chat';
-
-export const getWsUrl = (nodeId: string, apiKey: string) =>
-  `${WS_BASE_URL}/${nodeId}/?api_key=${apiKey}`;
-
-export const WS_CONFIG = {
-  MAX_RECONNECT_ATTEMPTS: 10,
-  RECONNECT_BASE_DELAY: 1000,
-  RECONNECT_MAX_DELAY: 30000,
-  PING_INTERVAL: 25000,
-  PONG_TIMEOUT: 10000,
-} as const;
 
 // ============================================
 // Local Storage Keys
@@ -200,8 +127,6 @@ export const THEME_COLORS = {
     offline: '#6B7280',
     suspended: '#EF4444',
     warning: '#F59E0B',
-    ai_running: '#3B82F6',
-    ai_installing: '#8B5CF6',
   },
 } as const;
 
@@ -305,53 +230,6 @@ export const CODE_STATUS_CONFIG = {
 } as const;
 
 // ============================================
-// SuperNode Task Status Configuration (v2.5.0)
-// ============================================
-
-export const SUPERNODE_TASK_STATUS_CONFIG = {
-  pending: {
-    label: 'Pending',
-    bgColor: 'bg-yellow-500/20',
-    textColor: 'text-yellow-400',
-    borderColor: 'border-yellow-500/50',
-    dotColor: 'bg-yellow-400',
-    animate: true,
-  },
-  processing: {
-    label: 'Processing',
-    bgColor: 'bg-blue-500/20',
-    textColor: 'text-blue-400',
-    borderColor: 'border-blue-500/50',
-    dotColor: 'bg-blue-400',
-    animate: true,
-  },
-  completed: {
-    label: 'Completed',
-    bgColor: 'bg-emerald-500/20',
-    textColor: 'text-emerald-400',
-    borderColor: 'border-emerald-500/50',
-    dotColor: 'bg-emerald-400',
-    animate: false,
-  },
-  failed: {
-    label: 'Failed',
-    bgColor: 'bg-red-500/20',
-    textColor: 'text-red-400',
-    borderColor: 'border-red-500/50',
-    dotColor: 'bg-red-400',
-    animate: false,
-  },
-  cancelled: {
-    label: 'Cancelled',
-    bgColor: 'bg-gray-500/20',
-    textColor: 'text-gray-400',
-    borderColor: 'border-gray-500/50',
-    dotColor: 'bg-gray-400',
-    animate: false,
-  },
-} as const;
-
-// ============================================
 // Error Messages
 // ============================================
 
@@ -370,26 +248,6 @@ export const ERROR_MESSAGES = {
   // Public node pool [v1.4.0]
   EXPLORE_LOAD_FAILED: 'Failed to load nodes. Please try again.',
   VERIFY_ACCESS_FAILED: 'Invalid password. Please try again.',
-  // Memory errors (v1.2.0)
-  MEMORY_STATUS_FAILED: 'Failed to fetch memory status.',
-  MEMORY_OVERVIEW_FAILED: 'Failed to load memories.',
-  MEMORY_SEARCH_FAILED: 'Memory search failed. Please try again.',
-  MEMORY_REMEMBER_FAILED: 'Failed to create memory. Please try again.',
-  MEMORY_FORGET_FAILED: 'Failed to delete memory. Please try again.',
-  MEMORY_EDIT_FAILED: 'Failed to edit memory.',
-  MEMORY_NODE_OFFLINE: 'Node is offline. Memory management requires an online node.',
-  MEMORY_PROJECTS_FAILED: 'Failed to load projects.',
-  MEMORY_SESSION_FAILED: 'Failed to load session details.',
-  MEMORY_ENTITY_FAILED: 'Failed to load entity details.',
-  MEMORY_COMMUNITIES_FAILED: 'Failed to load communities.',
-  MEMORY_CONVERSATION_FAILED: 'Failed to load conversation replay.',
-  MEMORY_ARTIFACTS_FAILED: 'Failed to load code artifacts.',
-  // SuperNode errors (v1.3.0)
-  SUPERNODE_TASKS_FAILED: 'Failed to load SuperNode task queue.',
-  SUPERNODE_TASK_RETRY_FAILED: 'Failed to retry task.',
-  SUPERNODE_TASK_CANCEL_FAILED: 'Failed to cancel task.',
-  SUPERNODE_USAGE_FAILED: 'Failed to load usage statistics.',
-  SUPERNODE_HEALTH_FAILED: 'Failed to check SuperNode health.',
 } as const;
 
 // ============================================
@@ -406,12 +264,4 @@ export const SUCCESS_MESSAGES = {
   COPIED_TO_CLIPBOARD: 'Copied to clipboard!',
   // Public node pool [v1.4.0]
   VERIFY_ACCESS_SUCCESS: 'Access granted.',
-  // Memory messages (v1.2.0)
-  MEMORY_CREATED: 'Memory created successfully.',
-  MEMORY_DELETED: 'Memory deleted.',
-  MEMORY_UPDATED: 'Memory updated successfully.',
-  MEMORY_DUPLICATE: 'This memory already exists.',
-  // SuperNode messages (v1.3.0)
-  SUPERNODE_TASK_RETRIED: 'Task queued for retry.',
-  SUPERNODE_TASK_CANCELLED: 'Task cancelled.',
 } as const;
