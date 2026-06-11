@@ -62,6 +62,8 @@ import {
   VpnOverview,
   VpnSession,
   VpnBillingOverview,
+  VpnEventsOverview,
+  VpnEventSeverity,
   NodeWalletBan,
   NodeCommand,
   RunNodeCommandRequest,
@@ -85,6 +87,7 @@ export const nodeKeys = {
   vpnOverview: () => ['nodes', 'vpn', 'overview'] as const,
   vpnSessions: (options?: UseVpnSessionsOptions) => ['nodes', 'vpn', 'sessions', options] as const,
   vpnBilling: (options?: UseVpnBillingOptions) => ['nodes', 'vpn', 'billing', options] as const,
+  vpnEvents: (options?: UseVpnEventsOptions) => ['nodes', 'vpn', 'events', options] as const,
   walletBans: (id: string, status: 'active' | 'inactive' | 'all') =>
     ['nodes', 'wallet-bans', id, status] as const,
   commands: (id: string, options?: UseNodeCommandsOptions) =>
@@ -352,6 +355,46 @@ export function useVpnBilling(options: UseVpnBillingOptions = {}): UseVpnBilling
   };
 }
 
+export interface UseVpnEventsOptions {
+  days?: number;
+  severity?: 'all' | VpnEventSeverity;
+  type?: string;
+  nodeId?: string;
+  limit?: number;
+}
+
+interface UseVpnEventsResult {
+  events: VpnEventsOverview | null;
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  refetch: () => void;
+}
+
+export function useVpnEvents(options: UseVpnEventsOptions = {}): UseVpnEventsResult {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  const query = useQuery({
+    queryKey: nodeKeys.vpnEvents(options),
+    queryFn: async () => {
+      const res = await api.getVpnEvents(options);
+      return res.data;
+    },
+    enabled: isAuthenticated,
+    staleTime: POLLING_INTERVALS.VPN_EVENTS,
+    refetchInterval: POLLING_INTERVALS.VPN_EVENTS,
+    refetchOnWindowFocus: true,
+  });
+
+  return {
+    events: query.data ?? null,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
 interface UseNodeWalletBansResult {
   bans: NodeWalletBan[];
   count: number;
@@ -609,6 +652,10 @@ export function useRunNodeCommand() {
       });
       queryClient.invalidateQueries({
         queryKey: ['nodes', 'wallet-bans', variables.nodeId],
+        refetchType: 'all',
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['nodes', 'vpn', 'events'],
         refetchType: 'all',
       });
     },

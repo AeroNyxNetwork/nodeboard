@@ -63,6 +63,7 @@ export const API_ENDPOINTS = {
   VPN_OVERVIEW: '/vpn/overview/',
   VPN_SESSIONS: '/vpn/sessions/',
   VPN_BILLING: '/vpn/billing/',
+  VPN_EVENTS: '/vpn/events/',
 
   // Public Node Pool (no API Key required) [v1.4.0]
   NODES_PUBLIC_LIST: '/nodes/public/',
@@ -137,6 +138,7 @@ export const POLLING_INTERVALS = {
   SESSIONS_LIST: 60000,
   VPN_OVERVIEW: 30000,
   VPN_SESSIONS: 15000,
+  VPN_EVENTS: 15000,
   CODES_LIST: 60000,
   AGENT_TRANSITIONAL: 2000,
   AGENT_STABLE: 30000,

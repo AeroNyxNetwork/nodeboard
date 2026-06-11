@@ -414,6 +414,53 @@ export interface VpnAlert {
   created_at: string | null;
 }
 
+export type VpnEventSeverity = 'info' | 'warning' | 'critical';
+
+export interface VpnEvent {
+  id: string;
+  severity: VpnEventSeverity;
+  type: string;
+  title: string;
+  message: string;
+  node_id: string | null;
+  node_name: string;
+  source: 'node_health' | 'vpn_session' | 'node_command' | string;
+  created_at: string | null;
+  status: string;
+  action: string | null;
+  session_id: string | null;
+  command_id: string | null;
+  details: Record<string, unknown>;
+}
+
+export interface VpnEventsSummary {
+  total: number;
+  critical: number;
+  warning: number;
+  info: number;
+  open: number;
+}
+
+export interface VpnEventsOverview {
+  summary: VpnEventsSummary;
+  events: VpnEvent[];
+  filters: {
+    days: number;
+    severity: 'all' | VpnEventSeverity;
+    type: string;
+    node_id: string;
+    limit: number;
+    start_at: string;
+    end_at: string;
+  };
+  generated_at: string;
+}
+
+export interface VpnEventsResponse {
+  success: boolean;
+  data: VpnEventsOverview;
+}
+
 export interface VpnOverviewSummary {
   total_nodes: number;
   healthy_nodes: number;

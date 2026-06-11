@@ -57,13 +57,21 @@ queries.
     node rows, identity rows, and daily rows.
   - Exports the current table as CSV directly from the browser.
 
+- `app/dashboard/events/page.tsx`
+  - Adds Alerts / Events with filters for days, severity, type, and node.
+  - Shows open, critical, warning, and info counts plus a live event stream.
+  - Displays derived node health events, session errors/resets, command
+    failures, stuck commands, service restarts, and operator actions.
+
 - `components/dashboard/Sidebar.tsx`
   - Adds the `Traffic & Billing` navigation item at `/dashboard/billing`.
+  - Adds the `Alerts / Events` navigation item at `/dashboard/events`.
 
 - `hooks/useNodes.ts`
   - Adds `useVpnOverview()` with 30 second polling.
   - Adds `useVpnSessions()` with 15 second polling.
   - Adds `useVpnBilling()` with 30 second polling for Traffic & Billing.
+  - Adds `useVpnEvents()` with 15 second polling for Alerts / Events.
   - Adds `useNodeWalletBans()` with 15 second polling for active CMS wallet ban
     policies on the node detail page.
   - Adds `useNodeCommands()` and `useRunNodeCommand()` for node-level
@@ -77,16 +85,19 @@ queries.
   - Adds `getVpnOverview()`.
   - Adds `getVpnSessions({ status, nodeId, limit })`.
   - Adds `getVpnBilling({ days, status, nodeId })`.
+  - Adds `getVpnEvents({ days, severity, type, nodeId, limit })`.
   - Adds `getNodeCommands()` and `runNodeCommand()`.
 
 - `lib/constants.ts`
-  - Adds `VPN_OVERVIEW` and `VPN_SESSIONS` API endpoints.
+  - Adds `VPN_OVERVIEW`, `VPN_SESSIONS`, `VPN_BILLING`, and `VPN_EVENTS` API
+    endpoints.
   - Adds `NODE_COMMANDS` and `NODE_COMMAND_RUN` API endpoints.
-  - Adds polling intervals for VPN overview and session data.
+  - Adds polling intervals for VPN overview, session, and event data.
 
 - `types/index.ts`
   - Adds `VpnOverview`, `VpnNodeHealth`, `VpnAlert`, `VpnSession`, and response
     types.
+  - Adds `VpnEvent`, `VpnEventsOverview`, and `VpnEventsResponse` types.
   - Adds `NodeCommand`, `NodeCommandListResponse`, and
     `RunNodeCommandResponse` types.
 
@@ -185,6 +196,20 @@ queries.
   - Preserves the blind-voucher privacy boundary: no blinded tokens, final
     voucher tokens, signatures, destinations, DNS queries, or packet payloads
     are returned.
+
+- `/root/aeronyx/privacy_network/api/vpn_events.py`
+  - Adds owner-scoped `GET /vpn/events/`.
+  - Derives operator events from existing `Node`, `ClientSession`, and
+    `NodeCommand` state without adding a new table.
+  - Reuses the VPN observability health helpers so node health status and event
+    status stay consistent.
+  - Emits current health events for offline, stale heartbeat, overloaded, and
+    failed health checks.
+  - Emits historical events for session errors/resets and failed, timed out,
+    stuck, restart, or operator action commands.
+  - Keeps the same privacy boundary as the other VPN APIs: no packet payloads,
+    DNS contents, destination domains, destination IPs, browsing history, blind
+    tokens, or final voucher tokens.
 
 ### Rust VPN node
 
@@ -450,6 +475,72 @@ previously active sessions as `error` with `last_error` explaining the reset.
 This prevents nodeboard from showing sessions that no longer exist in node
 memory as active.
 
+### `GET /api/privacy_network/vpn/events/`
+
+Query parameters:
+
+- `days`: 1 to 90, default 7
+- `severity`: `all`, `critical`, `warning`, or `info`
+- `type`: optional event type filter
+- `node_id`: optional node UUID
+- `limit`: 1 to 500, default 200
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "summary": {
+      "total": 4,
+      "critical": 1,
+      "warning": 2,
+      "info": 1,
+      "open": 3
+    },
+    "events": [
+      {
+        "id": "node-node-uuid-offline",
+        "severity": "critical",
+        "type": "node_offline",
+        "title": "Node offline",
+        "message": "US VPN 1 has not sent a fresh heartbeat.",
+        "node_id": "node-uuid",
+        "node_name": "US VPN 1",
+        "source": "node_health",
+        "created_at": "2026-06-11T11:30:14Z",
+        "status": "open",
+        "action": null,
+        "session_id": null,
+        "command_id": null,
+        "details": {
+          "last_seen_seconds": 330,
+          "health_score": 0
+        }
+      }
+    ],
+    "filters": {
+      "days": 7,
+      "severity": "all",
+      "type": "",
+      "node_id": "",
+      "limit": 200,
+      "start_at": "2026-06-04T11:30:14Z",
+      "end_at": "2026-06-11T11:30:14Z"
+    },
+    "generated_at": "2026-06-11T11:30:14Z"
+  }
+}
+```
+
+Event sources:
+
+- `node_health`: current derived node state from the same helper used by
+  `/vpn/overview/`.
+- `vpn_session`: `ClientSession.status="error"` or non-empty `last_error`.
+- `node_command`: `NodeCommand` failures, timeouts, stale active commands,
+  service restarts, and operator actions.
+
 ### `POST /api/privacy_network/nodes/{id}/commands/run/`
 
 Authenticated with the existing nodeboard API key and node ownership check.
@@ -566,6 +657,11 @@ nodeboard Traffic & Billing
   -> aggregate ClientSession traffic by node, identity, and day
   -> attach owner quota, daily voucher allowance, and voucher issue counts
   -> browser exports current table as CSV
+
+nodeboard Alerts / Events
+  -> GET /vpn/events/?days=7&severity=all
+  -> backend derives events from current node health, ClientSession errors, and NodeCommand audits
+  -> operator sees offline/degraded/overloaded nodes, session resets, command failures, and operator actions
 ```
 
 ## M1 Verification
@@ -653,6 +749,20 @@ compatibility; if CMS sends an empty list, Rust clears only active
   - `npm run type-check`
   - `npm run build`
   - `/dashboard/billing` is included in the build output and the sidebar links
+    to it.
+
+## M4 Alerts / Events Verification
+
+- API backend:
+  - `python -m py_compile privacy_network/api/vpn_events.py privacy_network/urls.py`
+  - `python manage.py check`
+  - Smoke test: `GET /api/privacy_network/vpn/events/?days=7&severity=all`
+    returns `summary`, `events`, `filters`, and `generated_at`.
+
+- nodeboard:
+  - `npm run type-check`
+  - `npm run build`
+  - `/dashboard/events` is included in the build output and the sidebar links
     to it.
 
 ## M3 Refresh Config Verification

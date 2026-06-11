@@ -71,6 +71,7 @@ import {
   VpnOverviewResponse,
   VpnSessionListResponse,
   VpnBillingOverviewResponse,
+  VpnEventsResponse,
   NodeWalletBanListResponse,
   NodeCommandListResponse,
   RunNodeCommandRequest,
@@ -433,6 +434,30 @@ class ApiClient {
       ? `${API_ENDPOINTS.VPN_BILLING}?${qs}`
       : API_ENDPOINTS.VPN_BILLING;
     return this.request<VpnBillingOverviewResponse>(endpoint, { method: 'GET' });
+  }
+
+  async getVpnEvents(
+    options?: {
+      days?: number;
+      severity?: 'all' | 'info' | 'warning' | 'critical';
+      type?: string;
+      nodeId?: string;
+      limit?: number;
+    }
+  ): Promise<VpnEventsResponse> {
+    const params = new URLSearchParams();
+    if (options?.days) params.append('days', String(options.days));
+    if (options?.severity && options.severity !== 'all') {
+      params.append('severity', options.severity);
+    }
+    if (options?.type) params.append('type', options.type);
+    if (options?.nodeId) params.append('node_id', options.nodeId);
+    if (options?.limit) params.append('limit', String(options.limit));
+    const qs = params.toString();
+    const endpoint = qs
+      ? `${API_ENDPOINTS.VPN_EVENTS}?${qs}`
+      : API_ENDPOINTS.VPN_EVENTS;
+    return this.request<VpnEventsResponse>(endpoint, { method: 'GET' });
   }
 
   async getNodeWalletBans(
