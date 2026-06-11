@@ -248,11 +248,12 @@ function SessionTable({ rows }: { rows: VpnBillingSessionRow[] }) {
   if (!rows.length) return <EmptyTable label="No session traffic matches these filters." />;
   return (
     <DataTable
-      headers={['Session', 'Identity', 'Node', 'Status', 'Traffic', 'Duration', 'Last Activity', 'Quality']}
+      headers={['Session', 'VIP', 'Identity', 'Node', 'Status', 'Traffic', 'Duration', 'Last Activity', 'Quality']}
       rows={rows.map((row) => {
         const lastActivity = row.last_rx_at || row.last_tx_at || row.updated_at;
         return [
           row.session_id,
+          row.virtual_ip || 'pending',
           row.wallet_short || 'unknown',
           row.node_name,
           row.status,

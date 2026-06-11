@@ -697,6 +697,7 @@ export interface VpnBillingDailyRow {
 export interface VpnBillingSessionRow {
   session_id: string;
   voucher_id: string;
+  virtual_ip: string;
   client_wallet: string;
   wallet_short: string;
   node_id: string;

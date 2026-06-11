@@ -50,6 +50,9 @@ queries.
   - Displays stored `last_rx_at`, `last_tx_at`, and packet-loss telemetry from
     the API. Displays Rust-reported `rtt_ms` once the in-tunnel keepalive probe
     receives an ICMP Echo Reply from the session's assigned virtual IP.
+  - Displays Rust-reported tunnel `virtual_ip` so operators can identify the
+    affected in-tunnel address without exposing browsing destinations or public
+    client IPs.
   - Shows backend-derived tunnel quality (`healthy`, `degraded`, `stale`,
     `error`, `pending`, or `completed`), quality score, and first degraded
     reason so operators can triage a bad session without reading raw counters.
@@ -81,7 +84,7 @@ queries.
   - Adds Traffic & Billing with filters for days, node, and session status.
   - Adds wallet/session search backed by the billing API `q` parameter.
   - Shows traffic, session, monthly quota, voucher time, voucher issue count,
-    node rows, identity rows, session rows, and daily rows.
+    node rows, identity rows, session rows with tunnel VIP, and daily rows.
   - Exports the current table as CSV directly from the browser.
   - Keeps the privacy boundary visible in the UI. Voucher attribution is
     represented by a reserved `voucher_id` field until voucher IDs are stored
@@ -183,6 +186,9 @@ queries.
     and replay-window rejection totals.
 
 - `/root/aeronyx/privacy_network/models.py`
+  - Stores `ClientSession.virtual_ip`, the tunnel-local address assigned by
+    the Rust node. This is operational metadata only, not a destination IP,
+    DNS record, packet payload, browsing history, or public client IP.
   - Extends `NodeHeartbeat` with privacy-safe extended metrics:
     `net_rx_bytes`, `net_tx_bytes`, `memory_total_mb`, `cpu_count`, and
     `vpn_health_status`, enabling trend charts without storing destinations,
@@ -197,10 +203,13 @@ queries.
   - Allows Rust nodes to submit `session_traffic_snapshot` reports in addition
     to created, updated, and ended events.
   - Accepts optional quality telemetry on session reports.
+  - Accepts optional `virtual_ip` on session reports.
 
 - `/root/aeronyx/privacy_network/services/session_service.py`
   - Adds cumulative snapshot upsert handling so Rust session snapshots do not
     double-count bytes when a report is retried.
+  - Persists `virtual_ip` from session created, snapshot, and final reports
+    when the Rust node includes it.
   - Treats `session_ended` as a final cumulative snapshot, then completes the
     session and updates node totals once.
   - Adds node-level session interruption handling for Rust process resets.
@@ -319,6 +328,8 @@ queries.
     `session_traffic_snapshot` as cumulative byte totals.
   - Includes stored RTT samples from session stats in `session_traffic_snapshot`
     and final `session_ended` reports.
+  - Carries optional session `virtual_ip` through created, traffic snapshot,
+    and ended reports.
   - Synchronizes CMS `operator_bans` into the runtime `DenyList` before the
     legacy membership enforcement gate, so operator controls remain active
     while voucher auth is authoritative.
@@ -401,6 +412,8 @@ queries.
 - `/root/a/AeroNyx/crates/aeronyx-server/src/server.rs`
   - Converts session stats snapshots into privacy-minimal quality telemetry for
     periodic traffic snapshots and final session-ended reports.
+  - Adds the assigned `session.virtual_ip` to session created and traffic
+    snapshot reports.
   - Injects the shared `DenyList` into `CommandHandler` so nodeboard operations
     and handshake enforcement use the same runtime control plane.
   - Injects the shared `NodePolicyRuntime` into `HeartbeatReporter`,
@@ -501,7 +514,7 @@ Response shape:
       "node_id": "node-uuid",
       "node_name": "US VPN 1",
       "client_wallet": "wallet-or-voucher-transport-id",
-      "virtual_ip": "",
+      "virtual_ip": "100.64.0.2",
       "voucher_id": "",
       "bytes_in": 1024,
       "bytes_out": 2048,
