@@ -243,6 +243,10 @@ queries.
     failed health checks.
   - Emits historical events for session errors/resets and failed, timed out,
     stuck, restart, or operator action commands.
+  - Emits current `session_degraded` and `session_stale` warnings by reusing
+    the same session quality classification returned by `/vpn/sessions/`.
+    Event details include RTT, packet loss, quality score, degraded reason, and
+    last activity age.
   - Keeps the same privacy boundary as the other VPN APIs: no packet payloads,
     DNS contents, destination domains, destination IPs, browsing history, blind
     tokens, or final voucher tokens.
@@ -697,7 +701,8 @@ Event sources:
 
 - `node_health`: current derived node state from the same helper used by
   `/vpn/overview/`.
-- `vpn_session`: `ClientSession.status="error"` or non-empty `last_error`.
+- `vpn_session`: `ClientSession.status="error"`, non-empty `last_error`, or
+  active sessions whose derived tunnel quality is `degraded` or `stale`.
 - `node_command`: `NodeCommand` failures, timeouts, stale active commands,
   service restarts, and operator actions.
 
@@ -926,6 +931,9 @@ compatibility; if CMS sends an empty list, Rust clears only active
   - `python manage.py check`
   - Smoke test: `GET /api/privacy_network/vpn/events/?days=7&severity=all`
     returns `summary`, `events`, `filters`, and `generated_at`.
+  - Smoke test: active degraded/stale VPN sessions appear as
+    `session_degraded` or `session_stale` events with operational-only details:
+    quality status, score, reason, RTT, packet loss, and last activity age.
 
 - nodeboard:
   - `npm run type-check`
