@@ -16,9 +16,8 @@
  *   - Implementation notes: docs/vpn-observability-mvp.md
  *
  * Implementation Notes:
- *   - M1 uses existing backend NodeHeartbeat and ClientSession records, so RTT,
- *     packet loss, and exact RX/TX timestamps are shown as pending until M2
- *     Rust telemetry lands.
+ *   - Session quality is classified by the backend from Rust-reported
+ *     last_rx_at, last_tx_at, RTT, packet-loss, and replay-window counters.
  *   - The UI intentionally shows operational metadata only. It must not display
  *     traffic destinations, DNS queries, packet payloads, or browsing history.
  *
@@ -30,7 +29,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useRunNodeCommand, useVpnOverview, useVpnSessions } from '@/hooks/useNodes';
-import { VpnHealthStatus, VpnNodeHealth, VpnSession } from '@/types';
+import { SessionQualityStatus, VpnHealthStatus, VpnNodeHealth, VpnSession } from '@/types';
 import { formatBytes, formatDuration, formatRelativeTime, truncateAddress } from '@/lib/api';
 import Card, { EmptyState, LoadingCard, StatCard } from '@/components/common/Card';
 import Button from '@/components/common/Button';
@@ -96,6 +95,49 @@ function SessionStatusBadge({ status }: { status: VpnSession['status'] }) {
   return (
     <span className={`inline-flex items-center px-2 py-1 rounded-full border text-xs font-medium ${styles[status]}`}>
       {status}
+    </span>
+  );
+}
+
+const sessionQualityStyles: Record<SessionQualityStatus, { label: string; badge: string; dot: string }> = {
+  healthy: {
+    label: 'Healthy',
+    badge: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    dot: 'bg-emerald-400',
+  },
+  degraded: {
+    label: 'Degraded',
+    badge: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30',
+    dot: 'bg-yellow-400',
+  },
+  stale: {
+    label: 'Stale',
+    badge: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+    dot: 'bg-orange-400',
+  },
+  error: {
+    label: 'Error',
+    badge: 'bg-red-500/15 text-red-300 border-red-500/30',
+    dot: 'bg-red-400',
+  },
+  pending: {
+    label: 'Pending',
+    badge: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
+    dot: 'bg-slate-400',
+  },
+  completed: {
+    label: 'Completed',
+    badge: 'bg-gray-500/15 text-gray-300 border-gray-500/30',
+    dot: 'bg-gray-400',
+  },
+};
+
+function SessionQualityBadge({ status }: { status: SessionQualityStatus }) {
+  const style = sessionQualityStyles[status] || sessionQualityStyles.pending;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full border text-xs font-medium ${style.badge}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+      {style.label}
     </span>
   );
 }
@@ -289,13 +331,25 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
                   </div>
                 </td>
                 <td className="px-4 py-4 text-gray-300">
-                  {formatMetric(session.rtt_ms, ' ms')}
-                  <div className="text-xs text-gray-500">
-                    loss {formatMetric(session.packet_loss, '%')}
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2">
+                      <SessionQualityBadge status={session.quality_status} />
+                      {session.quality_score !== null ? (
+                        <span className="text-xs text-gray-500">{session.quality_score}/100</span>
+                      ) : null}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      RTT {formatMetric(session.rtt_ms, ' ms')} · loss {formatMetric(session.packet_loss, '%')}
+                    </div>
+                    {session.degraded_reason ? (
+                      <div className="max-w-[260px] truncate text-xs text-yellow-300" title={session.degraded_reason}>
+                        {session.degraded_reason}
+                      </div>
+                    ) : null}
                   </div>
                 </td>
                 <td className="px-5 py-4 text-gray-400">
-                  {formatMaybeTime(session.last_rx_at || session.last_tx_at)}
+                  {formatMaybeTime(session.last_activity_at || session.last_rx_at || session.last_tx_at)}
                 </td>
                 <td className="px-5 py-4 text-right">
                   {session.status === 'active' ? (

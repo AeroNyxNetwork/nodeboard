@@ -499,6 +499,8 @@ export interface VpnOverviewResponse {
   data: VpnOverview;
 }
 
+export type SessionQualityStatus = 'healthy' | 'degraded' | 'stale' | 'error' | 'pending' | 'completed';
+
 export interface VpnSession {
   id: string;
   session_id: string;
@@ -519,6 +521,12 @@ export interface VpnSession {
   rtt_ms: number | null;
   packet_loss: number | null;
   last_error: string;
+  quality_status: SessionQualityStatus;
+  quality_score: number | null;
+  degraded_reason: string;
+  quality_reasons: string[];
+  last_activity_at: string | null;
+  last_activity_age_seconds: number | null;
 }
 
 export interface VpnSessionListResponse {

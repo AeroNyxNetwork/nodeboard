@@ -33,6 +33,9 @@ queries.
   - Displays stored `last_rx_at`, `last_tx_at`, and packet-loss telemetry from
     the API. Displays Rust-reported `rtt_ms` once the in-tunnel keepalive probe
     receives an ICMP Echo Reply from the session's assigned virtual IP.
+  - Shows backend-derived tunnel quality (`healthy`, `degraded`, `stale`,
+    `error`, `pending`, or `completed`), quality score, and first degraded
+    reason so operators can triage a bad session without reading raw counters.
   - Adds a `Kick` operation for active sessions. The button queues a
     `kick_session` command through the CMS instead of calling the node directly.
   - Adds a guarded `Ban Wallet` operation for active sessions. The backend
@@ -132,6 +135,10 @@ queries.
   - Returns stored session quality fields from M2: `last_rx_at`, `last_tx_at`,
     `rtt_ms`, and `packet_loss`. If `packet_loss` has not been stored, it can
     estimate a percentage from packet/replay rejection counters.
+  - Derives per-session `quality_status`, `quality_score`,
+    `degraded_reason`, `quality_reasons`, and `last_activity_at` from
+    operational counters only: status, last RX/TX timestamps, RTT, packet loss,
+    and replay-window rejection totals.
 
 - `/root/aeronyx/privacy_network/models.py`
   - Extends `ClientSession` with stored VPN quality telemetry:
@@ -448,7 +455,13 @@ Response shape:
       "last_tx_at": "2026-06-11T11:02:00Z",
       "rtt_ms": null,
       "packet_loss": 0.5,
-      "last_error": "node runtime reset; previous in-memory VPN sessions were marked stale by heartbeat recovery"
+      "last_error": "node runtime reset; previous in-memory VPN sessions were marked stale by heartbeat recovery",
+      "quality_status": "degraded",
+      "quality_score": 75,
+      "degraded_reason": "RTT is high at 320.4 ms",
+      "quality_reasons": ["RTT is high at 320.4 ms"],
+      "last_activity_at": "2026-06-11T11:02:00Z",
+      "last_activity_age_seconds": 8
     }
   ],
   "count": 1
@@ -1010,6 +1023,10 @@ compatibility; if CMS sends an empty list, Rust clears only active
     quality fields.
   - Smoke test: heartbeat runtime id change marks stale active sessions as
     `error` and exposes the interruption reason through VPN session API.
+  - Smoke test: active sessions expose `quality_status`, `quality_score`,
+    `degraded_reason`, `quality_reasons`, and `last_activity_at` from
+    `/vpn/sessions/` without exposing destinations, DNS contents, packet
+    payloads, or browsing history.
 
 - Rust VPN node:
   - `cargo check -p aeronyx-server`
@@ -1025,6 +1042,8 @@ compatibility; if CMS sends an empty list, Rust clears only active
 - nodeboard:
   - VPN Operations table renders `last_error` below the session status, so reset
     recovery reasons are visible without SSH.
+  - VPN Operations table renders tunnel quality badges, score, RTT/loss, and
+    first degraded reason in the Quality column.
 
 ## M2 Backlog
 
