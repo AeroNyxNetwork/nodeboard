@@ -60,6 +60,23 @@ const healthStyles: Record<VpnHealthStatus, { label: string; badge: string; dot:
   },
 };
 
+const healthCheckLabels: Record<string, string> = {
+  heartbeat: 'Heartbeat',
+  resource_load: 'Resource Load',
+  traffic_counters: 'Traffic Counters',
+  udp_listener: 'UDP Listener',
+  tun_device: 'TUN Device',
+  ip_forward: 'IP Forwarding',
+  nat_masquerade: 'NAT Masquerade',
+  dns_stub: 'DNS Stub',
+  dns_query: 'DNS Query',
+  internet_egress: 'Internet Egress',
+};
+
+function formatHealthCheckName(name: string): string {
+  return healthCheckLabels[name] || name.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function HealthBadge({ status }: { status: VpnHealthStatus }) {
   const style = healthStyles[status];
   return (
@@ -185,7 +202,7 @@ function NodeHealthTable({ nodes }: { nodes: VpnNodeHealth[] }) {
                       <div className="space-y-1">
                         {failedChecks.slice(0, 2).map((check) => (
                           <div key={check.name} className="text-xs text-yellow-300">
-                            {check.name}: {check.detail}
+                            {formatHealthCheckName(check.name)}: {check.detail}
                           </div>
                         ))}
                       </div>

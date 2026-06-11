@@ -111,6 +111,23 @@ const VPN_HEALTH_CONFIG: Record<VpnHealthStatus, {
   },
 };
 
+const HEALTH_CHECK_LABELS: Record<string, string> = {
+  heartbeat: 'Heartbeat',
+  resource_load: 'Resource Load',
+  traffic_counters: 'Traffic Counters',
+  udp_listener: 'UDP Listener',
+  tun_device: 'TUN Device',
+  ip_forward: 'IP Forwarding',
+  nat_masquerade: 'NAT Masquerade',
+  dns_stub: 'DNS Stub',
+  dns_query: 'DNS Query',
+  internet_egress: 'Internet Egress',
+};
+
+function formatHealthCheckName(name: string): string {
+  return HEALTH_CHECK_LABELS[name] || name.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 // ============================================
 // Toast Component
 // ============================================
@@ -562,6 +579,7 @@ function VpnHealthPanel({
           </div>
           <p className="text-sm text-gray-500">
             Live tunnel diagnostics from {health.system.source === 'cache' ? 'heartbeat cache' : 'sample fallback'}.
+            {health.system.vpn_health_checked_at ? ` VPN checks ran ${formatRelativeTime(new Date(health.system.vpn_health_checked_at * 1000).toISOString())}.` : ''}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -640,7 +658,7 @@ function VpnHealthPanel({
             `}
           >
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-medium text-white">{check.name}</span>
+              <span className="text-sm font-medium text-white">{formatHealthCheckName(check.name)}</span>
               <span className={check.ok ? 'text-xs text-emerald-300' : 'text-xs text-yellow-300'}>
                 {check.ok ? 'ok' : 'attention'}
               </span>

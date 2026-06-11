@@ -122,8 +122,11 @@ queries.
     heartbeat cadence instead of the lower-frequency DB sampling cadence.
   - Derives `health_status` as `healthy`, `degraded`, `offline`, or
     `overloaded`.
-  - Emits node health checks for heartbeat freshness, node online state, and
-    resource load.
+  - Emits node health checks for heartbeat freshness, resource load, traffic
+    counters, and Rust-reported VPN checks: UDP listener, TUN device, IPv4
+    forwarding, NAT masquerade, DNS stub, DNS query, and Internet egress.
+  - Marks a fresh node as `degraded` when Rust reports failed local VPN checks,
+    so operators can distinguish "heartbeat alive" from "VPN path broken".
   - Emits operational alerts from derived node health.
   - Returns stored session quality fields from M2: `last_rx_at`, `last_tx_at`,
     `rtt_ms`, and `packet_loss`. If `packet_loss` has not been stored, it can
@@ -242,6 +245,8 @@ queries.
   - Existing heartbeat sender already reports `system_stats.cpu_usage`,
     `system_stats.memory_mb`, `system_stats.active_sessions`, node version,
     binary hash, `connected_wallets`, and `traffic_delta`.
+  - Adds `system_stats.vpn_health` to the signed heartbeat body. The payload is
+    privacy-safe local node diagnostics only.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/management/reporter.rs`
   - Existing heartbeat reporter already collects connected wallets and drains
@@ -258,6 +263,17 @@ queries.
   - Updates the shared runtime `NodePolicyRuntime` on each heartbeat so
     nodeboard Settings can affect handshake and packet paths without SSH or
     service restart.
+  - Runs the injected VPN health probe before each heartbeat and passes the
+    result into the signed CMS heartbeat payload.
+
+- `/root/a/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs`
+  - Exposes local `GET /api/vpn/health` and the reusable
+    `collect_vpn_health_value()` heartbeat collector.
+  - Checks UDP listener, TUN device, IPv4 forwarding, NAT masquerade, DNS
+    listener, DNS query, and TCP Internet egress.
+  - Reports only node-local diagnostics and aggregate counters; it never
+    includes user destination IPs, destination domains, DNS query contents,
+    packet payloads, or browsing history.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/management/client.rs`
   - Adds `runtime_id` and `runtime_started_at` to signed heartbeat
@@ -370,6 +386,8 @@ Each `nodes[]` item includes:
   `last_seen_seconds`, `checks[]`
 - load: `system.cpu_usage`, `system.memory_mb`, `system.memory_total_mb`,
   `system.cpu_count`, `system.source`
+- VPN health: `system.vpn_health_status`, `system.vpn_health_checked_at`, and
+  detailed `checks[]` entries for UDP/TUN/NAT/DNS/egress
 - traffic counters: `system.net_rx_bytes`, `system.net_tx_bytes`,
   `traffic_in_mb`, `traffic_out_mb`
 - session counters: `active_sessions`, `total_sessions`,
@@ -899,6 +917,13 @@ compatibility; if CMS sends an empty list, Rust clears only active
   - `cargo check -p aeronyx-server`
   - Heartbeat reporter applies CMS `next_heartbeat_in` by rebuilding its tokio
     interval and logs `node_policy`.
+  - Local `GET /api/vpn/health` returns `status="ok"` with checks:
+    `udp_listener`, `tun_device`, `ip_forward`, `nat_masquerade`, `dns_stub`,
+    `dns_query`, and `internet_egress`.
+  - Backend heartbeat cache includes `vpn_health.status="ok"` and the seven
+    Rust health check entries after one heartbeat cycle.
+  - Backend `_node_payload()` returns the Rust VPN checks in nodeboard
+    `checks[]`.
   - `cargo build -p aeronyx-server --release`
   - `systemctl restart aeronyx-server`
   - `systemctl is-active aeronyx-server` returns `active`.

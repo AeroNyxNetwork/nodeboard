@@ -412,6 +412,8 @@ export interface VpnNodeHealth {
     reported_active_sessions: number | null;
     runtime_id?: string | null;
     runtime_started_at?: string | null;
+    vpn_health_status?: 'ok' | 'degraded' | 'failed' | string | null;
+    vpn_health_checked_at?: number | null;
   };
   checks: VpnHealthCheck[];
 }
