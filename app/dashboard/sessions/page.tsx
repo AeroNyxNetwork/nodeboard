@@ -65,6 +65,7 @@ const healthCheckLabels: Record<string, string> = {
   traffic_counters: 'Traffic Counters',
   udp_listener: 'UDP Listener',
   tun_device: 'TUN Device',
+  mtu_config: 'MTU Config',
   ip_forward: 'IP Forwarding',
   nat_masquerade: 'NAT Masquerade',
   dns_stub: 'DNS Stub',

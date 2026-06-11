@@ -127,8 +127,9 @@ queries.
   - Derives `health_status` as `healthy`, `degraded`, `offline`, or
     `overloaded`.
   - Emits node health checks for heartbeat freshness, resource load, traffic
-    counters, and Rust-reported VPN checks: UDP listener, TUN device, IPv4
-    forwarding, NAT masquerade, DNS stub, DNS query, and Internet egress.
+    counters, and Rust-reported VPN checks: UDP listener, TUN device, MTU
+    config, IPv4 forwarding, NAT masquerade, DNS stub, DNS query, and Internet
+    egress.
   - Marks a fresh node as `degraded` when Rust reports failed local VPN checks,
     so operators can distinguish "heartbeat alive" from "VPN path broken".
   - Emits operational alerts from derived node health.
@@ -283,8 +284,11 @@ queries.
 - `/root/a/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs`
   - Exposes local `GET /api/vpn/health` and the reusable
     `collect_vpn_health_value()` heartbeat collector.
-  - Checks UDP listener, TUN device, IPv4 forwarding, NAT masquerade, DNS
-    listener, DNS query, and TCP Internet egress.
+  - Checks UDP listener, TUN device, TUN MTU config, IPv4 forwarding, NAT
+    masquerade, DNS listener, DNS query, and TCP Internet egress.
+  - Includes `configured_mtu` and a `mtu_config` check that compares the
+    running Linux TUN MTU with Rust config and the recommended Internet VPN
+    range.
   - Reports only node-local diagnostics and aggregate counters; it never
     includes user destination IPs, destination domains, DNS query contents,
     packet payloads, or browsing history.
@@ -416,7 +420,7 @@ Each `nodes[]` item includes:
 - load: `system.cpu_usage`, `system.memory_mb`, `system.memory_total_mb`,
   `system.cpu_count`, `system.source`
 - VPN health: `system.vpn_health_status`, `system.vpn_health_checked_at`, and
-  detailed `checks[]` entries for UDP/TUN/NAT/DNS/egress
+  detailed `checks[]` entries for UDP/TUN/MTU/NAT/DNS/egress
 - traffic counters: `system.net_rx_bytes`, `system.net_tx_bytes`,
   `traffic_in_mb`, `traffic_out_mb`
 - session counters: `active_sessions`, `total_sessions`,
@@ -961,9 +965,9 @@ compatibility; if CMS sends an empty list, Rust clears only active
   - Heartbeat reporter applies CMS `next_heartbeat_in` by rebuilding its tokio
     interval and logs `node_policy`.
   - Local `GET /api/vpn/health` returns `status="ok"` with checks:
-    `udp_listener`, `tun_device`, `ip_forward`, `nat_masquerade`, `dns_stub`,
-    `dns_query`, and `internet_egress`.
-  - Backend heartbeat cache includes `vpn_health.status="ok"` and the seven
+    `udp_listener`, `tun_device`, `mtu_config`, `ip_forward`,
+    `nat_masquerade`, `dns_stub`, `dns_query`, and `internet_egress`.
+  - Backend heartbeat cache includes `vpn_health.status="ok"` and the eight
     Rust health check entries after one heartbeat cycle.
   - Backend `_node_payload()` returns the Rust VPN checks in nodeboard
     `checks[]`.
@@ -1060,7 +1064,6 @@ be considered commercial-grade:
 
 - tunnel degraded reason
 - automatic reconnect events
-- MTU probe results
 
 These should continue to be added as stored telemetry rather than inferred from
 generic session `updated_at`.
