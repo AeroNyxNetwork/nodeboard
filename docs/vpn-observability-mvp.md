@@ -253,6 +253,8 @@ queries.
   - Registers `GET /api/privacy_network/vpn/sessions/`.
   - Registers `GET /api/privacy_network/vpn/nodes/<id>/metrics/`.
   - Registers `POST /api/privacy_network/nodes/<id>/commands/run/`.
+  - Removes legacy non-VPN agent lifecycle routes from the exposed backend API
+    while keeping VPN command list/run/cancel routes registered.
 
 - `/root/aeronyx/privacy_network/api/agent.py`
   - Adds `RunNodeCommandView` for owner-authenticated non-destructive
@@ -276,6 +278,12 @@ queries.
     stored in `NodeCommand.result`.
   - Treats `vpn` / `node` command status reports as command-only updates for
     the VPN operations console.
+  - Removes legacy non-VPN lifecycle views so nodeboard cannot call install,
+    start, stop, restart, uninstall, or generic agent status APIs.
+
+- `/root/aeronyx/privacy_network/api/heartbeat.py`
+  - Ignores legacy status heartbeat payloads so stale non-VPN agent state
+    cannot reappear through node heartbeat processing.
 
 - `/root/aeronyx/privacy_network/models.py`
   - Adds `NodeWalletBan`, the CMS source of truth for operator-managed wallet
@@ -965,6 +973,9 @@ nodeboard Settings
 - nodeboard:
   - `npm run type-check`
   - `npm run build`
+  - Backend cleanup smoke: legacy owner lifecycle routes resolve to 404, while
+    `/nodes/<id>/commands/`, `/nodes/<id>/commands/run/`, and
+    `/node/agent/status` still resolve to the VPN command views.
 
 ## M3 Verification
 
