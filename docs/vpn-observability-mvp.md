@@ -41,6 +41,8 @@ queries.
     and tunnel counters without requiring the operator to leave the node page.
   - Adds safe `System Info` and `Collect Logs` command buttons plus recent VPN
     command history.
+  - Adds `Refresh Config`, which queues a bounded `refresh_config` command for
+    the node to validate and summarize its management configuration without SSH.
   - Adds a guarded `Restart VPN` operation that requires browser confirmation
     and queues a CMS `restart_service` command.
 
@@ -122,9 +124,11 @@ queries.
   - Adds `RunNodeCommandView` for owner-authenticated non-destructive
     operations commands.
   - Allows `system_info`, `collect_logs`, and the bounded control action
-    `kick_session`, plus guarded `restart_service`.
+    `kick_session`, plus `refresh_config` and guarded `restart_service`.
   - Validates `kick_session` against the target node and requires the session to
     still be active before the command is queued.
+  - Rewrites `refresh_config` params to fixed `scope="management"` so callers
+    cannot provide arbitrary local paths or shell arguments.
   - Validates `restart_service` with `confirm="restart"` and rewrites params so
     the node can only restart the fixed `aeronyx-server` service.
   - Increases command status message size so short diagnostic summaries can be
@@ -174,6 +178,10 @@ queries.
   - Adds `kick_session`, which parses the CMS-provided base64 session id,
     removes that session from `SessionManager`, and emits a final
     `session_ended` report with cumulative traffic/quality counters.
+  - Adds `refresh_config`, which validates the running management config and
+    summarizes the fixed node binding file. This creates the nodeboard control
+    path for future centralized policy refresh without exposing SSH or arbitrary
+    file reads.
   - Adds `restart_service`, which reports the command audit status first and
     then schedules a delayed restart of the fixed `aeronyx-server` systemd
     service. The delayed restart lets the CMS store command completion before
@@ -296,6 +304,10 @@ Allowed actions:
   UDP listeners, and IPv4 forwarding state.
 - `collect_logs`: collects a short redacted `journalctl` tail for the VPN
   service.
+- `refresh_config`: validates the Rust node's current management config and
+  fixed node binding file, then records a sanitized summary in command history.
+  The backend strips caller-provided params and the node does not accept custom
+  file paths.
 - `kick_session`: removes one active VPN session from the Rust node. The backend
   only queues this command when the session belongs to the requested node and is
   still active.
@@ -346,7 +358,7 @@ nodeboard Node Detail
   -> POST /nodes/{id}/commands/run/
   -> CommandService Redis + DB queue
   -> Rust heartbeat command dispatch
-  -> CommandHandler executes read-only diagnostic or schedules restart_service
+  -> CommandHandler executes diagnostic, refresh_config, or restart_service
   -> signed POST /node/agent/status/
   -> NodeCommand history visible in nodeboard
 
@@ -391,6 +403,25 @@ nodeboard VPN Sessions
   - `python manage.py check`
   - Smoke test: `kick_session` refuses missing session ids, refuses inactive or
     cross-node sessions, and queues only active sessions on the requested node.
+
+- Rust VPN node:
+  - `cargo check -p aeronyx-server`
+  - `cargo build -p aeronyx-server --release`
+  - `systemctl restart aeronyx-server`
+  - `systemctl is-active aeronyx-server`
+
+- nodeboard:
+  - `npm run type-check`
+  - `npm run build`
+
+## M3 Refresh Config Verification
+
+- API backend:
+  - `python -m py_compile privacy_network/models.py privacy_network/api/agent.py`
+  - `python manage.py check`
+  - Smoke test: `refresh_config` queues with sanitized
+    `{"scope": "management", "source": "nodeboard_vpn_operations"}` params even
+    if the caller attempts to pass another path or scope.
 
 - Rust VPN node:
   - `cargo check -p aeronyx-server`

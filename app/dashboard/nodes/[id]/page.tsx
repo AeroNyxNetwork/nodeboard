@@ -445,19 +445,28 @@ function VpnHealthPanel({
   const vpnCommands = commands.filter((command) =>
     command.action === 'system_info' ||
     command.action === 'collect_logs' ||
+    command.action === 'refresh_config' ||
     command.action === 'restart_service'
   );
 
-  const handleRunCommand = async (action: 'system_info' | 'collect_logs') => {
+  const handleRunCommand = async (action: 'system_info' | 'collect_logs' | 'refresh_config') => {
+    const priority = action === 'collect_logs' ? 10 : action === 'refresh_config' ? 3 : 5;
+    const successMessage =
+      action === 'system_info'
+        ? 'System diagnostics queued'
+        : action === 'collect_logs'
+          ? 'Log collection queued'
+          : 'Config refresh queued';
+
     try {
       await runCommand.mutateAsync({
         nodeId,
         data: {
           action,
-          priority: action === 'system_info' ? 5 : 10,
+          priority,
         },
       });
-      onToast(action === 'system_info' ? 'System diagnostics queued' : 'Log collection queued');
+      onToast(successMessage);
     } catch (error) {
       onToast(error instanceof Error ? error.message : 'Failed to queue command', 'error');
     }
@@ -567,6 +576,14 @@ function VpnHealthPanel({
             onClick={() => handleRunCommand('collect_logs')}
           >
             Collect Logs
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={runCommand.isPending}
+            onClick={() => handleRunCommand('refresh_config')}
+          >
+            Refresh Config
           </Button>
           <Button
             variant="danger"
