@@ -1200,6 +1200,53 @@ compatibility; if CMS sends an empty list, Rust clears only active
   - VPN Operations table renders tunnel quality badges, score, RTT/loss, and
     first degraded reason in the Quality column.
 
+## M5 Policy Audit Events
+
+Settings changes are now stored as first-class VPN operator audit records and
+shown through the existing Alerts / Events API.
+
+- `/root/aeronyx/privacy_network/models.py`
+  - Adds `NodePolicyAudit`, stored in
+    `privacy_network_node_policy_audits`.
+  - Records only commercial VPN policy fields:
+    `visibility`, `region_code`, `city`, `is_vpn_node`, `node_tier`,
+    `maintenance_mode`, `max_sessions`, `bandwidth_limit_mbps`, and
+    `heartbeat_interval_seconds`.
+  - Stores `changes` as `{field: {old, new}}`, plus a final `snapshot` of the
+    node policy after save.
+  - Does not store `access_password`, packet payloads, DNS contents,
+    destination IPs, domains, or browsing history.
+
+- `/root/aeronyx/privacy_network/api/nodes.py`
+  - `NodeDetailView.patch()` captures policy values before save and creates a
+    `NodePolicyAudit` row only when submitted policy fields actually changed.
+  - `changed_by` is the authenticated node operator and `source` is
+    `nodeboard_settings`.
+
+- `/root/aeronyx/privacy_network/api/vpn_events.py`
+  - Adds `node_policy_changed` events from `NodePolicyAudit`.
+  - Event details include `audit_id`, `changed_fields`, `changes`, `snapshot`,
+    `changed_by_wallet`, and `source`.
+
+nodeboard Settings
+  -> PATCH /nodes/{id}/ operator policy fields
+  -> backend stores NodePolicyAudit
+  -> GET /vpn/events/?type=node_policy_changed
+  -> nodeboard Alerts / Events shows who changed which VPN policy
+
+## M5 Policy Audit Verification
+
+- API backend:
+  - `python -m py_compile privacy_network/models.py privacy_network/api/nodes.py privacy_network/api/vpn_events.py privacy_network/migrations/0011_nodepolicyaudit.py`
+  - `python manage.py migrate privacy_network`
+  - `python manage.py check`
+  - Smoke test: owner `PATCH /nodes/<id>/` changing `city` created two audit
+    rows during change/revert.
+  - Smoke test: `GET /vpn/events/?days=1&type=node_policy_changed&limit=5`
+    returned `node_policy_changed` events with `node_policy` source and
+    details keys `audit_id`, `changed_by_wallet`, `changed_fields`, `changes`,
+    `snapshot`, and `source`.
+
 ## M2 Backlog
 
 The following fields still need protocol or control-plane work before they can
