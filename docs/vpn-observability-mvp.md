@@ -32,6 +32,8 @@ queries.
     table.
   - Displays stored `last_rx_at`, `last_tx_at`, and packet-loss telemetry from
     the API. RTT remains `pending` until keepalive ACK telemetry is added.
+  - Adds a `Kick` operation for active sessions. The button queues a
+    `kick_session` command through the CMS instead of calling the node directly.
 
 - `app/dashboard/nodes/[id]/page.tsx`
   - Adds a per-node VPN Health panel to the node detail page.
@@ -45,6 +47,8 @@ queries.
   - Adds `useVpnSessions()` with 15 second polling.
   - Adds `useNodeCommands()` and `useRunNodeCommand()` for node-level
     operations history and enqueue mutations.
+  - Invalidates VPN overview and session queries after node commands so kicked
+    sessions disappear from the active view after the node reports completion.
   - Keeps authentication gating consistent with existing owner-only hooks.
 
 - `lib/api.ts`
@@ -115,7 +119,10 @@ queries.
 - `/root/aeronyx/privacy_network/api/agent.py`
   - Adds `RunNodeCommandView` for owner-authenticated non-destructive
     operations commands.
-  - Currently allows only `system_info` and `collect_logs`.
+  - Allows `system_info`, `collect_logs`, and the bounded control action
+    `kick_session`.
+  - Validates `kick_session` against the target node and requires the session to
+    still be active before the command is queued.
   - Increases command status message size so short diagnostic summaries can be
     stored in `NodeCommand.result`.
   - Treats `vpn` / `node` command status reports as command-only updates, so
@@ -160,6 +167,9 @@ queries.
   - Reports VPN diagnostics as `agent_type="vpn"` through the existing signed
     command status endpoint; OpenClaw lifecycle commands still report as
     `agent_type="openclaw"`.
+  - Adds `kick_session`, which parses the CMS-provided base64 session id,
+    removes that session from `SessionManager`, and emits a final
+    `session_ended` report with cumulative traffic/quality counters.
 
 ## API Contract
 
@@ -278,6 +288,9 @@ Allowed actions:
   UDP listeners, and IPv4 forwarding state.
 - `collect_logs`: collects a short redacted `journalctl` tail for the VPN
   service.
+- `kick_session`: removes one active VPN session from the Rust node. The backend
+  only queues this command when the session belongs to the requested node and is
+  still active.
 
 Response shape:
 
@@ -325,6 +338,15 @@ nodeboard Node Detail
   -> CommandHandler executes read-only diagnostic
   -> signed POST /node/agent/status/
   -> NodeCommand history visible in nodeboard
+
+nodeboard VPN Sessions
+  -> POST /nodes/{id}/commands/run/ action=kick_session
+  -> CommandService Redis + DB queue
+  -> Rust heartbeat command dispatch
+  -> SessionManager.remove(session_id)
+  -> signed session_ended report
+  -> ClientSession leaves active view
+  -> signed command status audit
 ```
 
 ## M1 Verification
@@ -346,6 +368,24 @@ nodeboard Node Detail
 
 - Rust VPN node:
   - `cargo check -p aeronyx-server`
+
+- nodeboard:
+  - `npm run type-check`
+  - `npm run build`
+
+## M3 Kick Session Verification
+
+- API backend:
+  - `python -m py_compile privacy_network/models.py privacy_network/api/agent.py`
+  - `python manage.py check`
+  - Smoke test: `kick_session` refuses missing session ids, refuses inactive or
+    cross-node sessions, and queues only active sessions on the requested node.
+
+- Rust VPN node:
+  - `cargo check -p aeronyx-server`
+  - `cargo build -p aeronyx-server --release`
+  - `systemctl restart aeronyx-server`
+  - `systemctl is-active aeronyx-server`
 
 - nodeboard:
   - `npm run type-check`

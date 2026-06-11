@@ -523,6 +523,10 @@ export function useRunNodeCommand() {
         queryKey: nodeKeys.vpnOverview(),
         refetchType: 'all',
       });
+      queryClient.invalidateQueries({
+        queryKey: ['nodes', 'vpn', 'sessions'],
+        refetchType: 'all',
+      });
     },
   });
 }

@@ -29,7 +29,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { useVpnOverview, useVpnSessions } from '@/hooks/useNodes';
+import { useRunNodeCommand, useVpnOverview, useVpnSessions } from '@/hooks/useNodes';
 import { VpnHealthStatus, VpnNodeHealth, VpnSession } from '@/types';
 import { formatBytes, formatDuration, formatRelativeTime, truncateAddress } from '@/lib/api';
 import Card, { EmptyState, LoadingCard, StatCard } from '@/components/common/Card';
@@ -204,7 +204,13 @@ function NodeHealthTable({ nodes }: { nodes: VpnNodeHealth[] }) {
   );
 }
 
-function SessionTable({ sessions }: { sessions: VpnSession[] }) {
+interface SessionTableProps {
+  sessions: VpnSession[];
+  kickingSessionId: string | null;
+  onKickSession: (session: VpnSession) => void;
+}
+
+function SessionTable({ sessions, kickingSessionId, onKickSession }: SessionTableProps) {
   if (sessions.length === 0) {
     return (
       <EmptyState
@@ -218,7 +224,7 @@ function SessionTable({ sessions }: { sessions: VpnSession[] }) {
   return (
     <Card variant="default" padding="none">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1040px] text-sm">
+        <table className="w-full min-w-[1160px] text-sm">
           <thead className="text-xs uppercase text-gray-500 bg-white/[0.02]">
             <tr>
               <th className="text-left font-medium px-5 py-3">Session</th>
@@ -229,6 +235,7 @@ function SessionTable({ sessions }: { sessions: VpnSession[] }) {
               <th className="text-left font-medium px-4 py-3">Traffic</th>
               <th className="text-left font-medium px-4 py-3">Quality</th>
               <th className="text-left font-medium px-5 py-3">Last Activity</th>
+              <th className="text-right font-medium px-5 py-3">Operations</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
@@ -271,6 +278,21 @@ function SessionTable({ sessions }: { sessions: VpnSession[] }) {
                 <td className="px-5 py-4 text-gray-400">
                   {formatMaybeTime(session.last_rx_at || session.last_tx_at)}
                 </td>
+                <td className="px-5 py-4 text-right">
+                  {session.status === 'active' ? (
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      isLoading={kickingSessionId === session.id}
+                      disabled={Boolean(kickingSessionId)}
+                      onClick={() => onKickSession(session)}
+                    >
+                      Kick
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-gray-600">-</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -282,9 +304,12 @@ function SessionTable({ sessions }: { sessions: VpnSession[] }) {
 
 export default function SessionsPage() {
   const [statusFilter, setStatusFilter] = useState<SessionFilter>('active');
+  const [kickingSessionId, setKickingSessionId] = useState<string | null>(null);
+  const [operationMessage, setOperationMessage] = useState<string>('');
   const { overview, isLoading: overviewLoading, isError: overviewError, refetch: refetchOverview } = useVpnOverview();
   const { sessions, isLoading: sessionsLoading, isError: sessionsError, refetch: refetchSessions } =
     useVpnSessions({ status: statusFilter, limit: 300 });
+  const runCommand = useRunNodeCommand();
 
   const sortedNodes = useMemo(() => {
     const order: Record<VpnHealthStatus, number> = {
@@ -308,6 +333,32 @@ export default function SessionsPage() {
     refetchSessions();
   };
 
+  const handleKickSession = async (session: VpnSession) => {
+    setKickingSessionId(session.id);
+    setOperationMessage('');
+
+    try {
+      await runCommand.mutateAsync({
+        nodeId: session.node_id,
+        data: {
+          action: 'kick_session',
+          params: {
+            session_id: session.session_id,
+            reason: 'operator_kick',
+          },
+          priority: 1,
+        },
+      });
+      setOperationMessage(`Kick queued for ${truncateAddress(session.session_id, 8)}`);
+      refetchOverview();
+      refetchSessions();
+    } catch (error) {
+      setOperationMessage(error instanceof Error ? error.message : 'Failed to queue kick command');
+    } finally {
+      setKickingSessionId(null);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -325,6 +376,12 @@ export default function SessionsPage() {
       {overviewError || sessionsError ? (
         <Card variant="outline" padding="md" className="mb-6 border-red-500/30">
           <div className="text-sm text-red-300">VPN observability data is unavailable.</div>
+        </Card>
+      ) : null}
+
+      {operationMessage ? (
+        <Card variant="outline" padding="md" className="mb-6">
+          <div className="text-sm text-gray-300">{operationMessage}</div>
         </Card>
       ) : null}
 
@@ -407,7 +464,11 @@ export default function SessionsPage() {
           {[...Array(4)].map((_, i) => <LoadingCard key={i} />)}
         </div>
       ) : (
-        <SessionTable sessions={sessions} />
+        <SessionTable
+          sessions={sessions}
+          kickingSessionId={kickingSessionId}
+          onKickSession={handleKickSession}
+        />
       )}
     </div>
   );
