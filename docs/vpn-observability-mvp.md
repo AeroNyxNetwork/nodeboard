@@ -86,6 +86,9 @@ queries.
   - Displays command lifecycle timing (`queued`, `sent`, `acked`, `done`) so
     operators can see whether a command is still in CMS, dispatched by
     heartbeat, acknowledged by Rust, or complete.
+  - Renders structured command results for `system_info`, `collect_logs`, and
+    other VPN operations so operators can read diagnostics and bounded log
+    tails directly in nodeboard.
   - Adds Wallet Ban Policies, an active policy table backed by
     `GET /nodes/<id>/wallet_bans/`, with copy and unban controls.
 

@@ -458,6 +458,93 @@ function commandMessage(command: NodeCommand) {
   return 'Waiting for the node heartbeat to pick up this command.';
 }
 
+function parseCommandResult(command: NodeCommand) {
+  const text = commandMessage(command);
+  const lines = text.split('\n');
+  const firstLine = lines[0]?.trim() || '';
+  const logMatch = firstLine.match(/^recent_logs\(([^)]+)\):$/);
+
+  if (logMatch) {
+    return {
+      kind: 'logs' as const,
+      title: `Recent logs (${logMatch[1]})`,
+      summary: command.status === 'completed' ? 'Log tail collected from the VPN service.' : firstLine,
+      pairs: [] as Array<{ key: string; value: string }>,
+      body: lines.slice(1).join('\n').trim(),
+    };
+  }
+
+  const pairs: Array<{ key: string; value: string }> = [];
+  const bodyLines: string[] = [];
+
+  for (const line of lines) {
+    const match = line.match(/^([A-Za-z0-9_(). -]{2,48}):\s*(.*)$/);
+    if (match) {
+      pairs.push({
+        key: match[1].replace(/_/g, ' ').trim(),
+        value: match[2].trim() || 'empty',
+      });
+    } else if (line.trim()) {
+      bodyLines.push(line);
+    }
+  }
+
+  return {
+    kind: pairs.length > 0 ? 'diagnostics' as const : 'message' as const,
+    title: pairs.length > 0 ? 'Diagnostic Result' : 'Command Result',
+    summary: firstLine,
+    pairs,
+    body: bodyLines.join('\n').trim(),
+  };
+}
+
+function CommandResultPanel({ command }: { command: NodeCommand }) {
+  const parsed = parseCommandResult(command);
+
+  return (
+    <div className="mt-3 rounded-xl border border-white/5 bg-black/20 overflow-hidden">
+      <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between gap-3">
+        <span className="text-xs font-medium text-gray-300">{parsed.title}</span>
+        {command.result?.timestamp ? (
+          <span className="text-[11px] text-gray-600">
+            node time {String(command.result.timestamp)}
+          </span>
+        ) : null}
+      </div>
+
+      {parsed.kind === 'logs' ? (
+        <div>
+          <p className="px-3 pt-2 text-xs text-gray-500">{parsed.summary}</p>
+          <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words px-3 pb-3 text-xs text-gray-400 font-mono">
+            {parsed.body || 'No log lines returned.'}
+          </pre>
+        </div>
+      ) : (
+        <div className="p-3 space-y-3">
+          {parsed.pairs.length > 0 ? (
+            <div className="grid sm:grid-cols-2 gap-2">
+              {parsed.pairs.map((item) => (
+                <div key={`${item.key}-${item.value}`} className="rounded-lg bg-white/[0.03] border border-white/5 px-2 py-1.5">
+                  <p className="text-[11px] uppercase text-gray-600">{item.key}</p>
+                  <p className="mt-1 text-xs text-gray-300 whitespace-pre-wrap break-words font-mono">{item.value}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400 whitespace-pre-wrap break-words">{parsed.summary}</p>
+          )}
+
+          {parsed.body ? (
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-white/[0.03] border border-white/5 p-2 text-xs text-gray-500 font-mono">
+              {parsed.body}
+            </pre>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function commandLabel(command: NodeCommand) {
   const labels: Record<string, string> = {
     system_info: 'System diagnostics',
@@ -932,9 +1019,7 @@ function VpnHealthPanel({
                     )}
                   </div>
                 </div>
-                <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words text-xs text-gray-400 font-mono">
-                  {commandMessage(command)}
-                </pre>
+                <CommandResultPanel command={command} />
                 <CommandLifecycle command={command} />
               </div>
             ))}
