@@ -1209,6 +1209,45 @@ compatibility; if CMS sends an empty list, Rust clears only active
   - VPN Operations table renders tunnel quality badges, score, RTT/loss, and
     first degraded reason in the Quality column.
 
+## M5 Traffic Anomaly Events
+
+Traffic anomaly events are derived from aggregate VPN counters and session
+statistics. They intentionally avoid packet payloads, DNS contents,
+destination domains, destination IPs, or browsing history.
+
+- `/root/aeronyx/privacy_network/api/vpn_events.py`
+  - Adds `bandwidth_limit_pressure` events from adjacent
+    `NodeHeartbeat.net_rx_bytes` / `net_tx_bytes` cumulative samples.
+  - Compares observed node throughput against `Node.bandwidth_limit_mbps`.
+  - Adds `session_traffic_anomaly` events when a session average throughput is
+    near the configured limit, or replay-window rejection counters cross the
+    warning threshold.
+  - Event details include operational fields only: `observed_mbps`,
+    `bandwidth_limit_mbps`, `rx_delta_bytes`, `tx_delta_bytes`,
+    `average_mbps`, `total_bytes`, `duration_seconds`, `replay_rejections`,
+    `too_old_rejections`, `client_wallet`, `session_id`, and `virtual_ip`.
+
+node heartbeat samples
+  -> aggregate RX/TX delta
+  -> GET /vpn/events/?type=bandwidth_limit_pressure
+  -> nodeboard Alerts / Events shows traffic pressure without exposing
+     destination data
+
+session traffic stats
+  -> GET /vpn/events/?type=session_traffic_anomaly
+  -> operator sees which session/wallet is affected and why
+
+## M5 Traffic Anomaly Verification
+
+- API backend:
+  - `python -m py_compile privacy_network/api/vpn_events.py`
+  - `python manage.py check`
+  - Smoke test: temporary heartbeat counter samples with a 1 Mbps node limit
+    returned one `bandwidth_limit_pressure` event from source `traffic`.
+  - Smoke test response details included `bandwidth_limit_mbps`,
+    `observed_mbps`, `limit_ratio`, `interval_seconds`, `rx_delta_bytes`,
+    `tx_delta_bytes`, and `privacy_boundary`.
+
 ## M5 Policy Audit Events
 
 Settings changes are now stored as first-class VPN operator audit records and
