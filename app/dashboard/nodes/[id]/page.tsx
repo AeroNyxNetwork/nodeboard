@@ -618,6 +618,32 @@ function formatBitsPerSecond(value: number | null | undefined) {
   return `${Math.round(value)} bps`;
 }
 
+function formatBandwidthLimit(limitMbps: number | null | undefined) {
+  if (typeof limitMbps !== 'number' || !Number.isFinite(limitMbps) || limitMbps <= 0) return 'Unlimited';
+  return `${limitMbps.toLocaleString()} Mbps`;
+}
+
+function bandwidthLimitBps(limitMbps: number | null | undefined) {
+  if (typeof limitMbps !== 'number' || !Number.isFinite(limitMbps) || limitMbps <= 0) return 0;
+  return limitMbps * 1_000_000;
+}
+
+function formatLimitUsage(peakBps: number | null | undefined, limitMbps: number | null | undefined) {
+  const limitBps = bandwidthLimitBps(limitMbps);
+  if (!limitBps) return 'no cap';
+  if (typeof peakBps !== 'number' || !Number.isFinite(peakBps)) return 'pending';
+  return `${Math.min(999, (peakBps / limitBps) * 100).toFixed(1)}%`;
+}
+
+function bandwidthPressureClass(peakBps: number | null | undefined, limitMbps: number | null | undefined, drops: number) {
+  const limitBps = bandwidthLimitBps(limitMbps);
+  if (!limitBps) return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+  if (drops > 0) return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  if (typeof peakBps !== 'number' || !Number.isFinite(peakBps)) return 'border-white/5 bg-white/[0.02]';
+  if (peakBps >= limitBps * 0.9) return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+}
+
 function commandStatusClass(status: string) {
   if (status === 'completed') return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25';
   if (status === 'failed' || status === 'timeout') return 'bg-red-500/15 text-red-300 border-red-500/25';
@@ -934,6 +960,91 @@ function NodeMetricsTrendPanel({
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+function BandwidthLimitPanel({
+  health,
+  metrics,
+  isLoading,
+}: {
+  health: VpnNodeHealth;
+  metrics: VpnNodeMetrics | null;
+  isLoading: boolean;
+}) {
+  const enforcement = health.system.policy_enforcement;
+  const policySync = health.system.policy_sync;
+  const configuredLimit = health.bandwidth_limit_mbps;
+  const runtimeLimit = policySync?.runtime?.bandwidth_limit_mbps ?? null;
+  const peakBps = metrics?.summary.peak_total_bps ?? null;
+  const drops = policyCount(enforcement?.bandwidth_drops);
+  const pressureClass = bandwidthPressureClass(peakBps, configuredLimit, drops);
+  const syncStatus = policySync?.status || 'unknown';
+  const runtimeMismatch = bandwidthLimitBps(configuredLimit) !== bandwidthLimitBps(runtimeLimit);
+
+  if (isLoading) {
+    return (
+      <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.02] p-4">
+        <div className="animate-pulse grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[...Array(4)].map((_, index) => (
+            <div key={index} className="h-16 rounded-lg bg-white/5" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`mt-5 rounded-xl border p-4 ${pressureClass}`}>
+      <div className="mb-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+        <div>
+          <h4 className="text-sm font-semibold text-white">Bandwidth Limit</h4>
+          <p className="text-xs text-gray-500 mt-1">
+            Node-wide cap from Settings, enforced by the Rust packet path when non-zero.
+          </p>
+        </div>
+        <div className={drops > 0 || runtimeMismatch ? 'text-sm font-semibold text-yellow-300' : 'text-sm font-semibold text-emerald-300'}>
+          {drops > 0 ? `${drops} drops` : runtimeMismatch ? 'sync pending' : 'clear'}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
+          <p className="text-[11px] uppercase text-gray-600">Configured Cap</p>
+          <p className="text-base font-semibold text-white mt-1">{formatBandwidthLimit(configuredLimit)}</p>
+          <p className="text-[11px] text-gray-600 mt-0.5">nodeboard policy</p>
+        </div>
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
+          <p className="text-[11px] uppercase text-gray-600">Rust Runtime</p>
+          <p className={`text-base font-semibold mt-1 ${runtimeMismatch ? 'text-yellow-200' : 'text-white'}`}>
+            {runtimeLimit === null ? 'pending' : formatBandwidthLimit(runtimeLimit)}
+          </p>
+          <p className="text-[11px] text-gray-600 mt-0.5">policy {syncStatus}</p>
+        </div>
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
+          <p className="text-[11px] uppercase text-gray-600">24h Peak</p>
+          <p className="text-base font-semibold text-white mt-1">{formatBitsPerSecond(peakBps)}</p>
+          <p className="text-[11px] text-gray-600 mt-0.5">{metrics?.sample_count ?? 0} samples</p>
+        </div>
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
+          <p className="text-[11px] uppercase text-gray-600">Peak / Cap</p>
+          <p className={`text-base font-semibold mt-1 ${
+            drops > 0 || (bandwidthLimitBps(configuredLimit) > 0 && typeof peakBps === 'number' && peakBps >= bandwidthLimitBps(configuredLimit) * 0.9)
+              ? 'text-yellow-200'
+              : 'text-white'
+          }`}>
+            {formatLimitUsage(peakBps, configuredLimit)}
+          </p>
+          <p className="text-[11px] text-gray-600 mt-0.5">{drops} packet drops</p>
+        </div>
+      </div>
+
+      {runtimeMismatch ? (
+        <p className="mt-3 text-xs text-yellow-300">
+          Runtime bandwidth cap has not matched nodeboard policy yet. Wait for the next heartbeat or queue Refresh Config.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -1285,6 +1396,7 @@ function VpnHealthPanel({
       </div>
 
       <NodeMetricsTrendPanel metrics={metrics} isLoading={metricsLoading} />
+      <BandwidthLimitPanel health={health} metrics={metrics} isLoading={metricsLoading} />
       <PolicyEnforcementPanel health={health} />
 
       <div className="mt-5 grid md:grid-cols-2 gap-3">

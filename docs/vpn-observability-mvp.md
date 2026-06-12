@@ -123,6 +123,11 @@ queries.
   - Shows Policy Enforcement counters from Rust heartbeat health, including
     maintenance rejections, max-session rejections, bandwidth drops, last
     rejection reason, and last rejection time.
+  - Adds a Bandwidth Limit panel in VPN Health, combining the nodeboard
+    configured `bandwidth_limit_mbps`, Rust runtime policy snapshot, 24h peak
+    throughput from sampled heartbeats, peak-versus-cap usage, policy sync
+    status, and Rust-reported bandwidth packet drops so operators can verify
+    whether a commercial node cap is active without SSH.
   - Shows Policy Sync from Rust heartbeat health, comparing the nodeboard
     desired policy with the node's runtime policy snapshot so operators know
     whether tier, maintenance mode, max sessions, bandwidth cap, and heartbeat
