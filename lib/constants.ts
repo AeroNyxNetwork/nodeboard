@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized configuration and constants
  * Modification Reason:
+ *   v1.5.2 - Added VPN server placement endpoint for operator failover view.
  *   v1.5.1 - Removed public discovery endpoints and polling constants.
  *   v1.5.0 - Focused endpoints and polling on VPN operations
  *
@@ -16,7 +17,7 @@
  * ⚠️ Important Note for Next Developer:
  * - NODE_VISIBILITY_CONFIG keys MUST match NodeVisibility type in types/index.ts
  *
- * Last Modified: v1.5.1 - Removed public discovery constants
+ * Last Modified: v1.5.2 - Operator VPN placement constants
  * Previous: v1.4.0 - Public node pool endpoints + visibility config
  * ============================================
  */
@@ -53,6 +54,7 @@ export const API_ENDPOINTS = {
   VPN_SESSIONS: '/vpn/sessions/',
   VPN_BILLING: '/vpn/billing/',
   VPN_EVENTS: '/vpn/events/',
+  VPN_SERVERS: '/vpn/servers/',
   VPN_NODE_METRICS: (id: string) => `/vpn/nodes/${id}/metrics/`,
 
 } as const;
@@ -68,6 +70,7 @@ export const POLLING_INTERVALS = {
   VPN_OVERVIEW: 30000,
   VPN_SESSIONS: 15000,
   VPN_EVENTS: 15000,
+  VPN_SERVERS: 30000,
   VPN_NODE_METRICS: 30000,
   CODES_LIST: 60000,
 } as const;

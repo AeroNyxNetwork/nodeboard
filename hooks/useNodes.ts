@@ -5,6 +5,8 @@
  * File Path: hooks/useNodes.ts
  *
  * Modification Reason:
+ *   v1.5.2 - Added authenticated VPN server placement hook for operator
+ *     failover visibility.
  *   v1.5.1 - Removed public discovery hooks so nodeboard remains an operator
  *     management console.
  *   v1.1.0 - Added auth guard (enabled: isAuthenticated) to all owner hooks.
@@ -27,7 +29,7 @@
 * - useUpdateNode now accepts NodeUpdateRequest — do NOT revert to narrow type
 * - staleTime: Infinity on owner hooks = manual refetch only
  *
- * Last Modified: v1.5.1 - Removed public discovery hooks
+ * Last Modified: v1.5.2 - Operator VPN placement hook
  * Previous: v1.1.0 - Auth guard on all owner hooks
  * ============================================
  */
@@ -53,6 +55,7 @@ import {
   VpnBillingOverview,
   VpnEventsOverview,
   VpnEventSeverity,
+  VpnServerCandidate,
   NodeWalletBan,
   NodeCommand,
   RunNodeCommandRequest,
@@ -74,6 +77,7 @@ export const nodeKeys = {
   sessions: (id: string, options?: UseNodeSessionsOptions) =>
     ['nodes', 'sessions', id, options] as const,
   vpnOverview: () => ['nodes', 'vpn', 'overview'] as const,
+  vpnServers: () => ['nodes', 'vpn', 'servers'] as const,
   vpnNodeMetrics: (id: string, hours: number) => ['nodes', 'vpn', 'metrics', id, hours] as const,
   vpnSessions: (options?: UseVpnSessionsOptions) => ['nodes', 'vpn', 'sessions', options] as const,
   vpnBilling: (options?: UseVpnBillingOptions) => ['nodes', 'vpn', 'billing', options] as const,
@@ -259,6 +263,43 @@ export function useVpnOverview(): UseVpnOverviewResult {
 
   return {
     overview: query.data ?? null,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
+interface UseVpnServersResult {
+  servers: VpnServerCandidate[];
+  total: number;
+  available: number;
+  online: number;
+  generatedAt: string | null;
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  refetch: () => void;
+}
+
+export function useVpnServers(): UseVpnServersResult {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  const query = useQuery({
+    queryKey: nodeKeys.vpnServers(),
+    queryFn: async () => api.getVpnServers(),
+    enabled: isAuthenticated,
+    staleTime: POLLING_INTERVALS.VPN_SERVERS,
+    refetchInterval: POLLING_INTERVALS.VPN_SERVERS,
+    refetchOnWindowFocus: true,
+  });
+
+  return {
+    servers: query.data?.servers ?? query.data?.data ?? [],
+    total: query.data?.total ?? 0,
+    available: query.data?.available ?? 0,
+    online: query.data?.online ?? 0,
+    generatedAt: query.data?.generated_at ?? null,
     isLoading: query.isLoading,
     isError: query.isError,
     error: query.error,

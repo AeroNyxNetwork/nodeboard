@@ -480,6 +480,44 @@ export interface VpnOverviewResponse {
   data: VpnOverview;
 }
 
+export interface VpnServerCandidate {
+  id: string;
+  name: string;
+  address: string | null;
+  port: number;
+  country: string;
+  country_name: string;
+  flag: string;
+  latency: number | null;
+  available: boolean;
+  load: number | null;
+  health_status: VpnHealthStatus | 'maintenance' | string;
+  health_score: number;
+  unavailable_reason: string | null;
+  capacity_remaining: number | null;
+  availability_24h_percent: number | null;
+  availability_sample_count: number;
+  availability_last_gap_seconds: number | null;
+  availability_gap_threshold_seconds: number | null;
+  maintenance_mode: boolean;
+  node_tier: 'public' | 'premium' | string;
+  max_sessions: number;
+  bandwidth_limit_mbps: number;
+  protocol: string;
+  last_seen: string | null;
+  current_sessions: number;
+  failover_rank: number | null;
+}
+
+export interface VpnServerListResponse {
+  servers: VpnServerCandidate[];
+  data: VpnServerCandidate[];
+  total: number;
+  online: number;
+  available: number;
+  generated_at: string;
+}
+
 export interface VpnNodeMetricPoint {
   timestamp: string;
   cpu_usage: number | null;

@@ -44,6 +44,12 @@ queries.
     triage without starting from SSH or a generic node card.
 
 - `app/dashboard/nodes/page.tsx`
+  - Adds a Client Placement panel backed by `GET /vpn/servers/`, showing the
+    backend failover rank, available candidate count, hidden-address state,
+    unavailable reason, load, active sessions, and 24h availability for public
+    VPN candidates.
+  - Lets operators see which nodes clients will actually receive from the
+    centralized failover policy before they open SSH or inspect client logs.
   - Adds a dense VPN Node Operations table above the existing node cards.
   - Shows region, IP/port, version, health status, health score, 24h
     availability, active sessions, CPU, memory, and last heartbeat age.
@@ -214,6 +220,9 @@ queries.
 
 - `hooks/useNodes.ts`
   - Adds `useVpnOverview()` with 30 second polling.
+  - Adds `useVpnServers()` with 30 second polling for the authenticated Client
+    Placement panel. This consumes the backend server candidate endpoint as
+    operator failover visibility; it does not restore node unlock flows.
   - Adds `useVpnSessions()` with 15 second polling.
   - Exposes VPN session `count`, `filteredCount`, `qualitySummary`, and
     backend filters so the Sessions page can show affected tunnel cohorts
@@ -236,6 +245,9 @@ queries.
 
 - `lib/api.ts`
   - Adds `getVpnOverview()`.
+  - Adds `getVpnServers()` for the authenticated Client Placement panel so
+    nodeboard can show backend failover candidates, ranks, and unavailable
+    reasons.
   - Adds `getVpnNodeMetrics(nodeId, { hours })`.
   - Adds `getVpnSessions({ status, nodeId, limit })`.
   - Adds `getVpnBilling({ days, status, nodeId, q })`.
@@ -254,8 +266,8 @@ queries.
     history.
 
 - `lib/constants.ts`
-  - Adds `VPN_OVERVIEW`, `VPN_SESSIONS`, `VPN_BILLING`, and `VPN_EVENTS` API
-    endpoints.
+  - Adds `VPN_OVERVIEW`, `VPN_SESSIONS`, `VPN_BILLING`, `VPN_EVENTS`, and
+    `VPN_SERVERS` API endpoints.
   - Adds `VPN_NODE_METRICS` for `GET /vpn/nodes/<id>/metrics/`.
   - Adds `NODE_COMMANDS`, `NODE_COMMAND_RUN`, and `NODE_COMMAND_CANCEL` API
     endpoints.
@@ -266,6 +278,9 @@ queries.
 - `types/index.ts`
   - Adds `VpnOverview`, `VpnNodeHealth`, `VpnAlert`, `VpnSession`, and response
     types.
+  - Adds `VpnServerCandidate` and `VpnServerListResponse` for backend failover
+    candidates, including `failover_rank`, `unavailable_reason`,
+    `availability_24h_percent`, and `availability_gap_threshold_seconds`.
   - Adds `VpnNodeMetrics` and `VpnNodeMetricPoint` types for sampled CPU,
     memory, sessions, bandwidth, and heartbeat validity history.
   - Adds `VpnEvent`, `VpnEventsOverview`, and `VpnEventsResponse` types.

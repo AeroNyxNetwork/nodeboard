@@ -6,6 +6,8 @@
  *
  * Creation Reason: Centralized API client for all backend communications
  * Modification Reason:
+ *   v1.5.2 - Added authenticated VPN server placement call for operator
+ *     failover visibility.
  *   v1.5.1 - Removed public discovery/unlock client calls so nodeboard stays
  *     focused on authenticated VPN operator management.
  *   v1.5.0 - Focused client methods on VPN operations
@@ -32,7 +34,7 @@
  *   when the caller doesn't intend to change the password.
  * - getNonce and login MUST use skipAuth: true
  *
- * Last Modified: v1.5.1 - Removed public discovery API surface
+ * Last Modified: v1.5.2 - Operator VPN placement API
  * Previous: v1.4.0 - Public node pool methods + NodeUpdateRequest type
  * ============================================
  */
@@ -54,6 +56,7 @@ import {
   VpnSessionListResponse,
   VpnBillingOverviewResponse,
   VpnEventsResponse,
+  VpnServerListResponse,
   NodeWalletBanListResponse,
   NodeCommandListResponse,
   RunNodeCommandRequest,
@@ -358,6 +361,10 @@ class ApiClient {
       ? `${API_ENDPOINTS.VPN_EVENTS}?${qs}`
       : API_ENDPOINTS.VPN_EVENTS;
     return this.request<VpnEventsResponse>(endpoint, { method: 'GET' });
+  }
+
+  async getVpnServers(): Promise<VpnServerListResponse> {
+    return this.request<VpnServerListResponse>(API_ENDPOINTS.VPN_SERVERS, { method: 'GET' });
   }
 
   async getNodeWalletBans(

@@ -12,8 +12,8 @@
 
 import React, { useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useNodes, useDeleteNode, useVpnOverview } from '@/hooks/useNodes';
-import { Node, NodeStatus, VpnHealthStatus, VpnNodeHealth } from '@/types';
+import { useNodes, useDeleteNode, useVpnOverview, useVpnServers } from '@/hooks/useNodes';
+import { Node, NodeStatus, VpnHealthStatus, VpnNodeHealth, VpnServerCandidate } from '@/types';
 import { formatRelativeTime } from '@/lib/api';
 import Button from '@/components/common/Button';
 import Card, { EmptyState } from '@/components/common/Card';
@@ -208,6 +208,126 @@ function VpnHealthBadge({ status }: { status: VpnHealthStatus }) {
   );
 }
 
+function formatPlacementReason(reason: string | null | undefined) {
+  if (!reason) return 'candidate';
+  const labels: Record<string, string> = {
+    heartbeat_stale: 'heartbeat stale',
+    maintenance_mode: 'maintenance',
+    max_sessions_reached: 'session cap reached',
+    vpn_health_failed: 'VPN health failed',
+    overloaded: 'overloaded',
+    low_24h_availability: 'low 24h availability',
+  };
+  return labels[reason] || reason.replace(/_/g, ' ');
+}
+
+function placementStatusClass(server: VpnServerCandidate) {
+  if (server.available) return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25';
+  if (server.unavailable_reason === 'maintenance_mode') {
+    return 'bg-yellow-500/15 text-yellow-300 border-yellow-500/25';
+  }
+  return 'bg-red-500/15 text-red-300 border-red-500/25';
+}
+
+function ClientPlacementPanel({
+  servers,
+  isLoading,
+  total,
+  available,
+}: {
+  servers: VpnServerCandidate[];
+  isLoading: boolean;
+  total: number;
+  available: number;
+}) {
+  if (isLoading) {
+    return (
+      <Card variant="default" padding="md" className="mb-6">
+        <div className="animate-pulse space-y-3">
+          <div className="h-4 w-44 rounded bg-white/10" />
+          <div className="grid md:grid-cols-3 gap-3">
+            {[...Array(3)].map((_, index) => (
+              <div key={index} className="h-24 rounded-xl bg-white/5" />
+            ))}
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  if (servers.length === 0) {
+    return null;
+  }
+
+  const ranked = [...servers].sort((a, b) => {
+    const rankA = a.failover_rank ?? 9999;
+    const rankB = b.failover_rank ?? 9999;
+    return rankA - rankB || a.name.localeCompare(b.name);
+  });
+  const unavailable = total - available;
+
+  return (
+    <Card variant="default" padding="none" className="mb-6">
+      <div className="px-5 py-4 border-b border-white/5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-white">Client Placement</h2>
+          <p className="text-xs text-gray-500 mt-1">
+            Public VPN candidates from backend failover policy. Unavailable nodes hide their address from clients.
+          </p>
+        </div>
+        <div className="text-xs text-gray-500 sm:text-right">
+          <span className="text-emerald-300">{available}</span> available · {unavailable} unavailable
+        </div>
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-3 p-5">
+        {ranked.slice(0, 6).map((server) => (
+          <Link
+            key={server.id}
+            href={`/dashboard/nodes/${server.id}`}
+            className="rounded-xl border border-white/5 bg-white/[0.03] p-4 hover:bg-white/[0.05] transition-colors"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-lg leading-none">{server.flag || 'VPN'}</span>
+                  <span className="font-medium text-white truncate">{server.name}</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  {server.country_name || server.country} · {server.node_tier || 'public'}
+                </p>
+              </div>
+              <span className={`shrink-0 inline-flex rounded-full border px-2 py-1 text-xs ${placementStatusClass(server)}`}>
+                {server.available ? `rank ${server.failover_rank ?? '-'}` : formatPlacementReason(server.unavailable_reason)}
+              </span>
+            </div>
+
+            <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+              <div>
+                <p className="text-gray-600">Load</p>
+                <p className="mt-1 text-gray-300">{server.load === null ? 'pending' : `${server.load}%`}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">24h</p>
+                <p className="mt-1 text-gray-300">{formatAvailability(server.availability_24h_percent)}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Sessions</p>
+                <p className="mt-1 text-gray-300">{server.current_sessions}</p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-gray-500">
+              {server.available
+                ? `${server.address || 'hidden'}:${server.port}`
+                : `hidden from clients · ${formatPlacementReason(server.unavailable_reason)}`}
+            </p>
+          </Link>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function VpnNodeOperationsTable({
   nodes,
   isLoading,
@@ -342,6 +462,7 @@ function VpnNodeOperationsTable({
 export default function NodesPage() {
   const { nodes, isLoading } = useNodes();
   const { overview, isLoading: vpnOverviewLoading } = useVpnOverview();
+  const { servers, isLoading: vpnServersLoading, total: vpnServerTotal, available: vpnServerAvailable } = useVpnServers();
   const deleteNodeMutation = useDeleteNode();
 
   const [activeFilter, setActiveFilter] = useState<FilterOption>('all');
@@ -446,6 +567,13 @@ export default function NodesPage() {
       </div>
 
       {/* VPN Node Operations */}
+      <ClientPlacementPanel
+        servers={servers}
+        isLoading={vpnServersLoading}
+        total={vpnServerTotal}
+        available={vpnServerAvailable}
+      />
+
       <VpnNodeOperationsTable
         nodes={overview?.nodes ?? []}
         isLoading={vpnOverviewLoading}
