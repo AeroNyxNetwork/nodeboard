@@ -34,6 +34,9 @@ queries.
     overview attention panel, including severity, affected node, reason, and
     relative time, so operators can start triage without opening SSH or the full
     Events page.
+  - Adds a Traffic & Billing snapshot from `useVpnBilling({ days: 1 })`,
+    showing 24h traffic, sessions, billable VPN time, monthly quota usage, and
+    issued voucher count on the first screen.
   - Links directly to VPN Operations, Events, and Node Detail so operators can
     triage without starting from SSH or a generic node card.
 

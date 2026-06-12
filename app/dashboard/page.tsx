@@ -12,7 +12,7 @@
 
 import React, { useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useNodes, useAggregatedStats, useDeleteNode, useVpnOverview, useVpnEvents } from '@/hooks/useNodes';
+import { useNodes, useAggregatedStats, useDeleteNode, useVpnOverview, useVpnEvents, useVpnBilling } from '@/hooks/useNodes';
 import { useAuthStore } from '@/stores/authStore';
 import { Node, VpnEvent, VpnEventSeverity, VpnHealthStatus } from '@/types';
 import { formatBytes, formatRelativeTime, truncateAddress } from '@/lib/api';
@@ -135,6 +135,17 @@ function formatAvailability(value: number | null | undefined) {
   return `${value.toFixed(value >= 99.95 ? 2 : 1)}%`;
 }
 
+function formatPercent(value: number | null | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'pending';
+  return `${value.toFixed(value >= 99.5 ? 0 : 1)}%`;
+}
+
+function formatHours(seconds: number | null | undefined) {
+  if (typeof seconds !== 'number' || Number.isNaN(seconds)) return 'pending';
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  return `${(seconds / 3600).toFixed(1)}h`;
+}
+
 function formatEventReason(event: VpnEvent) {
   const details = event.details || {};
 
@@ -160,7 +171,13 @@ function VpnOperationsSnapshot() {
     severity: 'all',
     limit: 5,
   });
+  const { billing, isLoading: billingLoading, isError: billingError } = useVpnBilling({
+    days: 1,
+    status: 'all',
+  });
   const summary = overview?.summary;
+  const monthlyQuota = billing?.quota.monthly;
+  const dailyUsage = billing?.quota.daily_vpn_usage;
   const attentionNodes = (overview?.nodes ?? [])
     .filter((node) => node.health_status !== 'healthy')
     .sort((a, b) => a.health_score - b.health_score)
@@ -237,6 +254,59 @@ function VpnOperationsSnapshot() {
             <p className="text-xl font-semibold text-white mt-1">{formatBytes(totalTrafficBytes, 1)}</p>
             <p className="text-xs text-gray-600">{summary?.open_alerts ?? 0} open alerts</p>
           </div>
+        </div>
+
+        <div className="mt-5 border-t border-white/5 pt-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-600">Traffic & Billing</p>
+              <p className="mt-1 text-xs text-gray-500">24h operating consumption and voucher issuance.</p>
+            </div>
+            <Link href="/dashboard/billing" className="text-sm text-purple-300 hover:text-purple-200">
+              Billing
+            </Link>
+          </div>
+
+          {billingLoading ? (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {[...Array(4)].map((_, index) => (
+                <div key={index} className="h-20 rounded-xl bg-white/[0.04] animate-pulse" />
+              ))}
+            </div>
+          ) : billingError || !billing ? (
+            <p className="text-sm text-yellow-300">Traffic and billing data is temporarily unavailable.</p>
+          ) : (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+                <p className="text-xs text-gray-500">24h Traffic</p>
+                <p className="text-lg font-semibold text-white mt-1">{formatBytes(billing.summary.total_bytes, 1)}</p>
+                <p className="text-xs text-gray-600">{billing.summary.total_sessions} sessions</p>
+              </div>
+              <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+                <p className="text-xs text-gray-500">Billable Time</p>
+                <p className="text-lg font-semibold text-white mt-1">{formatHours(dailyUsage?.billable_seconds)}</p>
+                <p className="text-xs text-gray-600">{billing.summary.active_sessions} active now</p>
+              </div>
+              <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+                <p className="text-xs text-gray-500">Monthly Quota</p>
+                <p className="text-lg font-semibold text-white mt-1">
+                  {monthlyQuota?.is_unlimited ? 'Unlimited' : formatPercent(monthlyQuota?.usage_percent)}
+                </p>
+                <p className="text-xs text-gray-600">{monthlyQuota?.tier || dailyUsage?.tier || 'no tier'}</p>
+              </div>
+              <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+                <p className="text-xs text-gray-500">Vouchers</p>
+                <p className="text-lg font-semibold text-white mt-1">
+                  {billing.voucher_accounting.issued_vouchers.toLocaleString()}
+                </p>
+                <p className="text-xs text-gray-600">
+                  {billing.voucher_accounting.last_issued_at
+                    ? `last ${formatRelativeTime(billing.voucher_accounting.last_issued_at)}`
+                    : 'none issued'}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </Card>
 
