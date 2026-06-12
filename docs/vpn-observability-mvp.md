@@ -186,6 +186,11 @@ queries.
   - Shows command audit metadata in Recent VPN Commands: the operator wallet
     that queued the command and the bounded source label such as nodeboard
     diagnostics, operations, or settings.
+  - Adds command history status/action filters and command stats in Recent VPN
+    Commands, backed by `/nodes/<id>/commands/?status=&action=&limit=`.
+    Operators can isolate pending, executing, failed, timed out, restart,
+    policy acknowledgement, session kick, wallet ban, and diagnostic commands
+    without SSH.
   - Displays command lifecycle timing (`queued`, `sent`, `acked`, `done`) so
     operators can see whether a command is still in CMS, dispatched by
     heartbeat, acknowledged by Rust, or complete.
@@ -309,6 +314,9 @@ queries.
   - Adds `useNodeCommands()`, `useRunNodeCommand()`, and
     `useCancelNodeCommand()` for node-level operations history, enqueue, and
     cancel mutations.
+  - `useNodeCommands()` exposes backend command `stats` so Node Detail can show
+    total, active, failed/timeout, and filtered command counts next to command
+    lifecycle rows.
   - Invalidates VPN overview, session, and wallet-ban queries after node
     commands so policy and session state refresh after the node reports
     completion.

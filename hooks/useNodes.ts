@@ -59,6 +59,7 @@ import {
   VpnServerPlacementSummary,
   NodeWalletBan,
   NodeCommand,
+  NodeCommandListResponse,
   RunNodeCommandRequest,
   RunNodeCommandResponse,
 } from '@/types';
@@ -519,6 +520,7 @@ export interface UseNodeCommandsOptions {
 
 interface UseNodeCommandsResult {
   commands: NodeCommand[];
+  stats: NodeCommandListResponse['stats'] | null;
   isLoading: boolean;
   isError: boolean;
   error: Error | null;
@@ -535,7 +537,7 @@ export function useNodeCommands(
     queryKey: nodeKeys.commands(nodeId, options),
     queryFn: async () => {
       const res = await api.getNodeCommands(nodeId, options);
-      return res.data;
+      return res;
     },
     enabled: isAuthenticated && !!nodeId,
     staleTime: POLLING_INTERVALS.VPN_SESSIONS,
@@ -544,7 +546,8 @@ export function useNodeCommands(
   });
 
   return {
-    commands: query.data ?? [],
+    commands: query.data?.data ?? [],
+    stats: query.data?.stats ?? null,
     isLoading: query.isLoading,
     isError: query.isError,
     error: query.error,

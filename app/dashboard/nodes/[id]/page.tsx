@@ -168,6 +168,22 @@ const NODE_DETAIL_VPN_COMMAND_ACTIONS = new Set([
   'unban_wallet',
 ]);
 
+const COMMAND_STATUS_FILTERS = [
+  'all',
+  'pending',
+  'sent',
+  'executing',
+  'completed',
+  'failed',
+  'cancelled',
+  'timeout',
+];
+
+const COMMAND_ACTION_FILTERS = [
+  'all',
+  ...Array.from(NODE_DETAIL_VPN_COMMAND_ACTIONS),
+];
+
 function formatHealthCheckName(name: string): string {
   return HEALTH_CHECK_LABELS[name] || name.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 }
@@ -1143,13 +1159,29 @@ function VpnHealthPanel({
 }) {
   const { overview, isLoading, isError, refetch } = useVpnOverview();
   const { servers, isLoading: placementLoading } = useVpnServers();
-  const { commands, isLoading: commandsLoading } = useNodeCommands(nodeId, { limit: 20 });
+  const [commandStatusFilter, setCommandStatusFilter] = useState('all');
+  const [commandActionFilter, setCommandActionFilter] = useState('all');
+  const {
+    commands,
+    stats: commandStats,
+    isLoading: commandsLoading,
+  } = useNodeCommands(nodeId, {
+    limit: 50,
+    status: commandStatusFilter === 'all' ? undefined : commandStatusFilter,
+    action: commandActionFilter === 'all' ? undefined : commandActionFilter,
+  });
   const { metrics, isLoading: metricsLoading } = useVpnNodeMetrics(nodeId, { hours: 24 });
   const runCommand = useRunNodeCommand();
   const cancelCommand = useCancelNodeCommand();
   const [cancellingCommandId, setCancellingCommandId] = useState<string | null>(null);
   const health = overview?.nodes.find((item) => item.id === nodeId) ?? null;
   const vpnCommands = commands.filter((command) => NODE_DETAIL_VPN_COMMAND_ACTIONS.has(command.action));
+  const activeCommandCount = (
+    (commandStats?.pending ?? 0) +
+    (commandStats?.sent ?? 0) +
+    (commandStats?.executing ?? 0)
+  );
+  const failedCommandCount = (commandStats?.failed ?? 0) + (commandStats?.timeout ?? 0);
 
   const handleRunCommand = async (action: 'system_info' | 'collect_logs' | 'refresh_config') => {
     const priority = action === 'collect_logs' ? 10 : action === 'refresh_config' ? 3 : 5;
@@ -1435,15 +1467,67 @@ function VpnHealthPanel({
       )}
 
       <div id="vpn-commands" className="mt-5 border-t border-white/5 pt-4 scroll-mt-6">
-        <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-3">
           <div>
             <h4 className="text-sm font-semibold text-white">Recent VPN Commands</h4>
             <p className="text-xs text-gray-500 mt-1">
               Diagnostics, policy acknowledgements, restarts, session kicks, and wallet policy commands for this node.
             </p>
           </div>
-          {commandsLoading && <span className="text-xs text-gray-500">loading</span>}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div className="rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1.5">
+              <p className="text-gray-600">Total</p>
+              <p className="mt-0.5 font-semibold text-white">{commandStats?.total ?? 0}</p>
+            </div>
+            <div className="rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1.5">
+              <p className="text-gray-600">Active</p>
+              <p className="mt-0.5 font-semibold text-yellow-300">{activeCommandCount}</p>
+            </div>
+            <div className="rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1.5">
+              <p className="text-gray-600">Failed</p>
+              <p className="mt-0.5 font-semibold text-red-300">{failedCommandCount}</p>
+            </div>
+            <div className="rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1.5">
+              <p className="text-gray-600">Shown</p>
+              <p className="mt-0.5 font-semibold text-gray-200">{vpnCommands.length}</p>
+            </div>
+          </div>
         </div>
+
+        <div className="mb-3 grid sm:grid-cols-[180px_220px_1fr] gap-2">
+          <label className="block">
+            <span className="text-[11px] uppercase text-gray-600">Status</span>
+            <select
+              value={commandStatusFilter}
+              onChange={(event) => setCommandStatusFilter(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-purple-500/50"
+            >
+              {COMMAND_STATUS_FILTERS.map((status) => (
+                <option key={status} value={status} className="bg-[#111118]">
+                  {status}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-[11px] uppercase text-gray-600">Action</span>
+            <select
+              value={commandActionFilter}
+              onChange={(event) => setCommandActionFilter(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-purple-500/50"
+            >
+              {COMMAND_ACTION_FILTERS.map((action) => (
+                <option key={action} value={action} className="bg-[#111118]">
+                  {action === 'all' ? 'all' : commandLabel({ action } as NodeCommand)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex items-end text-xs text-gray-600">
+            {commandsLoading ? 'loading command history' : 'filtered by CMS command history'}
+          </div>
+        </div>
+
         {vpnCommands.length === 0 ? (
           <p className="text-sm text-gray-500">No VPN operation commands have been queued yet.</p>
         ) : (
