@@ -28,6 +28,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRunNodeCommand, useVpnOverview, useVpnSessions } from '@/hooks/useNodes';
 import { SessionQualityStatus, VpnHealthStatus, VpnNodeHealth, VpnSession } from '@/types';
 import { formatBytes, formatDuration, formatRelativeTime, truncateAddress } from '@/lib/api';
@@ -35,6 +36,10 @@ import Card, { EmptyState, LoadingCard, StatCard } from '@/components/common/Car
 import Button from '@/components/common/Button';
 
 type SessionFilter = 'all' | 'active' | 'completed' | 'error';
+type QualityFilter = 'all' | SessionQualityStatus;
+
+const SESSION_FILTERS: SessionFilter[] = ['all', 'active', 'completed', 'error'];
+const QUALITY_FILTERS: QualityFilter[] = ['all', 'healthy', 'degraded', 'stale', 'error', 'pending', 'completed'];
 
 const healthStyles: Record<VpnHealthStatus, { label: string; badge: string; dot: string }> = {
   healthy: {
@@ -326,7 +331,11 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
                   <div className="font-mono text-xs text-white">{truncateAddress(session.session_id, 8)}</div>
                   <div className="text-xs text-gray-500 mt-1">{session.virtual_ip || 'virtual ip pending'}</div>
                 </td>
-                <td className="px-4 py-4 text-gray-300">{session.node_name}</td>
+                <td className="px-4 py-4">
+                  <Link href={`/dashboard/nodes/${session.node_id}`} className="text-gray-300 hover:text-purple-300">
+                    {session.node_name}
+                  </Link>
+                </td>
                 <td className="px-4 py-4">
                   <span className="font-mono text-xs text-gray-300">
                     {truncateAddress(session.client_wallet || 'anonymous', 6)}
@@ -408,12 +417,14 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
 
 export default function SessionsPage() {
   const [statusFilter, setStatusFilter] = useState<SessionFilter>('active');
+  const [nodeFilter, setNodeFilter] = useState('');
+  const [qualityFilter, setQualityFilter] = useState<QualityFilter>('all');
   const [kickingSessionId, setKickingSessionId] = useState<string | null>(null);
   const [banningSessionId, setBanningSessionId] = useState<string | null>(null);
   const [operationMessage, setOperationMessage] = useState<string>('');
   const { overview, isLoading: overviewLoading, isError: overviewError, refetch: refetchOverview } = useVpnOverview();
   const { sessions, isLoading: sessionsLoading, isError: sessionsError, refetch: refetchSessions } =
-    useVpnSessions({ status: statusFilter, limit: 300 });
+    useVpnSessions({ status: statusFilter, nodeId: nodeFilter || undefined, limit: 300 });
   const runCommand = useRunNodeCommand();
 
   const sortedNodes = useMemo(() => {
@@ -429,6 +440,11 @@ export default function SessionsPage() {
   }, [overview?.nodes]);
 
   const summary = overview?.summary;
+  const visibleSessions = useMemo(() => (
+    qualityFilter === 'all'
+      ? sessions
+      : sessions.filter((session) => session.quality_status === qualityFilter)
+  ), [qualityFilter, sessions]);
   const totalTrafficBytes = summary
     ? (summary.traffic_in_mb + summary.traffic_out_mb) * 1024 * 1024
     : 0;
@@ -539,7 +555,7 @@ export default function SessionsPage() {
           <StatCard
             label="Active Tunnels"
             value={summary?.active_sessions ?? 0}
-            subValue={`${sessions.length} sessions in view`}
+            subValue={`${visibleSessions.length} sessions in view`}
           />
           <StatCard
             label="VPN Traffic"
@@ -577,25 +593,55 @@ export default function SessionsPage() {
         {overviewLoading ? <LoadingCard className="h-64" /> : <NodeHealthTable nodes={sortedNodes} />}
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+      <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 mb-4">
         <div>
           <h2 className="text-lg font-semibold text-white">VPN Sessions</h2>
           <p className="text-xs text-gray-500 mt-1">Session identity is operational only; traffic destinations are not collected.</p>
         </div>
-        <div className="flex items-center gap-2 p-1 rounded-xl bg-white/5 border border-white/10">
-          {(['all', 'active', 'completed', 'error'] as SessionFilter[]).map((filter) => (
-            <button
-              key={filter}
-              onClick={() => setStatusFilter(filter)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                statusFilter === filter
-                  ? 'bg-purple-500/20 text-purple-200 border border-purple-500/30'
-                  : 'text-gray-400 hover:text-white border border-transparent'
-              }`}
+        <div className="grid sm:grid-cols-3 gap-3 w-full xl:w-auto">
+          <label className="block">
+            <span className="text-xs text-gray-500">Node</span>
+            <select
+              value={nodeFilter}
+              onChange={(event) => setNodeFilter(event.target.value)}
+              className="mt-1 w-full min-w-[180px] rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
             >
-              {filter}
-            </button>
-          ))}
+              <option value="" className="bg-[#111118]">All nodes</option>
+              {sortedNodes.map((node) => (
+                <option key={node.id} value={node.id} className="bg-[#111118]">
+                  {node.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-gray-500">Status</span>
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value as SessionFilter)}
+              className="mt-1 w-full min-w-[150px] rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
+            >
+              {SESSION_FILTERS.map((filter) => (
+                <option key={filter} value={filter} className="bg-[#111118]">
+                  {filter}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-gray-500">Quality</span>
+            <select
+              value={qualityFilter}
+              onChange={(event) => setQualityFilter(event.target.value as QualityFilter)}
+              className="mt-1 w-full min-w-[160px] rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
+            >
+              {QUALITY_FILTERS.map((filter) => (
+                <option key={filter} value={filter} className="bg-[#111118]">
+                  {filter}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
 
@@ -605,7 +651,7 @@ export default function SessionsPage() {
         </div>
       ) : (
         <SessionTable
-          sessions={sessions}
+          sessions={visibleSessions}
           kickingSessionId={kickingSessionId}
           banningSessionId={banningSessionId}
           onKickSession={handleKickSession}

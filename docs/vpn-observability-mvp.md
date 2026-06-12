@@ -56,6 +56,9 @@ queries.
   - Replaces the old aggregate-only Sessions page with the VPN Operations view.
   - Shows summary cards, node health table, operational alerts, and VPN session
     table.
+  - Adds node, status, and quality filters so operators can isolate degraded,
+    stale, pending, completed, or error sessions for a single VPN node without
+    SSH.
   - Shows 24h node availability from backend-derived sampled heartbeat
     history. The table includes sample count and current stale gap so operators
     can judge confidence instead of reading it as packet-level monitoring.
@@ -68,6 +71,8 @@ queries.
   - Shows backend-derived tunnel quality (`healthy`, `degraded`, `stale`,
     `error`, `pending`, or `completed`), quality score, and first degraded
     reason so operators can triage a bad session without reading raw counters.
+  - Links each session's node name directly to Node Detail for drilldown into
+    health checks, command history, and recent node events.
   - Adds a `Kick` operation for active sessions. The button queues a
     `kick_session` command through the CMS instead of calling the node directly.
   - Adds a guarded `Ban Wallet` operation for active sessions. The backend
