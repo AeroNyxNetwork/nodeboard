@@ -606,6 +606,12 @@ export interface VpnSessionListResponse {
   success: boolean;
   data: VpnSession[];
   count: number;
+  filters?: {
+    status: string;
+    node_id: string;
+    quality_status: 'all' | SessionQualityStatus;
+    limit: number;
+  };
 }
 
 export interface VpnBillingSummary {

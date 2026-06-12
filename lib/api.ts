@@ -74,6 +74,7 @@ import {
   RunNodeCommandResponse,
   SuccessResponse,
   NodeStatus,
+  SessionQualityStatus,
 } from '@/types';
 
 import { API_BASE_URL, API_ENDPOINTS, STORAGE_KEYS } from './constants';
@@ -375,11 +376,19 @@ class ApiClient {
   }
 
   async getVpnSessions(
-    options?: { status?: 'all' | 'active' | 'completed' | 'error'; nodeId?: string; limit?: number }
+    options?: {
+      status?: 'all' | 'active' | 'completed' | 'error';
+      nodeId?: string;
+      qualityStatus?: 'all' | SessionQualityStatus;
+      limit?: number;
+    }
   ): Promise<VpnSessionListResponse> {
     const params = new URLSearchParams();
     if (options?.status && options.status !== 'all') params.append('status', options.status);
     if (options?.nodeId) params.append('node_id', options.nodeId);
+    if (options?.qualityStatus && options.qualityStatus !== 'all') {
+      params.append('quality_status', options.qualityStatus);
+    }
     if (options?.limit) params.append('limit', String(options.limit));
     const qs = params.toString();
     const endpoint = qs

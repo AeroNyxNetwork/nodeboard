@@ -56,9 +56,9 @@ queries.
   - Replaces the old aggregate-only Sessions page with the VPN Operations view.
   - Shows summary cards, node health table, operational alerts, and VPN session
     table.
-  - Adds node, status, and quality filters so operators can isolate degraded,
-    stale, pending, completed, or error sessions for a single VPN node without
-    SSH.
+  - Adds node, status, and backend-backed quality filters so operators can
+    isolate degraded, stale, pending, completed, or error sessions for a single
+    VPN node without SSH.
   - Shows 24h node availability from backend-derived sampled heartbeat
     history. The table includes sample count and current stale gap so operators
     can judge confidence instead of reading it as packet-level monitoring.
@@ -273,6 +273,9 @@ queries.
     `degraded_reason`, `quality_reasons`, and `last_activity_at` from
     operational counters only: status, last RX/TX timestamps, RTT, packet loss,
     and replay-window rejection totals.
+  - Supports `GET /vpn/sessions/?quality_status=healthy|degraded|stale|error|pending|completed`
+    so nodeboard can request affected tunnel cohorts directly from the
+    centralized control plane.
 
 - `/root/aeronyx/privacy_network/models.py`
   - Stores `ClientSession.virtual_ip`, the tunnel-local address assigned by

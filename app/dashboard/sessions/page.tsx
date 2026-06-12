@@ -424,7 +424,12 @@ export default function SessionsPage() {
   const [operationMessage, setOperationMessage] = useState<string>('');
   const { overview, isLoading: overviewLoading, isError: overviewError, refetch: refetchOverview } = useVpnOverview();
   const { sessions, isLoading: sessionsLoading, isError: sessionsError, refetch: refetchSessions } =
-    useVpnSessions({ status: statusFilter, nodeId: nodeFilter || undefined, limit: 300 });
+    useVpnSessions({
+      status: statusFilter,
+      nodeId: nodeFilter || undefined,
+      qualityStatus: qualityFilter,
+      limit: 300,
+    });
   const runCommand = useRunNodeCommand();
 
   const sortedNodes = useMemo(() => {
@@ -440,11 +445,6 @@ export default function SessionsPage() {
   }, [overview?.nodes]);
 
   const summary = overview?.summary;
-  const visibleSessions = useMemo(() => (
-    qualityFilter === 'all'
-      ? sessions
-      : sessions.filter((session) => session.quality_status === qualityFilter)
-  ), [qualityFilter, sessions]);
   const totalTrafficBytes = summary
     ? (summary.traffic_in_mb + summary.traffic_out_mb) * 1024 * 1024
     : 0;
@@ -555,7 +555,7 @@ export default function SessionsPage() {
           <StatCard
             label="Active Tunnels"
             value={summary?.active_sessions ?? 0}
-            subValue={`${visibleSessions.length} sessions in view`}
+            subValue={`${sessions.length} sessions in view`}
           />
           <StatCard
             label="VPN Traffic"
@@ -651,7 +651,7 @@ export default function SessionsPage() {
         </div>
       ) : (
         <SessionTable
-          sessions={visibleSessions}
+          sessions={sessions}
           kickingSessionId={kickingSessionId}
           banningSessionId={banningSessionId}
           onKickSession={handleKickSession}

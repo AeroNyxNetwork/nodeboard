@@ -62,6 +62,7 @@ import {
   VpnOverview,
   VpnNodeMetrics,
   VpnSession,
+  SessionQualityStatus,
   VpnBillingOverview,
   VpnEventsOverview,
   VpnEventSeverity,
@@ -320,6 +321,7 @@ export function useVpnNodeMetrics(
 export interface UseVpnSessionsOptions {
   status?: 'all' | 'active' | 'completed' | 'error';
   nodeId?: string;
+  qualityStatus?: 'all' | SessionQualityStatus;
   limit?: number;
 }
 
