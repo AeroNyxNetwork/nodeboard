@@ -462,6 +462,14 @@ function formatMemoryUsage(health: VpnNodeHealth) {
   return total ? `${used} / ${total} MB` : `${used} MB`;
 }
 
+function policyCount(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function formatPolicyReason(reason: string | null | undefined) {
+  return reason ? reason.replace(/_/g, ' ') : 'none';
+}
+
 function formatAvailability(value: number | null | undefined) {
   if (typeof value !== 'number' || Number.isNaN(value)) return 'pending';
   return `${value.toFixed(value >= 99.95 ? 2 : 1)}%`;
@@ -768,6 +776,57 @@ function NodeMetricsTrendPanel({
   );
 }
 
+function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
+  const enforcement = health.system.policy_enforcement;
+  const maintenance = policyCount(enforcement?.maintenance_rejections);
+  const maxSessions = policyCount(enforcement?.max_sessions_rejections);
+  const bandwidth = policyCount(enforcement?.bandwidth_drops);
+  const total = maintenance + maxSessions + bandwidth;
+  const lastAt = enforcement?.last_rejection_at
+    ? new Date(enforcement.last_rejection_at * 1000).toISOString()
+    : null;
+
+  return (
+    <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.02] p-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+        <div>
+          <h4 className="text-sm font-semibold text-white">Policy Enforcement</h4>
+          <p className="text-xs text-gray-500 mt-1">
+            Node-local policy counters from signed heartbeat health.
+          </p>
+        </div>
+        <div className={total > 0 ? 'text-sm font-semibold text-yellow-300' : 'text-sm font-semibold text-emerald-300'}>
+          {total} blocked
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
+          <p className="text-[11px] uppercase text-gray-600">Maintenance</p>
+          <p className="text-base font-semibold text-white mt-1">{maintenance}</p>
+        </div>
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
+          <p className="text-[11px] uppercase text-gray-600">Max Sessions</p>
+          <p className="text-base font-semibold text-white mt-1">{maxSessions}</p>
+        </div>
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
+          <p className="text-[11px] uppercase text-gray-600">Bandwidth Drops</p>
+          <p className="text-base font-semibold text-white mt-1">{bandwidth}</p>
+        </div>
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2 min-w-0">
+          <p className="text-[11px] uppercase text-gray-600">Last Rejection</p>
+          <p className="text-xs text-gray-300 mt-1 truncate">
+            {formatPolicyReason(enforcement?.last_rejection_reason)}
+          </p>
+          <p className="text-[11px] text-gray-600 mt-0.5">
+            {lastAt ? formatRelativeTime(lastAt) : 'no recent block'}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function VpnHealthPanel({
   nodeId,
   isVpnNode,
@@ -994,6 +1053,7 @@ function VpnHealthPanel({
       </div>
 
       <NodeMetricsTrendPanel metrics={metrics} isLoading={metricsLoading} />
+      <PolicyEnforcementPanel health={health} />
 
       <div className="mt-5 grid md:grid-cols-2 gap-3">
         {health.checks.map((check) => (

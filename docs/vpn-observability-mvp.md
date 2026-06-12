@@ -83,6 +83,9 @@ queries.
   - Shows 24h CPU and bandwidth trends from sampled heartbeat history,
     including average CPU, peak bandwidth, traffic delta, max sessions, and
     invalid sample count.
+  - Shows Policy Enforcement counters from Rust heartbeat health, including
+    maintenance rejections, max-session rejections, bandwidth drops, last
+    rejection reason, and last rejection time.
   - Adds safe `System Info` and `Collect Logs` command buttons plus recent VPN
     command history.
   - Adds `Refresh Config`, which queues a bounded `refresh_config` command for
@@ -1304,6 +1307,11 @@ new VPN handshakes or VPN packets on the node, without requiring SSH.
     `max_sessions_rejections`, `bandwidth_drops`, `last_rejection_reason`,
     `last_rejection_at`, and `privacy_boundary`.
 
+- `/root/aeronyx/privacy_network/api/vpn_observability.py`
+  - Exposes `system.policy_enforcement` in node payloads so Node Detail can show
+    current Rust enforcement counters without waiting for the derived event
+    stream.
+
 - `/root/open/nodeboard/app/dashboard/events/page.tsx`
   - Renders `node_policy_enforced` as `N blocked` plus the last policy reason
     in the event stream preview.
@@ -1316,6 +1324,8 @@ new VPN handshakes or VPN packets on the node, without requiring SSH.
 - `/root/open/nodeboard/app/dashboard/nodes/[id]/page.tsx`
   - Shows per-node policy enforcement impact in Recent VPN Events, including
     bandwidth drops, max-session rejects, or maintenance rejects.
+  - Adds a Policy Enforcement panel to VPN Health with current aggregate
+    counters and last rejection reason/time from signed heartbeat health.
 
 nodeboard Settings
   -> Rust enforces maintenance/max_sessions/bandwidth on hot paths

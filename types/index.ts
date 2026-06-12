@@ -393,6 +393,14 @@ export interface VpnNodeAvailability {
   last_gap_seconds: number;
 }
 
+export interface VpnPolicyEnforcement {
+  maintenance_rejections: number;
+  max_sessions_rejections: number;
+  bandwidth_drops: number;
+  last_rejection_reason: string | null;
+  last_rejection_at: number | null;
+}
+
 export interface VpnNodeHealth {
   id: string;
   name: string;
@@ -425,6 +433,7 @@ export interface VpnNodeHealth {
     runtime_started_at?: string | null;
     vpn_health_status?: 'ok' | 'degraded' | 'failed' | string | null;
     vpn_health_checked_at?: number | null;
+    policy_enforcement?: VpnPolicyEnforcement;
   };
   checks: VpnHealthCheck[];
 }
