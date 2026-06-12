@@ -102,6 +102,10 @@ queries.
     quality sessions in the current filtered view. This answers which sessions
     are affected before the operator scans the full table, while still avoiding
     destinations, DNS contents, packet payloads, and public client IPs.
+  - Accepts deep-link filters from URL query parameters:
+    `?node=<node_id>&status=active|completed|error|all&quality=degraded|stale|error|healthy|pending|completed|all`.
+    Alerts / Events uses this to open the affected session cohort directly from
+    a session event.
   - Links each session's node name directly to Node Detail for drilldown into
     health checks, command history, and recent node events.
   - Adds a `Kick` operation for active sessions. The button queues a
@@ -221,6 +225,10 @@ queries.
     expanded event details for DNS, NAT, TUN, MTU, egress, UDP listener,
     session quality, keepalive ACK loss, policy enforcement, bandwidth
     pressure, and command lifecycle events.
+  - Adds direct `Open Sessions` links for session events. The link carries node,
+    status, and quality query parameters into VPN Operations so operators can
+    jump from an alert to the affected active tunnel cohort without retyping
+    filters or using SSH.
   - Reads health-check names from structured `details.check.name`, so failed
     DNS, NAT, TUN, MTU, egress, and UDP events get the correct runbook hint
     instead of falling back to a generic warning.

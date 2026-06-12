@@ -253,6 +253,33 @@ function commandAuditLabel(details: Record<string, unknown>) {
   return source ? `${actor} · ${source}` : actor;
 }
 
+function sessionQualityFromEvent(event: VpnEvent) {
+  if (event.type === 'session_stale') return 'stale';
+  if (event.type === 'session_error' || event.type === 'session_reset') return 'error';
+  if (
+    event.type === 'session_degraded' ||
+    event.type === 'session_keepalive_timeout' ||
+    typeof event.details?.degraded_reason === 'string'
+  ) {
+    return 'degraded';
+  }
+  if (typeof event.details?.quality_status === 'string') return event.details.quality_status;
+  return 'all';
+}
+
+function sessionStatusFromEvent(event: VpnEvent) {
+  if (event.type === 'session_reset' || event.type === 'session_error') return 'all';
+  return 'active';
+}
+
+function sessionsHref(event: VpnEvent) {
+  const params = new URLSearchParams();
+  params.set('status', sessionStatusFromEvent(event));
+  params.set('quality', sessionQualityFromEvent(event));
+  if (event.node_id) params.set('node', event.node_id);
+  return `/dashboard/sessions?${params.toString()}`;
+}
+
 function placementReasonLabel(reason: unknown) {
   if (typeof reason !== 'string' || !reason) return 'not eligible';
   const labels: Record<string, string> = {
@@ -660,6 +687,24 @@ function EventsTable({ events }: { events: VpnEvent[] }) {
                     <td className="px-4 py-4">
                       <div className="space-y-2">
                         <DetailsPreview event={event} />
+                        <div className="flex flex-wrap gap-x-3 gap-y-1">
+                          {event.session_id ? (
+                            <Link
+                              href={sessionsHref(event)}
+                              className="text-xs font-medium text-sky-300 hover:text-sky-200"
+                            >
+                              Open Sessions
+                            </Link>
+                          ) : null}
+                          {event.node_id ? (
+                            <Link
+                              href={`/dashboard/nodes/${event.node_id}`}
+                              className="text-xs font-medium text-emerald-300 hover:text-emerald-200"
+                            >
+                              Node Detail
+                            </Link>
+                          ) : null}
+                        </div>
                         <button
                           type="button"
                           aria-expanded={isExpanded}

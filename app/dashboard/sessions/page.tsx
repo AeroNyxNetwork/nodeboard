@@ -49,6 +49,19 @@ const SESSION_FILTERS: SessionFilter[] = ['all', 'active', 'completed', 'error']
 const QUALITY_FILTERS: QualityFilter[] = ['all', 'healthy', 'degraded', 'stale', 'error', 'pending', 'completed'];
 const QUALITY_SUMMARY_FILTERS: SessionQualityStatus[] = ['healthy', 'degraded', 'stale', 'error', 'pending', 'completed'];
 
+function parseSessionFilter(value: string | null): SessionFilter {
+  return SESSION_FILTERS.includes(value as SessionFilter) ? value as SessionFilter : 'active';
+}
+
+function parseQualityFilter(value: string | null): QualityFilter {
+  return QUALITY_FILTERS.includes(value as QualityFilter) ? value as QualityFilter : 'all';
+}
+
+function initialQueryValue(key: string) {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get(key);
+}
+
 const healthStyles: Record<VpnHealthStatus, { label: string; badge: string; dot: string }> = {
   healthy: {
     label: 'Healthy',
@@ -629,9 +642,9 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
 }
 
 export default function SessionsPage() {
-  const [statusFilter, setStatusFilter] = useState<SessionFilter>('active');
-  const [nodeFilter, setNodeFilter] = useState('');
-  const [qualityFilter, setQualityFilter] = useState<QualityFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<SessionFilter>(() => parseSessionFilter(initialQueryValue('status')));
+  const [nodeFilter, setNodeFilter] = useState(() => initialQueryValue('node') || '');
+  const [qualityFilter, setQualityFilter] = useState<QualityFilter>(() => parseQualityFilter(initialQueryValue('quality')));
   const [kickingSessionId, setKickingSessionId] = useState<string | null>(null);
   const [banningSessionId, setBanningSessionId] = useState<string | null>(null);
   const [operationMessage, setOperationMessage] = useState<string>('');
