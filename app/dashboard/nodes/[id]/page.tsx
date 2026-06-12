@@ -155,6 +155,16 @@ const HEALTH_CHECK_LABELS: Record<string, string> = {
   internet_egress: 'Internet Egress',
 };
 
+const NODE_DETAIL_VPN_COMMAND_ACTIONS = new Set([
+  'system_info',
+  'collect_logs',
+  'refresh_config',
+  'restart_service',
+  'kick_session',
+  'ban_wallet',
+  'unban_wallet',
+]);
+
 function formatHealthCheckName(name: string): string {
   return HEALTH_CHECK_LABELS[name] || name.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 }
@@ -866,12 +876,7 @@ function VpnHealthPanel({
   const cancelCommand = useCancelNodeCommand();
   const [cancellingCommandId, setCancellingCommandId] = useState<string | null>(null);
   const health = overview?.nodes.find((item) => item.id === nodeId) ?? null;
-  const vpnCommands = commands.filter((command) =>
-    command.action === 'system_info' ||
-    command.action === 'collect_logs' ||
-    command.action === 'refresh_config' ||
-    command.action === 'restart_service'
-  );
+  const vpnCommands = commands.filter((command) => NODE_DETAIL_VPN_COMMAND_ACTIONS.has(command.action));
 
   const handleRunCommand = async (action: 'system_info' | 'collect_logs' | 'refresh_config') => {
     const priority = action === 'collect_logs' ? 10 : action === 'refresh_config' ? 3 : 5;
@@ -1137,11 +1142,16 @@ function VpnHealthPanel({
 
       <div className="mt-5 border-t border-white/5 pt-4">
         <div className="flex items-center justify-between gap-3 mb-3">
-          <h4 className="text-sm font-semibold text-white">Recent VPN Commands</h4>
+          <div>
+            <h4 className="text-sm font-semibold text-white">Recent VPN Commands</h4>
+            <p className="text-xs text-gray-500 mt-1">
+              Diagnostics, restarts, session kicks, and wallet policy commands for this node.
+            </p>
+          </div>
           {commandsLoading && <span className="text-xs text-gray-500">loading</span>}
         </div>
         {vpnCommands.length === 0 ? (
-          <p className="text-sm text-gray-500">No VPN diagnostic commands have been queued yet.</p>
+          <p className="text-sm text-gray-500">No VPN operation commands have been queued yet.</p>
         ) : (
           <div className="space-y-2">
             {vpnCommands.map((command) => (

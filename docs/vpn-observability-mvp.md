@@ -97,7 +97,8 @@ queries.
     maintenance rejections, max-session rejections, bandwidth drops, last
     rejection reason, and last rejection time.
   - Adds safe `System Info` and `Collect Logs` command buttons plus recent VPN
-    command history.
+    command history for diagnostics, refreshes, restarts, session kicks, wallet
+    bans, and wallet unbans.
   - Adds `Refresh Config`, which queues a bounded `refresh_config` command for
     the node to validate and summarize its management configuration without SSH.
   - Adds `Start Maintenance` / `End Maintenance` shortcuts in VPN Health. The
