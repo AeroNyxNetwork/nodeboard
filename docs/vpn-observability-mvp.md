@@ -133,6 +133,10 @@ queries.
   - Renders structured command results for `system_info`, `collect_logs`, and
     other VPN operations so operators can read diagnostics and bounded log
     tails directly in nodeboard.
+  - Highlights the `collect_logs` service-manager summary when Rust reports
+    that `aeronyx-server` is not a loaded systemd unit, so foreground test
+    deployments explain why Restart VPN or journal-backed logs may be limited
+    without exposing packet payloads or browsing metadata.
   - Adds a node-scoped Recent VPN Events panel backed by
     `useVpnEvents({ nodeId })`, showing severity, message, reason, affected
     session or wallet, and relative time directly on Node Detail.
@@ -610,6 +614,9 @@ queries.
   - Adds `system_info` and `collect_logs` command handlers.
   - Uses fixed read-only commands with timeout, truncation, and simple
     sensitive-line redaction.
+  - Adds a `service_manager` line to `collect_logs` results from
+    `systemctl show aeronyx-server --property=LoadState --value`, so nodeboard
+    can explain foreground deployments where restart/log collection is limited.
   - Reports VPN diagnostics through the signed command status endpoint.
   - Adds `kick_session`, which parses the CMS-provided base64 session id,
     removes that session from `SessionManager`, and emits a final
@@ -981,7 +988,7 @@ Allowed actions:
 - `system_info`: collects uptime, kernel, service status, TUN device state,
   UDP listeners, and IPv4 forwarding state.
 - `collect_logs`: collects a short redacted `journalctl` tail for the VPN
-  service.
+  service and includes the fixed service-manager load state.
 - `refresh_config`: validates the Rust node's current management config and
   fixed node binding file, then records a sanitized summary in command history.
   The backend strips caller-provided params and the node does not accept custom

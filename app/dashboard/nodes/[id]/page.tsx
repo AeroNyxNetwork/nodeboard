@@ -554,12 +554,22 @@ function parseCommandResult(command: NodeCommand) {
   const logMatch = firstLine.match(/^recent_logs\(([^)]+)\):$/);
 
   if (logMatch) {
+    const logBodyLines = lines.slice(1);
+    const serviceManagerIndex = logBodyLines.findIndex((line) => line.startsWith('service_manager:'));
+    const serviceManager = serviceManagerIndex >= 0
+      ? logBodyLines[serviceManagerIndex].replace(/^service_manager:\s*/, '').trim()
+      : '';
+    const body = logBodyLines
+      .filter((_, index) => index !== serviceManagerIndex)
+      .join('\n')
+      .trim();
+
     return {
       kind: 'logs' as const,
       title: `Recent logs (${logMatch[1]})`,
-      summary: command.status === 'completed' ? 'Log tail collected from the VPN service.' : firstLine,
+      summary: serviceManager || (command.status === 'completed' ? 'Log tail collected from the VPN service.' : firstLine),
       pairs: [] as Array<{ key: string; value: string }>,
-      body: lines.slice(1).join('\n').trim(),
+      body,
     };
   }
 
