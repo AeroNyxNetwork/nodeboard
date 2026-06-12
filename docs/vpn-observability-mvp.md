@@ -40,6 +40,16 @@ queries.
   - Adds a Traffic & Billing snapshot from `useVpnBilling({ days: 1 })`,
     showing 24h traffic, sessions, billable VPN time, monthly quota usage, and
     issued voucher count on the first screen.
+  - Adds a Client Placement capacity snapshot from `useVpnServers()`, showing
+    fleet-level available capacity, finite versus unlimited capacity, the top
+    region, the top tier, average tier load, and the leading hidden-candidate
+    reason from backend `summary.by_region`, `summary.by_tier`, and
+    `summary.unavailable_reasons`.
+  - Formats `placement_capacity_exhausted`,
+    `placement_capacity_pressure`, and `client_placement_unavailable` events in
+    the Overview attention panel so commercial placement pressure is visible on
+    the first screen without exposing destinations, DNS contents, packet
+    payloads, or client public IPs.
   - Links directly to VPN Operations, Events, and Node Detail so operators can
     triage without starting from SSH or a generic node card.
 

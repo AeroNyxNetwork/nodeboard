@@ -12,9 +12,9 @@
 
 import React, { useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useNodes, useAggregatedStats, useDeleteNode, useVpnOverview, useVpnEvents, useVpnBilling } from '@/hooks/useNodes';
+import { useNodes, useAggregatedStats, useDeleteNode, useVpnOverview, useVpnEvents, useVpnBilling, useVpnServers } from '@/hooks/useNodes';
 import { useAuthStore } from '@/stores/authStore';
-import { Node, VpnEvent, VpnEventSeverity, VpnHealthStatus } from '@/types';
+import { Node, VpnEvent, VpnEventSeverity, VpnHealthStatus, VpnServerPlacementGroup } from '@/types';
 import { formatBytes, formatRelativeTime, truncateAddress } from '@/lib/api';
 import Card, { StatCard, EmptyState } from '@/components/common/Card';
 import Button from '@/components/common/Button';
@@ -156,9 +156,41 @@ function detailNumber(details: Record<string, unknown>, key: string): number {
   return 0;
 }
 
+function formatPlacementCapacity(capacity: number, unlimitedNodes: number) {
+  if (unlimitedNodes > 0 && capacity > 0) return `${capacity.toLocaleString()} slots + ${unlimitedNodes} unlimited`;
+  if (unlimitedNodes > 0) return `${unlimitedNodes} unlimited`;
+  return `${capacity.toLocaleString()} slots`;
+}
+
+function formatPlacementRatio(group: VpnServerPlacementGroup | null) {
+  if (!group) return 'pending';
+  return `${group.available}/${group.total}`;
+}
+
+function formatPlacementGroupLabel(group: VpnServerPlacementGroup | null, fallback: string) {
+  if (!group) return fallback;
+  return group.label || group.key || fallback;
+}
+
+function topPlacementReason(reasons: Record<string, number>) {
+  const [reason, count] = Object.entries(reasons).sort((a, b) => b[1] - a[1])[0] ?? [];
+  if (!reason || !count) return 'clear';
+  return `${reason.replaceAll('_', ' ')} (${count})`;
+}
+
 function formatEventReason(event: VpnEvent) {
   const details = event.details || {};
 
+  if (event.type === 'placement_capacity_exhausted' || event.type === 'placement_capacity_pressure') {
+    const scope = typeof details.placement_scope === 'string' ? details.placement_scope : 'placement';
+    const label = typeof details.placement_label === 'string' ? details.placement_label : 'Fleet';
+    const available = detailNumber(details, 'available_candidates');
+    const total = detailNumber(details, 'total_candidates');
+    return `${label} ${scope} · ${available}/${total} candidates`;
+  }
+  if (event.type === 'client_placement_unavailable' && typeof details.unavailable_reason === 'string') {
+    return details.unavailable_reason.replaceAll('_', ' ');
+  }
   if (event.type === 'node_policy_enforced') {
     const blocked = (
       detailNumber(details, 'maintenance_rejections') +
@@ -196,9 +228,19 @@ function VpnOperationsSnapshot() {
     days: 1,
     status: 'all',
   });
+  const {
+    summary: placementSummary,
+    total: placementTotal,
+    available: placementAvailable,
+    isLoading: placementLoading,
+    isError: placementError,
+  } = useVpnServers();
   const summary = overview?.summary;
   const monthlyQuota = billing?.quota.monthly;
   const dailyUsage = billing?.quota.daily_vpn_usage;
+  const topRegion = placementSummary?.by_region[0] ?? null;
+  const topTier = placementSummary?.by_tier[0] ?? null;
+  const placementUnavailable = Math.max(0, placementTotal - placementAvailable);
   const attentionNodes = (overview?.nodes ?? [])
     .filter((node) => node.health_status !== 'healthy')
     .sort((a, b) => a.health_score - b.health_score)
@@ -275,6 +317,69 @@ function VpnOperationsSnapshot() {
             <p className="text-xl font-semibold text-white mt-1">{formatBytes(totalTrafficBytes, 1)}</p>
             <p className="text-xs text-gray-600">{summary?.open_alerts ?? 0} open alerts</p>
           </div>
+        </div>
+
+        <div className="mt-5 border-t border-white/5 pt-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-600">Client Placement</p>
+              <p className="mt-1 text-xs text-gray-500">Commercial capacity visible to the client failover policy.</p>
+            </div>
+            <Link href="/dashboard/nodes" className="text-sm text-purple-300 hover:text-purple-200">
+              Placement
+            </Link>
+          </div>
+
+          {placementLoading ? (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {[...Array(4)].map((_, index) => (
+                <div key={index} className="h-20 rounded-xl bg-white/[0.04] animate-pulse" />
+              ))}
+            </div>
+          ) : placementError || !placementSummary ? (
+            <p className="text-sm text-yellow-300">Client placement capacity is temporarily unavailable.</p>
+          ) : (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+                <p className="text-xs text-gray-500">Available Capacity</p>
+                <p className="text-lg font-semibold text-white mt-1">
+                  {formatPlacementCapacity(
+                    placementSummary.available_capacity_remaining,
+                    placementSummary.unlimited_capacity_nodes
+                  )}
+                </p>
+                <p className="text-xs text-gray-600">{placementAvailable} / {placementTotal} candidates</p>
+              </div>
+              <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+                <p className="text-xs text-gray-500">Top Region</p>
+                <p className="text-lg font-semibold text-white mt-1 truncate">
+                  {formatPlacementGroupLabel(topRegion, 'no region')}
+                </p>
+                <p className="text-xs text-gray-600">
+                  {formatPlacementRatio(topRegion)} · {formatPlacementCapacity(
+                    topRegion?.capacity_remaining ?? 0,
+                    topRegion?.unlimited_capacity_nodes ?? 0
+                  )}
+                </p>
+              </div>
+              <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+                <p className="text-xs text-gray-500">Top Tier</p>
+                <p className="text-lg font-semibold text-white mt-1 truncate">
+                  {formatPlacementGroupLabel(topTier, 'no tier')}
+                </p>
+                <p className="text-xs text-gray-600">
+                  {formatPlacementRatio(topTier)} · {formatPercent(topTier?.average_load)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+                <p className="text-xs text-gray-500">Blocked Reasons</p>
+                <p className="text-lg font-semibold text-white mt-1 truncate">
+                  {topPlacementReason(placementSummary.unavailable_reasons)}
+                </p>
+                <p className="text-xs text-gray-600">{placementUnavailable} hidden</p>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="mt-5 border-t border-white/5 pt-4">
