@@ -173,6 +173,31 @@ function formatMemory(used: number | null, total: number | null) {
   return total ? `${used}/${total} MB` : `${used} MB`;
 }
 
+function formatPolicyLimit(value: number, unit: string) {
+  return value > 0 ? `${value} ${unit}` : 'unlimited';
+}
+
+function PolicyBadge({ node }: { node: VpnNodeHealth }) {
+  if (node.maintenance_mode) {
+    return (
+      <span className="inline-flex items-center px-2 py-1 rounded-full border border-yellow-500/30 bg-yellow-500/15 text-xs font-medium text-yellow-300">
+        Maintenance
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center px-2 py-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 text-xs font-medium text-emerald-300">
+      Accepting
+    </span>
+  );
+}
+
+function formatCapacityLeft(node: VpnNodeHealth) {
+  return node.max_sessions > 0
+    ? `${Math.max(0, node.max_sessions - node.active_sessions)} capacity left`
+    : `${node.total_sessions} total`;
+}
+
 function VpnHealthBadge({ status }: { status: VpnHealthStatus }) {
   const style = vpnHealthStyles[status];
   return (
@@ -228,12 +253,13 @@ function VpnNodeOperationsTable({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1060px] text-sm">
+        <table className="w-full min-w-[1180px] text-sm">
           <thead className="text-xs uppercase text-gray-500 bg-white/[0.02]">
             <tr>
               <th className="text-left font-medium px-5 py-3">Node</th>
               <th className="text-left font-medium px-4 py-3">Region</th>
               <th className="text-left font-medium px-4 py-3">Health</th>
+              <th className="text-left font-medium px-4 py-3">Policy</th>
               <th className="text-left font-medium px-4 py-3">Availability</th>
               <th className="text-left font-medium px-4 py-3">Sessions</th>
               <th className="text-left font-medium px-4 py-3">Load</th>
@@ -263,6 +289,18 @@ function VpnNodeOperationsTable({
                   </div>
                 </td>
                 <td className="px-4 py-4 text-gray-300">
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2">
+                      <PolicyBadge node={node} />
+                      <span className="text-xs text-gray-500">{node.node_tier || 'public'}</span>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      cap {formatPolicyLimit(node.max_sessions, 'sessions')} ·{' '}
+                      {formatPolicyLimit(node.bandwidth_limit_mbps, 'Mbps')}
+                    </div>
+                  </div>
+                </td>
+                <td className="px-4 py-4 text-gray-300">
                   <span className="text-white font-medium">{formatAvailability(node.availability_24h?.percent)}</span>
                   <div className="text-xs text-gray-500">
                     {node.availability_24h?.sample_count ?? 0} samples
@@ -271,7 +309,9 @@ function VpnNodeOperationsTable({
                 <td className="px-4 py-4 text-gray-300">
                   <span className="text-white font-medium">{node.active_sessions}</span>
                   <span className="text-gray-500"> active</span>
-                  <div className="text-xs text-gray-500">{node.total_sessions} total</div>
+                  <div className="text-xs text-gray-500">
+                    {formatCapacityLeft(node)}
+                  </div>
                 </td>
                 <td className="px-4 py-4 text-gray-300">
                   CPU {formatMetric(node.system.cpu_usage, '%')}

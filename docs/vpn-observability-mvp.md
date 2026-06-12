@@ -47,6 +47,8 @@ queries.
   - Adds a dense VPN Node Operations table above the existing node cards.
   - Shows region, IP/port, version, health status, health score, 24h
     availability, active sessions, CPU, memory, and last heartbeat age.
+  - Shows operator policy posture in the list: accepting vs maintenance, node
+    tier, max-session cap, bandwidth cap, and remaining session capacity.
   - Sorts unhealthy VPN nodes first so degraded/offline/overloaded nodes are
     visible before the generic node card grid.
 
@@ -232,6 +234,10 @@ queries.
     counters, and Rust-reported VPN checks: UDP listener, TUN device, MTU
     config, IPv4 forwarding, NAT masquerade, DNS stub, DNS query, and Internet
     egress.
+  - Includes node operator policy fields in each node health row:
+    `maintenance_mode`, `max_sessions`, `bandwidth_limit_mbps`, and
+    `heartbeat_interval_seconds`, so nodeboard can show commercial policy and
+    capacity without opening Settings or SSH.
   - Marks a fresh node as `degraded` when Rust reports failed local VPN checks,
     so operators can distinguish "heartbeat alive" from "VPN path broken".
   - Emits operational alerts from derived node health.

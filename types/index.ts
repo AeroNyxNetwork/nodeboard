@@ -410,6 +410,10 @@ export interface VpnNodeHealth {
   region_code: string;
   city: string;
   node_tier: 'public' | 'premium' | string;
+  maintenance_mode: boolean;
+  max_sessions: number;
+  bandwidth_limit_mbps: number;
+  heartbeat_interval_seconds: number;
   is_vpn_node: boolean;
   health_status: VpnHealthStatus;
   health_score: number;
