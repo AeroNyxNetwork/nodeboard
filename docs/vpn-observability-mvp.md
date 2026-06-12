@@ -34,6 +34,9 @@ queries.
     overview attention panel, including severity, affected node, reason, and
     relative time, so operators can start triage without opening SSH or the full
     Events page.
+  - Formats `node_policy_enforced` events as blocked-count plus last policy
+    reason, so operators can see maintenance, max-session, or bandwidth policy
+    impact without opening raw event details.
   - Adds a Traffic & Billing snapshot from `useVpnBilling({ days: 1 })`,
     showing 24h traffic, sessions, billable VPN time, monthly quota usage, and
     issued voucher count on the first screen.
@@ -99,6 +102,9 @@ queries.
   - Adds a node-scoped Recent VPN Events panel backed by
     `useVpnEvents({ nodeId })`, showing severity, message, reason, affected
     session or wallet, and relative time directly on Node Detail.
+  - Summarizes `node_policy_enforced` events with blocked count, last reason,
+    and the dominant impact bucket such as bandwidth drops or max-session
+    rejects.
   - Adds Wallet Ban Policies, an active policy table backed by
     `GET /nodes/<id>/wallet_bans/`, with copy and unban controls.
 
@@ -117,6 +123,9 @@ queries.
   - Shows open, critical, warning, and info counts plus a live event stream.
   - Displays derived node health events, session errors/resets, command
     failures, stuck commands, service restarts, and operator actions.
+  - Displays `node_policy_enforced` events with a readable blocked-count
+    preview and prioritizes maintenance, max-session, bandwidth-drop, last
+    reason, timestamp, and privacy-boundary fields in the expandable details.
 
 - `app/dashboard/settings/page.tsx`
   - Adds Settings as the node operator policy center.
@@ -1294,6 +1303,19 @@ new VPN handshakes or VPN packets on the node, without requiring SSH.
   - Event details include `maintenance_rejections`,
     `max_sessions_rejections`, `bandwidth_drops`, `last_rejection_reason`,
     `last_rejection_at`, and `privacy_boundary`.
+
+- `/root/open/nodeboard/app/dashboard/events/page.tsx`
+  - Renders `node_policy_enforced` as `N blocked` plus the last policy reason
+    in the event stream preview.
+  - Prioritizes enforcement counters and privacy-boundary fields in the
+    structured details grid.
+
+- `/root/open/nodeboard/app/dashboard/page.tsx`
+  - Shows policy enforcement reason summaries in the Overview attention panel.
+
+- `/root/open/nodeboard/app/dashboard/nodes/[id]/page.tsx`
+  - Shows per-node policy enforcement impact in Recent VPN Events, including
+    bandwidth drops, max-session rejects, or maintenance rejects.
 
 nodeboard Settings
   -> Rust enforces maintenance/max_sessions/bandwidth on hot paths

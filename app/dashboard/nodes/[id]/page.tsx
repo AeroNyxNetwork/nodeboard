@@ -1073,9 +1073,30 @@ function VpnHealthPanel({
 // Node VPN Events Panel
 // ============================================
 
+function eventDetailNumber(details: Record<string, unknown>, key: string): number {
+  const value = details[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, value);
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+  }
+  return 0;
+}
+
 function eventReason(event: VpnEvent) {
   const details = event.details || {};
 
+  if (event.type === 'node_policy_enforced') {
+    const blocked = (
+      eventDetailNumber(details, 'maintenance_rejections') +
+      eventDetailNumber(details, 'max_sessions_rejections') +
+      eventDetailNumber(details, 'bandwidth_drops')
+    );
+    const reason = typeof details.last_rejection_reason === 'string'
+      ? details.last_rejection_reason.replace(/_/g, ' ')
+      : 'policy enforced';
+    return `${blocked} blocked · ${reason}`;
+  }
   if (typeof details.degraded_reason === 'string') return details.degraded_reason;
   if (typeof details.error_message === 'string') return details.error_message;
   if (typeof details.quality_status === 'string') return `session ${details.quality_status}`;
@@ -1095,6 +1116,14 @@ function eventReason(event: VpnEvent) {
 function eventImpact(event: VpnEvent) {
   const details = event.details || {};
 
+  if (event.type === 'node_policy_enforced') {
+    const bandwidthDrops = eventDetailNumber(details, 'bandwidth_drops');
+    const maxSessionRejects = eventDetailNumber(details, 'max_sessions_rejections');
+    const maintenanceRejects = eventDetailNumber(details, 'maintenance_rejections');
+    if (bandwidthDrops > 0) return `${bandwidthDrops} bandwidth drops`;
+    if (maxSessionRejects > 0) return `${maxSessionRejects} max-session rejects`;
+    if (maintenanceRejects > 0) return `${maintenanceRejects} maintenance rejects`;
+  }
   if (typeof details.virtual_ip === 'string' && details.virtual_ip) {
     return `VIP ${details.virtual_ip}`;
   }

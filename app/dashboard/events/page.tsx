@@ -195,6 +195,24 @@ function shortValue(value: unknown, maxLength = 120): string {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
 }
 
+function detailNumber(details: Record<string, unknown>, key: string): number {
+  const value = details[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, value);
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+  }
+  return 0;
+}
+
+function policyEnforcementTotal(details: Record<string, unknown>): number {
+  return (
+    detailNumber(details, 'maintenance_rejections') +
+    detailNumber(details, 'max_sessions_rejections') +
+    detailNumber(details, 'bandwidth_drops')
+  );
+}
+
 function getChangedFields(event: VpnEvent): string[] {
   const fields = event.details?.changed_fields;
   if (Array.isArray(fields)) {
@@ -213,6 +231,12 @@ function DetailsPreview({ event }: { event: VpnEvent }) {
         {changedFields.length > 3 ? ` +${changedFields.length - 3}` : ''}
       </span>
     );
+  }
+
+  if (event.type === 'node_policy_enforced') {
+    const total = policyEnforcementTotal(event.details || {});
+    const reason = shortValue(event.details?.last_rejection_reason, 32);
+    return <span className="text-xs text-gray-500">{total} blocked · {reason}</span>;
   }
 
   if (event.type === 'bandwidth_limit_pressure') {
@@ -282,6 +306,11 @@ function buildDetailRows(event: VpnEvent): DetailRow[] {
   }
 
   const preferredKeys = [
+    'maintenance_rejections',
+    'max_sessions_rejections',
+    'bandwidth_drops',
+    'last_rejection_reason',
+    'last_rejection_at',
     'observed_mbps',
     'bandwidth_limit_mbps',
     'limit_ratio',
