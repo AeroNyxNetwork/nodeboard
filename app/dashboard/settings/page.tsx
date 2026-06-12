@@ -11,6 +11,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useNodes, useUpdateNode, useVpnEvents, useVpnOverview } from '@/hooks/useNodes';
 import { Node, NodeTier, NodeUpdateRequest, NodeVisibility, VpnEvent, VpnPolicySync } from '@/types';
 import { formatRelativeTime } from '@/lib/api';
@@ -35,6 +36,13 @@ const DEFAULT_FORM = {
 
 type PolicyForm = typeof DEFAULT_POLICY;
 type NodeSettingsForm = typeof DEFAULT_FORM;
+type PolicySaveFollowUp = {
+  mode: 'single' | 'fleet';
+  nodeId?: string;
+  nodeName: string;
+  nodeCount: number;
+  savedAt: string;
+};
 type PolicyPreset = {
   id: string;
   name: string;
@@ -281,6 +289,92 @@ function PolicySyncBadge({ sync, compact = false }: { sync?: VpnPolicySync; comp
         {pending ? <span>pending {pending}</span> : null}
       </div>
     </section>
+  );
+}
+
+function PolicySaveFollowUpPanel({
+  followUp,
+  sync,
+}: {
+  followUp: PolicySaveFollowUp;
+  sync?: VpnPolicySync;
+}) {
+  const syncStatus = sync?.status || 'unknown';
+  const statusClass = syncStatus === 'synced'
+    ? 'border-emerald-500/25 bg-emerald-500/[0.06] text-emerald-300'
+    : syncStatus === 'pending'
+      ? 'border-yellow-500/25 bg-yellow-500/[0.06] text-yellow-300'
+      : 'border-sky-500/25 bg-sky-500/[0.06] text-sky-300';
+  const isFleet = followUp.mode === 'fleet';
+
+  return (
+    <Card variant="default" padding="md">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold text-white">Policy Verification</h2>
+            <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs ${statusClass}`}>
+              {isFleet ? `${followUp.nodeCount} nodes saved` : `sync ${syncStatus}`}
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-gray-400">
+            {isFleet
+              ? `Fleet policy was saved for ${followUp.nodeCount} nodes. Check each node's Policy Sync and command history as heartbeats arrive.`
+              : `${followUp.nodeName} policy was saved. Confirm the Rust node acknowledges it on the next heartbeat.`}
+          </p>
+          <p className="mt-1 text-xs text-gray-600">
+            Saved {formatRelativeTime(followUp.savedAt)}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {!isFleet && followUp.nodeId ? (
+            <>
+              <Link
+                href={`/dashboard/nodes/${followUp.nodeId}`}
+                className="inline-flex items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-300 hover:bg-emerald-500/15"
+              >
+                Node Detail
+              </Link>
+              <Link
+                href={`/dashboard/nodes/${followUp.nodeId}#vpn-commands`}
+                className="inline-flex items-center justify-center rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-sm font-medium text-purple-300 hover:bg-purple-500/15"
+              >
+                Commands
+              </Link>
+            </>
+          ) : (
+            <Link
+              href="/dashboard/nodes"
+              className="inline-flex items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-300 hover:bg-emerald-500/15"
+            >
+              Nodes
+            </Link>
+          )}
+          <Link
+            href="/dashboard/events"
+            className="inline-flex items-center justify-center rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-sm font-medium text-sky-300 hover:bg-sky-500/15"
+          >
+            Events
+          </Link>
+        </div>
+      </div>
+
+      <div className="mt-4 grid md:grid-cols-3 gap-3 text-xs">
+        <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+          <p className="text-gray-600 uppercase">Expected</p>
+          <p className="mt-1 text-gray-300">`apply_policy` command appears in node command history.</p>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+          <p className="text-gray-600 uppercase">Confirm</p>
+          <p className="mt-1 text-gray-300">Policy Sync changes from pending or unknown to synced.</p>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+          <p className="text-gray-600 uppercase">Privacy</p>
+          <p className="mt-1 text-gray-300">Only policy metadata is shown; no traffic destinations or packet contents.</p>
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -608,6 +702,8 @@ export default function SettingsPage() {
   );
   const [form, setForm] = useState<NodeSettingsForm>(DEFAULT_FORM);
   const [message, setMessage] = useState('');
+  const [messageTone, setMessageTone] = useState<'success' | 'error'>('success');
+  const [lastPolicySave, setLastPolicySave] = useState<PolicySaveFollowUp | null>(null);
   const [savingPresetId, setSavingPresetId] = useState('');
   const policySyncByNodeId = useMemo(() => {
     const pairs = (overview?.nodes ?? []).map((node) => [node.id, node.system.policy_sync] as const);
@@ -640,16 +736,26 @@ export default function SettingsPage() {
     try {
       await updateNode.mutateAsync({ nodeId: selectedNode.id, data: payload });
       setMessage('Settings saved.');
+      setMessageTone('success');
+      setLastPolicySave({
+        mode: 'single',
+        nodeId: selectedNode.id,
+        nodeName: selectedNode.name,
+        nodeCount: 1,
+        savedAt: new Date().toISOString(),
+      });
       refetch();
       refetchVpnOverview();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to save policy.');
+      setMessageTone('error');
     }
   };
 
   const usePreset = (preset: PolicyPreset) => {
     setForm((current) => ({ ...current, ...preset.policy }));
     setMessage(`${preset.name} loaded for ${selectedNode?.name || 'selected node'}.`);
+    setMessageTone('success');
   };
 
   const applyFleetPreset = async (preset: PolicyPreset) => {
@@ -667,10 +773,18 @@ export default function SettingsPage() {
       }
       if (selectedNode) setForm((current) => ({ ...current, ...preset.policy }));
       setMessage(`${preset.name} applied to ${nodes.length} nodes.`);
+      setMessageTone('success');
+      setLastPolicySave({
+        mode: 'fleet',
+        nodeName: preset.name,
+        nodeCount: nodes.length,
+        savedAt: new Date().toISOString(),
+      });
       refetch();
       refetchVpnOverview();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to apply fleet preset.');
+      setMessageTone('error');
     } finally {
       setSavingPresetId('');
     }
@@ -717,7 +831,7 @@ export default function SettingsPage() {
           <p className="text-sm text-gray-500 mt-1">Commercial VPN placement and policy per node</p>
         </div>
         {message && (
-          <div className={`text-sm ${message === 'Settings saved.' ? 'text-emerald-300' : 'text-red-300'}`}>
+          <div className={`text-sm ${messageTone === 'success' ? 'text-emerald-300' : 'text-red-300'}`}>
             {message}
           </div>
         )}
@@ -730,6 +844,15 @@ export default function SettingsPage() {
         onApplyFleet={applyFleetPreset}
         savingPresetId={savingPresetId}
       />
+
+      {lastPolicySave && (
+        <PolicySaveFollowUpPanel
+          followUp={lastPolicySave}
+          sync={lastPolicySave.mode === 'single' && lastPolicySave.nodeId
+            ? policySyncByNodeId[lastPolicySave.nodeId]
+            : undefined}
+        />
+      )}
 
       <div className="grid xl:grid-cols-[360px_1fr] gap-6 items-start">
         <NodeList
