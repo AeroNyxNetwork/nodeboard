@@ -12,9 +12,9 @@
 
 import React, { useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useNodes, useAggregatedStats, useDeleteNode, useVpnOverview } from '@/hooks/useNodes';
+import { useNodes, useAggregatedStats, useDeleteNode, useVpnOverview, useVpnEvents } from '@/hooks/useNodes';
 import { useAuthStore } from '@/stores/authStore';
-import { Node, VpnHealthStatus } from '@/types';
+import { Node, VpnEvent, VpnEventSeverity, VpnHealthStatus } from '@/types';
 import { formatBytes, formatRelativeTime, truncateAddress } from '@/lib/api';
 import Card, { StatCard, EmptyState } from '@/components/common/Card';
 import Button from '@/components/common/Button';
@@ -124,18 +124,48 @@ const healthDotClass: Record<VpnHealthStatus, string> = {
   offline: 'bg-red-400',
 };
 
+const eventSeverityClass: Record<VpnEventSeverity, string> = {
+  critical: 'bg-red-400',
+  warning: 'bg-yellow-400',
+  info: 'bg-sky-400',
+};
+
 function formatAvailability(value: number | null | undefined) {
   if (typeof value !== 'number' || Number.isNaN(value)) return 'pending';
   return `${value.toFixed(value >= 99.95 ? 2 : 1)}%`;
 }
 
+function formatEventReason(event: VpnEvent) {
+  const details = event.details || {};
+
+  if (typeof details.degraded_reason === 'string') return details.degraded_reason;
+  if (typeof details.error_message === 'string') return details.error_message;
+  if (typeof details.quality_status === 'string') return `session ${details.quality_status}`;
+  if (typeof details.health_status === 'string') return `node ${details.health_status}`;
+  if (typeof details.observed_mbps === 'number' && typeof details.bandwidth_limit_mbps === 'number') {
+    return `${details.observed_mbps.toFixed(1)} / ${details.bandwidth_limit_mbps.toFixed(1)} Mbps`;
+  }
+  if (Array.isArray(details.changed_fields) && details.changed_fields.length > 0) {
+    return details.changed_fields.slice(0, 3).join(', ');
+  }
+  if (event.session_id) return `session ${event.session_id}`;
+  if (event.command_id) return `command ${event.command_id.slice(0, 8)}`;
+  return event.type.replaceAll('_', ' ');
+}
+
 function VpnOperationsSnapshot() {
   const { overview, isLoading, isError } = useVpnOverview();
+  const { events: eventOverview, isLoading: eventsLoading } = useVpnEvents({
+    days: 1,
+    severity: 'all',
+    limit: 5,
+  });
   const summary = overview?.summary;
   const attentionNodes = (overview?.nodes ?? [])
     .filter((node) => node.health_status !== 'healthy')
     .sort((a, b) => a.health_score - b.health_score)
     .slice(0, 4);
+  const recentEvents = eventOverview?.events ?? [];
   const totalTrafficBytes = summary
     ? (summary.traffic_in_mb + summary.traffic_out_mb) * 1024 * 1024
     : 0;
@@ -218,32 +248,75 @@ function VpnOperationsSnapshot() {
           </Link>
         </div>
 
-        {attentionNodes.length === 0 ? (
-          <p className="text-sm text-emerald-300">All VPN nodes are currently healthy.</p>
-        ) : (
-          <div className="space-y-3">
-            {attentionNodes.map((node) => (
-              <Link
-                key={node.id}
-                href={`/dashboard/nodes/${node.id}`}
-                className="block rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5 hover:bg-white/[0.05] transition-colors"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${healthDotClass[node.health_status]}`} />
-                      <span className="text-sm font-medium text-white truncate">{node.name}</span>
+        <div className="space-y-5">
+          <div>
+            <p className="mb-2 text-[11px] uppercase tracking-wide text-gray-600">Nodes</p>
+            {attentionNodes.length === 0 ? (
+              <p className="text-sm text-emerald-300">All VPN nodes are currently healthy.</p>
+            ) : (
+              <div className="space-y-3">
+                {attentionNodes.map((node) => (
+                  <Link
+                    key={node.id}
+                    href={`/dashboard/nodes/${node.id}`}
+                    className="block rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5 hover:bg-white/[0.05] transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${healthDotClass[node.health_status]}`} />
+                          <span className="text-sm font-medium text-white truncate">{node.name}</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1 truncate">
+                          {node.public_ip || 'no ip'} · {node.region_code || 'no region'}
+                        </p>
+                      </div>
+                      <span className="text-xs text-gray-400">{node.health_score}/100</span>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1 truncate">
-                      {node.public_ip || 'no ip'} · {node.region_code || 'no region'}
-                    </p>
-                  </div>
-                  <span className="text-xs text-gray-400">{node.health_score}/100</span>
-                </div>
-              </Link>
-            ))}
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+
+          <div>
+            <p className="mb-2 text-[11px] uppercase tracking-wide text-gray-600">Recent Events</p>
+            {eventsLoading ? (
+              <div className="space-y-2">
+                {[...Array(3)].map((_, index) => (
+                  <div key={index} className="h-11 rounded-xl bg-white/[0.04] animate-pulse" />
+                ))}
+              </div>
+            ) : recentEvents.length === 0 ? (
+              <p className="text-sm text-gray-500">No VPN events in the last 24 hours.</p>
+            ) : (
+              <div className="space-y-3">
+                {recentEvents.map((event) => (
+                  <Link
+                    key={event.id}
+                    href="/dashboard/events"
+                    className="block rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5 hover:bg-white/[0.05] transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${eventSeverityClass[event.severity]}`} />
+                          <span className="truncate text-sm font-medium text-white">{event.title}</span>
+                        </div>
+                        <p className="mt-1 truncate text-xs text-gray-500">
+                          {event.node_name || 'Fleet'} · {formatEventReason(event)}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-xs text-gray-500">
+                        {event.created_at ? formatRelativeTime(event.created_at) : 'now'}
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </Card>
     </div>
   );

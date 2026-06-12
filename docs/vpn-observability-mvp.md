@@ -30,6 +30,10 @@ queries.
   - Adds a VPN Operations snapshot to the main dashboard entry point.
   - Shows healthy VPN node count, 24h availability, active tunnels, VPN traffic,
     open alert count, and the top nodes needing attention.
+  - Shows the latest 24h VPN events from `useVpnEvents()` directly in the
+    overview attention panel, including severity, affected node, reason, and
+    relative time, so operators can start triage without opening SSH or the full
+    Events page.
   - Links directly to VPN Operations, Events, and Node Detail so operators can
     triage without starting from SSH or a generic node card.
 
