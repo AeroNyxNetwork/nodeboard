@@ -132,6 +132,9 @@ queries.
   - Adds a node-scoped Recent VPN Events panel backed by
     `useVpnEvents({ nodeId })`, showing severity, message, reason, affected
     session or wallet, and relative time directly on Node Detail.
+  - Labels `apply_policy` command events as policy acknowledgements in the
+    node-scoped event reason so Settings saves, command lifecycle, and runtime
+    Policy Sync can be correlated without reading raw action names.
   - Summarizes `node_policy_enforced` events with blocked count, last reason,
     and the dominant impact bucket such as bandwidth drops or max-session
     rejects.

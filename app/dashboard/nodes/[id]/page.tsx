@@ -1231,6 +1231,20 @@ function eventDetailNumber(details: Record<string, unknown>, key: string): numbe
   return 0;
 }
 
+function eventCommandLabel(action?: string | null) {
+  const labels: Record<string, string> = {
+    system_info: 'System diagnostics',
+    collect_logs: 'Recent service logs',
+    refresh_config: 'Config refresh',
+    apply_policy: 'Policy acknowledgement',
+    restart_service: 'Service restart',
+    kick_session: 'Session kick',
+    ban_wallet: 'Wallet ban',
+    unban_wallet: 'Wallet unban',
+  };
+  return action ? labels[action] || action.replace(/_/g, ' ') : 'Command';
+}
+
 function eventReason(event: VpnEvent) {
   const details = event.details || {};
 
@@ -1269,7 +1283,7 @@ function eventReason(event: VpnEvent) {
     return details.changed_fields.slice(0, 3).join(', ');
   }
   if (event.session_id) return `session ${event.session_id}`;
-  if (event.command_id) return `command ${event.command_id.slice(0, 8)}`;
+  if (event.command_id) return `${eventCommandLabel(event.action)} · command ${event.command_id.slice(0, 8)}`;
   return event.type.replace(/_/g, ' ');
 }
 
@@ -1287,6 +1301,9 @@ function eventImpact(event: VpnEvent) {
   if (event.type === 'node_policy_sync_pending') {
     const age = eventDetailNumber(details, 'heartbeat_age_seconds');
     return age > 0 ? `heartbeat ${age}s old` : 'waiting for heartbeat';
+  }
+  if (event.source === 'node_command' && event.action === 'apply_policy') {
+    return 'policy runtime acknowledgement';
   }
   if (typeof details.virtual_ip === 'string' && details.virtual_ip) {
     return `VIP ${details.virtual_ip}`;
