@@ -117,6 +117,10 @@ queries.
   - Adds a guarded `Ban Wallet` operation for active sessions. The backend
     derives the wallet from the selected session, and the Rust node adds it to
     the VPN deny list before disconnecting that wallet's active tunnels.
+  - After `Kick` or `Ban Wallet` is queued, shows the returned command id and an
+    `Open Node Commands` link to the node's Recent VPN Commands section, so the
+    operator can follow queued, sent, acknowledged, and completed lifecycle
+    timing without SSH.
 
 - `app/dashboard/nodes/[id]/page.tsx`
   - Adds a per-node VPN Health panel to the node detail page.
@@ -155,6 +159,9 @@ queries.
   - Adds safe `System Info` and `Collect Logs` command buttons plus recent VPN
     command history for diagnostics, refreshes, restarts, session kicks, wallet
     bans, and wallet unbans.
+  - Anchors the Recent VPN Commands section as `#vpn-commands` so operation
+    flows from VPN Sessions can deep-link directly to command lifecycle
+    evidence on Node Detail.
   - Adds `Refresh Config`, which queues a bounded `refresh_config` command for
     the node to validate and summarize its management configuration without SSH.
   - Adds `Start Maintenance` / `End Maintenance` shortcuts in VPN Health. The

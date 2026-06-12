@@ -44,6 +44,11 @@ import Button from '@/components/common/Button';
 
 type SessionFilter = 'all' | 'active' | 'completed' | 'error';
 type QualityFilter = 'all' | SessionQualityStatus;
+type OperationNotice = {
+  message: string;
+  nodeId?: string;
+  commandId?: string;
+};
 
 const SESSION_FILTERS: SessionFilter[] = ['all', 'active', 'completed', 'error'];
 const QUALITY_FILTERS: QualityFilter[] = ['all', 'healthy', 'degraded', 'stale', 'error', 'pending', 'completed'];
@@ -648,7 +653,7 @@ export default function SessionsPage() {
   const [query, setQuery] = useState(() => initialQueryValue('q') || '');
   const [kickingSessionId, setKickingSessionId] = useState<string | null>(null);
   const [banningSessionId, setBanningSessionId] = useState<string | null>(null);
-  const [operationMessage, setOperationMessage] = useState<string>('');
+  const [operationNotice, setOperationNotice] = useState<OperationNotice | null>(null);
   const { overview, isLoading: overviewLoading, isError: overviewError, refetch: refetchOverview } = useVpnOverview();
   const {
     sessions,
@@ -692,10 +697,10 @@ export default function SessionsPage() {
 
   const handleKickSession = async (session: VpnSession) => {
     setKickingSessionId(session.id);
-    setOperationMessage('');
+    setOperationNotice(null);
 
     try {
-      await runCommand.mutateAsync({
+      const response = await runCommand.mutateAsync({
         nodeId: session.node_id,
         data: {
           action: 'kick_session',
@@ -706,11 +711,17 @@ export default function SessionsPage() {
           priority: 1,
         },
       });
-      setOperationMessage(`Kick queued for ${truncateAddress(session.session_id, 8)}`);
+      setOperationNotice({
+        message: `Kick queued for ${truncateAddress(session.session_id, 8)}`,
+        nodeId: session.node_id,
+        commandId: response.data.command.id,
+      });
       refetchOverview();
       refetchSessions();
     } catch (error) {
-      setOperationMessage(error instanceof Error ? error.message : 'Failed to queue kick command');
+      setOperationNotice({
+        message: error instanceof Error ? error.message : 'Failed to queue kick command',
+      });
     } finally {
       setKickingSessionId(null);
     }
@@ -722,10 +733,10 @@ export default function SessionsPage() {
     }
 
     setBanningSessionId(session.id);
-    setOperationMessage('');
+    setOperationNotice(null);
 
     try {
-      await runCommand.mutateAsync({
+      const response = await runCommand.mutateAsync({
         nodeId: session.node_id,
         data: {
           action: 'ban_wallet',
@@ -736,11 +747,17 @@ export default function SessionsPage() {
           priority: 1,
         },
       });
-      setOperationMessage(`Ban queued for wallet ${truncateAddress(session.client_wallet, 6)}`);
+      setOperationNotice({
+        message: `Ban queued for wallet ${truncateAddress(session.client_wallet, 6)}`,
+        nodeId: session.node_id,
+        commandId: response.data.command.id,
+      });
       refetchOverview();
       refetchSessions();
     } catch (error) {
-      setOperationMessage(error instanceof Error ? error.message : 'Failed to queue wallet ban');
+      setOperationNotice({
+        message: error instanceof Error ? error.message : 'Failed to queue wallet ban',
+      });
     } finally {
       setBanningSessionId(null);
     }
@@ -766,9 +783,26 @@ export default function SessionsPage() {
         </Card>
       ) : null}
 
-      {operationMessage ? (
+      {operationNotice ? (
         <Card variant="outline" padding="md" className="mb-6">
-          <div className="text-sm text-gray-300">{operationMessage}</div>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div className="text-sm text-gray-300">{operationNotice.message}</div>
+              {operationNotice.commandId ? (
+                <div className="mt-1 text-xs text-gray-600">
+                  Command <span className="font-mono">{operationNotice.commandId.slice(0, 8)}</span>
+                </div>
+              ) : null}
+            </div>
+            {operationNotice.nodeId ? (
+              <Link
+                href={`/dashboard/nodes/${operationNotice.nodeId}#vpn-commands`}
+                className="text-sm font-medium text-purple-300 hover:text-purple-200"
+              >
+                Open Node Commands
+              </Link>
+            ) : null}
+          </div>
         </Card>
       ) : null}
 

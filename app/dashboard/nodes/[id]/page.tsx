@@ -1434,7 +1434,7 @@ function VpnHealthPanel({
         </div>
       )}
 
-      <div className="mt-5 border-t border-white/5 pt-4">
+      <div id="vpn-commands" className="mt-5 border-t border-white/5 pt-4 scroll-mt-6">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div>
             <h4 className="text-sm font-semibold text-white">Recent VPN Commands</h4>
