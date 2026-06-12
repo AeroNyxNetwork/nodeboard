@@ -12,6 +12,7 @@
 
 import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useNodes, useVpnEvents, UseVpnEventsOptions } from '@/hooks/useNodes';
 import { VpnEvent, VpnEventSeverity } from '@/types';
 import { formatRelativeTime } from '@/lib/api';
@@ -22,6 +23,15 @@ type SeverityFilter = NonNullable<UseVpnEventsOptions['severity']>;
 
 const SEVERITY_OPTIONS: SeverityFilter[] = ['all', 'critical', 'warning', 'info'];
 const DAY_OPTIONS = [1, 7, 14, 30, 60, 90];
+
+function initialSeverity(value: string | null): SeverityFilter {
+  return SEVERITY_OPTIONS.includes(value as SeverityFilter) ? (value as SeverityFilter) : 'all';
+}
+
+function initialDays(value: string | null): number {
+  const parsed = Number(value);
+  return DAY_OPTIONS.includes(parsed) ? parsed : 7;
+}
 
 const severityStyles: Record<VpnEventSeverity, { label: string; badge: string; dot: string }> = {
   critical: {
@@ -767,10 +777,11 @@ function EventsTable({ events }: { events: VpnEvent[] }) {
 }
 
 export default function VpnEventsPage() {
-  const [days, setDays] = useState(7);
-  const [severity, setSeverity] = useState<SeverityFilter>('all');
-  const [eventType, setEventType] = useState('');
-  const [nodeId, setNodeId] = useState('');
+  const searchParams = useSearchParams();
+  const [days, setDays] = useState(() => initialDays(searchParams.get('days')));
+  const [severity, setSeverity] = useState<SeverityFilter>(() => initialSeverity(searchParams.get('severity')));
+  const [eventType, setEventType] = useState(() => searchParams.get('type') || '');
+  const [nodeId, setNodeId] = useState(() => searchParams.get('node') || searchParams.get('node_id') || '');
 
   const options = useMemo<UseVpnEventsOptions>(() => ({
     days,

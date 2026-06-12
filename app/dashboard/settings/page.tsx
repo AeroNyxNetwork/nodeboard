@@ -306,6 +306,9 @@ function PolicySaveFollowUpPanel({
       ? 'border-yellow-500/25 bg-yellow-500/[0.06] text-yellow-300'
       : 'border-sky-500/25 bg-sky-500/[0.06] text-sky-300';
   const isFleet = followUp.mode === 'fleet';
+  const eventsHref = isFleet || !followUp.nodeId
+    ? '/dashboard/events?days=30&type=node_policy_changed'
+    : `/dashboard/events?days=30&type=node_policy_changed&node=${encodeURIComponent(followUp.nodeId)}`;
 
   return (
     <Card variant="default" padding="md">
@@ -352,7 +355,7 @@ function PolicySaveFollowUpPanel({
             </Link>
           )}
           <Link
-            href="/dashboard/events"
+            href={eventsHref}
             className="inline-flex items-center justify-center rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-sm font-medium text-sky-300 hover:bg-sky-500/15"
           >
             Events

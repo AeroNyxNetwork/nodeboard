@@ -250,6 +250,10 @@ queries.
 
 - `app/dashboard/events/page.tsx`
   - Adds Alerts / Events with filters for days, severity, type, and node.
+  - Accepts initial URL filters:
+    `?days=1|7|14|30|60|90&severity=all|critical|warning|info&type=<event_type>&node=<node_id>`.
+    Settings verification links use this to open the selected node's
+    `node_policy_changed` audit stream directly.
   - Shows open, critical, warning, and info counts plus a live event stream.
   - Displays derived node health events, session errors/resets, command
     failures, stuck commands, service restarts, and operator actions.
@@ -315,10 +319,10 @@ queries.
     heartbeat-delivered runtime policy in command history.
   - Shows a Policy Verification panel after a single-node save or fleet preset
     apply. The panel links directly to Node Detail, Recent VPN Commands, and
-    Events so operators can confirm `apply_policy` lifecycle and Policy Sync
-    without SSH. It reuses policy metadata only and does not expose traffic
-    destinations, DNS contents, packet payloads, browsing history, voucher
-    secrets, or client public IPs.
+    a filtered Events audit view so operators can confirm `apply_policy`
+    lifecycle and Policy Sync without SSH. It reuses policy metadata only and
+    does not expose traffic destinations, DNS contents, packet payloads,
+    browsing history, voucher secrets, or client public IPs.
   - Saves through the existing owner-scoped `PATCH /nodes/<id>/` endpoint.
 
 - `components/dashboard/Sidebar.tsx`
