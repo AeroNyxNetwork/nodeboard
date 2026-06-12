@@ -46,7 +46,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   useNodeDetail,
   useNodeStats,
@@ -1409,6 +1409,8 @@ function VpnHealthPanel({
 }) {
   const { overview, isLoading, isError, refetch } = useVpnOverview();
   const { servers, isLoading: placementLoading } = useVpnServers();
+  const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [commandStatusFilter, setCommandStatusFilter] = useState(() => (
     initialCommandStatusFilter(searchParams.get('command_status'))
@@ -1416,6 +1418,28 @@ function VpnHealthPanel({
   const [commandActionFilter, setCommandActionFilter] = useState(() => (
     initialCommandActionFilter(searchParams.get('command_action'))
   ));
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (commandStatusFilter === 'all') {
+      params.delete('command_status');
+    } else {
+      params.set('command_status', commandStatusFilter);
+    }
+    if (commandActionFilter === 'all') {
+      params.delete('command_action');
+    } else {
+      params.set('command_action', commandActionFilter);
+    }
+
+    const query = params.toString();
+    const current = searchParams.toString();
+    if (query === current) return;
+
+    const hash = typeof window !== 'undefined' ? window.location.hash : '';
+    router.replace(`${pathname}${query ? `?${query}` : ''}${hash}`, { scroll: false });
+  }, [commandActionFilter, commandStatusFilter, pathname, router, searchParams]);
+
   const {
     commands,
     stats: commandStats,

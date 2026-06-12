@@ -10,9 +10,9 @@
 
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useNodes, useVpnEvents, UseVpnEventsOptions } from '@/hooks/useNodes';
 import { VpnEvent, VpnEventSeverity } from '@/types';
 import { formatRelativeTime } from '@/lib/api';
@@ -777,11 +777,23 @@ function EventsTable({ events }: { events: VpnEvent[] }) {
 }
 
 export default function VpnEventsPage() {
+  const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [days, setDays] = useState(() => initialDays(searchParams.get('days')));
   const [severity, setSeverity] = useState<SeverityFilter>(() => initialSeverity(searchParams.get('severity')));
   const [eventType, setEventType] = useState(() => searchParams.get('type') || '');
   const [nodeId, setNodeId] = useState(() => searchParams.get('node') || searchParams.get('node_id') || '');
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (days !== 7) params.set('days', String(days));
+    if (severity !== 'all') params.set('severity', severity);
+    if (eventType) params.set('type', eventType);
+    if (nodeId) params.set('node', nodeId);
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [days, eventType, nodeId, pathname, router, severity]);
 
   const options = useMemo<UseVpnEventsOptions>(() => ({
     days,

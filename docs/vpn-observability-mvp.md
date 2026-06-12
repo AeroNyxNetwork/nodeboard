@@ -212,6 +212,9 @@ queries.
     `?command_status=pending|sent|executing|completed|failed|cancelled|timeout|all&command_action=<vpn_action>#vpn-commands`.
     Settings verification uses this to open the selected node's `apply_policy`
     acknowledgements directly.
+  - Keeps command history status/action filters synchronized back to the URL,
+    so an operator can share the exact command evidence view with another
+    operator without copying filter values by hand.
   - Displays command lifecycle timing (`queued`, `sent`, `acked`, `done`) so
     operators can see whether a command is still in CMS, dispatched by
     heartbeat, acknowledged by Rust, or complete.
@@ -258,6 +261,9 @@ queries.
     `?days=1|7|14|30|60|90&severity=all|critical|warning|info&type=<event_type>&node=<node_id>`.
     Settings verification links use this to open the selected node's
     `node_policy_changed` audit stream directly.
+  - Keeps event filters synchronized back to the URL, preserving a shareable
+    incident view for node health, runtime recovery, policy, placement, session,
+    and command events.
   - Shows open, critical, warning, and info counts plus a live event stream.
   - Displays derived node health events, session errors/resets, command
     failures, stuck commands, service restarts, and operator actions.
