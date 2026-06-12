@@ -648,6 +648,10 @@ export function useUpdateNode() {
         queryKey: nodeKeys.list(),
         refetchType: 'all',
       });
+      queryClient.invalidateQueries({
+        queryKey: ['nodes', 'vpn', 'events'],
+        refetchType: 'all',
+      });
     },
   });
 }

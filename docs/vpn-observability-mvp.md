@@ -148,6 +148,9 @@ queries.
     `Limited Recovery`.
   - Presets can be loaded into the selected node form or confirmed and applied
     across all owner nodes through the existing node update endpoint.
+  - Shows a selected-node Recent Settings Audit panel backed by
+    `useVpnEvents({ type: "node_policy_changed" })`, so operators can review
+    recent policy changes without leaving Settings.
   - Saves through the existing owner-scoped `PATCH /nodes/<id>/` endpoint.
 
 - `app/dashboard/explore/page.tsx`
@@ -177,6 +180,8 @@ queries.
   - Invalidates VPN overview, session, and wallet-ban queries after node
     commands so policy and session state refresh after the node reports
     completion.
+  - Invalidates VPN event queries after node settings updates so policy audit
+    entries refresh in Settings and Alerts / Events.
   - Keeps authentication gating consistent with existing owner-only hooks.
 
 - `lib/api.ts`

@@ -11,8 +11,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNodes, useUpdateNode } from '@/hooks/useNodes';
-import { Node, NodeTier, NodeUpdateRequest, NodeVisibility } from '@/types';
+import { useNodes, useUpdateNode, useVpnEvents } from '@/hooks/useNodes';
+import { Node, NodeTier, NodeUpdateRequest, NodeVisibility, VpnEvent } from '@/types';
 import { formatRelativeTime } from '@/lib/api';
 import Card, { EmptyState, LoadingCard } from '@/components/common/Card';
 import Button from '@/components/common/Button';
@@ -102,6 +102,29 @@ function normalizeRegionCode(value: string) {
   return value.trim().toUpperCase().slice(0, 2);
 }
 
+function shortValue(value: unknown) {
+  if (value === null || value === undefined || value === '') return 'empty';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  return JSON.stringify(value);
+}
+
+function fieldLabel(value: string) {
+  return value.replace(/_/g, ' ');
+}
+
+function auditChanges(event: VpnEvent) {
+  const changes = event.details.changes;
+  if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return [];
+  return Object.entries(changes as Record<string, { old?: unknown; new?: unknown }>)
+    .slice(0, 6)
+    .map(([field, change]) => ({
+      field,
+      oldValue: shortValue(change?.old),
+      newValue: shortValue(change?.new),
+    }));
+}
+
 function nodePolicy(node: Node | null): NodeSettingsForm {
   if (!node) return DEFAULT_FORM;
   return {
@@ -130,6 +153,85 @@ function policyChanged(node: Node | null, form: NodeSettingsForm) {
     current.region_code !== form.region_code ||
     current.city !== form.city ||
     current.is_vpn_node !== form.is_vpn_node
+  );
+}
+
+function PolicyAuditPanel({ nodeId }: { nodeId: string }) {
+  const { events, isLoading, isError, error, refetch } = useVpnEvents({
+    days: 30,
+    type: 'node_policy_changed',
+    nodeId,
+    limit: 5,
+  });
+  const items = events?.events ?? [];
+
+  return (
+    <Card variant="default" padding="none">
+      <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-white">Recent Settings Audit</h2>
+          <p className="text-xs text-gray-500 mt-1">Last 30 days for the selected node</p>
+        </div>
+        <Button variant="secondary" onClick={() => refetch()}>
+          Refresh
+        </Button>
+      </div>
+
+      <div className="divide-y divide-white/5">
+        {isLoading && (
+          <div className="p-5 space-y-3 animate-pulse">
+            <div className="h-4 w-56 rounded bg-white/10" />
+            <div className="h-4 w-80 rounded bg-white/5" />
+          </div>
+        )}
+
+        {!isLoading && isError && (
+          <div className="p-5 text-sm text-red-300">
+            {error?.message || 'Unable to load policy audit events.'}
+          </div>
+        )}
+
+        {!isLoading && !isError && items.length === 0 && (
+          <div className="p-5 text-sm text-gray-500">
+            No policy changes recorded for this node yet.
+          </div>
+        )}
+
+        {!isLoading && !isError && items.map((event) => {
+          const changes = auditChanges(event);
+          const actor = shortValue(event.details.changed_by_wallet);
+          return (
+            <div key={event.id} className="p-5">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium text-white">{event.message}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {event.created_at ? formatRelativeTime(event.created_at) : 'time pending'} - {actor}
+                  </p>
+                </div>
+                <span className="inline-flex w-fit px-2 py-1 rounded-full border border-white/10 bg-white/5 text-xs text-gray-400">
+                  {event.action || 'settings_update'}
+                </span>
+              </div>
+              {changes.length > 0 && (
+                <div className="mt-3 grid md:grid-cols-2 gap-2">
+                  {changes.map((change) => (
+                    <div key={change.field} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs">
+                      <p className="text-gray-400">{fieldLabel(change.field)}</p>
+                      <p className="text-gray-500 mt-1">
+                        {change.oldValue}
+                        <span className="text-purple-300 mx-1">-&gt;</span>
+                        <span className="text-gray-200">{change.newValue}</span>
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 
@@ -581,13 +683,16 @@ export default function SettingsPage() {
 
       <div className="grid xl:grid-cols-[360px_1fr] gap-6 items-start">
         <NodeList nodes={nodes} selectedId={selectedNode.id} onSelect={setSelectedId} />
-        <PolicyEditor
-          node={selectedNode}
-          form={form}
-          onForm={setForm}
-          onSave={save}
-          saving={updateNode.isPending}
-        />
+        <div className="space-y-6">
+          <PolicyEditor
+            node={selectedNode}
+            form={form}
+            onForm={setForm}
+            onSave={save}
+            saving={updateNode.isPending}
+          />
+          <PolicyAuditPanel nodeId={selectedNode.id} />
+        </div>
       </div>
     </div>
   );
