@@ -129,6 +129,9 @@ queries.
   - Disables `Restart VPN` when Rust heartbeat reports
     `service_manager.restart_supported=false`, showing the node-local reason
     such as a missing systemd service unit.
+  - Shows per-node Client Placement state from `useVpnServers()`, including
+    whether clients can receive the node, its failover rank, hidden-address
+    reason, load, active sessions, and 24h availability.
   - Adds `Cancel` controls for pending or sent VPN commands so operators can
     stop stale or accidental queued actions without SSH. Commands already
     executing on the Rust node are shown as in-flight and are not presented as

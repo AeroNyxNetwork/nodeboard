@@ -52,6 +52,7 @@ import {
   useNodeStats,
   useNodeSessions,
   useVpnOverview,
+  useVpnServers,
   useVpnEvents,
   useVpnNodeMetrics,
   useNodeWalletBans,
@@ -70,6 +71,7 @@ import {
   VpnHealthStatus,
   VpnNodeHealth,
   VpnNodeMetrics,
+  VpnServerCandidate,
 } from '@/types';
 import { formatRelativeTime, formatDuration, formatBytes, copyToClipboard } from '@/lib/api';
 import { NODE_STATUS_CONFIG } from '@/lib/constants';
@@ -523,6 +525,91 @@ function formatAvailability(value: number | null | undefined) {
   return `${value.toFixed(value >= 99.95 ? 2 : 1)}%`;
 }
 
+function formatPlacementReason(reason: string | null | undefined) {
+  if (!reason) return 'candidate';
+  const labels: Record<string, string> = {
+    heartbeat_stale: 'heartbeat stale',
+    maintenance_mode: 'maintenance',
+    max_sessions_reached: 'session cap reached',
+    vpn_health_failed: 'VPN health failed',
+    overloaded: 'overloaded',
+    low_24h_availability: 'low 24h availability',
+  };
+  return labels[reason] || reason.replace(/_/g, ' ');
+}
+
+function NodePlacementStrip({
+  server,
+  isLoading,
+}: {
+  server: VpnServerCandidate | null;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <div className="mt-5 h-14 rounded-xl bg-white/[0.04] border border-white/5 animate-pulse" />
+    );
+  }
+
+  if (!server) {
+    return (
+      <div className="mt-5 rounded-xl border border-yellow-500/20 bg-yellow-500/[0.05] px-4 py-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <p className="text-sm font-medium text-yellow-200">Client Placement</p>
+            <p className="text-xs text-gray-500 mt-1">
+              This node is not in the public VPN candidate list.
+            </p>
+          </div>
+          <span className="text-xs text-yellow-300">not advertised</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`mt-5 rounded-xl border px-4 py-3 ${
+      server.available
+        ? 'border-emerald-500/20 bg-emerald-500/[0.05]'
+        : 'border-yellow-500/20 bg-yellow-500/[0.05]'
+    }`}>
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-medium text-white">Client Placement</p>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${
+              server.available
+                ? 'border-emerald-500/25 bg-emerald-500/15 text-emerald-300'
+                : 'border-yellow-500/25 bg-yellow-500/15 text-yellow-300'
+            }`}>
+              {server.available ? `rank ${server.failover_rank ?? '-'}` : formatPlacementReason(server.unavailable_reason)}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            {server.available
+              ? `Clients can receive ${server.address || 'hidden'}:${server.port}`
+              : `Hidden from clients: ${formatPlacementReason(server.unavailable_reason)}`}
+          </p>
+        </div>
+        <div className="grid grid-cols-3 gap-3 text-xs text-gray-400 min-w-[260px]">
+          <div>
+            <p className="text-gray-600">24h</p>
+            <p className="mt-1 text-gray-300">{formatAvailability(server.availability_24h_percent)}</p>
+          </div>
+          <div>
+            <p className="text-gray-600">Load</p>
+            <p className="mt-1 text-gray-300">{server.load === null ? 'pending' : `${server.load}%`}</p>
+          </div>
+          <div>
+            <p className="text-gray-600">Sessions</p>
+            <p className="mt-1 text-gray-300">{server.current_sessions}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function formatBitsPerSecond(value: number | null | undefined) {
   if (typeof value !== 'number' || Number.isNaN(value)) return 'pending';
   if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)} Gbps`;
@@ -927,6 +1014,7 @@ function VpnHealthPanel({
   onToast: (message: string, variant?: 'success' | 'error') => void;
 }) {
   const { overview, isLoading, isError, refetch } = useVpnOverview();
+  const { servers, isLoading: placementLoading } = useVpnServers();
   const { commands, isLoading: commandsLoading } = useNodeCommands(nodeId, { limit: 20 });
   const { metrics, isLoading: metricsLoading } = useVpnNodeMetrics(nodeId, { hours: 24 });
   const runCommand = useRunNodeCommand();
@@ -1065,6 +1153,7 @@ function VpnHealthPanel({
   const failedChecks = health.checks.filter((check) => !check.ok);
   const serviceManager = health.system.service_manager;
   const restartSupported = serviceManager?.restart_supported !== false;
+  const placement = servers.find((server) => server.id === nodeId) ?? null;
 
   return (
     <Card variant="default" padding="md" className="mb-6">
@@ -1132,6 +1221,8 @@ function VpnHealthPanel({
           )}
         </div>
       </div>
+
+      <NodePlacementStrip server={placement} isLoading={placementLoading} />
 
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mt-5">
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
