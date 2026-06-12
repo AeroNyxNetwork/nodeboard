@@ -101,6 +101,10 @@ queries.
   - Shows Policy Enforcement counters from Rust heartbeat health, including
     maintenance rejections, max-session rejections, bandwidth drops, last
     rejection reason, and last rejection time.
+  - Shows Policy Sync from Rust heartbeat health, comparing the nodeboard
+    desired policy with the node's runtime policy snapshot so operators know
+    whether tier, maintenance mode, max sessions, bandwidth cap, and heartbeat
+    interval have reached the Rust process.
   - Adds safe `System Info` and `Collect Logs` command buttons plus recent VPN
     command history for diagnostics, refreshes, restarts, session kicks, wallet
     bans, and wallet unbans.
@@ -296,6 +300,10 @@ queries.
     from `/vpn/sessions/`. The summary is calculated from the latest 1000
     sessions after node/status filters, then the selected quality filter and UI
     limit are applied to the returned rows.
+  - Returns `system.policy_sync` on node health rows. The backend compares
+    owner-configured policy fields with Rust-reported
+    `system_stats.vpn_health.node_policy` and returns `synced`, `pending`, or
+    `unknown` plus mismatched fields and heartbeat age.
 
 - `/root/aeronyx/privacy_network/models.py`
   - Stores `ClientSession.virtual_ip`, the tunnel-local address assigned by

@@ -327,6 +327,24 @@ export interface VpnPolicyEnforcement {
   last_rejection_at: number | null;
 }
 
+export interface VpnPolicySnapshot {
+  node_tier: 'public' | 'premium' | string;
+  maintenance_mode: boolean;
+  max_sessions: number;
+  bandwidth_limit_mbps: number;
+  heartbeat_interval_seconds: number;
+  updated_at?: string | null;
+}
+
+export interface VpnPolicySync {
+  status: 'synced' | 'pending' | 'unknown' | string;
+  desired: VpnPolicySnapshot;
+  runtime: VpnPolicySnapshot | null;
+  mismatched_fields: string[];
+  heartbeat_age_seconds: number | null;
+  message: string;
+}
+
 export interface VpnNodeHealth {
   id: string;
   name: string;
@@ -363,6 +381,7 @@ export interface VpnNodeHealth {
     runtime_started_at?: string | null;
     vpn_health_status?: 'ok' | 'degraded' | 'failed' | string | null;
     vpn_health_checked_at?: number | null;
+    policy_sync?: VpnPolicySync;
     policy_enforcement?: VpnPolicyEnforcement;
   };
   checks: VpnHealthCheck[];

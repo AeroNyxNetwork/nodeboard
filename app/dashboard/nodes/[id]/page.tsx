@@ -805,6 +805,7 @@ function NodeMetricsTrendPanel({
 
 function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
   const enforcement = health.system.policy_enforcement;
+  const policySync = health.system.policy_sync;
   const maintenance = policyCount(enforcement?.maintenance_rejections);
   const maxSessions = policyCount(enforcement?.max_sessions_rejections);
   const bandwidth = policyCount(enforcement?.bandwidth_drops);
@@ -812,6 +813,13 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
   const lastAt = enforcement?.last_rejection_at
     ? new Date(enforcement.last_rejection_at * 1000).toISOString()
     : null;
+  const syncStatus = policySync?.status || 'unknown';
+  const syncClass = syncStatus === 'synced'
+    ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300'
+    : syncStatus === 'pending'
+      ? 'border-yellow-500/25 bg-yellow-500/10 text-yellow-300'
+      : 'border-gray-500/25 bg-gray-500/10 text-gray-300';
+  const mismatched = policySync?.mismatched_fields?.map((field) => field.replace(/_/g, ' ')).join(', ') || '';
 
   return (
     <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.02] p-4">
@@ -825,6 +833,23 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
         <div className={total > 0 ? 'text-sm font-semibold text-yellow-300' : 'text-sm font-semibold text-emerald-300'}>
           {total} blocked
         </div>
+      </div>
+
+      <div className={`mb-3 rounded-lg border px-3 py-2 ${syncClass}`}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+          <div>
+            <p className="text-xs font-semibold uppercase">Policy Sync: {syncStatus}</p>
+            <p className="mt-1 text-xs opacity-80">
+              {policySync?.message || 'Waiting for Rust node policy snapshot in heartbeat.'}
+            </p>
+          </div>
+          <div className="text-xs opacity-80">
+            heartbeat {policySync?.heartbeat_age_seconds ?? health.last_seen_seconds ?? 'pending'}s
+          </div>
+        </div>
+        {mismatched ? (
+          <p className="mt-1 text-xs opacity-80">Pending fields: {mismatched}</p>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
