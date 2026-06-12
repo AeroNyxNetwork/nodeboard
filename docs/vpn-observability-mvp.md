@@ -360,6 +360,9 @@ queries.
     the same session quality classification returned by `/vpn/sessions/`.
     Event details include RTT, packet loss, quality score, degraded reason, and
     last activity age.
+  - Emits `node_policy_enforced` warnings from Rust-reported runtime policy
+    counters when maintenance mode, max-session caps, or node bandwidth limits
+    actually reject VPN handshakes or packets.
   - Keeps the same privacy boundary as the other VPN APIs: no packet payloads,
     DNS contents, destination domains, destination IPs, browsing history, blind
     tokens, or final voucher tokens.
@@ -416,6 +419,8 @@ queries.
   - Reports only node-local diagnostics and aggregate counters; it never
     includes user destination IPs, destination domains, DNS query contents,
     packet payloads, or browsing history.
+  - Includes `policy_enforcement` counters for maintenance rejections,
+    max-session rejections, bandwidth drops, and the last rejection reason/time.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/management/client.rs`
   - Adds `runtime_id` and `runtime_started_at` to signed heartbeat
@@ -433,6 +438,9 @@ queries.
   - Validates new-session admission for `maintenance_mode` and `max_sessions`.
   - Enforces a node-wide one-second byte window for `bandwidth_limit_mbps` in
     the VPN packet hot path. A value of `0` remains unlimited.
+  - Maintains privacy-safe aggregate enforcement counters for nodeboard
+    diagnostics. It records only counts and the last policy reason/time, never
+    destinations, DNS contents, or packet payloads.
 
 - `/root/a/AeroNyx/crates/aeronyx-server/src/services/handshake.rs`
   - Checks `NodePolicyRuntime::validate_new_session()` before deny-list checks,
@@ -1264,6 +1272,34 @@ session traffic stats
   - Smoke test response details included `bandwidth_limit_mbps`,
     `observed_mbps`, `limit_ratio`, `interval_seconds`, `rx_delta_bytes`,
     `tx_delta_bytes`, and `privacy_boundary`.
+
+## M5 Runtime Policy Enforcement Events
+
+Runtime policy enforcement events are derived from Rust node heartbeat
+diagnostics. They tell operators when nodeboard Settings are actively blocking
+new VPN handshakes or VPN packets on the node, without requiring SSH.
+
+- `/root/a/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs`
+  - Counts maintenance-mode handshake rejections, max-session handshake
+    rejections, and bandwidth-limit packet drops.
+  - Stores the last rejection reason and Unix timestamp for event freshness.
+
+- `/root/a/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs`
+  - Adds `policy_enforcement` to the local health endpoint and heartbeat
+    collector payload.
+  - Keeps the payload limited to aggregate counters, reason labels, and times.
+
+- `/root/aeronyx/privacy_network/api/vpn_events.py`
+  - Adds `node_policy_enforced` events from the latest cached heartbeat.
+  - Event details include `maintenance_rejections`,
+    `max_sessions_rejections`, `bandwidth_drops`, `last_rejection_reason`,
+    `last_rejection_at`, and `privacy_boundary`.
+
+nodeboard Settings
+  -> Rust enforces maintenance/max_sessions/bandwidth on hot paths
+  -> heartbeat includes policy_enforcement aggregate counters
+  -> GET /vpn/events/?type=node_policy_enforced
+  -> operator sees policy impact without user destination data
 
 ## M5 Policy Audit Events
 
