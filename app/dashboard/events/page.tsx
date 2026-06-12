@@ -277,6 +277,7 @@ function sessionsHref(event: VpnEvent) {
   params.set('status', sessionStatusFromEvent(event));
   params.set('quality', sessionQualityFromEvent(event));
   if (event.node_id) params.set('node', event.node_id);
+  if (event.session_id) params.set('q', event.session_id);
   return `/dashboard/sessions?${params.toString()}`;
 }
 

@@ -35,6 +35,23 @@ function gbFromBytes(value: number | null | undefined) {
   return `${((value || 0) / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
+function vpnSessionsHref({
+  nodeId,
+  status,
+  q,
+}: {
+  nodeId?: string;
+  status?: string;
+  q?: string;
+}) {
+  const params = new URLSearchParams();
+  params.set('status', status || 'all');
+  params.set('quality', 'all');
+  if (nodeId) params.set('node', nodeId);
+  if (q) params.set('q', q);
+  return `/dashboard/sessions?${params.toString()}`;
+}
+
 function pct(value: number | null | undefined) {
   if (value === null || value === undefined) return 'unlimited';
   return `${value.toFixed(1)}%`;
@@ -272,7 +289,7 @@ function NodeTable({ rows }: { rows: VpnBillingNodeRow[] }) {
   if (!rows.length) return <EmptyTable label="No node traffic in this range." />;
   return (
     <DataTable
-      headers={['Node', 'Region', 'Tier', 'Sessions', 'Traffic', 'Duration', 'Last Seen']}
+      headers={['Node', 'Region', 'Tier', 'Sessions', 'Traffic', 'Duration', 'Last Seen', 'Ops']}
       rows={rows.map((row) => [
         <Link href={`/dashboard/nodes/${row.node_id}`} className="text-purple-300 hover:text-purple-200">
           {row.node_name}
@@ -283,6 +300,9 @@ function NodeTable({ rows }: { rows: VpnBillingNodeRow[] }) {
         mb(row.total_traffic_mb),
         formatDuration(row.duration_seconds),
         row.last_seen ? formatRelativeTime(row.last_seen) : 'never',
+        <Link href={vpnSessionsHref({ nodeId: row.node_id })} className="text-sky-300 hover:text-sky-200">
+          Open Sessions
+        </Link>,
       ])}
     />
   );
@@ -292,7 +312,7 @@ function IdentityTable({ rows }: { rows: VpnBillingIdentityRow[] }) {
   if (!rows.length) return <EmptyTable label="No identity traffic in this range." />;
   return (
     <DataTable
-      headers={['Identity', 'Tier', 'Sessions', 'Traffic', 'Duration', 'Last Seen']}
+      headers={['Identity', 'Tier', 'Sessions', 'Traffic', 'Duration', 'Last Seen', 'Ops']}
       rows={rows.map((row) => [
         row.wallet_short || 'unknown',
         row.tier,
@@ -300,6 +320,9 @@ function IdentityTable({ rows }: { rows: VpnBillingIdentityRow[] }) {
         mb(row.total_traffic_mb),
         formatDuration(row.duration_seconds),
         row.last_seen ? formatRelativeTime(row.last_seen) : 'never',
+        <Link href={vpnSessionsHref({ q: row.client_wallet || row.wallet_short })} className="text-sky-300 hover:text-sky-200">
+          Open Sessions
+        </Link>,
       ])}
       monoFirstColumn
     />
@@ -327,11 +350,13 @@ function SessionTable({ rows }: { rows: VpnBillingSessionRow[] }) {
   if (!rows.length) return <EmptyTable label="No session traffic matches these filters." />;
   return (
     <DataTable
-      headers={['Session', 'VIP', 'Identity', 'Node', 'Status', 'Traffic', 'Duration', 'Last Activity', 'Quality']}
+      headers={['Session', 'VIP', 'Identity', 'Node', 'Status', 'Traffic', 'Duration', 'Last Activity', 'Quality', 'Ops']}
       rows={rows.map((row) => {
         const lastActivity = row.last_rx_at || row.last_tx_at || row.updated_at;
         return [
-          row.session_id,
+          <Link href={vpnSessionsHref({ nodeId: row.node_id, status: row.status, q: row.session_id })} className="text-sky-300 hover:text-sky-200">
+            {row.session_id}
+          </Link>,
           row.virtual_ip || 'pending',
           row.wallet_short || 'unknown',
           <Link href={`/dashboard/nodes/${row.node_id}`} className="text-purple-300 hover:text-purple-200">
@@ -342,6 +367,9 @@ function SessionTable({ rows }: { rows: VpnBillingSessionRow[] }) {
           formatDuration(row.duration_seconds),
           lastActivity ? formatRelativeTime(lastActivity) : 'pending',
           row.last_error || `RTT ${row.rtt_ms === null ? 'pending' : `${row.rtt_ms} ms`}`,
+          <Link href={vpnSessionsHref({ nodeId: row.node_id, status: row.status, q: row.session_id })} className="text-sky-300 hover:text-sky-200">
+            Open Sessions
+          </Link>,
         ];
       })}
       monoFirstColumn

@@ -106,6 +106,10 @@ queries.
     `?node=<node_id>&status=active|completed|error|all&quality=degraded|stale|error|healthy|pending|completed|all`.
     Alerts / Events uses this to open the affected session cohort directly from
     a session event.
+  - Adds `q` search for operational session lookup by `session_id`,
+    `client_wallet`, or tunnel `virtual_ip`. Billing and Events pass this query
+    value through deep links so operators can jump from traffic/accounting or
+    alerts into the exact affected session cohort.
   - Links each session's node name directly to Node Detail for drilldown into
     health checks, command history, and recent node events.
   - Adds a `Kick` operation for active sessions. The button queues a
@@ -206,6 +210,10 @@ queries.
     pressure, and session errors in the current billing window.
   - Links node rows and session node cells directly to Node Detail so traffic
     or quota anomalies can be traced into health checks and command history.
+  - Links node, identity, and session rows into VPN Operations with node,
+    status, and `q` filters, so an operator can move from traffic/accounting
+    evidence to the affected tunnel cohort without manually copying session IDs
+    or wallet labels.
   - Exports the current table as CSV directly from the browser.
   - Keeps the privacy boundary visible in the UI. Voucher attribution is
     represented by a reserved `voucher_id` field until voucher IDs are stored
@@ -226,9 +234,9 @@ queries.
     session quality, keepalive ACK loss, policy enforcement, bandwidth
     pressure, and command lifecycle events.
   - Adds direct `Open Sessions` links for session events. The link carries node,
-    status, and quality query parameters into VPN Operations so operators can
-    jump from an alert to the affected active tunnel cohort without retyping
-    filters or using SSH.
+    status, quality, and `q=session_id` query parameters into VPN Operations so
+    operators can jump from an alert to the affected active tunnel cohort
+    without retyping filters or using SSH.
   - Reads health-check names from structured `details.check.name`, so failed
     DNS, NAT, TUN, MTU, egress, and UDP events get the correct runbook hint
     instead of falling back to a generic warning.
@@ -428,6 +436,10 @@ queries.
   - Supports `GET /vpn/sessions/?quality_status=healthy|degraded|stale|error|pending|completed`
     so nodeboard can request affected tunnel cohorts directly from the
     centralized control plane.
+  - Supports `GET /vpn/sessions/?q=<session_id|wallet|virtual_ip>` for
+    privacy-safe operational search. The search is intentionally limited to
+    session id, client wallet label, and tunnel virtual IP; it does not search
+    destinations, domains, DNS contents, packet payloads, or public client IPs.
   - Returns `quality_summary`, `filtered_count`, and `filters.sample_limit`
     from `/vpn/sessions/`. The summary is calculated from the latest 1000
     sessions after node/status filters, then the selected quality filter and UI
@@ -816,6 +828,10 @@ Query parameters:
 
 - `status`: `all`, `active`, `completed`, or `error`
 - `node_id`: optional node UUID
+- `quality_status`: `healthy`, `degraded`, `stale`, `error`, `pending`, or
+  `completed`
+- `q`: optional operational search over `session_id`, `client_wallet`, and
+  tunnel `virtual_ip` only
 - `limit`: 1 to 1000, default 200
 
 Response shape:

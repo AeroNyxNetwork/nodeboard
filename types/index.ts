@@ -644,6 +644,7 @@ export interface VpnSessionListResponse {
     status: string;
     node_id: string;
     quality_status: 'all' | SessionQualityStatus;
+    q: string;
     limit: number;
     sample_limit: number;
   };

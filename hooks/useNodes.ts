@@ -350,6 +350,7 @@ export interface UseVpnSessionsOptions {
   status?: 'all' | 'active' | 'completed' | 'error';
   nodeId?: string;
   qualityStatus?: 'all' | SessionQualityStatus;
+  q?: string;
   limit?: number;
 }
 

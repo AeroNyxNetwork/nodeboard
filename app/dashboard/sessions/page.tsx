@@ -645,6 +645,7 @@ export default function SessionsPage() {
   const [statusFilter, setStatusFilter] = useState<SessionFilter>(() => parseSessionFilter(initialQueryValue('status')));
   const [nodeFilter, setNodeFilter] = useState(() => initialQueryValue('node') || '');
   const [qualityFilter, setQualityFilter] = useState<QualityFilter>(() => parseQualityFilter(initialQueryValue('quality')));
+  const [query, setQuery] = useState(() => initialQueryValue('q') || '');
   const [kickingSessionId, setKickingSessionId] = useState<string | null>(null);
   const [banningSessionId, setBanningSessionId] = useState<string | null>(null);
   const [operationMessage, setOperationMessage] = useState<string>('');
@@ -662,6 +663,7 @@ export default function SessionsPage() {
       status: statusFilter,
       nodeId: nodeFilter || undefined,
       qualityStatus: qualityFilter,
+      q: query.trim() || undefined,
       limit: 300,
     });
   const runCommand = useRunNodeCommand();
@@ -832,7 +834,7 @@ export default function SessionsPage() {
           <h2 className="text-lg font-semibold text-white">VPN Sessions</h2>
           <p className="text-xs text-gray-500 mt-1">Session identity is operational only; traffic destinations are not collected.</p>
         </div>
-        <div className="grid sm:grid-cols-3 gap-3 w-full xl:w-auto">
+        <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3 w-full xl:w-auto">
           <label className="block">
             <span className="text-xs text-gray-500">Node</span>
             <select
@@ -875,6 +877,16 @@ export default function SessionsPage() {
                 </option>
               ))}
             </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-gray-500">Session / Wallet / VIP</span>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search operational id"
+              className="mt-1 w-full min-w-[200px] rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-purple-500/50"
+            />
           </label>
         </div>
       </div>

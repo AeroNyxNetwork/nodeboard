@@ -307,6 +307,7 @@ class ApiClient {
       status?: 'all' | 'active' | 'completed' | 'error';
       nodeId?: string;
       qualityStatus?: 'all' | SessionQualityStatus;
+      q?: string;
       limit?: number;
     }
   ): Promise<VpnSessionListResponse> {
@@ -316,6 +317,7 @@ class ApiClient {
     if (options?.qualityStatus && options.qualityStatus !== 'all') {
       params.append('quality_status', options.qualityStatus);
     }
+    if (options?.q) params.append('q', options.q);
     if (options?.limit) params.append('limit', String(options.limit));
     const qs = params.toString();
     const endpoint = qs
