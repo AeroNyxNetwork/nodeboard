@@ -1227,6 +1227,13 @@ destination domains, destination IPs, or browsing history.
     `average_mbps`, `total_bytes`, `duration_seconds`, `replay_rejections`,
     `too_old_rejections`, `client_wallet`, `session_id`, and `virtual_ip`.
 
+- `/root/open/nodeboard/app/dashboard/events/page.tsx`
+  - Shows traffic event previews as observed/limit Mbps for node pressure and
+    average Mbps plus replay counters for session anomalies.
+  - Prioritizes traffic fields in the expandable details panel so operators can
+    see throughput, limits, byte deltas, and privacy boundary without opening
+    raw API responses.
+
 node heartbeat samples
   -> aggregate RX/TX delta
   -> GET /vpn/events/?type=bandwidth_limit_pressure

@@ -215,6 +215,18 @@ function DetailsPreview({ event }: { event: VpnEvent }) {
     );
   }
 
+  if (event.type === 'bandwidth_limit_pressure') {
+    const observed = shortValue(event.details?.observed_mbps, 16);
+    const limit = shortValue(event.details?.bandwidth_limit_mbps, 16);
+    return <span className="text-xs text-gray-500">{observed} / {limit} Mbps</span>;
+  }
+
+  if (event.type === 'session_traffic_anomaly') {
+    const average = shortValue(event.details?.average_mbps, 16);
+    const replay = shortValue(event.details?.replay_rejections, 16);
+    return <span className="text-xs text-gray-500">{average} Mbps · replay {replay}</span>;
+  }
+
   const detailEntries = Object.entries(event.details || {}).filter(([, value]) => (
     value !== null && value !== undefined && typeof value !== 'object'
   ));
@@ -270,6 +282,18 @@ function buildDetailRows(event: VpnEvent): DetailRow[] {
   }
 
   const preferredKeys = [
+    'observed_mbps',
+    'bandwidth_limit_mbps',
+    'limit_ratio',
+    'average_mbps',
+    'total_bytes',
+    'duration_seconds',
+    'virtual_ip',
+    'replay_rejections',
+    'too_old_rejections',
+    'rx_delta_bytes',
+    'tx_delta_bytes',
+    'privacy_boundary',
     'error_message',
     'degraded_reason',
     'quality_status',
