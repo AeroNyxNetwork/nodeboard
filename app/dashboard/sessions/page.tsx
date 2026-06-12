@@ -226,6 +226,138 @@ function QualitySummaryStrip({
   );
 }
 
+function sessionImpactReason(session: VpnSession) {
+  if (session.degraded_reason) return session.degraded_reason;
+  if (session.quality_status === 'stale') return 'Session activity is stale';
+  if (session.quality_status === 'error') return session.last_error || 'Session reported an error';
+  if (session.keepalive_missed > 0) return `Keepalive ACK missed ${session.keepalive_missed} times`;
+  if (session.keepalive_pending > 0) return `${session.keepalive_pending} keepalive probes pending`;
+  if (session.rtt_ms !== null && session.rtt_ms > 250) return `RTT is high at ${session.rtt_ms.toFixed(1)} ms`;
+  if (session.packet_loss !== null && session.packet_loss > 2) return `Packet loss is ${session.packet_loss.toFixed(1)}%`;
+  return `${session.quality_status} session quality`;
+}
+
+function impactedSessions(sessions: VpnSession[]) {
+  return sessions.filter((session) => (
+    session.status === 'active' &&
+    ['degraded', 'stale', 'error'].includes(session.quality_status)
+  ));
+}
+
+function topSessionGroups<T extends string>(items: VpnSession[], keyOf: (session: VpnSession) => T, limit: number): Array<[string, number]> {
+  const groups = items.reduce((acc, session) => {
+    const key = keyOf(session);
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {} as Record<T, number>);
+
+  return (Object.entries(groups) as Array<[string, number]>)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit);
+}
+
+function AffectedSessionsPanel({
+  sessions,
+  onQualityFilter,
+}: {
+  sessions: VpnSession[];
+  onQualityFilter: (status: QualityFilter) => void;
+}) {
+  const affected = impactedSessions(sessions);
+  if (affected.length === 0) {
+    return (
+      <div className="mb-4 rounded-xl border border-emerald-500/15 bg-emerald-500/[0.04] px-4 py-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Affected Sessions</h3>
+            <p className="mt-1 text-xs text-emerald-300">No active degraded, stale, or error sessions in the current view.</p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => onQualityFilter('all')}>
+            All Sessions
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const byReason = topSessionGroups(affected, sessionImpactReason, 4);
+  const byNode = topSessionGroups(affected, (session) => session.node_name || session.node_id, 4);
+  const severe = [...affected].sort((a, b) => {
+    const scoreA = a.quality_score ?? 999;
+    const scoreB = b.quality_score ?? 999;
+    return scoreA - scoreB || b.keepalive_missed - a.keepalive_missed;
+  }).slice(0, 3);
+
+  return (
+    <div className="mb-4 rounded-xl border border-yellow-500/20 bg-yellow-500/[0.05] px-4 py-3">
+      <div className="mb-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Affected Sessions</h3>
+          <p className="mt-1 text-xs text-gray-500">
+            {affected.length} active tunnels need attention in the current view.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" size="sm" onClick={() => onQualityFilter('degraded')}>
+            Degraded
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => onQualityFilter('stale')}>
+            Stale
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => onQualityFilter('error')}>
+            Error
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-[1.1fr_0.9fr_1.2fr] gap-3">
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wide text-gray-600">Top Reasons</p>
+          <div className="mt-2 space-y-2">
+            {byReason.map(([reason, count]) => (
+              <div key={reason} className="flex items-center justify-between gap-3 text-xs">
+                <span className="truncate text-gray-300" title={reason}>{reason}</span>
+                <span className="shrink-0 text-yellow-300">{count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wide text-gray-600">Affected Nodes</p>
+          <div className="mt-2 space-y-2">
+            {byNode.map(([nodeName, count]) => (
+              <div key={nodeName} className="flex items-center justify-between gap-3 text-xs">
+                <span className="truncate text-gray-300" title={nodeName}>{nodeName}</span>
+                <span className="shrink-0 text-yellow-300">{count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wide text-gray-600">Lowest Quality</p>
+          <div className="mt-2 space-y-2">
+            {severe.map((session) => (
+              <div key={session.id} className="flex items-center justify-between gap-3 text-xs">
+                <div className="min-w-0">
+                  <p className="truncate text-gray-300">
+                    {truncateAddress(session.session_id, 8)} · {session.virtual_ip || 'vip pending'}
+                  </p>
+                  <p className="mt-0.5 truncate text-gray-600" title={sessionImpactReason(session)}>
+                    {sessionImpactReason(session)}
+                  </p>
+                </div>
+                <span className="shrink-0 text-yellow-300">{session.quality_score ?? 'pending'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EmptyIcon() {
   return (
     <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -741,6 +873,13 @@ export default function SessionsPage() {
         inViewCount={sessionCount}
         onSelect={setQualityFilter}
       />
+
+      {!sessionsLoading ? (
+        <AffectedSessionsPanel
+          sessions={sessions}
+          onQualityFilter={setQualityFilter}
+        />
+      ) : null}
 
       {sessionsLoading ? (
         <div className="space-y-3">

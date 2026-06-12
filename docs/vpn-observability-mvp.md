@@ -97,6 +97,11 @@ queries.
   - Shows backend-derived tunnel quality (`healthy`, `degraded`, `stale`,
     `error`, `pending`, or `completed`), quality score, and first degraded
     reason so operators can triage a bad session without reading raw counters.
+  - Adds an Affected Sessions panel above the table that groups active
+    degraded, stale, and error tunnels by top reason, affected node, and lowest
+    quality sessions in the current filtered view. This answers which sessions
+    are affected before the operator scans the full table, while still avoiding
+    destinations, DNS contents, packet payloads, and public client IPs.
   - Links each session's node name directly to Node Detail for drilldown into
     health checks, command history, and recent node events.
   - Adds a `Kick` operation for active sessions. The button queues a
