@@ -28,8 +28,9 @@
 
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useRunNodeCommand, useVpnOverview, useVpnSessions } from '@/hooks/useNodes';
 import {
   SessionQualityStatus,
@@ -48,6 +49,7 @@ type OperationNotice = {
   message: string;
   nodeId?: string;
   commandId?: string;
+  commandAction?: 'kick_session' | 'ban_wallet';
 };
 
 const SESSION_FILTERS: SessionFilter[] = ['all', 'active', 'completed', 'error'];
@@ -60,11 +62,6 @@ function parseSessionFilter(value: string | null): SessionFilter {
 
 function parseQualityFilter(value: string | null): QualityFilter {
   return QUALITY_FILTERS.includes(value as QualityFilter) ? value as QualityFilter : 'all';
-}
-
-function initialQueryValue(key: string) {
-  if (typeof window === 'undefined') return null;
-  return new URLSearchParams(window.location.search).get(key);
 }
 
 const healthStyles: Record<VpnHealthStatus, { label: string; badge: string; dot: string }> = {
@@ -647,13 +644,29 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
 }
 
 export default function SessionsPage() {
-  const [statusFilter, setStatusFilter] = useState<SessionFilter>(() => parseSessionFilter(initialQueryValue('status')));
-  const [nodeFilter, setNodeFilter] = useState(() => initialQueryValue('node') || '');
-  const [qualityFilter, setQualityFilter] = useState<QualityFilter>(() => parseQualityFilter(initialQueryValue('quality')));
-  const [query, setQuery] = useState(() => initialQueryValue('q') || '');
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [statusFilter, setStatusFilter] = useState<SessionFilter>(() => parseSessionFilter(searchParams.get('status')));
+  const [nodeFilter, setNodeFilter] = useState(() => searchParams.get('node') || '');
+  const [qualityFilter, setQualityFilter] = useState<QualityFilter>(() => parseQualityFilter(searchParams.get('quality')));
+  const [query, setQuery] = useState(() => searchParams.get('q') || '');
   const [kickingSessionId, setKickingSessionId] = useState<string | null>(null);
   const [banningSessionId, setBanningSessionId] = useState<string | null>(null);
   const [operationNotice, setOperationNotice] = useState<OperationNotice | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (statusFilter !== 'active') params.set('status', statusFilter);
+    if (nodeFilter) params.set('node', nodeFilter);
+    if (qualityFilter !== 'all') params.set('quality', qualityFilter);
+    if (query.trim()) params.set('q', query.trim());
+    const nextQuery = params.toString();
+    const currentQuery = searchParams.toString();
+    if (nextQuery === currentQuery) return;
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+  }, [nodeFilter, pathname, qualityFilter, query, router, searchParams, statusFilter]);
+
   const { overview, isLoading: overviewLoading, isError: overviewError, refetch: refetchOverview } = useVpnOverview();
   const {
     sessions,
@@ -715,6 +728,7 @@ export default function SessionsPage() {
         message: `Kick queued for ${truncateAddress(session.session_id, 8)}`,
         nodeId: session.node_id,
         commandId: response.data.command.id,
+        commandAction: 'kick_session',
       });
       refetchOverview();
       refetchSessions();
@@ -751,6 +765,7 @@ export default function SessionsPage() {
         message: `Ban queued for wallet ${truncateAddress(session.client_wallet, 6)}`,
         nodeId: session.node_id,
         commandId: response.data.command.id,
+        commandAction: 'ban_wallet',
       });
       refetchOverview();
       refetchSessions();
@@ -796,7 +811,7 @@ export default function SessionsPage() {
             </div>
             {operationNotice.nodeId ? (
               <Link
-                href={`/dashboard/nodes/${operationNotice.nodeId}#vpn-commands`}
+                href={`/dashboard/nodes/${operationNotice.nodeId}${operationNotice.commandAction ? `?command_action=${operationNotice.commandAction}` : ''}#vpn-commands`}
                 className="text-sm font-medium text-purple-300 hover:text-purple-200"
               >
                 Open Node Commands

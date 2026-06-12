@@ -111,6 +111,9 @@ queries.
     `?node=<node_id>&status=active|completed|error|all&quality=degraded|stale|error|healthy|pending|completed|all`.
     Alerts / Events uses this to open the affected session cohort directly from
     a session event.
+  - Keeps node, status, quality, and `q` filters synchronized back to the URL,
+    so operators can share the exact affected-session view after refining an
+    investigation.
   - Adds `q` search for operational session lookup by `session_id`,
     `client_wallet`, or tunnel `virtual_ip`. Billing and Events pass this query
     value through deep links so operators can jump from traffic/accounting or
@@ -126,6 +129,9 @@ queries.
     `Open Node Commands` link to the node's Recent VPN Commands section, so the
     operator can follow queued, sent, acknowledged, and completed lifecycle
     timing without SSH.
+    The link now carries `command_action=kick_session` or
+    `command_action=ban_wallet` so the command history opens on the exact
+    operation type.
 
 - `app/dashboard/nodes/[id]/page.tsx`
   - Adds a per-node VPN Health panel to the node detail page.
