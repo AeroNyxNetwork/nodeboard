@@ -46,7 +46,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   useNodeDetail,
   useNodeStats,
@@ -183,6 +183,14 @@ const COMMAND_ACTION_FILTERS = [
   'all',
   ...Array.from(NODE_DETAIL_VPN_COMMAND_ACTIONS),
 ];
+
+function initialCommandStatusFilter(value: string | null) {
+  return value && COMMAND_STATUS_FILTERS.includes(value) ? value : 'all';
+}
+
+function initialCommandActionFilter(value: string | null) {
+  return value && COMMAND_ACTION_FILTERS.includes(value) ? value : 'all';
+}
 
 function formatHealthCheckName(name: string): string {
   return HEALTH_CHECK_LABELS[name] || name.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
@@ -1401,8 +1409,13 @@ function VpnHealthPanel({
 }) {
   const { overview, isLoading, isError, refetch } = useVpnOverview();
   const { servers, isLoading: placementLoading } = useVpnServers();
-  const [commandStatusFilter, setCommandStatusFilter] = useState('all');
-  const [commandActionFilter, setCommandActionFilter] = useState('all');
+  const searchParams = useSearchParams();
+  const [commandStatusFilter, setCommandStatusFilter] = useState(() => (
+    initialCommandStatusFilter(searchParams.get('command_status'))
+  ));
+  const [commandActionFilter, setCommandActionFilter] = useState(() => (
+    initialCommandActionFilter(searchParams.get('command_action'))
+  ));
   const {
     commands,
     stats: commandStats,

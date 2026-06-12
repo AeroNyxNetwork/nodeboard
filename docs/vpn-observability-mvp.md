@@ -208,6 +208,10 @@ queries.
     Operators can isolate pending, executing, failed, timed out, restart,
     policy acknowledgement, session kick, wallet ban, and diagnostic commands
     without SSH.
+  - Accepts initial command-history URL filters:
+    `?command_status=pending|sent|executing|completed|failed|cancelled|timeout|all&command_action=<vpn_action>#vpn-commands`.
+    Settings verification uses this to open the selected node's `apply_policy`
+    acknowledgements directly.
   - Displays command lifecycle timing (`queued`, `sent`, `acked`, `done`) so
     operators can see whether a command is still in CMS, dispatched by
     heartbeat, acknowledged by Rust, or complete.

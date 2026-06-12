@@ -340,7 +340,7 @@ function PolicySaveFollowUpPanel({
                 Node Detail
               </Link>
               <Link
-                href={`/dashboard/nodes/${followUp.nodeId}#vpn-commands`}
+                href={`/dashboard/nodes/${followUp.nodeId}?command_action=apply_policy#vpn-commands`}
                 className="inline-flex items-center justify-center rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-sm font-medium text-purple-300 hover:bg-purple-500/15"
               >
                 Commands
