@@ -90,6 +90,10 @@ queries.
     command history.
   - Adds `Refresh Config`, which queues a bounded `refresh_config` command for
     the node to validate and summarize its management configuration without SSH.
+  - Adds `Start Maintenance` / `End Maintenance` shortcuts in VPN Health. The
+    buttons PATCH only `maintenance_mode` through the owner-scoped node update
+    API, so operators can drain new handshakes from Node Detail without SSH or
+    opening Settings.
   - Adds a guarded `Restart VPN` operation that requires browser confirmation
     and queues a CMS `restart_service` command.
   - Adds `Cancel` controls for pending or sent VPN commands so operators can
@@ -1326,6 +1330,9 @@ new VPN handshakes or VPN packets on the node, without requiring SSH.
     bandwidth drops, max-session rejects, or maintenance rejects.
   - Adds a Policy Enforcement panel to VPN Health with current aggregate
     counters and last rejection reason/time from signed heartbeat health.
+  - Adds a maintenance-mode shortcut next to VPN operations commands. It uses
+    the existing `useUpdateNode()` mutation and refreshes Node Detail plus VPN
+    overview state after the policy update.
 
 nodeboard Settings
   -> Rust enforces maintenance/max_sessions/bandwidth on hot paths

@@ -830,10 +830,16 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
 function VpnHealthPanel({
   nodeId,
   isVpnNode,
+  maintenanceMode,
+  isPolicySaving,
+  onToggleMaintenance,
   onToast,
 }: {
   nodeId: string;
   isVpnNode: boolean;
+  maintenanceMode: boolean;
+  isPolicySaving: boolean;
+  onToggleMaintenance: () => Promise<void>;
   onToast: (message: string, variant?: 'success' | 'error') => void;
 }) {
   const { overview, isLoading, isError, refetch } = useVpnOverview();
@@ -892,6 +898,20 @@ function VpnHealthPanel({
       onToast('VPN service restart queued');
     } catch (error) {
       onToast(error instanceof Error ? error.message : 'Failed to queue restart', 'error');
+    }
+  };
+
+  const handleMaintenanceToggle = async () => {
+    const actionLabel = maintenanceMode ? 'end maintenance mode' : 'start maintenance mode';
+    if (!window.confirm(`Do you want to ${actionLabel} for this VPN node?`)) {
+      return;
+    }
+
+    try {
+      await onToggleMaintenance();
+      refetch();
+    } catch {
+      // The page-level handler owns the toast message.
     }
   };
 
@@ -1001,6 +1021,15 @@ function VpnHealthPanel({
             onClick={() => handleRunCommand('refresh_config')}
           >
             Refresh Config
+          </Button>
+          <Button
+            variant={maintenanceMode ? 'secondary' : 'danger'}
+            size="sm"
+            disabled={isPolicySaving}
+            isLoading={isPolicySaving}
+            onClick={handleMaintenanceToggle}
+          >
+            {maintenanceMode ? 'End Maintenance' : 'Start Maintenance'}
           </Button>
           <Button
             variant="danger"
@@ -1549,6 +1578,22 @@ export default function NodeDetailPage() {
     }
   }, [nodeId, updateNodeMutation, refetch, showToast]);
 
+  const handleToggleMaintenance = useCallback(async () => {
+    if (!node) return;
+    const nextMaintenance = !node.maintenance_mode;
+    try {
+      await updateNodeMutation.mutateAsync({
+        nodeId,
+        data: { maintenance_mode: nextMaintenance },
+      });
+      refetch();
+      showToast(nextMaintenance ? 'Maintenance mode enabled' : 'Maintenance mode disabled');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to update maintenance mode', 'error');
+      throw error;
+    }
+  }, [node, nodeId, updateNodeMutation, refetch, showToast]);
+
   const handleDelete = useCallback(async () => {
     try {
       await deleteNodeMutation.mutateAsync(nodeId);
@@ -1624,7 +1669,14 @@ export default function NodeDetailPage() {
       />
 
       {/* 3. VPN Health Panel */}
-      <VpnHealthPanel nodeId={nodeId} isVpnNode={node.is_vpn_node} onToast={showToast} />
+      <VpnHealthPanel
+        nodeId={nodeId}
+        isVpnNode={node.is_vpn_node}
+        maintenanceMode={node.maintenance_mode}
+        isPolicySaving={updateNodeMutation.isPending}
+        onToggleMaintenance={handleToggleMaintenance}
+        onToast={showToast}
+      />
 
       {/* 4. Recent VPN Events */}
       <NodeVpnEventsPanel nodeId={nodeId} isVpnNode={node.is_vpn_node} />
