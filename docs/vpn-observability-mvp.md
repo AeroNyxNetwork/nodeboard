@@ -105,6 +105,9 @@ queries.
     desired policy with the node's runtime policy snapshot so operators know
     whether tier, maintenance mode, max sessions, bandwidth cap, and heartbeat
     interval have reached the Rust process.
+  - Displays `apply_policy` command history entries created after Settings
+    changes, so operators can see the CMS queued the policy acknowledgement and
+    Rust reported the runtime snapshot.
   - Adds safe `System Info` and `Collect Logs` command buttons plus recent VPN
     command history for diagnostics, refreshes, restarts, session kicks, wallet
     bans, and wallet unbans.
@@ -185,6 +188,9 @@ queries.
   - Shows Policy Sync beside node policy controls and in the node picker,
     using `/vpn/overview/` to indicate whether Rust is enforcing the current
     nodeboard policy or still waiting for the next heartbeat.
+  - Saving policy changes also queues an `apply_policy` command. The command
+    does not mutate arbitrary node state; it asks Rust to acknowledge the
+    heartbeat-delivered runtime policy in command history.
   - Saves through the existing owner-scoped `PATCH /nodes/<id>/` endpoint.
 
 - `components/dashboard/Sidebar.tsx`
@@ -421,6 +427,9 @@ queries.
   - Returns only operator ban policy metadata: wallet hex, reason, source,
     command id, and timestamps. It does not expose traffic destinations,
     packet payloads, DNS queries, or browsing activity.
+  - Queues a safe `apply_policy` command after nodeboard Settings changes.
+    `NodePolicyAudit.snapshot` records the command ID or the duplicate-command
+    reason when a policy acknowledgement is already pending.
 
 - `/root/aeronyx/privacy_network/api/vpn_billing.py`
   - Adds owner-scoped `GET /vpn/billing/`.

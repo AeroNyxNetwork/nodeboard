@@ -624,6 +624,7 @@ function commandLabel(command: NodeCommand) {
     system_info: 'System diagnostics',
     collect_logs: 'Recent service logs',
     refresh_config: 'Config refresh',
+    apply_policy: 'Policy acknowledgement',
     restart_service: 'Service restart',
     kick_session: 'Session kick',
     ban_wallet: 'Wallet ban',

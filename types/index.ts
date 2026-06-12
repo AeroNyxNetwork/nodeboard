@@ -752,6 +752,7 @@ export type NodeCommandAction =
   | 'ban_wallet'
   | 'unban_wallet'
   | 'refresh_config'
+  | 'apply_policy'
   | 'restart_service'
   | string;
 export type NodeCommandStatus =
@@ -800,7 +801,7 @@ export interface NodeCommandListResponse {
 }
 
 export interface RunNodeCommandRequest {
-  action: 'system_info' | 'collect_logs' | 'kick_session' | 'ban_wallet' | 'unban_wallet' | 'refresh_config' | 'restart_service';
+  action: 'system_info' | 'collect_logs' | 'kick_session' | 'ban_wallet' | 'unban_wallet' | 'refresh_config' | 'apply_policy' | 'restart_service';
   params?: Record<string, unknown>;
   priority?: number;
 }
