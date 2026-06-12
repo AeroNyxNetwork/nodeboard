@@ -135,6 +135,10 @@ queries.
   - Displays `apply_policy` command history entries created after Settings
     changes, so operators can see the CMS queued the policy acknowledgement and
     Rust reported the runtime snapshot.
+  - Includes `apply_policy` in the Node Detail Recent VPN Commands allowlist,
+    so tier, maintenance, max-session, bandwidth-limit, and heartbeat policy
+    saves remain visible in the same command lifecycle view as diagnostics,
+    restart, session kick, and wallet policy operations.
   - Adds safe `System Info` and `Collect Logs` command buttons plus recent VPN
     command history for diagnostics, refreshes, restarts, session kicks, wallet
     bans, and wallet unbans.

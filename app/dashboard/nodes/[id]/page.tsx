@@ -161,6 +161,7 @@ const NODE_DETAIL_VPN_COMMAND_ACTIONS = new Set([
   'system_info',
   'collect_logs',
   'refresh_config',
+  'apply_policy',
   'restart_service',
   'kick_session',
   'ban_wallet',
@@ -1438,7 +1439,7 @@ function VpnHealthPanel({
           <div>
             <h4 className="text-sm font-semibold text-white">Recent VPN Commands</h4>
             <p className="text-xs text-gray-500 mt-1">
-              Diagnostics, restarts, session kicks, and wallet policy commands for this node.
+              Diagnostics, policy acknowledgements, restarts, session kicks, and wallet policy commands for this node.
             </p>
           </div>
           {commandsLoading && <span className="text-xs text-gray-500">loading</span>}
