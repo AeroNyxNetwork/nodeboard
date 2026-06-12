@@ -822,6 +822,13 @@ export interface NodeCommand {
   status: NodeCommandStatus;
   status_display: string;
   priority: number;
+  source?: string;
+  issued_by: {
+    id: string;
+    wallet_address?: string;
+    wallet_short: string;
+    wallet_type: string;
+  } | null;
   result: Record<string, unknown>;
   error_message: string;
   retry_count: number;

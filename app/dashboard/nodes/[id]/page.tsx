@@ -634,6 +634,22 @@ function commandMessage(command: NodeCommand) {
   return 'Waiting for the node heartbeat to pick up this command.';
 }
 
+function commandActorLabel(command: NodeCommand) {
+  if (!command.issued_by) return 'system';
+  const wallet = command.issued_by.wallet_short || command.issued_by.wallet_address;
+  const walletType = command.issued_by.wallet_type ? `${command.issued_by.wallet_type} ` : '';
+  return `${walletType}${wallet || command.issued_by.id}`;
+}
+
+function commandSourceLabel(command: NodeCommand) {
+  const source = command.source || (typeof command.params?.source === 'string' ? command.params.source : '');
+  if (!source) return 'unknown source';
+  if (source === 'nodeboard_vpn_operations') return 'nodeboard operations';
+  if (source === 'nodeboard_vpn_health') return 'nodeboard diagnostics';
+  if (source === 'nodeboard_settings') return 'nodeboard settings';
+  return source.replace(/_/g, ' ');
+}
+
 function parseCommandResult(command: NodeCommand) {
   const text = commandMessage(command);
   const lines = text.split('\n');
@@ -1326,6 +1342,9 @@ function VpnHealthPanel({
                     <p className="text-sm font-medium text-white">{commandLabel(command)}</p>
                     <p className="text-xs text-gray-500 mt-0.5">
                       Queued {formatRelativeTime(command.created_at)}
+                    </p>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      Issued by {commandActorLabel(command)} · {commandSourceLabel(command)}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">

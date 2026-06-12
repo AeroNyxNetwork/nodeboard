@@ -136,6 +136,9 @@ queries.
     stop stale or accidental queued actions without SSH. Commands already
     executing on the Rust node are shown as in-flight and are not presented as
     interruptible.
+  - Shows command audit metadata in Recent VPN Commands: the operator wallet
+    that queued the command and the bounded source label such as nodeboard
+    diagnostics, operations, or settings.
   - Displays command lifecycle timing (`queued`, `sent`, `acked`, `done`) so
     operators can see whether a command is still in CMS, dispatched by
     heartbeat, acknowledged by Rust, or complete.
@@ -406,6 +409,11 @@ queries.
     operations commands.
   - Includes `acked_at` in `NodeCommandListView` responses so nodeboard can
     distinguish heartbeat dispatch from Rust command acknowledgement.
+  - Includes privacy-safe command audit metadata in `NodeCommandListView`
+    responses: `issued_by.id`, `issued_by.wallet_short`,
+    `issued_by.wallet_type`, and bounded `source`. It never returns API keys,
+    nonces, signatures, packet payloads, DNS contents, destinations, URLs, or
+    browsing history.
   - Allows `system_info`, `collect_logs`, and the bounded control action
     `kick_session`, wallet controls `ban_wallet` / `unban_wallet`, plus
     `refresh_config` and guarded `restart_service`.
