@@ -120,6 +120,9 @@ queries.
     opening Settings.
   - Adds a guarded `Restart VPN` operation that requires browser confirmation
     and queues a CMS `restart_service` command.
+  - Disables `Restart VPN` when Rust heartbeat reports
+    `service_manager.restart_supported=false`, showing the node-local reason
+    such as a missing systemd service unit.
   - Adds `Cancel` controls for pending or sent VPN commands so operators can
     stop stale or accidental queued actions without SSH. Commands already
     executing on the Rust node are shown as in-flight and are not presented as
@@ -525,6 +528,9 @@ queries.
   - Includes `configured_mtu`, `running_mtu`, and a `mtu_config` check that
     compares the running Linux TUN MTU with Rust config and the recommended
     Internet VPN range.
+  - Includes `service_manager.restart_supported`, `service_name`, `manager`,
+    `load_state`, and `detail` so nodeboard can disable unsupported restart
+    operations before the operator queues a command.
   - Reports only node-local diagnostics and aggregate counters; it never
     includes user destination IPs, destination domains, DNS query contents,
     packet payloads, or browsing history.
@@ -621,6 +627,8 @@ queries.
     scheduling a delayed restart. The delayed restart lets the CMS store command
     completion before the process exits; foreground deployments without a
     service unit are reported as command failures instead of false successes.
+  - Adds `service_manager` to VPN health so nodeboard can see whether
+    `restart_service` is supported before queuing the command.
   - Includes stored RTT in command-triggered final session quality reports.
 
 ## API Contract

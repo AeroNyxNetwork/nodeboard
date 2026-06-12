@@ -949,6 +949,11 @@ function VpnHealthPanel({
   };
 
   const handleRestartService = async () => {
+    if (health?.system.service_manager?.restart_supported === false) {
+      onToast(health.system.service_manager.detail || 'VPN service restart is not supported on this node', 'error');
+      return;
+    }
+
     if (!window.confirm('Restart the VPN service on this node? Active tunnels will reconnect.')) {
       return;
     }
@@ -1048,6 +1053,8 @@ function VpnHealthPanel({
   }
 
   const failedChecks = health.checks.filter((check) => !check.ok);
+  const serviceManager = health.system.service_manager;
+  const restartSupported = serviceManager?.restart_supported !== false;
 
   return (
     <Card variant="default" padding="md" className="mb-6">
@@ -1103,11 +1110,16 @@ function VpnHealthPanel({
           <Button
             variant="danger"
             size="sm"
-            disabled={runCommand.isPending}
+            disabled={runCommand.isPending || !restartSupported}
             onClick={handleRestartService}
           >
             Restart VPN
           </Button>
+          {!restartSupported && (
+            <div className="basis-full text-xs text-yellow-300">
+              Restart unavailable: {serviceManager?.detail || 'service manager did not report restart support'}
+            </div>
+          )}
         </div>
       </div>
 

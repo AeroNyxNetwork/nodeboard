@@ -345,6 +345,14 @@ export interface VpnPolicySync {
   message: string;
 }
 
+export interface VpnServiceManagerStatus {
+  manager: 'systemd' | string;
+  service_name: string;
+  load_state: string;
+  restart_supported: boolean;
+  detail: string;
+}
+
 export interface VpnNodeHealth {
   id: string;
   name: string;
@@ -383,6 +391,7 @@ export interface VpnNodeHealth {
     vpn_health_checked_at?: number | null;
     configured_mtu?: number | null;
     running_mtu?: number | null;
+    service_manager?: VpnServiceManagerStatus | null;
     policy_sync?: VpnPolicySync;
     policy_enforcement?: VpnPolicyEnforcement;
   };
