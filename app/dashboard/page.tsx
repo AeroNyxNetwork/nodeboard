@@ -181,6 +181,15 @@ function topPlacementReason(reasons: Record<string, number>) {
 function formatEventReason(event: VpnEvent) {
   const details = event.details || {};
 
+  if (event.type === 'runtime_recovery' || event.type === 'runtime_restarted') {
+    const interrupted = detailNumber(details, 'interrupted_sessions_24h');
+    const uptime = typeof details.runtime_uptime_seconds === 'number'
+      ? formatHours(details.runtime_uptime_seconds)
+      : 'pending';
+    if (interrupted > 0) return `${interrupted} sessions interrupted · uptime ${uptime}`;
+    return `runtime uptime ${uptime}`;
+  }
+
   if (event.type === 'placement_capacity_exhausted' || event.type === 'placement_capacity_pressure') {
     const scope = typeof details.placement_scope === 'string' ? details.placement_scope : 'placement';
     const label = typeof details.placement_label === 'string' ? details.placement_label : 'Fleet';
@@ -217,12 +226,20 @@ function formatEventReason(event: VpnEvent) {
   return event.type.replaceAll('_', ' ');
 }
 
+function attentionEventPriority(event: VpnEvent) {
+  if (event.type === 'runtime_recovery') return 0;
+  if (event.type === 'runtime_restarted') return 1;
+  if (event.severity === 'critical') return 2;
+  if (event.severity === 'warning') return 3;
+  return 4;
+}
+
 function VpnOperationsSnapshot() {
   const { overview, isLoading, isError } = useVpnOverview();
   const { events: eventOverview, isLoading: eventsLoading } = useVpnEvents({
     days: 1,
     severity: 'all',
-    limit: 5,
+    limit: 12,
   });
   const { billing, isLoading: billingLoading, isError: billingError } = useVpnBilling({
     days: 1,
@@ -245,7 +262,13 @@ function VpnOperationsSnapshot() {
     .filter((node) => node.health_status !== 'healthy')
     .sort((a, b) => a.health_score - b.health_score)
     .slice(0, 4);
-  const recentEvents = eventOverview?.events ?? [];
+  const recentEvents = [...(eventOverview?.events ?? [])]
+    .sort((a, b) => {
+      const priorityDelta = attentionEventPriority(a) - attentionEventPriority(b);
+      if (priorityDelta !== 0) return priorityDelta;
+      return (b.created_at || '').localeCompare(a.created_at || '');
+    })
+    .slice(0, 5);
   const totalTrafficBytes = summary
     ? (summary.traffic_in_mb + summary.traffic_out_mb) * 1024 * 1024
     : 0;

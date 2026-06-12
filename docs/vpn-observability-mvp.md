@@ -50,6 +50,11 @@ queries.
     the Overview attention panel so commercial placement pressure is visible on
     the first screen without exposing destinations, DNS contents, packet
     payloads, or client public IPs.
+  - Prioritizes `runtime_recovery` and `runtime_restarted` events in the
+    Overview attention feed. Operators can see recent Rust restarts and
+    stale-session cleanup impact on the first screen before opening Node
+    Detail, while the UI still displays only aggregate runtime/session recovery
+    metadata.
   - Links directly to VPN Operations, Events, and Node Detail so operators can
     triage without starting from SSH or a generic node card.
 
@@ -268,6 +273,9 @@ queries.
     node runtime heartbeat metadata. A plain restart is informational; a
     restart that caused stale active sessions to be interrupted is shown as a
     warning with aggregate interrupted-session counts only.
+  - Adds Runtime Recovery runbook hints in expanded event details: check Node
+    Detail Runtime Recovery, active sessions, Policy Sync, and recent command
+    lifecycle before keeping maintenance mode on or issuing another restart.
   - Displays `client_placement_unavailable` events when the same backend
     health logic used by `/vpn/servers/` hides a public VPN node from the
     client server list. Expanded details prioritize unavailable reason,

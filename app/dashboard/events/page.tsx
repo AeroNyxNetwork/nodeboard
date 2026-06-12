@@ -302,6 +302,15 @@ function topReasonLabel(reasons: unknown) {
   return reason ? `${placementReasonLabel(reason)} ${count}` : 'clear';
 }
 
+function formatDurationSeconds(value: unknown): string {
+  const seconds = typeof value === 'number' && Number.isFinite(value) ? value : null;
+  if (seconds === null) return 'pending';
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 86400) return `${(seconds / 3600).toFixed(1)}h`;
+  return `${(seconds / 86400).toFixed(1)}d`;
+}
+
 function DetailsPreview({ event }: { event: VpnEvent }) {
   const changedFields = getChangedFields(event);
   if (event.type === 'node_policy_changed' && changedFields.length) {
@@ -348,6 +357,12 @@ function DetailsPreview({ event }: { event: VpnEvent }) {
     const totalCount = shortValue(event.details?.total_candidates, 16);
     const capacity = shortValue(event.details?.capacity_remaining, 16);
     return <span className="text-xs text-gray-500">{availableCount}/{totalCount} candidates · {capacity} slots</span>;
+  }
+
+  if (event.type === 'runtime_restarted' || event.type === 'runtime_recovery') {
+    const interrupted = detailNumber(event.details || {}, 'interrupted_sessions_24h');
+    const uptime = formatDurationSeconds(event.details?.runtime_uptime_seconds);
+    return <span className="text-xs text-gray-500">{interrupted} interrupted · uptime {uptime}</span>;
   }
 
   const detailEntries = Object.entries(event.details || {}).filter(([, value]) => (
@@ -416,6 +431,12 @@ function buildDetailRows(event: VpnEvent): DetailRow[] {
     'bandwidth_drops',
     'last_rejection_reason',
     'last_rejection_at',
+    'runtime_id',
+    'runtime_started_at',
+    'runtime_uptime_seconds',
+    'restarted_within_24h',
+    'interrupted_sessions_24h',
+    'last_interrupted_at',
     'policy_sync_status',
     'mismatched_fields',
     'heartbeat_age_seconds',
@@ -515,6 +536,14 @@ function runbookHint(event: VpnEvent): string {
 
   if (event.type === 'node_policy_sync_pending') {
     return 'The backend policy differs from the Rust runtime snapshot, or the node has not reported a policy snapshot yet. Open Node Detail to check Policy Sync and wait for the next heartbeat before assuming the setting is enforced.';
+  }
+
+  if (event.type === 'runtime_recovery') {
+    return 'The Rust process recovered after restart and stale active sessions were closed. Open Node Detail, check Runtime Recovery, active sessions, Policy Sync, and recent command lifecycle before deciding whether to keep maintenance mode on or restart again.';
+  }
+
+  if (event.type === 'runtime_restarted') {
+    return 'A recent Rust process restart was observed. Watch active sessions, Policy Sync, and Runtime Recovery for the next heartbeat cycle before taking disruptive action.';
   }
 
   if (event.type === 'client_placement_unavailable') {
