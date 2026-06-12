@@ -1233,6 +1233,157 @@ function RuntimeRecoveryPanel({ health }: { health: VpnNodeHealth }) {
   );
 }
 
+function drainStepClass(isReady: boolean, isAttention = false) {
+  if (isAttention) return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  if (isReady) return 'border-emerald-500/20 bg-emerald-500/[0.05]';
+  return 'border-white/5 bg-white/[0.03]';
+}
+
+function drainStepStatus(isReady: boolean, attentionLabel: string, readyLabel = 'ready') {
+  return isReady ? readyLabel : attentionLabel;
+}
+
+function MaintenanceDrainPanel({
+  nodeId,
+  health,
+  maintenanceMode,
+  restartSupported,
+  restartCommandActive,
+  isPolicySaving,
+  isCommandPending,
+  onToggleMaintenance,
+  onRestartService,
+}: {
+  nodeId: string;
+  health: VpnNodeHealth;
+  maintenanceMode: boolean;
+  restartSupported: boolean;
+  restartCommandActive: boolean;
+  isPolicySaving: boolean;
+  isCommandPending: boolean;
+  onToggleMaintenance: () => Promise<void>;
+  onRestartService: () => Promise<void>;
+}) {
+  const activeTunnels = health.active_sessions;
+  const policySyncStatus = health.system.policy_sync?.status || 'unknown';
+  const recoveryStatus = health.system.runtime_recovery?.status || 'unknown';
+  const maintenanceReady = maintenanceMode && policySyncStatus === 'synced';
+  const drainReady = activeTunnels === 0;
+  const restartReady = restartSupported && maintenanceMode && drainReady && !restartCommandActive;
+  const verificationReady = recoveryStatus === 'stable' && policySyncStatus === 'synced';
+  const sessionsHref = `/dashboard/sessions?node=${encodeURIComponent(nodeId)}&status=active&quality=all`;
+
+  return (
+    <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.02] p-4">
+      <div className="mb-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+        <div>
+          <h4 className="text-sm font-semibold text-white">Maintenance Drain</h4>
+          <p className="text-xs text-gray-500 mt-1">
+            Controlled restart path for commercial VPN traffic.
+          </p>
+        </div>
+        <span className={`inline-flex self-start rounded-full border px-2.5 py-1 text-xs ${
+          restartReady
+            ? 'border-emerald-500/25 bg-emerald-500/15 text-emerald-300'
+            : restartCommandActive
+              ? 'border-sky-500/25 bg-sky-500/15 text-sky-300'
+              : 'border-yellow-500/25 bg-yellow-500/15 text-yellow-300'
+        }`}>
+          {restartCommandActive ? 'restart queued' : restartReady ? 'ready to restart' : 'drain first'}
+        </span>
+      </div>
+
+      <div className="grid lg:grid-cols-4 gap-3">
+        <div className={`rounded-lg border px-3 py-3 ${drainStepClass(maintenanceReady, !maintenanceMode)}`}>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[11px] uppercase text-gray-600">1. Maintenance</p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {maintenanceMode ? 'New handshakes blocked' : 'Accepting new handshakes'}
+              </p>
+            </div>
+            <span className={`text-xs ${maintenanceReady ? 'text-emerald-300' : 'text-yellow-300'}`}>
+              {drainStepStatus(maintenanceReady, policySyncStatus)}
+            </span>
+          </div>
+          <Button
+            variant={maintenanceMode ? 'secondary' : 'danger'}
+            size="sm"
+            className="mt-3"
+            disabled={isPolicySaving}
+            isLoading={isPolicySaving}
+            onClick={onToggleMaintenance}
+          >
+            {maintenanceMode ? 'End Maintenance' : 'Start Maintenance'}
+          </Button>
+        </div>
+
+        <div className={`rounded-lg border px-3 py-3 ${drainStepClass(drainReady, activeTunnels > 0)}`}>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[11px] uppercase text-gray-600">2. Drain</p>
+              <p className="mt-1 text-sm font-semibold text-white">{activeTunnels} active tunnel{activeTunnels === 1 ? '' : 's'}</p>
+            </div>
+            <span className={`text-xs ${drainReady ? 'text-emerald-300' : 'text-yellow-300'}`}>
+              {drainStepStatus(drainReady, 'wait')}
+            </span>
+          </div>
+          <a
+            href={sessionsHref}
+            className="mt-3 inline-flex text-xs font-medium text-sky-300 hover:text-sky-200"
+          >
+            Open active sessions
+          </a>
+        </div>
+
+        <div className={`rounded-lg border px-3 py-3 ${drainStepClass(restartReady, restartCommandActive || !restartSupported)}`}>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[11px] uppercase text-gray-600">3. Restart</p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {restartSupported ? 'VPN service command' : 'Restart unavailable'}
+              </p>
+            </div>
+            <span className={`text-xs ${restartReady ? 'text-emerald-300' : 'text-yellow-300'}`}>
+              {restartCommandActive ? 'queued' : drainStepStatus(restartReady, restartSupported ? 'blocked' : 'unsupported')}
+            </span>
+          </div>
+          <Button
+            variant="danger"
+            size="sm"
+            className="mt-3"
+            disabled={isCommandPending || !restartSupported || !maintenanceMode || !drainReady || restartCommandActive}
+            isLoading={isCommandPending}
+            onClick={onRestartService}
+          >
+            Restart VPN
+          </Button>
+        </div>
+
+        <div className={`rounded-lg border px-3 py-3 ${drainStepClass(verificationReady, recoveryStatus === 'sessions_interrupted')}`}>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[11px] uppercase text-gray-600">4. Verify</p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {runtimeRecoveryLabel(recoveryStatus)}
+              </p>
+            </div>
+            <span className={`text-xs ${verificationReady ? 'text-emerald-300' : 'text-yellow-300'}`}>
+              {policySyncStatus}
+            </span>
+          </div>
+          <a
+            href="#vpn-commands"
+            className="mt-3 inline-flex text-xs font-medium text-purple-300 hover:text-purple-200"
+          >
+            Open command history
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function VpnHealthPanel({
   nodeId,
   isVpnNode,
@@ -1405,6 +1556,10 @@ function VpnHealthPanel({
   const serviceManager = health.system.service_manager;
   const restartSupported = serviceManager?.restart_supported !== false;
   const placement = servers.find((server) => server.id === nodeId) ?? null;
+  const restartCommandActive = vpnCommands.some((command) => (
+    command.action === 'restart_service'
+    && ['pending', 'sent', 'executing'].includes(command.status)
+  ));
 
   return (
     <Card variant="default" padding="md" className="mb-6">
@@ -1523,6 +1678,17 @@ function VpnHealthPanel({
       <BandwidthLimitPanel health={health} metrics={metrics} isLoading={metricsLoading} />
       <PolicyEnforcementPanel health={health} />
       <RuntimeRecoveryPanel health={health} />
+      <MaintenanceDrainPanel
+        nodeId={nodeId}
+        health={health}
+        maintenanceMode={maintenanceMode}
+        restartSupported={restartSupported}
+        restartCommandActive={restartCommandActive}
+        isPolicySaving={isPolicySaving}
+        isCommandPending={runCommand.isPending}
+        onToggleMaintenance={handleMaintenanceToggle}
+        onRestartService={handleRestartService}
+      />
 
       <div className="mt-5 grid md:grid-cols-2 gap-3">
         {health.checks.map((check) => (

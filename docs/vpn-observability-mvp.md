@@ -184,6 +184,12 @@ queries.
   - Disables `Restart VPN` when Rust heartbeat reports
     `service_manager.restart_supported=false`, showing the node-local reason
     such as a missing systemd service unit.
+  - Adds a Maintenance Drain panel that turns the commercial restart workflow
+    into four visible states: maintenance policy synced, active tunnel drain,
+    restart command readiness, and post-restart verification. The panel reuses
+    existing policy sync, active session count, command history, and runtime
+    recovery telemetry; it does not add packet payloads, destinations, DNS
+    contents, browsing history, voucher secrets, or client public IPs.
   - Shows per-node Client Placement state from `useVpnServers()`, including
     whether clients can receive the node, its failover rank, hidden-address
     reason, load, active sessions, and 24h availability.
