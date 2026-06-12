@@ -520,6 +520,10 @@ export interface VpnSession {
   last_tx_at: string | null;
   rtt_ms: number | null;
   packet_loss: number | null;
+  keepalive_probes_sent: number;
+  keepalive_acks: number;
+  keepalive_missed: number;
+  keepalive_pending: number;
   last_error: string;
   quality_status: SessionQualityStatus;
   quality_score: number | null;

@@ -65,6 +65,11 @@ queries.
   - Displays stored `last_rx_at`, `last_tx_at`, and packet-loss telemetry from
     the API. Displays Rust-reported `rtt_ms` once the in-tunnel keepalive probe
     receives an ICMP Echo Reply from the session's assigned virtual IP.
+  - Displays Rust-reported keepalive ACK counters:
+    `keepalive_probes_sent`, `keepalive_acks`, `keepalive_missed`, and
+    `keepalive_pending`. These show tunnel responsiveness and missed ACKs
+    without exposing browsing destinations, DNS contents, packet payloads, or
+    public client IPs.
   - Displays Rust-reported tunnel `virtual_ip` so operators can identify the
     affected in-tunnel address without exposing browsing destinations or public
     client IPs.
@@ -207,6 +212,14 @@ queries.
   - Adds `cancelNodeCommand(nodeId, commandId)`.
   - Keeps the frontend API surface scoped to VPN operations, observability,
     policy, and billing.
+
+- `types/index.ts`
+  - Adds session keepalive fields returned by
+    `/api/privacy_network/vpn/sessions/`: `keepalive_probes_sent`,
+    `keepalive_acks`, `keepalive_missed`, and `keepalive_pending`.
+  - Keeps these fields typed as aggregate tunnel counters only; nodeboard does
+    not model destination IPs, DNS contents, packet payloads, URLs, or browsing
+    history.
 
 - `lib/constants.ts`
   - Adds `VPN_OVERVIEW`, `VPN_SESSIONS`, `VPN_BILLING`, and `VPN_EVENTS` API

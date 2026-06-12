@@ -17,7 +17,8 @@
  *
  * Implementation Notes:
  *   - Session quality is classified by the backend from Rust-reported
- *     last_rx_at, last_tx_at, RTT, packet-loss, and replay-window counters.
+ *     last_rx_at, last_tx_at, RTT, packet-loss, replay-window counters, and
+ *     keepalive ACK counters.
  *   - The UI intentionally shows operational metadata only. It must not display
  *     traffic destinations, DNS queries, packet payloads, or browsing history.
  *
@@ -387,7 +388,7 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
   return (
     <Card variant="default" padding="none">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1160px] text-sm">
+        <table className="w-full min-w-[1240px] text-sm">
           <thead className="text-xs uppercase text-gray-500 bg-white/[0.02]">
             <tr>
               <th className="text-left font-medium px-5 py-3">Session</th>
@@ -446,6 +447,9 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
                     </div>
                     <div className="text-xs text-gray-500">
                       RTT {formatMetric(session.rtt_ms, ' ms')} · loss {formatMetric(session.packet_loss, '%')}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      ACK {session.keepalive_acks}/{session.keepalive_probes_sent} · missed {session.keepalive_missed} · pending {session.keepalive_pending}
                     </div>
                     {session.degraded_reason ? (
                       <div className="max-w-[260px] truncate text-xs text-yellow-300" title={session.degraded_reason}>
