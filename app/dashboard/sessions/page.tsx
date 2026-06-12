@@ -30,7 +30,13 @@
 import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRunNodeCommand, useVpnOverview, useVpnSessions } from '@/hooks/useNodes';
-import { SessionQualityStatus, VpnHealthStatus, VpnNodeHealth, VpnSession } from '@/types';
+import {
+  SessionQualityStatus,
+  VpnHealthStatus,
+  VpnNodeHealth,
+  VpnSession,
+  VpnSessionQualitySummary,
+} from '@/types';
 import { formatBytes, formatDuration, formatRelativeTime, truncateAddress } from '@/lib/api';
 import Card, { EmptyState, LoadingCard, StatCard } from '@/components/common/Card';
 import Button from '@/components/common/Button';
@@ -40,6 +46,7 @@ type QualityFilter = 'all' | SessionQualityStatus;
 
 const SESSION_FILTERS: SessionFilter[] = ['all', 'active', 'completed', 'error'];
 const QUALITY_FILTERS: QualityFilter[] = ['all', 'healthy', 'degraded', 'stale', 'error', 'pending', 'completed'];
+const QUALITY_SUMMARY_FILTERS: SessionQualityStatus[] = ['healthy', 'degraded', 'stale', 'error', 'pending', 'completed'];
 
 const healthStyles: Record<VpnHealthStatus, { label: string; badge: string; dot: string }> = {
   healthy: {
@@ -145,6 +152,76 @@ function SessionQualityBadge({ status }: { status: SessionQualityStatus }) {
       <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
       {style.label}
     </span>
+  );
+}
+
+interface QualitySummaryStripProps {
+  summary: VpnSessionQualitySummary | null;
+  active: QualityFilter;
+  filteredCount: number;
+  inViewCount: number;
+  onSelect: (status: QualityFilter) => void;
+}
+
+function QualitySummaryStrip({
+  summary,
+  active,
+  filteredCount,
+  inViewCount,
+  onSelect,
+}: QualitySummaryStripProps) {
+  const total = QUALITY_SUMMARY_FILTERS.reduce(
+    (sum, status) => sum + (summary?.[status] ?? 0),
+    0
+  );
+
+  const buttonClass = (isActive: boolean, accent = 'border-white/10 text-gray-300') => `
+    min-h-[68px] rounded-lg border px-3 py-2 text-left transition-colors
+    ${isActive
+      ? 'bg-purple-500/15 border-purple-500/40 text-purple-100'
+      : `bg-white/[0.03] hover:bg-white/[0.06] ${accent}`
+    }
+  `;
+
+  return (
+    <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.025] px-4 py-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-3">
+        <h3 className="text-sm font-semibold text-white">Session Quality</h3>
+        <div className="text-xs text-gray-500">
+          {filteredCount} matching / {inViewCount} shown
+        </div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+        <button
+          type="button"
+          onClick={() => onSelect('all')}
+          className={buttonClass(active === 'all')}
+        >
+          <div className="text-xs uppercase tracking-wide text-gray-500">All</div>
+          <div className="mt-1 text-xl font-semibold text-white">{total}</div>
+        </button>
+        {QUALITY_SUMMARY_FILTERS.map((status) => {
+          const style = sessionQualityStyles[status];
+          const isActive = active === status;
+          return (
+            <button
+              key={status}
+              type="button"
+              onClick={() => onSelect(status)}
+              className={buttonClass(isActive, style.badge)}
+            >
+              <div className="flex items-center gap-1.5 text-xs">
+                <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+                <span>{style.label}</span>
+              </div>
+              <div className="mt-1 text-xl font-semibold text-white">
+                {summary?.[status] ?? 0}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -423,7 +500,15 @@ export default function SessionsPage() {
   const [banningSessionId, setBanningSessionId] = useState<string | null>(null);
   const [operationMessage, setOperationMessage] = useState<string>('');
   const { overview, isLoading: overviewLoading, isError: overviewError, refetch: refetchOverview } = useVpnOverview();
-  const { sessions, isLoading: sessionsLoading, isError: sessionsError, refetch: refetchSessions } =
+  const {
+    sessions,
+    count: sessionCount,
+    filteredCount: sessionFilteredCount,
+    qualitySummary,
+    isLoading: sessionsLoading,
+    isError: sessionsError,
+    refetch: refetchSessions,
+  } =
     useVpnSessions({
       status: statusFilter,
       nodeId: nodeFilter || undefined,
@@ -555,7 +640,7 @@ export default function SessionsPage() {
           <StatCard
             label="Active Tunnels"
             value={summary?.active_sessions ?? 0}
-            subValue={`${sessions.length} sessions in view`}
+            subValue={`${sessionFilteredCount} matching, ${sessionCount} shown`}
           />
           <StatCard
             label="VPN Traffic"
@@ -644,6 +729,14 @@ export default function SessionsPage() {
           </label>
         </div>
       </div>
+
+      <QualitySummaryStrip
+        summary={qualitySummary}
+        active={qualityFilter}
+        filteredCount={sessionFilteredCount}
+        inViewCount={sessionCount}
+        onSelect={setQualityFilter}
+      />
 
       {sessionsLoading ? (
         <div className="space-y-3">

@@ -178,6 +178,9 @@ queries.
 - `hooks/useNodes.ts`
   - Adds `useVpnOverview()` with 30 second polling.
   - Adds `useVpnSessions()` with 15 second polling.
+  - Exposes VPN session `count`, `filteredCount`, `qualitySummary`, and
+    backend filters so the Sessions page can show affected tunnel cohorts
+    without reclassifying health in the browser.
   - Adds `useVpnBilling()` with 30 second polling for Traffic & Billing.
   - Adds `useVpnEvents()` with 15 second polling for Alerts / Events.
   - Adds `useVpnNodeMetrics()` with 30 second polling for per-node 24h
@@ -269,6 +272,10 @@ queries.
   - Supports `GET /vpn/sessions/?quality_status=healthy|degraded|stale|error|pending|completed`
     so nodeboard can request affected tunnel cohorts directly from the
     centralized control plane.
+  - Returns `quality_summary`, `filtered_count`, and `filters.sample_limit`
+    from `/vpn/sessions/`. The summary is calculated from the latest 1000
+    sessions after node/status filters, then the selected quality filter and UI
+    limit are applied to the returned rows.
 
 - `/root/aeronyx/privacy_network/models.py`
   - Stores `ClientSession.virtual_ip`, the tunnel-local address assigned by
@@ -1252,6 +1259,9 @@ compatibility; if CMS sends an empty list, Rust clears only active
     `degraded_reason`, `quality_reasons`, and `last_activity_at` from
     `/vpn/sessions/` without exposing destinations, DNS contents, packet
     payloads, or browsing history.
+  - Smoke test: `/vpn/sessions/` returns `quality_summary`, `filtered_count`,
+    and `filters.sample_limit`, and `quality_status` filtering preserves the
+    pre-filter quality distribution for nodeboard triage.
 
 - Rust VPN node:
   - `cargo check -p aeronyx-server`

@@ -499,6 +499,7 @@ export interface VpnNodeMetricsResponse {
 }
 
 export type SessionQualityStatus = 'healthy' | 'degraded' | 'stale' | 'error' | 'pending' | 'completed';
+export type VpnSessionQualitySummary = Record<SessionQualityStatus, number>;
 
 export interface VpnSession {
   id: string;
@@ -532,11 +533,14 @@ export interface VpnSessionListResponse {
   success: boolean;
   data: VpnSession[];
   count: number;
+  filtered_count: number;
+  quality_summary: VpnSessionQualitySummary;
   filters?: {
     status: string;
     node_id: string;
     quality_status: 'all' | SessionQualityStatus;
     limit: number;
+    sample_limit: number;
   };
 }
 

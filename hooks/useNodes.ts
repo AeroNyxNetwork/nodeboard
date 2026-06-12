@@ -47,6 +47,8 @@ import {
   VpnOverview,
   VpnNodeMetrics,
   VpnSession,
+  VpnSessionListResponse,
+  VpnSessionQualitySummary,
   SessionQualityStatus,
   VpnBillingOverview,
   VpnEventsOverview,
@@ -309,6 +311,10 @@ export interface UseVpnSessionsOptions {
 
 interface UseVpnSessionsResult {
   sessions: VpnSession[];
+  count: number;
+  filteredCount: number;
+  qualitySummary: VpnSessionQualitySummary | null;
+  filters: VpnSessionListResponse['filters'] | null;
   isLoading: boolean;
   isError: boolean;
   error: Error | null;
@@ -322,7 +328,7 @@ export function useVpnSessions(options: UseVpnSessionsOptions = {}): UseVpnSessi
     queryKey: nodeKeys.vpnSessions(options),
     queryFn: async () => {
       const res = await api.getVpnSessions(options);
-      return res.data;
+      return res;
     },
     enabled: isAuthenticated,
     staleTime: POLLING_INTERVALS.VPN_SESSIONS,
@@ -331,7 +337,11 @@ export function useVpnSessions(options: UseVpnSessionsOptions = {}): UseVpnSessi
   });
 
   return {
-    sessions: query.data ?? [],
+    sessions: query.data?.data ?? [],
+    count: query.data?.count ?? 0,
+    filteredCount: query.data?.filtered_count ?? query.data?.count ?? 0,
+    qualitySummary: query.data?.quality_summary ?? null,
+    filters: query.data?.filters ?? null,
     isLoading: query.isLoading,
     isError: query.isError,
     error: query.error,
