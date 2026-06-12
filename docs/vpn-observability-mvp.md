@@ -89,7 +89,8 @@ queries.
   - Removes non-VPN auxiliary entry points so Node Detail stays focused on VPN
     operations.
   - Shows the same live heartbeat source, health score, checks, CPU, memory,
-    and tunnel counters without requiring the operator to leave the node page.
+    Tunnel MTU, and tunnel counters without requiring the operator to leave the
+    node page.
   - Adds per-check runbook hints for failed heartbeat, resource load, traffic
     counter, UDP listener, TUN, MTU, forwarding, NAT, DNS, and egress checks so
     operators know the next action before opening SSH.
@@ -289,6 +290,9 @@ queries.
     counters, and Rust-reported VPN checks: UDP listener, TUN device, MTU
     config, IPv4 forwarding, NAT masquerade, DNS stub, DNS query, and Internet
     egress.
+  - Returns structured MTU fields under `system.configured_mtu` and
+    `system.running_mtu`, sourced from Rust heartbeat `vpn_health`, so
+    nodeboard does not need to parse health-check detail text.
   - Includes node operator policy fields in each node health row:
     `maintenance_mode`, `max_sessions`, `bandwidth_limit_mbps`, and
     `heartbeat_interval_seconds`, so nodeboard can show commercial policy and
@@ -512,9 +516,9 @@ queries.
     `collect_vpn_health_value()` heartbeat collector.
   - Checks UDP listener, TUN device, TUN MTU config, IPv4 forwarding, NAT
     masquerade, DNS listener, DNS query, and TCP Internet egress.
-  - Includes `configured_mtu` and a `mtu_config` check that compares the
-    running Linux TUN MTU with Rust config and the recommended Internet VPN
-    range.
+  - Includes `configured_mtu`, `running_mtu`, and a `mtu_config` check that
+    compares the running Linux TUN MTU with Rust config and the recommended
+    Internet VPN range.
   - Reports only node-local diagnostics and aggregate counters; it never
     includes user destination IPs, destination domains, DNS query contents,
     packet payloads, or browsing history.

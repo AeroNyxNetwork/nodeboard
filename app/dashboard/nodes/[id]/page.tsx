@@ -489,6 +489,27 @@ function formatMemoryUsage(health: VpnNodeHealth) {
   return total ? `${used} / ${total} MB` : `${used} MB`;
 }
 
+function formatTunnelMtu(health: VpnNodeHealth) {
+  const configured = health.system.configured_mtu;
+  const running = health.system.running_mtu;
+  if (typeof configured !== 'number' && typeof running !== 'number') return 'pending';
+  if (typeof configured === 'number' && typeof running === 'number') {
+    return running === configured ? `${running}` : `${running} / ${configured}`;
+  }
+  return typeof running === 'number' ? `${running}` : `${configured}`;
+}
+
+function tunnelMtuDetail(health: VpnNodeHealth) {
+  const configured = health.system.configured_mtu;
+  const running = health.system.running_mtu;
+  if (typeof running === 'number' && typeof configured === 'number') {
+    return running === configured ? 'matches config' : `config ${configured}`;
+  }
+  if (typeof configured === 'number') return 'configured only';
+  if (typeof running === 'number') return 'runtime only';
+  return 'reported by health check';
+}
+
 function policyCount(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
 }
@@ -1090,7 +1111,7 @@ function VpnHealthPanel({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-5">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mt-5">
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
           <p className="text-xs text-gray-500">Active Tunnels</p>
           <p className="text-lg font-semibold text-white mt-1">{health.active_sessions}</p>
@@ -1119,6 +1140,11 @@ function VpnHealthPanel({
           <p className="text-xs text-gray-500">Memory</p>
           <p className="text-lg font-semibold text-white mt-1">{formatMemoryUsage(health)}</p>
           <p className="text-xs text-gray-600">reported by node</p>
+        </div>
+        <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+          <p className="text-xs text-gray-500">Tunnel MTU</p>
+          <p className="text-lg font-semibold text-white mt-1">{formatTunnelMtu(health)}</p>
+          <p className="text-xs text-gray-600">{tunnelMtuDetail(health)}</p>
         </div>
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
           <p className="text-xs text-gray-500">Last Heartbeat</p>

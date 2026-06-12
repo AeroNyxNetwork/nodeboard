@@ -381,6 +381,8 @@ export interface VpnNodeHealth {
     runtime_started_at?: string | null;
     vpn_health_status?: 'ok' | 'degraded' | 'failed' | string | null;
     vpn_health_checked_at?: number | null;
+    configured_mtu?: number | null;
+    running_mtu?: number | null;
     policy_sync?: VpnPolicySync;
     policy_enforcement?: VpnPolicyEnforcement;
   };
