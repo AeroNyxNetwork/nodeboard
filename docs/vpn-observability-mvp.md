@@ -149,6 +149,12 @@ queries.
     desired policy with the node's runtime policy snapshot so operators know
     whether tier, maintenance mode, max sessions, bandwidth cap, and heartbeat
     interval have reached the Rust process.
+  - Adds a Runtime Recovery panel from backend `system.runtime_recovery`,
+    showing Rust runtime id, process uptime, whether the node restarted within
+    the last 24h, and how many stale active sessions were interrupted by
+    heartbeat recovery. This lets operators distinguish a stable node from a
+    recently restarted node without SSH while keeping the telemetry limited to
+    process metadata and aggregate session state.
   - Displays `apply_policy` command history entries created after Settings
     changes, so operators can see the CMS queued the policy acknowledgement and
     Rust reported the runtime snapshot.
@@ -258,6 +264,10 @@ queries.
   - Displays command event audit context from `/vpn/events/`: operator wallet
     short label, wallet type, and bounded command source for failed, stuck,
     restart, and operator-action events.
+  - Displays `runtime_restarted` and `runtime_recovery` events derived from
+    node runtime heartbeat metadata. A plain restart is informational; a
+    restart that caused stale active sessions to be interrupted is shown as a
+    warning with aggregate interrupted-session counts only.
   - Displays `client_placement_unavailable` events when the same backend
     health logic used by `/vpn/servers/` hides a public VPN node from the
     client server list. Expanded details prioritize unavailable reason,

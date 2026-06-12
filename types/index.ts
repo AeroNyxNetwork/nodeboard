@@ -345,6 +345,18 @@ export interface VpnPolicySync {
   message: string;
 }
 
+export interface VpnRuntimeRecovery {
+  status: 'stable' | 'restarted_recently' | 'sessions_interrupted' | 'unknown' | string;
+  runtime_id: string | null;
+  runtime_started_at: string | null;
+  runtime_uptime_seconds: number | null;
+  restarted_within_24h: boolean;
+  interrupted_sessions_24h: number;
+  last_interrupted_at: string | null;
+  message: string;
+  privacy_boundary?: string;
+}
+
 export interface VpnServiceManagerStatus {
   manager: 'systemd' | string;
   service_name: string;
@@ -394,6 +406,7 @@ export interface VpnNodeHealth {
     service_manager?: VpnServiceManagerStatus | null;
     policy_sync?: VpnPolicySync;
     policy_enforcement?: VpnPolicyEnforcement;
+    runtime_recovery?: VpnRuntimeRecovery;
   };
   checks: VpnHealthCheck[];
 }

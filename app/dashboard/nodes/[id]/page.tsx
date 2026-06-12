@@ -1142,6 +1142,97 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
   );
 }
 
+function runtimeRecoveryClass(status: string) {
+  if (status === 'sessions_interrupted') return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  if (status === 'restarted_recently') return 'border-sky-500/20 bg-sky-500/[0.05]';
+  if (status === 'stable') return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+  return 'border-white/5 bg-white/[0.02]';
+}
+
+function runtimeRecoveryLabel(status: string) {
+  const labels: Record<string, string> = {
+    stable: 'stable',
+    restarted_recently: 'restarted',
+    sessions_interrupted: 'recovered',
+    unknown: 'pending',
+  };
+  return labels[status] || status.replace(/_/g, ' ');
+}
+
+function RuntimeRecoveryPanel({ health }: { health: VpnNodeHealth }) {
+  const recovery = health.system.runtime_recovery;
+  const status = recovery?.status || 'unknown';
+  const runtimeId = recovery?.runtime_id || health.system.runtime_id || '';
+  const runtimeStartedAt = recovery?.runtime_started_at || health.system.runtime_started_at || null;
+  const uptimeSeconds = recovery?.runtime_uptime_seconds ?? null;
+  const interrupted = recovery?.interrupted_sessions_24h ?? 0;
+  const panelClass = runtimeRecoveryClass(status);
+
+  return (
+    <div className={`mt-5 rounded-xl border p-4 ${panelClass}`}>
+      <div className="mb-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+        <div>
+          <h4 className="text-sm font-semibold text-white">Runtime Recovery</h4>
+          <p className="text-xs text-gray-500 mt-1">
+            Rust process lifetime and stale-session cleanup from signed heartbeats.
+          </p>
+        </div>
+        <span className={`inline-flex self-start rounded-full border px-2.5 py-1 text-xs ${
+          status === 'sessions_interrupted'
+            ? 'border-yellow-500/25 bg-yellow-500/15 text-yellow-300'
+            : status === 'stable'
+              ? 'border-emerald-500/25 bg-emerald-500/15 text-emerald-300'
+              : 'border-sky-500/25 bg-sky-500/15 text-sky-300'
+        }`}>
+          {runtimeRecoveryLabel(status)}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2 min-w-0">
+          <p className="text-[11px] uppercase text-gray-600">Runtime ID</p>
+          <div className="mt-1 flex items-center gap-1 min-w-0">
+            <p className="text-xs font-mono text-gray-300 truncate">
+              {runtimeId ? `${runtimeId.slice(0, 12)}...` : 'pending'}
+            </p>
+            {runtimeId ? <CopyButton text={runtimeId} /> : null}
+          </div>
+          <p className="text-[11px] text-gray-600 mt-0.5">process identity</p>
+        </div>
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
+          <p className="text-[11px] uppercase text-gray-600">Process Uptime</p>
+          <p className="text-base font-semibold text-white mt-1">
+            {uptimeSeconds === null ? 'pending' : formatDuration(uptimeSeconds)}
+          </p>
+          <p className="text-[11px] text-gray-600 mt-0.5">
+            {runtimeStartedAt ? `started ${formatRelativeTime(runtimeStartedAt)}` : 'waiting for heartbeat'}
+          </p>
+        </div>
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
+          <p className="text-[11px] uppercase text-gray-600">24h Restart</p>
+          <p className={`text-base font-semibold mt-1 ${recovery?.restarted_within_24h ? 'text-sky-200' : 'text-white'}`}>
+            {recovery?.restarted_within_24h ? 'yes' : status === 'unknown' ? 'pending' : 'no'}
+          </p>
+          <p className="text-[11px] text-gray-600 mt-0.5">runtime start window</p>
+        </div>
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
+          <p className="text-[11px] uppercase text-gray-600">Interrupted Sessions</p>
+          <p className={`text-base font-semibold mt-1 ${interrupted > 0 ? 'text-yellow-200' : 'text-white'}`}>
+            {interrupted}
+          </p>
+          <p className="text-[11px] text-gray-600 mt-0.5">
+            {recovery?.last_interrupted_at ? `last ${formatRelativeTime(recovery.last_interrupted_at)}` : 'last 24h'}
+          </p>
+        </div>
+      </div>
+
+      <p className={`mt-3 text-xs ${status === 'sessions_interrupted' ? 'text-yellow-200' : 'text-gray-500'}`}>
+        {recovery?.message || 'Waiting for Rust runtime recovery telemetry.'}
+      </p>
+    </div>
+  );
+}
+
 function VpnHealthPanel({
   nodeId,
   isVpnNode,
@@ -1431,6 +1522,7 @@ function VpnHealthPanel({
       <NodeMetricsTrendPanel metrics={metrics} isLoading={metricsLoading} />
       <BandwidthLimitPanel health={health} metrics={metrics} isLoading={metricsLoading} />
       <PolicyEnforcementPanel health={health} />
+      <RuntimeRecoveryPanel health={health} />
 
       <div className="mt-5 grid md:grid-cols-2 gap-3">
         {health.checks.map((check) => (
