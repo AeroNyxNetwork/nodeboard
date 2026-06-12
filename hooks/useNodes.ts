@@ -56,6 +56,7 @@ import {
   VpnEventsOverview,
   VpnEventSeverity,
   VpnServerCandidate,
+  VpnServerPlacementSummary,
   NodeWalletBan,
   NodeCommand,
   RunNodeCommandRequest,
@@ -272,6 +273,7 @@ export function useVpnOverview(): UseVpnOverviewResult {
 
 interface UseVpnServersResult {
   servers: VpnServerCandidate[];
+  summary: VpnServerPlacementSummary | null;
   total: number;
   available: number;
   online: number;
@@ -296,6 +298,7 @@ export function useVpnServers(): UseVpnServersResult {
 
   return {
     servers: query.data?.servers ?? query.data?.data ?? [],
+    summary: query.data?.summary ?? null,
     total: query.data?.total ?? 0,
     available: query.data?.available ?? 0,
     online: query.data?.online ?? 0,

@@ -48,6 +48,11 @@ queries.
     backend failover rank, available candidate count, hidden-address state,
     unavailable reason, load, active sessions, and 24h availability for public
     VPN candidates.
+  - Displays backend `summary.by_region` and `summary.by_tier` placement
+    capacity, including available/total candidates, remaining session slots,
+    unlimited-capacity nodes, average tier load, and top unavailable reasons.
+    This helps operators understand commercial region and tier capacity without
+    SSH or client-side guessing.
   - Lets operators see which nodes clients will actually receive from the
     centralized failover policy before they open SSH or inspect client logs.
   - Adds a dense VPN Node Operations table above the existing node cards.
@@ -320,6 +325,17 @@ queries.
     score, load, capacity, heartbeat gap, 24h availability samples, and a
     privacy-boundary string. It does not expose destinations, DNS contents,
     packet payloads, domains, URLs, browsing history, or client public IPs.
+
+- `/root/aeronyx/privacy_network/api/vpn_servers.py`
+  - Adds a backward-compatible `summary` object to `GET /vpn/servers/` with
+    commercial placement capacity grouped by region and node tier.
+  - Keeps existing `servers`, `data`, `total`, `online`, and `available`
+    fields unchanged for clients while nodeboard can show fleet-level failover
+    capacity and unavailable reasons.
+  - Summary fields are derived only from public node metadata: health status,
+    region, tier, load, active session counts, and capacity. They do not
+    include destinations, DNS contents, packet payloads, domains, URLs,
+    browsing history, voucher secrets, or client public IPs.
 
 - `/root/aeronyx/privacy_network/api/vpn_observability.py`
   - Adds owner-authenticated observability endpoints.

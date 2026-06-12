@@ -487,6 +487,8 @@ export interface VpnServerCandidate {
   port: number;
   country: string;
   country_name: string;
+  region_code: string;
+  city: string;
   flag: string;
   latency: number | null;
   available: boolean;
@@ -509,12 +511,43 @@ export interface VpnServerCandidate {
   failover_rank: number | null;
 }
 
+export interface VpnServerPlacementGroup {
+  key: string;
+  label: string;
+  region_code?: string;
+  country?: string;
+  country_name?: string;
+  flag?: string;
+  tier?: string;
+  total: number;
+  available: number;
+  unavailable: number;
+  active_sessions: number;
+  capacity_remaining: number;
+  unlimited_capacity_nodes: number;
+  average_health_score: number | null;
+  average_load: number | null;
+  best_failover_rank: number | null;
+  unavailable_reasons: Record<string, number>;
+}
+
+export interface VpnServerPlacementSummary {
+  available_capacity_remaining: number;
+  unlimited_capacity_nodes: number;
+  unavailable_reasons: Record<string, number>;
+  by_region: VpnServerPlacementGroup[];
+  by_tier: VpnServerPlacementGroup[];
+  privacy_note: string;
+  generated_at: string;
+}
+
 export interface VpnServerListResponse {
   servers: VpnServerCandidate[];
   data: VpnServerCandidate[];
   total: number;
   online: number;
   available: number;
+  summary?: VpnServerPlacementSummary;
   generated_at: string;
 }
 

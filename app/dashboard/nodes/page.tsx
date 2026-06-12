@@ -13,7 +13,7 @@
 import React, { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useNodes, useDeleteNode, useVpnOverview, useVpnServers } from '@/hooks/useNodes';
-import { Node, NodeStatus, VpnHealthStatus, VpnNodeHealth, VpnServerCandidate } from '@/types';
+import { Node, NodeStatus, VpnHealthStatus, VpnNodeHealth, VpnServerCandidate, VpnServerPlacementSummary } from '@/types';
 import { formatRelativeTime } from '@/lib/api';
 import Button from '@/components/common/Button';
 import Card, { EmptyState } from '@/components/common/Card';
@@ -229,13 +229,26 @@ function placementStatusClass(server: VpnServerCandidate) {
   return 'bg-red-500/15 text-red-300 border-red-500/25';
 }
 
+function formatPlacementCapacity(capacity: number, unlimitedNodes: number) {
+  if (unlimitedNodes > 0 && capacity > 0) return `${capacity} slots + ${unlimitedNodes} unlimited`;
+  if (unlimitedNodes > 0) return `${unlimitedNodes} unlimited`;
+  return `${capacity} slots`;
+}
+
+function topUnavailableReason(reasons: Record<string, number>) {
+  const [reason, count] = Object.entries(reasons).sort((a, b) => b[1] - a[1])[0] || [];
+  return reason ? `${formatPlacementReason(reason)} ${count}` : 'clear';
+}
+
 function ClientPlacementPanel({
   servers,
+  summary,
   isLoading,
   total,
   available,
 }: {
   servers: VpnServerCandidate[];
+  summary: VpnServerPlacementSummary | null;
   isLoading: boolean;
   total: number;
   available: number;
@@ -265,6 +278,8 @@ function ClientPlacementPanel({
     return rankA - rankB || a.name.localeCompare(b.name);
   });
   const unavailable = total - available;
+  const regions = summary?.by_region.slice(0, 4) ?? [];
+  const tiers = summary?.by_tier.slice(0, 3) ?? [];
 
   return (
     <Card variant="default" padding="none" className="mb-6">
@@ -277,8 +292,61 @@ function ClientPlacementPanel({
         </div>
         <div className="text-xs text-gray-500 sm:text-right">
           <span className="text-emerald-300">{available}</span> available · {unavailable} unavailable
+          {summary && (
+            <div className="mt-1 text-gray-600">
+              {formatPlacementCapacity(summary.available_capacity_remaining, summary.unlimited_capacity_nodes)}
+            </div>
+          )}
         </div>
       </div>
+
+      {summary && (
+        <div className="border-b border-white/5 px-5 py-4">
+          <div className="grid lg:grid-cols-[1.4fr_1fr] gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Region Capacity</p>
+              <div className="mt-2 grid sm:grid-cols-2 xl:grid-cols-4 gap-2">
+                {regions.map((region) => (
+                  <div key={region.key} className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-xs font-medium text-gray-300">
+                        {region.flag ? `${region.flag} ` : ''}{region.label}
+                      </span>
+                      <span className="text-[11px] text-emerald-300">{region.available}/{region.total}</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      {formatPlacementCapacity(region.capacity_remaining, region.unlimited_capacity_nodes)}
+                    </p>
+                    <p className="mt-1 text-[11px] text-gray-600">
+                      {region.unavailable > 0 ? topUnavailableReason(region.unavailable_reasons) : 'all candidates clear'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Tier Capacity</p>
+              <div className="mt-2 grid sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3 gap-2">
+                {tiers.map((tier) => (
+                  <div key={tier.key} className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-xs font-medium text-gray-300">{tier.tier || tier.label}</span>
+                      <span className="text-[11px] text-emerald-300">{tier.available}/{tier.total}</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      {formatPlacementCapacity(tier.capacity_remaining, tier.unlimited_capacity_nodes)}
+                    </p>
+                    <p className="mt-1 text-[11px] text-gray-600">
+                      {tier.average_load === null ? 'load pending' : `${tier.average_load}% avg load`}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <p className="mt-3 text-[11px] text-gray-600">{summary.privacy_note}</p>
+        </div>
+      )}
 
       <div className="grid md:grid-cols-3 gap-3 p-5">
         {ranked.slice(0, 6).map((server) => (
@@ -462,7 +530,13 @@ function VpnNodeOperationsTable({
 export default function NodesPage() {
   const { nodes, isLoading } = useNodes();
   const { overview, isLoading: vpnOverviewLoading } = useVpnOverview();
-  const { servers, isLoading: vpnServersLoading, total: vpnServerTotal, available: vpnServerAvailable } = useVpnServers();
+  const {
+    servers,
+    summary: vpnPlacementSummary,
+    isLoading: vpnServersLoading,
+    total: vpnServerTotal,
+    available: vpnServerAvailable,
+  } = useVpnServers();
   const deleteNodeMutation = useDeleteNode();
 
   const [activeFilter, setActiveFilter] = useState<FilterOption>('all');
@@ -569,6 +643,7 @@ export default function NodesPage() {
       {/* VPN Node Operations */}
       <ClientPlacementPanel
         servers={servers}
+        summary={vpnPlacementSummary}
         isLoading={vpnServersLoading}
         total={vpnServerTotal}
         available={vpnServerAvailable}
