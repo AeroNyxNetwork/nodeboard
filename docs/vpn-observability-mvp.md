@@ -211,6 +211,10 @@ queries.
     client server list. Expanded details prioritize unavailable reason,
     24h availability, heartbeat gap, capacity, load, health status, and the
     privacy boundary.
+  - Displays `placement_capacity_exhausted` and
+    `placement_capacity_pressure` events when a region or tier has no available
+    placement candidates or only a small finite number of session slots
+    remaining.
 
 - `app/dashboard/settings/page.tsx`
   - Adds Settings as the node operator policy center.
@@ -325,6 +329,11 @@ queries.
     score, load, capacity, heartbeat gap, 24h availability samples, and a
     privacy-boundary string. It does not expose destinations, DNS contents,
     packet payloads, domains, URLs, browsing history, or client public IPs.
+  - Adds fleet-level `placement_capacity_exhausted` and
+    `placement_capacity_pressure` events using `/vpn/servers/` placement
+    summary semantics. These events identify affected region/tier, available
+    candidates, total candidates, remaining finite slots, unlimited-capacity
+    nodes, active sessions, average load, and top unavailable reasons.
 
 - `/root/aeronyx/privacy_network/api/vpn_servers.py`
   - Adds a backward-compatible `summary` object to `GET /vpn/servers/` with

@@ -266,6 +266,14 @@ function placementReasonLabel(reason: unknown) {
   return labels[reason] || reason.replace(/_/g, ' ');
 }
 
+function topReasonLabel(reasons: unknown) {
+  if (!isRecord(reasons)) return 'clear';
+  const [reason, count] = Object.entries(reasons)
+    .filter(([, value]) => typeof value === 'number')
+    .sort((a, b) => Number(b[1]) - Number(a[1]))[0] || [];
+  return reason ? `${placementReasonLabel(reason)} ${count}` : 'clear';
+}
+
 function DetailsPreview({ event }: { event: VpnEvent }) {
   const changedFields = getChangedFields(event);
   if (event.type === 'node_policy_changed' && changedFields.length) {
@@ -305,6 +313,13 @@ function DetailsPreview({ event }: { event: VpnEvent }) {
     const availability = event.details?.availability_24h_percent;
     const availabilityLabel = typeof availability === 'number' ? `${availability.toFixed(availability >= 99.95 ? 2 : 1)}%` : 'pending';
     return <span className="text-xs text-gray-500">{reason} · 24h {availabilityLabel}</span>;
+  }
+
+  if (event.type === 'placement_capacity_exhausted' || event.type === 'placement_capacity_pressure') {
+    const availableCount = shortValue(event.details?.available_candidates, 16);
+    const totalCount = shortValue(event.details?.total_candidates, 16);
+    const capacity = shortValue(event.details?.capacity_remaining, 16);
+    return <span className="text-xs text-gray-500">{availableCount}/{totalCount} candidates · {capacity} slots</span>;
   }
 
   const detailEntries = Object.entries(event.details || {}).filter(([, value]) => (
@@ -377,6 +392,18 @@ function buildDetailRows(event: VpnEvent): DetailRow[] {
     'mismatched_fields',
     'heartbeat_age_seconds',
     'policy_sync_message',
+    'placement_scope',
+    'placement_key',
+    'placement_label',
+    'available_candidates',
+    'total_candidates',
+    'unavailable_candidates',
+    'unlimited_capacity_nodes',
+    'active_sessions',
+    'average_health_score',
+    'average_load',
+    'best_failover_rank',
+    'unavailable_reasons',
     'unavailable_reason',
     'advertised_to_clients',
     'public_candidate',
@@ -465,6 +492,13 @@ function runbookHint(event: VpnEvent): string {
   if (event.type === 'client_placement_unavailable') {
     const placementReason = placementReasonLabel(details.unavailable_reason);
     return `This public VPN node is hidden from the client server list because of ${placementReason}. Open Node Detail Client Placement, Health, Policy Sync, and Settings before expecting new clients to receive it.`;
+  }
+
+  if (event.type === 'placement_capacity_exhausted' || event.type === 'placement_capacity_pressure') {
+    const scope = shortValue(details.placement_scope, 24);
+    const label = shortValue(details.placement_label, 48);
+    const topReason = topReasonLabel(details.unavailable_reasons);
+    return `Client placement capacity is constrained for ${label} ${scope}. Check Nodes > Client Placement for region/tier capacity, then add capacity, lower load, end maintenance, or move traffic. Top unavailable reason: ${topReason}.`;
   }
 
   if (event.type === 'bandwidth_limit_pressure') {
