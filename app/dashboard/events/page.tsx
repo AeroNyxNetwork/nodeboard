@@ -312,6 +312,10 @@ function buildDetailRows(event: VpnEvent): DetailRow[] {
     'bandwidth_drops',
     'last_rejection_reason',
     'last_rejection_at',
+    'policy_sync_status',
+    'mismatched_fields',
+    'heartbeat_age_seconds',
+    'policy_sync_message',
     'observed_mbps',
     'bandwidth_limit_mbps',
     'limit_ratio',
@@ -371,6 +375,10 @@ function runbookHint(event: VpnEvent): string {
 
   if (event.type === 'node_policy_enforced') {
     return 'Review Settings for maintenance, max sessions, or bandwidth caps before changing the Rust node. These are expected policy blocks, not packet inspection.';
+  }
+
+  if (event.type === 'node_policy_sync_pending') {
+    return 'The backend policy differs from the Rust runtime snapshot, or the node has not reported a policy snapshot yet. Open Node Detail to check Policy Sync and wait for the next heartbeat before assuming the setting is enforced.';
   }
 
   if (event.type === 'bandwidth_limit_pressure') {

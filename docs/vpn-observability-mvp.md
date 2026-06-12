@@ -156,6 +156,9 @@ queries.
     failures, stuck commands, service restarts, and operator actions.
   - Displays `session_keepalive_timeout` events when backend session quality is
     degraded by Rust-reported missed or pending keepalive ACK counters.
+  - Displays `node_policy_sync_pending` events when nodeboard Settings differ
+    from the latest Rust runtime policy snapshot, or when an older node has not
+    started reporting policy snapshots yet.
   - Links node-scoped events directly to Node Detail and shows runbook hints in
     expanded event details for DNS, NAT, TUN, MTU, egress, UDP listener,
     session quality, keepalive ACK loss, policy enforcement, bandwidth
@@ -293,6 +296,9 @@ queries.
     details include only aggregate tunnel counters:
     `keepalive_probes_sent`, `keepalive_acks`, `keepalive_missed`, and
     `keepalive_pending`.
+  - Emits `node_policy_sync_pending` events from `/vpn/events/` when
+    `system.policy_sync` is `pending` or `unknown`, so operators can see policy
+    delivery lag in Alerts / Events without SSH.
   - Supports `GET /vpn/sessions/?quality_status=healthy|degraded|stale|error|pending|completed`
     so nodeboard can request affected tunnel cohorts directly from the
     centralized control plane.

@@ -1244,6 +1244,13 @@ function eventReason(event: VpnEvent) {
       : 'policy enforced';
     return `${blocked} blocked · ${reason}`;
   }
+  if (event.type === 'node_policy_sync_pending') {
+    const fields = Array.isArray(details.mismatched_fields)
+      ? details.mismatched_fields.slice(0, 3).join(', ')
+      : '';
+    const status = typeof details.policy_sync_status === 'string' ? details.policy_sync_status : 'pending';
+    return fields ? `${status} · ${fields}` : status;
+  }
   if (event.type === 'session_keepalive_timeout') {
     const missed = eventDetailNumber(details, 'keepalive_missed');
     const pending = eventDetailNumber(details, 'keepalive_pending');
@@ -1275,6 +1282,10 @@ function eventImpact(event: VpnEvent) {
     if (bandwidthDrops > 0) return `${bandwidthDrops} bandwidth drops`;
     if (maxSessionRejects > 0) return `${maxSessionRejects} max-session rejects`;
     if (maintenanceRejects > 0) return `${maintenanceRejects} maintenance rejects`;
+  }
+  if (event.type === 'node_policy_sync_pending') {
+    const age = eventDetailNumber(details, 'heartbeat_age_seconds');
+    return age > 0 ? `heartbeat ${age}s old` : 'waiting for heartbeat';
   }
   if (typeof details.virtual_ip === 'string' && details.virtual_ip) {
     return `VIP ${details.virtual_ip}`;
