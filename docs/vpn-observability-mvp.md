@@ -138,8 +138,11 @@ queries.
 
 - `app/dashboard/settings/page.tsx`
   - Adds Settings as the node operator policy center.
-  - Lets operators select a node and edit node tier, maintenance mode, maximum
-    sessions, bandwidth cap, and heartbeat interval.
+  - Lets operators select a node and edit placement/access fields: region
+    code, city, visibility, and whether the node is advertised as a VPN exit
+    candidate.
+  - Lets operators edit node tier, maintenance mode, maximum sessions,
+    bandwidth cap, and heartbeat interval.
   - Adds Fleet Presets for common commercial operating modes:
     `Public Standard`, `Premium Capacity`, `Maintenance Drain`, and
     `Limited Recovery`.

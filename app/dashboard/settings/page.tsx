@@ -12,7 +12,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNodes, useUpdateNode } from '@/hooks/useNodes';
-import { Node, NodeTier, NodeUpdateRequest } from '@/types';
+import { Node, NodeTier, NodeUpdateRequest, NodeVisibility } from '@/types';
 import { formatRelativeTime } from '@/lib/api';
 import Card, { EmptyState, LoadingCard } from '@/components/common/Card';
 import Button from '@/components/common/Button';
@@ -25,7 +25,16 @@ const DEFAULT_POLICY = {
   heartbeat_interval_seconds: 30,
 };
 
+const DEFAULT_FORM = {
+  ...DEFAULT_POLICY,
+  visibility: 'private' as NodeVisibility,
+  region_code: '',
+  city: '',
+  is_vpn_node: true,
+};
+
 type PolicyForm = typeof DEFAULT_POLICY;
+type NodeSettingsForm = typeof DEFAULT_FORM;
 type PolicyPreset = {
   id: string;
   name: string;
@@ -89,18 +98,26 @@ function clampNumber(value: number, min: number, max: number) {
   return Math.max(min, Math.min(value, max));
 }
 
-function nodePolicy(node: Node | null): PolicyForm {
-  if (!node) return DEFAULT_POLICY;
+function normalizeRegionCode(value: string) {
+  return value.trim().toUpperCase().slice(0, 2);
+}
+
+function nodePolicy(node: Node | null): NodeSettingsForm {
+  if (!node) return DEFAULT_FORM;
   return {
     node_tier: node.node_tier === 'premium' ? 'premium' : 'public',
     maintenance_mode: Boolean(node.maintenance_mode),
     max_sessions: node.max_sessions ?? 0,
     bandwidth_limit_mbps: node.bandwidth_limit_mbps ?? 0,
     heartbeat_interval_seconds: node.heartbeat_interval_seconds ?? 30,
+    visibility: node.visibility || 'private',
+    region_code: node.region_code || '',
+    city: node.city || '',
+    is_vpn_node: Boolean(node.is_vpn_node),
   };
 }
 
-function policyChanged(node: Node | null, form: PolicyForm) {
+function policyChanged(node: Node | null, form: NodeSettingsForm) {
   if (!node) return false;
   const current = nodePolicy(node);
   return (
@@ -108,7 +125,11 @@ function policyChanged(node: Node | null, form: PolicyForm) {
     current.maintenance_mode !== form.maintenance_mode ||
     current.max_sessions !== form.max_sessions ||
     current.bandwidth_limit_mbps !== form.bandwidth_limit_mbps ||
-    current.heartbeat_interval_seconds !== form.heartbeat_interval_seconds
+    current.heartbeat_interval_seconds !== form.heartbeat_interval_seconds ||
+    current.visibility !== form.visibility ||
+    current.region_code !== form.region_code ||
+    current.city !== form.city ||
+    current.is_vpn_node !== form.is_vpn_node
   );
 }
 
@@ -193,8 +214,8 @@ function PolicyEditor({
   saving,
 }: {
   node: Node;
-  form: PolicyForm;
-  onForm: (form: PolicyForm) => void;
+  form: NodeSettingsForm;
+  onForm: (form: NodeSettingsForm) => void;
   onSave: () => void;
   saving: boolean;
 }) {
@@ -209,11 +230,70 @@ function PolicyEditor({
           </p>
         </div>
         <Button variant="primary" onClick={onSave} disabled={!changed || saving} isLoading={saving}>
-          Save Policy
+          Save Settings
         </Button>
       </div>
 
       <div className="p-5 space-y-6">
+        <section>
+          <h3 className="text-sm font-medium text-white mb-3">Placement & Access</h3>
+          <div className="grid md:grid-cols-2 gap-4">
+            <label className="block">
+              <span className="text-xs text-gray-500">Region Code</span>
+              <input
+                type="text"
+                value={form.region_code}
+                onChange={(event) => onForm({ ...form, region_code: normalizeRegionCode(event.target.value) })}
+                placeholder={node.auto_region || 'US'}
+                className="mt-1 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-purple-500/50"
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-xs text-gray-500">City</span>
+              <input
+                type="text"
+                value={form.city}
+                onChange={(event) => onForm({ ...form, city: event.target.value.slice(0, 100) })}
+                placeholder="Tokyo"
+                className="mt-1 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-purple-500/50"
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-xs text-gray-500">Visibility</span>
+              <select
+                value={form.visibility}
+                onChange={(event) => onForm({ ...form, visibility: event.target.value as NodeVisibility })}
+                className="mt-1 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
+              >
+                <option value="private" className="bg-[#111118]">private</option>
+                <option value="public" className="bg-[#111118]">public</option>
+                <option value="unlisted" className="bg-[#111118]">unlisted</option>
+                {form.visibility === 'password_protected' && (
+                  <option value="password_protected" className="bg-[#111118]">password protected</option>
+                )}
+              </select>
+            </label>
+
+            <section className="flex items-center justify-between gap-4 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3">
+              <div>
+                <h4 className="text-sm font-medium text-white">VPN Exit Pool</h4>
+                <p className="text-xs text-gray-500 mt-1">Controls whether this node is advertised as a VPN candidate.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onForm({ ...form, is_vpn_node: !form.is_vpn_node })}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 transition-colors duration-200 ${form.is_vpn_node ? 'bg-emerald-500 border-emerald-500' : 'bg-gray-700 border-gray-700'}`}
+                role="switch"
+                aria-checked={form.is_vpn_node}
+              >
+                <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform duration-200 ${form.is_vpn_node ? 'translate-x-5' : 'translate-x-0'}`} />
+              </button>
+            </section>
+          </div>
+        </section>
+
         <section className="grid md:grid-cols-2 gap-4">
           <label className="block">
             <span className="text-xs text-gray-500">Node Tier</span>
@@ -380,7 +460,7 @@ export default function SettingsPage() {
     () => nodes.find((node) => node.id === selectedId) ?? nodes[0] ?? null,
     [nodes, selectedId]
   );
-  const [form, setForm] = useState<PolicyForm>(DEFAULT_POLICY);
+  const [form, setForm] = useState<NodeSettingsForm>(DEFAULT_FORM);
   const [message, setMessage] = useState('');
   const [savingPresetId, setSavingPresetId] = useState('');
 
@@ -397,6 +477,10 @@ export default function SettingsPage() {
     if (!selectedNode) return;
     setMessage('');
     const payload: NodeUpdateRequest = {
+      visibility: form.visibility,
+      region_code: form.region_code,
+      city: form.city,
+      is_vpn_node: form.is_vpn_node,
       node_tier: form.node_tier,
       maintenance_mode: form.maintenance_mode,
       max_sessions: form.max_sessions,
@@ -405,7 +489,7 @@ export default function SettingsPage() {
     };
     try {
       await updateNode.mutateAsync({ nodeId: selectedNode.id, data: payload });
-      setMessage('Policy saved.');
+      setMessage('Settings saved.');
       refetch();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to save policy.');
@@ -413,7 +497,7 @@ export default function SettingsPage() {
   };
 
   const usePreset = (preset: PolicyPreset) => {
-    setForm(preset.policy);
+    setForm((current) => ({ ...current, ...preset.policy }));
     setMessage(`${preset.name} loaded for ${selectedNode?.name || 'selected node'}.`);
   };
 
@@ -430,7 +514,7 @@ export default function SettingsPage() {
       for (const node of nodes) {
         await updateNode.mutateAsync({ nodeId: node.id, data: preset.policy });
       }
-      if (selectedNode) setForm(preset.policy);
+      if (selectedNode) setForm((current) => ({ ...current, ...preset.policy }));
       setMessage(`${preset.name} applied to ${nodes.length} nodes.`);
       refetch();
     } catch (err) {
@@ -478,10 +562,10 @@ export default function SettingsPage() {
       <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Settings</h1>
-          <p className="text-sm text-gray-500 mt-1">Commercial VPN policy per node</p>
+          <p className="text-sm text-gray-500 mt-1">Commercial VPN placement and policy per node</p>
         </div>
         {message && (
-          <div className={`text-sm ${message === 'Policy saved.' ? 'text-emerald-300' : 'text-red-300'}`}>
+          <div className={`text-sm ${message === 'Settings saved.' ? 'text-emerald-300' : 'text-red-300'}`}>
             {message}
           </div>
         )}
