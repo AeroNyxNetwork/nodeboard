@@ -195,6 +195,9 @@ queries.
   - Displays `node_policy_enforced` events with a readable blocked-count
     preview and prioritizes maintenance, max-session, bandwidth-drop, last
     reason, timestamp, and privacy-boundary fields in the expandable details.
+  - Displays command event audit context from `/vpn/events/`: operator wallet
+    short label, wallet type, and bounded command source for failed, stuck,
+    restart, and operator-action events.
 
 - `app/dashboard/settings/page.tsx`
   - Adds Settings as the node operator policy center.
@@ -498,6 +501,10 @@ queries.
     parsing a human-readable check string.
   - Emits historical events for session errors/resets and failed, timed out,
     stuck, restart, or operator action commands.
+  - Adds privacy-safe command audit details to command-derived events:
+    `operator_wallet_short`, `operator_wallet_type`, `command_source`, and a
+    short operator object. It never returns API keys, nonces, signatures,
+    packet payloads, DNS contents, destinations, URLs, or browsing history.
   - Emits current `session_degraded` and `session_stale` warnings by reusing
     the same session quality classification returned by `/vpn/sessions/`.
     Event details include RTT, packet loss, quality score, degraded reason, and

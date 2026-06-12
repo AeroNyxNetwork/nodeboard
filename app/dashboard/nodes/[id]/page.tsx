@@ -1403,6 +1403,15 @@ function eventCommandLabel(action?: string | null) {
   return action ? labels[action] || action.replace(/_/g, ' ') : 'Command';
 }
 
+function eventCommandAudit(details: Record<string, unknown>) {
+  const wallet = typeof details.operator_wallet_short === 'string' ? details.operator_wallet_short : '';
+  const walletType = typeof details.operator_wallet_type === 'string' ? details.operator_wallet_type : '';
+  const source = typeof details.command_source === 'string' ? details.command_source.replace(/_/g, ' ') : '';
+  if (!wallet && !source) return '';
+  const actor = wallet ? `${walletType ? `${walletType} ` : ''}${wallet}` : 'system';
+  return source ? `${actor} · ${source}` : actor;
+}
+
 function nodeEventCheckName(event: VpnEvent) {
   const check = event.details?.check;
   if (typeof check === 'string') return check;
@@ -1439,6 +1448,10 @@ function eventReason(event: VpnEvent) {
     const missed = eventDetailNumber(details, 'keepalive_missed');
     const pending = eventDetailNumber(details, 'keepalive_pending');
     return `keepalive missed ${missed} · pending ${pending}`;
+  }
+  if (event.source === 'node_command') {
+    const audit = eventCommandAudit(details);
+    if (audit) return audit;
   }
   if (typeof details.degraded_reason === 'string') return details.degraded_reason;
   if (typeof details.error_message === 'string') return details.error_message;
@@ -1481,6 +1494,10 @@ function eventImpact(event: VpnEvent) {
   }
   if (event.source === 'node_command' && event.action === 'apply_policy') {
     return 'policy runtime acknowledgement';
+  }
+  if (event.source === 'node_command') {
+    const source = typeof details.command_source === 'string' ? details.command_source.replace(/_/g, ' ') : '';
+    if (source) return source;
   }
   if (typeof details.virtual_ip === 'string' && details.virtual_ip) {
     return `VIP ${details.virtual_ip}`;

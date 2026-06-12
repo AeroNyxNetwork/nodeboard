@@ -244,6 +244,15 @@ function commandActionLabel(action?: string | null): string {
   return action ? labels[action] || action.replace(/_/g, ' ') : 'Command';
 }
 
+function commandAuditLabel(details: Record<string, unknown>) {
+  const wallet = typeof details.operator_wallet_short === 'string' ? details.operator_wallet_short : '';
+  const walletType = typeof details.operator_wallet_type === 'string' ? details.operator_wallet_type : '';
+  const source = typeof details.command_source === 'string' ? details.command_source.replace(/_/g, ' ') : '';
+  if (!wallet && !source) return '';
+  const actor = wallet ? `${walletType ? `${walletType} ` : ''}${wallet}` : 'system';
+  return source ? `${actor} · ${source}` : actor;
+}
+
 function DetailsPreview({ event }: { event: VpnEvent }) {
   const changedFields = getChangedFields(event);
   if (event.type === 'node_policy_changed' && changedFields.length) {
@@ -284,9 +293,11 @@ function DetailsPreview({ event }: { event: VpnEvent }) {
   const firstDetail = detailEntries[0];
 
   if (event.command_id) {
+    const audit = commandAuditLabel(event.details || {});
     return (
       <span className="text-xs text-gray-500">
         {commandActionLabel(event.action)} · <span className="font-mono">{event.command_id.slice(0, 8)}</span>
+        {audit ? ` · ${audit}` : ''}
       </span>
     );
   }
@@ -375,6 +386,9 @@ function buildDetailRows(event: VpnEvent): DetailRow[] {
     'bytes_out',
     'client_wallet',
     'retry_count',
+    'operator_wallet_short',
+    'operator_wallet_type',
+    'command_source',
     'expires_at',
     'params',
     'result',
