@@ -331,6 +331,10 @@ function buildDetailRows(event: VpnEvent): DetailRow[] {
     'last_activity_age_seconds',
     'rtt_ms',
     'packet_loss',
+    'keepalive_probes_sent',
+    'keepalive_acks',
+    'keepalive_missed',
+    'keepalive_pending',
     'bytes_in',
     'bytes_out',
     'client_wallet',
@@ -363,6 +367,7 @@ function runbookHint(event: VpnEvent): string {
   const details = event.details || {};
   const check = typeof details.check === 'string' ? details.check : '';
   const reason = typeof details.degraded_reason === 'string' ? details.degraded_reason : '';
+  const reasonLower = reason.toLowerCase();
 
   if (event.type === 'node_policy_enforced') {
     return 'Review Settings for maintenance, max sessions, or bandwidth caps before changing the Rust node. These are expected policy blocks, not packet inspection.';
@@ -376,11 +381,18 @@ function runbookHint(event: VpnEvent): string {
     return 'Use this audit trail to confirm who changed placement, tier, maintenance, session caps, bandwidth, or heartbeat policy before correlating later health events.';
   }
 
+  if (event.type === 'session_keepalive_timeout') {
+    return 'Keepalive ACK loss means the tunnel can be established while responsiveness is failing. Check node bandwidth pressure and heartbeat freshness, then kick the affected session if missed ACKs continue.';
+  }
+
   if (event.type === 'session_degraded' || event.type === 'session_stale') {
-    if (reason.includes('rtt')) {
+    if (reasonLower.includes('keepalive')) {
+      return 'Keepalive degradation usually means tunnel ACKs are delayed or missing. Compare missed and pending counters before deciding whether to kick the session or move traffic.';
+    }
+    if (reasonLower.includes('rtt')) {
       return 'High RTT usually points to route congestion or bad regional placement. Compare the node region with the user cohort and check bandwidth pressure events.';
     }
-    if (reason.includes('rx') || reason.includes('tx') || reason.includes('stale')) {
+    if (reasonLower.includes('rx') || reasonLower.includes('tx') || reasonLower.includes('stale')) {
       return 'Stale RX/TX usually means the tunnel stopped carrying traffic. Check node heartbeat freshness, then use VPN Operations to kick the affected session if it remains active.';
     }
     return 'Open VPN Operations to identify the affected session, virtual IP, last activity, RTT, and packet loss before deciding whether to kick or ban.';

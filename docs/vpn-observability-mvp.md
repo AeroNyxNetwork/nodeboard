@@ -150,10 +150,12 @@ queries.
   - Shows open, critical, warning, and info counts plus a live event stream.
   - Displays derived node health events, session errors/resets, command
     failures, stuck commands, service restarts, and operator actions.
+  - Displays `session_keepalive_timeout` events when backend session quality is
+    degraded by Rust-reported missed or pending keepalive ACK counters.
   - Links node-scoped events directly to Node Detail and shows runbook hints in
     expanded event details for DNS, NAT, TUN, MTU, egress, UDP listener,
-    session quality, policy enforcement, bandwidth pressure, and command
-    lifecycle events.
+    session quality, keepalive ACK loss, policy enforcement, bandwidth
+    pressure, and command lifecycle events.
   - Displays `node_policy_enforced` events with a readable blocked-count
     preview and prioritizes maintenance, max-session, bandwidth-drop, last
     reason, timestamp, and privacy-boundary fields in the expandable details.
@@ -281,7 +283,12 @@ queries.
   - Derives per-session `quality_status`, `quality_score`,
     `degraded_reason`, `quality_reasons`, and `last_activity_at` from
     operational counters only: status, last RX/TX timestamps, RTT, packet loss,
-    and replay-window rejection totals.
+    replay-window rejection totals, and keepalive ACK counters.
+  - Emits `session_keepalive_timeout` events from `/vpn/events/` when
+    keepalive missed/pending ACK counters explain the degraded tunnel. Event
+    details include only aggregate tunnel counters:
+    `keepalive_probes_sent`, `keepalive_acks`, `keepalive_missed`, and
+    `keepalive_pending`.
   - Supports `GET /vpn/sessions/?quality_status=healthy|degraded|stale|error|pending|completed`
     so nodeboard can request affected tunnel cohorts directly from the
     centralized control plane.

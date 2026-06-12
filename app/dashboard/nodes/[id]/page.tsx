@@ -1219,6 +1219,11 @@ function eventReason(event: VpnEvent) {
       : 'policy enforced';
     return `${blocked} blocked · ${reason}`;
   }
+  if (event.type === 'session_keepalive_timeout') {
+    const missed = eventDetailNumber(details, 'keepalive_missed');
+    const pending = eventDetailNumber(details, 'keepalive_pending');
+    return `keepalive missed ${missed} · pending ${pending}`;
+  }
   if (typeof details.degraded_reason === 'string') return details.degraded_reason;
   if (typeof details.error_message === 'string') return details.error_message;
   if (typeof details.quality_status === 'string') return `session ${details.quality_status}`;
@@ -1251,6 +1256,10 @@ function eventImpact(event: VpnEvent) {
   }
   if (typeof details.client_wallet === 'string' && details.client_wallet) {
     return `wallet ${details.client_wallet.slice(0, 10)}...${details.client_wallet.slice(-6)}`;
+  }
+  const keepaliveMissed = eventDetailNumber(details, 'keepalive_missed');
+  if (keepaliveMissed > 0) {
+    return `${keepaliveMissed} missed ACKs`;
   }
   if (typeof details.total_bytes === 'number') {
     return formatBytes(details.total_bytes, 1);
