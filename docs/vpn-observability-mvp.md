@@ -182,6 +182,9 @@ queries.
   - Shows a selected-node Recent Settings Audit panel backed by
     `useVpnEvents({ type: "node_policy_changed" })`, so operators can review
     recent policy changes without leaving Settings.
+  - Shows Policy Sync beside node policy controls and in the node picker,
+    using `/vpn/overview/` to indicate whether Rust is enforcing the current
+    nodeboard policy or still waiting for the next heartbeat.
   - Saves through the existing owner-scoped `PATCH /nodes/<id>/` endpoint.
 
 - `components/dashboard/Sidebar.tsx`

@@ -11,8 +11,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNodes, useUpdateNode, useVpnEvents } from '@/hooks/useNodes';
-import { Node, NodeTier, NodeUpdateRequest, NodeVisibility, VpnEvent } from '@/types';
+import { useNodes, useUpdateNode, useVpnEvents, useVpnOverview } from '@/hooks/useNodes';
+import { Node, NodeTier, NodeUpdateRequest, NodeVisibility, VpnEvent, VpnPolicySync } from '@/types';
 import { formatRelativeTime } from '@/lib/api';
 import Card, { EmptyState, LoadingCard } from '@/components/common/Card';
 import Button from '@/components/common/Button';
@@ -248,6 +248,42 @@ function StatusBadge({ node }: { node: Node }) {
   );
 }
 
+function PolicySyncBadge({ sync, compact = false }: { sync?: VpnPolicySync; compact?: boolean }) {
+  const status = sync?.status || 'unknown';
+  const styles = status === 'synced'
+    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+    : status === 'pending'
+      ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30'
+      : 'bg-gray-500/15 text-gray-300 border-gray-500/30';
+  const pending = sync?.mismatched_fields?.map((field) => field.replace(/_/g, ' ')).join(', ') || '';
+
+  if (compact) {
+    return (
+      <span className={`px-2 py-1 rounded-full border text-xs ${styles}`}>
+        sync {status}
+      </span>
+    );
+  }
+
+  return (
+    <section className={`rounded-lg border px-4 py-3 ${styles}`}>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
+        <div>
+          <h3 className="text-sm font-medium text-white">Policy Sync</h3>
+          <p className="text-xs mt-1 opacity-80">
+            {sync?.message || 'Waiting for Rust node policy snapshot in heartbeat.'}
+          </p>
+        </div>
+        <div className="text-sm font-semibold uppercase">{status}</div>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2 text-xs opacity-80">
+        <span>heartbeat {sync?.heartbeat_age_seconds ?? 'pending'}s</span>
+        {pending ? <span>pending {pending}</span> : null}
+      </div>
+    </section>
+  );
+}
+
 function SettingsIcon() {
   return (
     <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -261,10 +297,12 @@ function NodeList({
   nodes,
   selectedId,
   onSelect,
+  policySyncByNodeId,
 }: {
   nodes: Node[];
   selectedId: string;
   onSelect: (nodeId: string) => void;
+  policySyncByNodeId: Record<string, VpnPolicySync | undefined>;
 }) {
   return (
     <Card variant="default" padding="none">
@@ -299,6 +337,7 @@ function NodeList({
                     maintenance
                   </span>
                 )}
+                <PolicySyncBadge sync={policySyncByNodeId[node.id]} compact />
               </div>
             </button>
           );
@@ -314,12 +353,14 @@ function PolicyEditor({
   onForm,
   onSave,
   saving,
+  policySync,
 }: {
   node: Node;
   form: NodeSettingsForm;
   onForm: (form: NodeSettingsForm) => void;
   onSave: () => void;
   saving: boolean;
+  policySync?: VpnPolicySync;
 }) {
   const changed = policyChanged(node, form);
   return (
@@ -337,6 +378,8 @@ function PolicyEditor({
       </div>
 
       <div className="p-5 space-y-6">
+        <PolicySyncBadge sync={policySync} />
+
         <section>
           <h3 className="text-sm font-medium text-white mb-3">Placement & Access</h3>
           <div className="grid md:grid-cols-2 gap-4">
@@ -556,6 +599,7 @@ function FleetPresets({
 
 export default function SettingsPage() {
   const { nodes, isLoading, isError, error, refetch } = useNodes();
+  const { overview, refetch: refetchVpnOverview } = useVpnOverview();
   const updateNode = useUpdateNode();
   const [selectedId, setSelectedId] = useState('');
   const selectedNode = useMemo(
@@ -565,6 +609,10 @@ export default function SettingsPage() {
   const [form, setForm] = useState<NodeSettingsForm>(DEFAULT_FORM);
   const [message, setMessage] = useState('');
   const [savingPresetId, setSavingPresetId] = useState('');
+  const policySyncByNodeId = useMemo(() => {
+    const pairs = (overview?.nodes ?? []).map((node) => [node.id, node.system.policy_sync] as const);
+    return Object.fromEntries(pairs) as Record<string, VpnPolicySync | undefined>;
+  }, [overview?.nodes]);
 
   useEffect(() => {
     if (!selectedId && nodes[0]) setSelectedId(nodes[0].id);
@@ -593,6 +641,7 @@ export default function SettingsPage() {
       await updateNode.mutateAsync({ nodeId: selectedNode.id, data: payload });
       setMessage('Settings saved.');
       refetch();
+      refetchVpnOverview();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to save policy.');
     }
@@ -619,6 +668,7 @@ export default function SettingsPage() {
       if (selectedNode) setForm((current) => ({ ...current, ...preset.policy }));
       setMessage(`${preset.name} applied to ${nodes.length} nodes.`);
       refetch();
+      refetchVpnOverview();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to apply fleet preset.');
     } finally {
@@ -682,7 +732,12 @@ export default function SettingsPage() {
       />
 
       <div className="grid xl:grid-cols-[360px_1fr] gap-6 items-start">
-        <NodeList nodes={nodes} selectedId={selectedNode.id} onSelect={setSelectedId} />
+        <NodeList
+          nodes={nodes}
+          selectedId={selectedNode.id}
+          onSelect={setSelectedId}
+          policySyncByNodeId={policySyncByNodeId}
+        />
         <div className="space-y-6">
           <PolicyEditor
             node={selectedNode}
@@ -690,6 +745,7 @@ export default function SettingsPage() {
             onForm={setForm}
             onSave={save}
             saving={updateNode.isPending}
+            policySync={policySyncByNodeId[selectedNode.id]}
           />
           <PolicyAuditPanel nodeId={selectedNode.id} />
         </div>
