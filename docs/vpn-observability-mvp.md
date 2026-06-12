@@ -127,6 +127,10 @@ queries.
   - Adds wallet/session search backed by the billing API `q` parameter.
   - Shows traffic, session, monthly quota, voucher time, voucher issue count,
     node rows, identity rows, session rows with tunnel VIP, and daily rows.
+  - Shows billing attention cards for monthly quota pressure, daily VPN access
+    pressure, and session errors in the current billing window.
+  - Links node rows and session node cells directly to Node Detail so traffic
+    or quota anomalies can be traced into health checks and command history.
   - Exports the current table as CSV directly from the browser.
   - Keeps the privacy boundary visible in the UI. Voucher attribution is
     represented by a reserved `voucher_id` field until voucher IDs are stored

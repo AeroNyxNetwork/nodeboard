@@ -11,6 +11,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useNodes, useVpnBilling, UseVpnBillingOptions } from '@/hooks/useNodes';
 import { VpnBillingDailyRow, VpnBillingIdentityRow, VpnBillingNodeRow, VpnBillingSessionRow } from '@/types';
 import { formatDuration, formatRelativeTime } from '@/lib/api';
@@ -99,6 +100,82 @@ function SummaryCards({ billing }: { billing: NonNullable<ReturnType<typeof useV
           {billing.voucher_accounting.issued_vouchers} issued this epoch
         </p>
       </Card>
+    </div>
+  );
+}
+
+function BillingAttention({ billing }: { billing: NonNullable<ReturnType<typeof useVpnBilling>['billing']> }) {
+  const monthly = billing.quota.monthly;
+  const daily = billing.quota.daily_vpn_usage;
+  const items: Array<{ label: string; value: string; tone: 'red' | 'yellow' | 'green'; note: string }> = [];
+
+  if (monthly?.is_exceeded) {
+    items.push({
+      label: 'Monthly quota exceeded',
+      value: pct(monthly.usage_percent),
+      tone: 'red',
+      note: 'Upgrade quota or reduce paid traffic before accepting more voucher-backed sessions.',
+    });
+  } else if (monthly && !monthly.is_unlimited && (monthly.usage_percent || 0) >= 80) {
+    items.push({
+      label: 'Monthly quota pressure',
+      value: pct(monthly.usage_percent),
+      tone: 'yellow',
+      note: 'Watch node traffic and identity rows for the largest consumers before quota is exhausted.',
+    });
+  }
+
+  if (!daily.can_connect || daily.is_exceeded) {
+    items.push({
+      label: 'Daily VPN access blocked',
+      value: daily.is_unlimited ? 'unlimited' : formatDuration(daily.remaining_seconds || 0),
+      tone: 'red',
+      note: 'The centralized quota service says this operator cannot connect more VPN time today.',
+    });
+  } else if (!daily.is_unlimited && (daily.usage_percent || 0) >= 80) {
+    items.push({
+      label: 'Daily VPN time pressure',
+      value: pct(daily.usage_percent),
+      tone: 'yellow',
+      note: 'Review active sessions and voucher reservations before the daily VPN allowance runs out.',
+    });
+  }
+
+  if (billing.summary.error_sessions > 0) {
+    items.push({
+      label: 'Session errors in billing window',
+      value: String(billing.summary.error_sessions),
+      tone: 'yellow',
+      note: 'Open the Sessions tab or VPN Operations to inspect last_error, RTT, packet loss, and affected nodes.',
+    });
+  }
+
+  if (!items.length) {
+    items.push({
+      label: 'Billing posture clear',
+      value: 'ok',
+      tone: 'green',
+      note: 'Quota and session accounting are within expected operating bounds for the current filters.',
+    });
+  }
+
+  const toneClass = {
+    red: 'border-red-500/30 bg-red-500/10 text-red-200',
+    yellow: 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200',
+    green: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+  };
+
+  return (
+    <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+      {items.slice(0, 3).map((item) => (
+        <div key={item.label} className={`rounded-lg border px-4 py-3 ${toneClass[item.tone]}`}>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-medium">{item.label}</p>
+            <span className="text-xs">{item.value}</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">{item.note}</p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -197,7 +274,9 @@ function NodeTable({ rows }: { rows: VpnBillingNodeRow[] }) {
     <DataTable
       headers={['Node', 'Region', 'Tier', 'Sessions', 'Traffic', 'Duration', 'Last Seen']}
       rows={rows.map((row) => [
-        row.node_name,
+        <Link href={`/dashboard/nodes/${row.node_id}`} className="text-purple-300 hover:text-purple-200">
+          {row.node_name}
+        </Link>,
         row.region_code || row.city || 'unknown',
         row.node_tier,
         `${row.sessions} (${row.active_sessions} active)`,
@@ -255,7 +334,9 @@ function SessionTable({ rows }: { rows: VpnBillingSessionRow[] }) {
           row.session_id,
           row.virtual_ip || 'pending',
           row.wallet_short || 'unknown',
-          row.node_name,
+          <Link href={`/dashboard/nodes/${row.node_id}`} className="text-purple-300 hover:text-purple-200">
+            {row.node_name}
+          </Link>,
           row.status,
           mb(row.total_traffic_mb),
           formatDuration(row.duration_seconds),
@@ -386,6 +467,7 @@ export default function BillingPage() {
       ) : (
         <>
           <SummaryCards billing={billing} />
+          <BillingAttention billing={billing} />
 
           <div className="grid lg:grid-cols-3 gap-4">
             <Card variant="default" padding="md">
