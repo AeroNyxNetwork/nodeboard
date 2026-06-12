@@ -253,6 +253,19 @@ function commandAuditLabel(details: Record<string, unknown>) {
   return source ? `${actor} · ${source}` : actor;
 }
 
+function placementReasonLabel(reason: unknown) {
+  if (typeof reason !== 'string' || !reason) return 'not eligible';
+  const labels: Record<string, string> = {
+    heartbeat_stale: 'heartbeat stale',
+    maintenance_mode: 'maintenance',
+    max_sessions_reached: 'session cap reached',
+    vpn_health_failed: 'VPN health failed',
+    overloaded: 'overloaded',
+    low_24h_availability: 'low 24h availability',
+  };
+  return labels[reason] || reason.replace(/_/g, ' ');
+}
+
 function DetailsPreview({ event }: { event: VpnEvent }) {
   const changedFields = getChangedFields(event);
   if (event.type === 'node_policy_changed' && changedFields.length) {
@@ -285,6 +298,13 @@ function DetailsPreview({ event }: { event: VpnEvent }) {
   if (event.type === 'health_check_failed') {
     const checkName = eventCheckName(event);
     return <span className="text-xs text-gray-500">{checkName || 'health check'}</span>;
+  }
+
+  if (event.type === 'client_placement_unavailable') {
+    const reason = placementReasonLabel(event.details?.unavailable_reason);
+    const availability = event.details?.availability_24h_percent;
+    const availabilityLabel = typeof availability === 'number' ? `${availability.toFixed(availability >= 99.95 ? 2 : 1)}%` : 'pending';
+    return <span className="text-xs text-gray-500">{reason} · 24h {availabilityLabel}</span>;
   }
 
   const detailEntries = Object.entries(event.details || {}).filter(([, value]) => (
@@ -357,6 +377,21 @@ function buildDetailRows(event: VpnEvent): DetailRow[] {
     'mismatched_fields',
     'heartbeat_age_seconds',
     'policy_sync_message',
+    'unavailable_reason',
+    'advertised_to_clients',
+    'public_candidate',
+    'load',
+    'capacity_remaining',
+    'current_sessions',
+    'max_sessions',
+    'maintenance_mode',
+    'heartbeat_gap_seconds',
+    'availability_24h_percent',
+    'availability_sample_count',
+    'availability_valid_sample_count',
+    'availability_last_gap_seconds',
+    'availability_gap_threshold_seconds',
+    'vpn_health_status',
     'observed_mbps',
     'bandwidth_limit_mbps',
     'limit_ratio',
@@ -425,6 +460,11 @@ function runbookHint(event: VpnEvent): string {
 
   if (event.type === 'node_policy_sync_pending') {
     return 'The backend policy differs from the Rust runtime snapshot, or the node has not reported a policy snapshot yet. Open Node Detail to check Policy Sync and wait for the next heartbeat before assuming the setting is enforced.';
+  }
+
+  if (event.type === 'client_placement_unavailable') {
+    const placementReason = placementReasonLabel(details.unavailable_reason);
+    return `This public VPN node is hidden from the client server list because of ${placementReason}. Open Node Detail Client Placement, Health, Policy Sync, and Settings before expecting new clients to receive it.`;
   }
 
   if (event.type === 'bandwidth_limit_pressure') {

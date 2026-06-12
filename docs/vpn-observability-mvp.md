@@ -132,6 +132,9 @@ queries.
   - Shows per-node Client Placement state from `useVpnServers()`, including
     whether clients can receive the node, its failover rank, hidden-address
     reason, load, active sessions, and 24h availability.
+  - Summarizes `client_placement_unavailable` events in Recent VPN Events so a
+    node operator can see why a public VPN node is hidden from client placement
+    without comparing the client server list by hand.
   - Adds `Cancel` controls for pending or sent VPN commands so operators can
     stop stale or accidental queued actions without SSH. Commands already
     executing on the Rust node are shown as in-flight and are not presented as
@@ -198,6 +201,11 @@ queries.
   - Displays command event audit context from `/vpn/events/`: operator wallet
     short label, wallet type, and bounded command source for failed, stuck,
     restart, and operator-action events.
+  - Displays `client_placement_unavailable` events when the same backend
+    health logic used by `/vpn/servers/` hides a public VPN node from the
+    client server list. Expanded details prioritize unavailable reason,
+    24h availability, heartbeat gap, capacity, load, health status, and the
+    privacy boundary.
 
 - `app/dashboard/settings/page.tsx`
   - Adds Settings as the node operator policy center.
@@ -301,6 +309,17 @@ queries.
   - Adds `NodeCommand.acked_at` for Rust ACK timing in command history.
 
 ### API backend
+
+- `/root/aeronyx/privacy_network/api/vpn_events.py`
+  - Adds `client_placement_unavailable` events for active public VPN nodes that
+    are hidden from the client server list.
+  - Reuses `/root/aeronyx/privacy_network/api/vpn_servers.py` health helpers
+    for heartbeat freshness, maintenance mode, max sessions, VPN health,
+    overload, and 24h availability so Alerts / Events match client placement.
+  - Emits only control-plane placement metadata: unavailable reason, health
+    score, load, capacity, heartbeat gap, 24h availability samples, and a
+    privacy-boundary string. It does not expose destinations, DNS contents,
+    packet payloads, domains, URLs, browsing history, or client public IPs.
 
 - `/root/aeronyx/privacy_network/api/vpn_observability.py`
   - Adds owner-authenticated observability endpoints.

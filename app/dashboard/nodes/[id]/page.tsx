@@ -1444,6 +1444,11 @@ function eventReason(event: VpnEvent) {
     const status = typeof details.policy_sync_status === 'string' ? details.policy_sync_status : 'pending';
     return fields ? `${status} · ${fields}` : status;
   }
+  if (event.type === 'client_placement_unavailable') {
+    return `hidden from clients · ${formatPlacementReason(
+      typeof details.unavailable_reason === 'string' ? details.unavailable_reason : null
+    )}`;
+  }
   if (event.type === 'session_keepalive_timeout') {
     const missed = eventDetailNumber(details, 'keepalive_missed');
     const pending = eventDetailNumber(details, 'keepalive_pending');
@@ -1484,6 +1489,15 @@ function eventImpact(event: VpnEvent) {
   if (event.type === 'node_policy_sync_pending') {
     const age = eventDetailNumber(details, 'heartbeat_age_seconds');
     return age > 0 ? `heartbeat ${age}s old` : 'waiting for heartbeat';
+  }
+  if (event.type === 'client_placement_unavailable') {
+    const availability = typeof details.availability_24h_percent === 'number'
+      ? `24h ${formatAvailability(details.availability_24h_percent)}`
+      : '';
+    const capacity = eventDetailNumber(details, 'capacity_remaining');
+    if (capacity > 0) return availability ? `${availability} · ${capacity} slots` : `${capacity} slots`;
+    if (typeof details.load === 'number') return `load ${details.load}%${availability ? ` · ${availability}` : ''}`;
+    return availability || 'not advertised';
   }
   if (event.type === 'health_check_failed') {
     const runningMtu = eventDetailNumber(details, 'running_mtu');
