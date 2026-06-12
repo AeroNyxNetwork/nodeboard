@@ -487,11 +487,22 @@ queries.
   - Adds health-aware VPN server candidate ranking for client failover and
     public trusted-node discovery.
   - Returns only active public VPN nodes.
-  - Marks maintenance, full, overloaded, or stale-heartbeat nodes unavailable
-    and hides their address.
+  - Uses heartbeat freshness, Rust VPN health status, 24h heartbeat
+    continuity, maintenance mode, max-session capacity, CPU/session load, and
+    optional latency metadata.
+  - Treats Rust-reported `vpn_health_status=failed` as unavailable so clients
+    fail over instead of selecting a node whose local UDP/TUN/NAT/DNS/egress
+    checks failed.
+  - Marks maintenance, full, overloaded, low-availability, failed-health, or
+    stale-heartbeat nodes unavailable and hides their address.
   - Adds `health_status`, `health_score`, `capacity_remaining`,
-    `unavailable_reason`, and `failover_rank` while preserving the existing
-    `servers` response shape and adding a `data` compatibility alias.
+    `availability_24h_percent`, `availability_sample_count`,
+    `availability_last_gap_seconds`, `unavailable_reason`, and
+    `failover_rank` while preserving the existing `servers` response shape and
+    adding a `data` compatibility alias.
+  - Calculates public failover availability only from signed heartbeat
+    timestamps. It does not inspect packet payloads, destination IPs, DNS
+    contents, domains, URLs, or browsing history.
 
 ### Rust VPN node
 
