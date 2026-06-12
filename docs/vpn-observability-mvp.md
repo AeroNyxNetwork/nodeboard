@@ -938,7 +938,7 @@ Event sources:
 - `vpn_session`: `ClientSession.status="error"`, non-empty `last_error`, or
   active sessions whose derived tunnel quality is `degraded` or `stale`.
 - `node_command`: `NodeCommand` failures, timeouts, stale active commands,
-  service restarts, and operator actions.
+  service restarts, policy acknowledgements, and operator actions.
 
 ### `POST /api/privacy_network/nodes/{id}/commands/run/`
 
@@ -964,6 +964,10 @@ Allowed actions:
   fixed node binding file, then records a sanitized summary in command history.
   The backend strips caller-provided params and the node does not accept custom
   file paths.
+- `apply_policy`: asks the Rust node to acknowledge the latest nodeboard policy
+  and return its current runtime policy snapshot. The event stream reports this
+  as a policy acknowledgement so operators can correlate Settings saves,
+  command lifecycle, and Policy Sync status.
 - `kick_session`: removes one active VPN session from the Rust node. The backend
   only queues this command when the session belongs to the requested node and is
   still active.

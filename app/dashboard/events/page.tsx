@@ -223,6 +223,20 @@ function getChangedFields(event: VpnEvent): string[] {
   return isRecord(changes) ? Object.keys(changes) : [];
 }
 
+function commandActionLabel(action?: string | null): string {
+  const labels: Record<string, string> = {
+    system_info: 'System diagnostics',
+    collect_logs: 'Recent service logs',
+    refresh_config: 'Config refresh',
+    apply_policy: 'Policy acknowledgement',
+    restart_service: 'Service restart',
+    kick_session: 'Session kick',
+    ban_wallet: 'Wallet ban',
+    unban_wallet: 'Wallet unban',
+  };
+  return action ? labels[action] || action.replace(/_/g, ' ') : 'Command';
+}
+
 function DetailsPreview({ event }: { event: VpnEvent }) {
   const changedFields = getChangedFields(event);
   if (event.type === 'node_policy_changed' && changedFields.length) {
@@ -258,7 +272,11 @@ function DetailsPreview({ event }: { event: VpnEvent }) {
   const firstDetail = detailEntries[0];
 
   if (event.command_id) {
-    return <span className="font-mono text-xs text-gray-500">{event.command_id.slice(0, 8)}</span>;
+    return (
+      <span className="text-xs text-gray-500">
+        {commandActionLabel(event.action)} · <span className="font-mono">{event.command_id.slice(0, 8)}</span>
+      </span>
+    );
   }
   if (event.session_id) {
     return <span className="font-mono text-xs text-gray-500">{event.session_id}</span>;
@@ -391,6 +409,10 @@ function runbookHint(event: VpnEvent): string {
 
   if (event.type === 'session_keepalive_timeout') {
     return 'Keepalive ACK loss means the tunnel can be established while responsiveness is failing. Check node bandwidth pressure and heartbeat freshness, then kick the affected session if missed ACKs continue.';
+  }
+
+  if (event.source === 'node_command' && event.action === 'apply_policy') {
+    return 'Policy acknowledgement confirms the Rust node has received the latest nodeboard policy snapshot. If it stays pending, open Node Detail and compare Policy Sync after the next heartbeat.';
   }
 
   if (event.type === 'session_degraded' || event.type === 'session_stale') {
@@ -531,7 +553,7 @@ function EventsTable({ events }: { events: VpnEvent[] }) {
                       <span className="inline-flex px-2 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-gray-300">
                         {event.status || 'open'}
                       </span>
-                      {event.action && <div className="text-xs text-gray-600 mt-1">{event.action}</div>}
+                      {event.action && <div className="text-xs text-gray-600 mt-1">{commandActionLabel(event.action)}</div>}
                     </td>
                     <td className="px-4 py-4">
                       <div className="space-y-2">
