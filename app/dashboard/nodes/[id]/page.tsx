@@ -159,6 +159,23 @@ function formatHealthCheckName(name: string): string {
   return HEALTH_CHECK_LABELS[name] || name.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function healthCheckRunbook(name: string): string {
+  const hints: Record<string, string> = {
+    heartbeat: 'Check heartbeat age first. If stale, use maintenance mode before restarting the VPN service.',
+    resource_load: 'High CPU or memory usually affects tunnel quality. Review 24h metrics, then drain or lower session caps in Settings.',
+    traffic_counters: 'Missing traffic counters reduce billing confidence. Run System Info and Refresh Config to confirm telemetry setup.',
+    udp_listener: 'New clients cannot connect when the UDP listener is down. Collect logs, then restart VPN if the service is wedged.',
+    tun_device: 'TUN failures point to local interface setup. Run System Info and Collect Logs before changing node networking.',
+    mtu_config: 'MTU mismatch can cause stalls or packet loss. Compare configured MTU with the running TUN MTU before changing clients.',
+    ip_forward: 'Forwarding failure means tunnels may connect but cannot route. Enable forwarding or put the node into maintenance while fixing.',
+    nat_masquerade: 'NAT failure blocks Internet exit. Check masquerade rules and move traffic away from this node if sessions are active.',
+    dns_stub: 'DNS listener failure breaks name resolution while the tunnel is up. Collect logs and verify the local resolver.',
+    dns_query: 'DNS query failure usually means resolver or egress trouble. Check DNS config, then Internet egress.',
+    internet_egress: 'Egress failure means the node cannot reach the Internet. Stop new handshakes and verify provider networking.',
+  };
+  return hints[name] || 'Use Collect Logs and recent VPN events to decide whether to drain, refresh config, or restart the service.';
+}
+
 // ============================================
 // Toast Component
 // ============================================
@@ -1100,6 +1117,12 @@ function VpnHealthPanel({
               </span>
             </div>
             <p className="text-xs text-gray-500 mt-1">{check.detail}</p>
+            {!check.ok && (
+              <div className="mt-2 rounded-lg border border-yellow-500/20 bg-yellow-500/[0.05] px-2 py-1.5">
+                <p className="text-[11px] uppercase tracking-wide text-yellow-300">Runbook</p>
+                <p className="text-xs text-gray-400 mt-1">{healthCheckRunbook(check.name)}</p>
+              </div>
+            )}
           </div>
         ))}
       </div>

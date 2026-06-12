@@ -85,6 +85,9 @@ queries.
     operations.
   - Shows the same live heartbeat source, health score, checks, CPU, memory,
     and tunnel counters without requiring the operator to leave the node page.
+  - Adds per-check runbook hints for failed heartbeat, resource load, traffic
+    counter, UDP listener, TUN, MTU, forwarding, NAT, DNS, and egress checks so
+    operators know the next action before opening SSH.
   - Shows per-node 24h availability, sample count, and last stale gap to make
     intermittent node instability visible without SSH access.
   - Shows 24h CPU and bandwidth trends from sampled heartbeat history,
