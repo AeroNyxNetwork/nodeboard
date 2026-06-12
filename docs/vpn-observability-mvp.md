@@ -617,9 +617,10 @@ queries.
     path for future centralized policy refresh without exposing SSH or arbitrary
     file reads.
   - Adds `restart_service`, which reports the command audit status first and
-    then schedules a delayed restart of the fixed `aeronyx-server` systemd
-    service. The delayed restart lets the CMS store command completion before
-    the process exits.
+    then verifies the fixed `aeronyx-server` systemd service is loaded before
+    scheduling a delayed restart. The delayed restart lets the CMS store command
+    completion before the process exits; foreground deployments without a
+    service unit are reported as command failures instead of false successes.
   - Includes stored RTT in command-triggered final session quality reports.
 
 ## API Contract
@@ -993,7 +994,7 @@ Allowed actions:
   node, and marks the CMS policy inactive.
 - `restart_service`: restarts the VPN node service. The backend requires
   `confirm="restart"` and strips caller-provided service names; the Rust node
-  only restarts `aeronyx-server`.
+  only restarts `aeronyx-server` when the systemd service unit is loaded.
 
 Response shape:
 
