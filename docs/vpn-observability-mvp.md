@@ -132,6 +132,10 @@ queries.
   - Shows open, critical, warning, and info counts plus a live event stream.
   - Displays derived node health events, session errors/resets, command
     failures, stuck commands, service restarts, and operator actions.
+  - Links node-scoped events directly to Node Detail and shows runbook hints in
+    expanded event details for DNS, NAT, TUN, MTU, egress, UDP listener,
+    session quality, policy enforcement, bandwidth pressure, and command
+    lifecycle events.
   - Displays `node_policy_enforced` events with a readable blocked-count
     preview and prioritizes maintenance, max-session, bandwidth-drop, last
     reason, timestamp, and privacy-boundary fields in the expandable details.

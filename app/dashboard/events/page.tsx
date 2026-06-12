@@ -11,6 +11,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useNodes, useVpnEvents, UseVpnEventsOptions } from '@/hooks/useNodes';
 import { VpnEvent, VpnEventSeverity } from '@/types';
 import { formatRelativeTime } from '@/lib/api';
@@ -358,20 +359,89 @@ function buildDetailRows(event: VpnEvent): DetailRow[] {
   return rows;
 }
 
+function runbookHint(event: VpnEvent): string {
+  const details = event.details || {};
+  const check = typeof details.check === 'string' ? details.check : '';
+  const reason = typeof details.degraded_reason === 'string' ? details.degraded_reason : '';
+
+  if (event.type === 'node_policy_enforced') {
+    return 'Review Settings for maintenance, max sessions, or bandwidth caps before changing the Rust node. These are expected policy blocks, not packet inspection.';
+  }
+
+  if (event.type === 'bandwidth_limit_pressure') {
+    return 'Check whether the node is intentionally capped in Settings. Increase bandwidth_limit_mbps or move traffic to another region/tier if paid users are affected.';
+  }
+
+  if (event.type === 'node_policy_changed') {
+    return 'Use this audit trail to confirm who changed placement, tier, maintenance, session caps, bandwidth, or heartbeat policy before correlating later health events.';
+  }
+
+  if (event.type === 'session_degraded' || event.type === 'session_stale') {
+    if (reason.includes('rtt')) {
+      return 'High RTT usually points to route congestion or bad regional placement. Compare the node region with the user cohort and check bandwidth pressure events.';
+    }
+    if (reason.includes('rx') || reason.includes('tx') || reason.includes('stale')) {
+      return 'Stale RX/TX usually means the tunnel stopped carrying traffic. Check node heartbeat freshness, then use VPN Operations to kick the affected session if it remains active.';
+    }
+    return 'Open VPN Operations to identify the affected session, virtual IP, last activity, RTT, and packet loss before deciding whether to kick or ban.';
+  }
+
+  if (event.source === 'node_command') {
+    return 'Open Node Detail command history for lifecycle timing and structured output. Retry only after the previous command is completed, failed, cancelled, or timed out.';
+  }
+
+  if (check === 'dns_stub' || check === 'dns_query') {
+    return 'DNS failure usually breaks browsing while the tunnel is up. Use Collect Logs on Node Detail, then check local resolver and firewall configuration on the node.';
+  }
+  if (check === 'nat_masquerade' || check === 'ip_forward') {
+    return 'NAT or forwarding failure means clients can connect but cannot exit to the Internet. Check forwarding/NAT config and consider maintenance mode while fixing.';
+  }
+  if (check === 'tun_device' || check === 'mtu_config') {
+    return 'TUN or MTU failure points to local VPN interface configuration. Use System Info and Collect Logs, then restart VPN only if diagnostics confirm the service is wedged.';
+  }
+  if (check === 'internet_egress') {
+    return 'Egress failure means the node cannot reach the Internet. Move traffic away from this node and verify provider networking before accepting new sessions.';
+  }
+  if (check === 'udp_listener') {
+    return 'UDP listener failure means new clients cannot connect. Check service status from Node Detail and use Restart VPN if the process is unhealthy.';
+  }
+
+  if (event.severity === 'critical') {
+    return 'Start with Node Detail health checks, then use maintenance mode to stop new handshakes while you confirm whether active sessions are affected.';
+  }
+  if (event.severity === 'warning') {
+    return 'Correlate this warning with recent Settings audits, session quality, and policy enforcement before taking disruptive action.';
+  }
+
+  return '';
+}
+
 function EventDetailPanel({ event }: { event: VpnEvent }) {
   const rows = buildDetailRows(event);
-  if (!rows.length) {
+  const hint = runbookHint(event);
+
+  if (!rows.length && !hint) {
     return <div className="text-xs text-gray-600">No structured details for this event.</div>;
   }
 
   return (
-    <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
-      {rows.map((row) => (
-        <div key={row.label} className="min-w-0 rounded-md border border-white/10 bg-black/20 px-3 py-2">
-          <div className="text-[11px] uppercase tracking-wide text-gray-600">{row.label}</div>
-          <div className="mt-1 text-xs text-gray-300 break-words">{row.value}</div>
+    <div className="space-y-3">
+      {hint && (
+        <div className="rounded-md border border-purple-500/20 bg-purple-500/10 px-3 py-2">
+          <div className="text-[11px] uppercase tracking-wide text-purple-300">Runbook Hint</div>
+          <div className="mt-1 text-xs text-gray-300">{hint}</div>
         </div>
-      ))}
+      )}
+      {rows.length > 0 && (
+        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {rows.map((row) => (
+            <div key={row.label} className="min-w-0 rounded-md border border-white/10 bg-black/20 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-wide text-gray-600">{row.label}</div>
+              <div className="mt-1 text-xs text-gray-300 break-words">{row.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -425,7 +495,13 @@ function EventsTable({ events }: { events: VpnEvent[] }) {
                       <div className="text-xs text-gray-600 mt-1">{event.type}</div>
                     </td>
                     <td className="px-4 py-4">
-                      <div className="text-gray-300">{event.node_name || 'all nodes'}</div>
+                      {event.node_id ? (
+                        <Link href={`/dashboard/nodes/${event.node_id}`} className="text-gray-300 hover:text-purple-300">
+                          {event.node_name || 'node'}
+                        </Link>
+                      ) : (
+                        <div className="text-gray-300">{event.node_name || 'all nodes'}</div>
+                      )}
                       {event.node_id && (
                         <div className="text-xs text-gray-600 font-mono mt-1">{event.node_id.slice(0, 8)}</div>
                       )}
