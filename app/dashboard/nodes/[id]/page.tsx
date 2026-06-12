@@ -1271,8 +1271,19 @@ function eventCommandLabel(action?: string | null) {
   return action ? labels[action] || action.replace(/_/g, ' ') : 'Command';
 }
 
+function nodeEventCheckName(event: VpnEvent) {
+  const check = event.details?.check;
+  if (typeof check === 'string') return check;
+  if (check && typeof check === 'object' && !Array.isArray(check)) {
+    const checkRecord = check as Record<string, unknown>;
+    return typeof checkRecord.name === 'string' ? checkRecord.name : '';
+  }
+  return '';
+}
+
 function eventReason(event: VpnEvent) {
   const details = event.details || {};
+  const checkName = nodeEventCheckName(event);
 
   if (event.type === 'node_policy_enforced') {
     const blocked = (
@@ -1300,6 +1311,7 @@ function eventReason(event: VpnEvent) {
   if (typeof details.degraded_reason === 'string') return details.degraded_reason;
   if (typeof details.error_message === 'string') return details.error_message;
   if (typeof details.quality_status === 'string') return `session ${details.quality_status}`;
+  if (event.type === 'health_check_failed' && checkName) return checkName.replace(/_/g, ' ');
   if (typeof details.health_status === 'string') return `node ${details.health_status}`;
   if (typeof details.observed_mbps === 'number' && typeof details.bandwidth_limit_mbps === 'number') {
     return `${details.observed_mbps.toFixed(1)} / ${details.bandwidth_limit_mbps.toFixed(1)} Mbps`;
@@ -1327,6 +1339,13 @@ function eventImpact(event: VpnEvent) {
   if (event.type === 'node_policy_sync_pending') {
     const age = eventDetailNumber(details, 'heartbeat_age_seconds');
     return age > 0 ? `heartbeat ${age}s old` : 'waiting for heartbeat';
+  }
+  if (event.type === 'health_check_failed') {
+    const runningMtu = eventDetailNumber(details, 'running_mtu');
+    const configuredMtu = eventDetailNumber(details, 'configured_mtu');
+    if (nodeEventCheckName(event) === 'mtu_config' && (runningMtu || configuredMtu)) {
+      return runningMtu && configuredMtu ? `MTU ${runningMtu} / ${configuredMtu}` : 'MTU metadata pending';
+    }
   }
   if (event.source === 'node_command' && event.action === 'apply_policy') {
     return 'policy runtime acknowledgement';

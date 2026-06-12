@@ -170,6 +170,9 @@ queries.
     expanded event details for DNS, NAT, TUN, MTU, egress, UDP listener,
     session quality, keepalive ACK loss, policy enforcement, bandwidth
     pressure, and command lifecycle events.
+  - Reads health-check names from structured `details.check.name`, so failed
+    DNS, NAT, TUN, MTU, egress, and UDP events get the correct runbook hint
+    instead of falling back to a generic warning.
   - Displays `node_policy_enforced` events with a readable blocked-count
     preview and prioritizes maintenance, max-session, bandwidth-drop, last
     reason, timestamp, and privacy-boundary fields in the expandable details.
@@ -457,6 +460,9 @@ queries.
     status stay consistent.
   - Emits current health events for offline, stale heartbeat, overloaded, and
     failed health checks.
+  - Adds `configured_mtu` and `running_mtu` to failed `mtu_config` event details
+    so Alerts / Events and Node Detail can show MTU mismatch impact without
+    parsing a human-readable check string.
   - Emits historical events for session errors/resets and failed, timed out,
     stuck, restart, or operator action commands.
   - Emits current `session_degraded` and `session_stale` warnings by reusing

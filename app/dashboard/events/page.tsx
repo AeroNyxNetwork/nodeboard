@@ -223,6 +223,13 @@ function getChangedFields(event: VpnEvent): string[] {
   return isRecord(changes) ? Object.keys(changes) : [];
 }
 
+function eventCheckName(event: VpnEvent): string {
+  const check = event.details?.check;
+  if (typeof check === 'string') return check;
+  if (isRecord(check) && typeof check.name === 'string') return check.name;
+  return '';
+}
+
 function commandActionLabel(action?: string | null): string {
   const labels: Record<string, string> = {
     system_info: 'System diagnostics',
@@ -264,6 +271,11 @@ function DetailsPreview({ event }: { event: VpnEvent }) {
     const average = shortValue(event.details?.average_mbps, 16);
     const replay = shortValue(event.details?.replay_rejections, 16);
     return <span className="text-xs text-gray-500">{average} Mbps · replay {replay}</span>;
+  }
+
+  if (event.type === 'health_check_failed') {
+    const checkName = eventCheckName(event);
+    return <span className="text-xs text-gray-500">{checkName || 'health check'}</span>;
   }
 
   const detailEntries = Object.entries(event.details || {}).filter(([, value]) => (
@@ -357,6 +369,8 @@ function buildDetailRows(event: VpnEvent): DetailRow[] {
     'keepalive_acks',
     'keepalive_missed',
     'keepalive_pending',
+    'configured_mtu',
+    'running_mtu',
     'bytes_in',
     'bytes_out',
     'client_wallet',
@@ -387,7 +401,7 @@ function buildDetailRows(event: VpnEvent): DetailRow[] {
 
 function runbookHint(event: VpnEvent): string {
   const details = event.details || {};
-  const check = typeof details.check === 'string' ? details.check : '';
+  const check = eventCheckName(event);
   const reason = typeof details.degraded_reason === 'string' ? details.degraded_reason : '';
   const reasonLower = reason.toLowerCase();
 
