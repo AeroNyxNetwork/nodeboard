@@ -6,14 +6,8 @@
  *
  * Creation Reason: Centralized API client for all backend communications
  * Modification Reason:
- *   v1.4.0 - Added public node pool methods + updated updateNode signature:
- *     New methods (all skipAuth: true — no API Key needed):
- *       getPublicNodes(params)   → GET /nodes/public/
- *       getPublicNodeDetail(id)  → GET /nodes/public/{id}/
- *       verifyNodeAccess(id, pw) → POST /nodes/{id}/verify_access/
- *     Updated:
- *       updateNode data param changed from { name?, is_active? }
- *       to NodeUpdateRequest (includes visibility / region / city / vpn)
+ *   v1.5.1 - Removed public discovery/unlock client calls so nodeboard stays
+ *     focused on authenticated VPN operator management.
  *   v1.5.0 - Focused client methods on VPN operations
  *   v1.0.3 - Fixed auth endpoints sending stale Authorization header
  *
@@ -24,14 +18,11 @@
  * Main Logical Flow:
  * 1. All requests go through request() which adds headers and handles errors
  * 2. Auth endpoints use skipAuth: true
- * 3. Public node pool endpoints use skipAuth: true (genuinely public)
- * 4. 401 responses trigger logout event and clear localStorage
- * 5. Authenticated endpoints automatically include Bearer token
+ * 3. 401 responses trigger logout event and clear localStorage
+ * 4. Authenticated endpoints automatically include Bearer token
  *
  * ⚠️ Important Note for Next Developer:
- * - getPublicNodes / getPublicNodeDetail / verifyNodeAccess MUST keep
- *   skipAuth: true — these endpoints have no auth requirement on the backend
- * - updateNode now accepts NodeUpdateRequest — do NOT revert to narrow type
+* - updateNode now accepts NodeUpdateRequest — do NOT revert to narrow type
  * - access_password in NodeUpdateRequest:
  *     undefined → don't send the key (password unchanged)
  *     ""        → send empty string (clear password)
@@ -41,7 +32,7 @@
  *   when the caller doesn't intend to change the password.
  * - getNonce and login MUST use skipAuth: true
  *
- * Last Modified: v1.5.0 - VPN-only nodeboard API client surface
+ * Last Modified: v1.5.1 - Removed public discovery API surface
  * Previous: v1.4.0 - Public node pool methods + NodeUpdateRequest type
  * ============================================
  */
@@ -57,11 +48,6 @@ import {
   NodeStatusResponse,
   NodeStatsResponse,
   NodeUpdateRequest,
-  PublicNodeListResponse,
-  PublicNodeDetailResponse,
-  VerifyAccessRequest,
-  VerifyAccessResponse,
-  PublicNodesParams,
   SessionListResponse,
   VpnOverviewResponse,
   VpnNodeMetricsResponse,
@@ -272,68 +258,6 @@ class ApiClient {
     return this.request<SuccessResponse>(
       API_ENDPOINTS.NODE_DETAIL(nodeId),
       { method: 'DELETE' }
-    );
-  }
-
-  // ============================================
-  // Public Node Pool (skipAuth: true — no API Key needed) [v1.4.0]
-  // ============================================
-
-  /**
-   * Browse the public node pool.
-   * No authentication required — public nodes are genuinely public.
-   *
-   * @param params.region  ISO 3166-1 alpha-2, e.g. 'JP'
-   * @param params.vpn     true = VPN nodes only
-   * @param params.status  'online' | 'offline' (default: 'online')
-   * @param params.page    page number, page_size=20
-   */
-  async getPublicNodes(
-    params: PublicNodesParams = {}
-  ): Promise<PublicNodeListResponse> {
-    const qs = new URLSearchParams();
-    if (params.region) qs.append('region', params.region);
-    if (params.vpn !== undefined) qs.append('vpn', String(params.vpn));
-    if (params.status) qs.append('status', params.status);
-    if (params.page && params.page > 1) qs.append('page', String(params.page));
-
-    const query = qs.toString();
-    const endpoint = query
-      ? `${API_ENDPOINTS.NODES_PUBLIC_LIST}?${query}`
-      : API_ENDPOINTS.NODES_PUBLIC_LIST;
-
-    return this.request<PublicNodeListResponse>(endpoint, {
-      method: 'GET',
-      skipAuth: true,
-    });
-  }
-
-  /**
-   * Get a single public node's detail.
-   * No authentication required.
-   * Returns 403 + requires_password: true for password_protected nodes
-   * that haven't been unlocked yet (session-based grant).
-   */
-  async getPublicNodeDetail(nodeId: string): Promise<PublicNodeDetailResponse> {
-    return this.request<PublicNodeDetailResponse>(
-      API_ENDPOINTS.NODES_PUBLIC_DETAIL(nodeId),
-      { method: 'GET', skipAuth: true }
-    );
-  }
-
-  /**
-   * Verify access password for a password_protected node.
-   * No authentication required — anonymous users can unlock nodes too.
-   * On success, the server stores a session grant (cookie-based).
-   * Subsequent calls to getPublicNodeDetail will succeed without re-verification.
-   */
-  async verifyNodeAccess(
-    nodeId: string,
-    data: VerifyAccessRequest
-  ): Promise<VerifyAccessResponse> {
-    return this.request<VerifyAccessResponse>(
-      API_ENDPOINTS.NODE_VERIFY_ACCESS(nodeId),
-      { method: 'POST', body: JSON.stringify(data), skipAuth: true }
     );
   }
 

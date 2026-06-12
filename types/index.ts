@@ -6,15 +6,8 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
- *   v1.2.0 - Added node visibility / region / VPN types:
- *     NodeVisibility union type (private | public | password_protected | unlisted)
- *     Node and NodeDetail extended with visibility, region_code, city,
- *     auto_region, is_vpn_node, effective_region, has_access_password
- *     NodeUpdateRequest type for PATCH /nodes/{id}/
- *     PublicNode type for sanitized public pool response
- *     PublicNodeListResponse / PublicNodeDetailResponse response types
- *     VerifyAccessRequest / VerifyAccessResponse for password verification
- *     PublicNodesParams for query parameter typing
+ *   v1.5.1 - Removed public discovery response types from nodeboard.
+ *   v1.2.0 - Added node visibility / region / VPN types.
  *   v1.1.0 - Added window.phantom type declaration for newer Phantom versions.
  *     Phantom injects at window.phantom.solana instead of window.solana.
  *     Also added phantom.solana.connect({ onlyIfTrusted }) overload and
@@ -40,10 +33,8 @@
  *     undefined  → key not sent → password unchanged
  *     ""         → clear password
  *     "xyz"      → set new password
- * - PublicNode is SANITIZED — never contains owner / access_password_hash /
- *   public_key / hardware_info / binary_hash
  *
- * Last Modified: v1.2.0 - Added visibility / region / VPN types + public pool types
+ * Last Modified: v1.5.1 - Removed public discovery types
  * Previous: v1.1.0 - Added window.phantom type declaration
  * ============================================
  */
@@ -134,9 +125,9 @@ export type NodeTier = 'public' | 'premium';
 /**
  * Node visibility options.
  * private            → owner + staff only
- * public             → all authenticated users (appears in public pool)
- * password_protected → authenticated users who pass verify_access
- * unlisted           → authenticated users with direct link (NOT in public pool list)
+ * public             → eligible for public VPN placement
+ * password_protected → requires an access password configured by the operator
+ * unlisted           → operator-managed direct access only
  */
 export type NodeVisibility =
   | 'private'
@@ -205,33 +196,6 @@ export interface NodeDetail extends Node {
 }
 
 /**
- * Sanitized public node — returned by GET /nodes/public/.
- * Never contains: owner, access_password_hash, public_key,
- * hardware_info, binary_hash, is_active.
- */
-export interface PublicNode {
-  id: string;
-  name: string;
-  visibility: NodeVisibility;
-  /** True when visibility === 'password_protected' */
-  requires_password: boolean;
-  region_code: string;
-  city: string;
-  effective_region: string;
-  auto_region: string;
-  is_vpn_node: boolean;
-  public_ip: string;
-  port: number;
-  version: string;
-  status: NodeStatus;
-  current_sessions: number;
-  total_sessions: number;
-  is_verified: boolean;
-  last_heartbeat: string;
-  created_at: string;
-}
-
-/**
  * Request body for PATCH /nodes/{id}/.
  * All fields optional (partial update).
  *
@@ -253,14 +217,6 @@ export interface NodeUpdateRequest {
   max_sessions?: number;
   bandwidth_limit_mbps?: number;
   heartbeat_interval_seconds?: number;
-}
-
-/** Query parameters for GET /nodes/public/ */
-export interface PublicNodesParams {
-  region?: string;
-  vpn?: boolean;
-  status?: 'online' | 'offline';
-  page?: number;
 }
 
 export interface NodeStatusInfo {
@@ -314,36 +270,6 @@ export interface NodeStatusResponse {
 export interface NodeStatsResponse {
   success: boolean;
   data: NodeStats;
-}
-
-/** Response for GET /nodes/public/ (paginated) */
-export interface PublicNodeListResponse {
-  success: boolean;
-  count: number;
-  page: number;
-  page_size: number;
-  data: PublicNode[];
-}
-
-/** Response for GET /nodes/public/{id}/ */
-export interface PublicNodeDetailResponse {
-  success: boolean;
-  data: PublicNode;
-  /** Present when 403 + password_protected */
-  requires_password?: boolean;
-  error?: string;
-}
-
-/** Request body for POST /nodes/{id}/verify_access/ */
-export interface VerifyAccessRequest {
-  password: string;
-}
-
-/** Response for POST /nodes/{id}/verify_access/ */
-export interface VerifyAccessResponse {
-  success: boolean;
-  detail?: string;
-  error?: string;
 }
 
 // ============================================

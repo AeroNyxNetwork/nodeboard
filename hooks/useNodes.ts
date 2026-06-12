@@ -5,12 +5,8 @@
  * File Path: hooks/useNodes.ts
  *
  * Modification Reason:
- *   v1.2.0 - Added public node pool hooks + updated useUpdateNode:
- *     New hooks:
- *       usePublicNodes(params)     — browse public node pool (no auth required)
- *       useVerifyNodeAccess()      — mutation: submit password for locked node
- *     Updated:
- *       useUpdateNode data type → NodeUpdateRequest (all new fields supported)
+ *   v1.5.1 - Removed public discovery hooks so nodeboard remains an operator
+ *     management console.
  *   v1.1.0 - Added auth guard (enabled: isAuthenticated) to all owner hooks.
  *     Dashboard mounts before login in modal flow; without the guard,
  *     queries fire with no API key → 401 → logout loop.
@@ -23,22 +19,15 @@
  *
  * Main Logical Flow:
  * 1. Owner hooks: check isAuthenticated → disabled until login
- * 2. Public hooks: no auth check — always enabled (public endpoints)
- * 3. React Query caches per staleTime/gcTime
- * 4. Mutations invalidate relevant caches with refetchType: 'all'
+ * 2. React Query caches per staleTime/gcTime
+ * 3. Mutations invalidate relevant caches with refetchType: 'all'
  *
  * ⚠️ Important Note for Next Developer:
  * - ALL owner hooks MUST include `enabled: isAuthenticated && ...`
- * - usePublicNodes and useVerifyNodeAccess do NOT need auth guard
- *   (backend has no auth requirement for these endpoints)
- * - useUpdateNode now accepts NodeUpdateRequest — do NOT revert to narrow type
- * - usePublicNodes uses infinite-style pagination via 'page' param,
- *   but implemented as a simple query (not useInfiniteQuery) because
- *   the Explore page manages page state explicitly for filter+pagination UX
- * - staleTime: Infinity on owner hooks = manual refetch only
- * - staleTime: STALE_TIMES.PUBLIC_NODES (30s) on public hook = auto-stale
+* - useUpdateNode now accepts NodeUpdateRequest — do NOT revert to narrow type
+* - staleTime: Infinity on owner hooks = manual refetch only
  *
- * Last Modified: v1.2.0 - Public pool hooks + NodeUpdateRequest type
+ * Last Modified: v1.5.1 - Removed public discovery hooks
  * Previous: v1.1.0 - Auth guard on all owner hooks
  * ============================================
  */
@@ -55,10 +44,6 @@ import {
   Session,
   NodeStatus,
   NodeUpdateRequest,
-  PublicNode,
-  PublicNodesParams,
-  VerifyAccessRequest,
-  VerifyAccessResponse,
   VpnOverview,
   VpnNodeMetrics,
   VpnSession,
@@ -71,7 +56,7 @@ import {
   RunNodeCommandRequest,
   RunNodeCommandResponse,
 } from '@/types';
-import { POLLING_INTERVALS, STALE_TIMES } from '@/lib/constants';
+import { POLLING_INTERVALS } from '@/lib/constants';
 
 // ============================================
 // Query Keys
@@ -95,9 +80,6 @@ export const nodeKeys = {
     ['nodes', 'wallet-bans', id, status] as const,
   commands: (id: string, options?: UseNodeCommandsOptions) =>
     ['nodes', 'commands', id, options] as const,
-  // Public pool
-  publicList: (params: PublicNodesParams) => ['nodes', 'public', 'list', params] as const,
-  publicDetail: (id: string) => ['nodes', 'public', 'detail', id] as const,
 };
 
 // ============================================
@@ -516,109 +498,6 @@ export function useNodeCommands(
 }
 
 // ============================================
-// Public Node Pool Hooks (no auth required) [v1.2.0]
-// ============================================
-
-interface UsePublicNodesResult {
-  nodes: PublicNode[];
-  total: number;
-  page: number;
-  pageSize: number;
-  hasMore: boolean;
-  isLoading: boolean;
-  isFetching: boolean;
-  isError: boolean;
-  error: Error | null;
-  refetch: () => void;
-}
-
-/**
- * Browse the public node pool.
- * No authentication required — public endpoints.
- * Manages its own pagination state via the params object.
- *
- * @param params.region  ISO 3166-1 alpha-2, e.g. 'JP'
- * @param params.vpn     true = VPN nodes only
- * @param params.status  'online' | 'offline' (default backend: 'online')
- * @param params.page    page number (default 1)
- */
-export function usePublicNodes(params: PublicNodesParams = {}): UsePublicNodesResult {
-  const query = useQuery({
-    queryKey: nodeKeys.publicList(params),
-    queryFn: async () => {
-      const res = await api.getPublicNodes(params);
-      return res;
-    },
-    // Always enabled — no auth required
-    enabled: true,
-    staleTime: STALE_TIMES.PUBLIC_NODES,
-    gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: true,
-    refetchOnMount: true,
-  });
-
-  const data = query.data;
-  const pageSize = data?.page_size ?? 20;
-  const total = data?.count ?? 0;
-  const page = data?.page ?? 1;
-
-  return {
-    nodes: data?.data ?? [],
-    total,
-    page,
-    pageSize,
-    hasMore: page * pageSize < total,
-    isLoading: query.isLoading,
-    isFetching: query.isFetching,
-    isError: query.isError,
-    error: query.error,
-    refetch: query.refetch,
-  };
-}
-
-/**
- * Get a single public node's detail.
- * No authentication required.
- */
-interface UsePublicNodeDetailResult {
-  node: PublicNode | null;
-  requiresPassword: boolean;
-  isLoading: boolean;
-  isError: boolean;
-  error: Error | null;
-  refetch: () => void;
-}
-
-export function usePublicNodeDetail(nodeId: string): UsePublicNodeDetailResult {
-  const query = useQuery({
-    queryKey: nodeKeys.publicDetail(nodeId),
-    queryFn: async () => {
-      const res = await api.getPublicNodeDetail(nodeId);
-      return res;
-    },
-    enabled: !!nodeId,
-    staleTime: STALE_TIMES.PUBLIC_NODES,
-    gcTime: 5 * 60 * 1000,
-    retry: (failureCount, error) => {
-      // Do not retry on 403 (password required) or 404 (not found)
-      const e = error as Error & { statusCode?: number };
-      if (e.statusCode === 403 || e.statusCode === 404) return false;
-      return failureCount < 2;
-    },
-  });
-
-  return {
-    node: query.data?.data ?? null,
-    requiresPassword: (query.error as (Error & { requires_password?: boolean }) | null)
-      ?.requires_password ?? false,
-    isLoading: query.isLoading,
-    isError: query.isError,
-    error: query.error,
-    refetch: query.refetch,
-  };
-}
-
-// ============================================
 // Mutation Hooks
 // ============================================
 
@@ -727,34 +606,6 @@ export function useCancelNodeCommand() {
       });
       queryClient.invalidateQueries({
         queryKey: ['nodes', 'vpn', 'events'],
-        refetchType: 'all',
-      });
-    },
-  });
-}
-
-/**
- * Verify access password for a password_protected node.
- * No auth required. On success, server stores a session grant.
- * After calling this, invalidate the public detail cache so it re-fetches.
- */
-export function useVerifyNodeAccess() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      nodeId,
-      data,
-    }: {
-      nodeId: string;
-      data: VerifyAccessRequest;
-    }): Promise<VerifyAccessResponse> => {
-      return api.verifyNodeAccess(nodeId, data);
-    },
-    onSuccess: (_data, variables) => {
-      // Re-fetch the public node detail now that access is granted
-      queryClient.invalidateQueries({
-        queryKey: nodeKeys.publicDetail(variables.nodeId),
         refetchType: 'all',
       });
     },

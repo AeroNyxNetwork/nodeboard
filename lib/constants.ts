@@ -6,11 +6,7 @@
  *
  * Creation Reason: Centralized configuration and constants
  * Modification Reason:
- *   v1.4.0 - Added public node pool endpoints and visibility config:
- *     New endpoints: NODES_PUBLIC_LIST, NODES_PUBLIC_DETAIL,
- *       NODE_VERIFY_ACCESS
- *     New constants: NODE_VISIBILITY_CONFIG, EXPLORE_PAGE_SIZE
- *     New polling: EXPLORE_PUBLIC_NODES (60s, low frequency)
+ *   v1.5.1 - Removed public discovery endpoints and polling constants.
  *   v1.5.0 - Focused endpoints and polling on VPN operations
  *
  * Main Functionality: API endpoints, polling intervals, storage keys,
@@ -18,12 +14,9 @@
  * Dependencies: None
  *
  * ⚠️ Important Note for Next Developer:
- * - NODES_PUBLIC_LIST and NODES_PUBLIC_DETAIL use skipAuth: true in api.ts
- *   because public nodes are genuinely public (no API Key required)
- * - NODE_VERIFY_ACCESS also uses skipAuth: true (anonymous users can unlock)
  * - NODE_VISIBILITY_CONFIG keys MUST match NodeVisibility type in types/index.ts
  *
- * Last Modified: v1.5.0 - VPN-only nodeboard constants
+ * Last Modified: v1.5.1 - Removed public discovery constants
  * Previous: v1.4.0 - Public node pool endpoints + visibility config
  * ============================================
  */
@@ -62,11 +55,6 @@ export const API_ENDPOINTS = {
   VPN_EVENTS: '/vpn/events/',
   VPN_NODE_METRICS: (id: string) => `/vpn/nodes/${id}/metrics/`,
 
-  // Public Node Pool (no API Key required) [v1.4.0]
-  NODES_PUBLIC_LIST: '/nodes/public/',
-  NODES_PUBLIC_DETAIL: (id: string) => `/nodes/public/${id}/`,
-  NODE_VERIFY_ACCESS: (id: string) => `/nodes/${id}/verify_access/`,
-
 } as const;
 
 // ============================================
@@ -82,24 +70,7 @@ export const POLLING_INTERVALS = {
   VPN_EVENTS: 15000,
   VPN_NODE_METRICS: 30000,
   CODES_LIST: 60000,
-  /** Public node pool — low frequency, data doesn't change rapidly */
-  EXPLORE_PUBLIC_NODES: 60000,
 } as const;
-
-// ============================================
-// React Query Stale Times (ms)
-// ============================================
-
-export const STALE_TIMES = {
-  /** Public nodes list — 30s stale, refreshes on window focus */
-  PUBLIC_NODES: 30 * 1000,
-} as const;
-
-// ============================================
-// Public Node Pool Config [v1.4.0]
-// ============================================
-
-export const EXPLORE_PAGE_SIZE = 20;
 
 // ============================================
 // Local Storage Keys
@@ -245,9 +216,6 @@ export const ERROR_MESSAGES = {
   // Node settings [v1.4.0]
   NODE_UPDATE_FAILED: 'Failed to update node settings. Please try again.',
   NODE_PASSWORD_REQUIRED: 'A password is required for password-protected nodes.',
-  // Public node pool [v1.4.0]
-  EXPLORE_LOAD_FAILED: 'Failed to load nodes. Please try again.',
-  VERIFY_ACCESS_FAILED: 'Invalid password. Please try again.',
 } as const;
 
 // ============================================
@@ -262,6 +230,4 @@ export const SUCCESS_MESSAGES = {
   NODE_DELETED: 'Node deleted successfully.',
   NODE_UPDATED: 'Node settings saved.',
   COPIED_TO_CLIPBOARD: 'Copied to clipboard!',
-  // Public node pool [v1.4.0]
-  VERIFY_ACCESS_SUCCESS: 'Access granted.',
 } as const;

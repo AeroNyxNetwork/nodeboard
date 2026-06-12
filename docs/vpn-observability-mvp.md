@@ -170,13 +170,6 @@ queries.
     recent policy changes without leaving Settings.
   - Saves through the existing owner-scoped `PATCH /nodes/<id>/` endpoint.
 
-- `app/dashboard/explore/page.tsx`
-  - Reads trusted VPN candidates from `GET /vpn/servers/`.
-  - Supports the backend `servers` response key plus legacy `data` / `results`
-    fallbacks so trusted nodes render reliably.
-  - Maps health-aware server candidates into the existing public node card
-    shape without exposing unavailable node IP addresses.
-
 - `components/dashboard/Sidebar.tsx`
   - Adds the `Traffic & Billing` navigation item at `/dashboard/billing`.
   - Adds the `Alerts / Events` navigation item at `/dashboard/events`.
