@@ -93,6 +93,9 @@ queries.
   - Renders structured command results for `system_info`, `collect_logs`, and
     other VPN operations so operators can read diagnostics and bounded log
     tails directly in nodeboard.
+  - Adds a node-scoped Recent VPN Events panel backed by
+    `useVpnEvents({ nodeId })`, showing severity, message, reason, affected
+    session or wallet, and relative time directly on Node Detail.
   - Adds Wallet Ban Policies, an active policy table backed by
     `GET /nodes/<id>/wallet_bans/`, with copy and unban controls.
 

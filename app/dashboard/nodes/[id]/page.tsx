@@ -16,10 +16,11 @@
  *   1. Node header with inline name editing and delete action
  *   2. NodeSettings — visibility / region / VPN / password config
  *   3. VPN Health panel from /vpn/overview/ for live heartbeat diagnostics
- *   4. Wallet ban policies and VPN command history
- *   5. Stats grid — uptime / sessions / traffic
- *   6. Hardware info + node details
- *   7. Recent sessions table
+ *   4. Recent VPN Events for node-scoped health/session/command triage
+ *   5. Wallet ban policies and VPN command history
+ *   6. Stats grid — uptime / sessions / traffic
+ *   7. Hardware info + node details
+ *   8. Recent sessions table
  *
  * Dependencies:
  *   - hooks/useNodes.ts (useNodeDetail, useNodeStats, useNodeSessions,
@@ -51,6 +52,7 @@ import {
   useNodeStats,
   useNodeSessions,
   useVpnOverview,
+  useVpnEvents,
   useVpnNodeMetrics,
   useNodeWalletBans,
   useNodeCommands,
@@ -59,7 +61,16 @@ import {
   useUpdateNode,
   useDeleteNode,
 } from '@/hooks/useNodes';
-import { NodeCommand, NodeStatus, NodeWalletBan, VpnHealthStatus, VpnNodeHealth, VpnNodeMetrics } from '@/types';
+import {
+  NodeCommand,
+  NodeStatus,
+  NodeWalletBan,
+  VpnEvent,
+  VpnEventSeverity,
+  VpnHealthStatus,
+  VpnNodeHealth,
+  VpnNodeMetrics,
+} from '@/types';
 import { formatRelativeTime, formatDuration, formatBytes, copyToClipboard } from '@/lib/api';
 import { NODE_STATUS_CONFIG } from '@/lib/constants';
 import Card, { StatCard } from '@/components/common/Card';
@@ -105,6 +116,28 @@ const VPN_HEALTH_CONFIG: Record<VpnHealthStatus, {
     textColor: 'text-red-300',
     borderColor: 'border-red-500/30',
     dotColor: 'bg-red-400',
+  },
+};
+
+const VPN_EVENT_SEVERITY_CONFIG: Record<VpnEventSeverity, {
+  label: string;
+  badgeClass: string;
+  dotClass: string;
+}> = {
+  critical: {
+    label: 'Critical',
+    badgeClass: 'bg-red-500/15 text-red-300 border-red-500/30',
+    dotClass: 'bg-red-400',
+  },
+  warning: {
+    label: 'Warning',
+    badgeClass: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30',
+    dotClass: 'bg-yellow-400',
+  },
+  info: {
+    label: 'Info',
+    badgeClass: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+    dotClass: 'bg-sky-400',
   },
 };
 
@@ -1037,6 +1070,136 @@ function VpnHealthPanel({
 }
 
 // ============================================
+// Node VPN Events Panel
+// ============================================
+
+function eventReason(event: VpnEvent) {
+  const details = event.details || {};
+
+  if (typeof details.degraded_reason === 'string') return details.degraded_reason;
+  if (typeof details.error_message === 'string') return details.error_message;
+  if (typeof details.quality_status === 'string') return `session ${details.quality_status}`;
+  if (typeof details.health_status === 'string') return `node ${details.health_status}`;
+  if (typeof details.observed_mbps === 'number' && typeof details.bandwidth_limit_mbps === 'number') {
+    return `${details.observed_mbps.toFixed(1)} / ${details.bandwidth_limit_mbps.toFixed(1)} Mbps`;
+  }
+  if (typeof details.rtt_ms === 'number') return `${details.rtt_ms.toFixed(1)} ms RTT`;
+  if (Array.isArray(details.changed_fields) && details.changed_fields.length > 0) {
+    return details.changed_fields.slice(0, 3).join(', ');
+  }
+  if (event.session_id) return `session ${event.session_id}`;
+  if (event.command_id) return `command ${event.command_id.slice(0, 8)}`;
+  return event.type.replace(/_/g, ' ');
+}
+
+function eventImpact(event: VpnEvent) {
+  const details = event.details || {};
+
+  if (typeof details.virtual_ip === 'string' && details.virtual_ip) {
+    return `VIP ${details.virtual_ip}`;
+  }
+  if (typeof details.client_wallet === 'string' && details.client_wallet) {
+    return `wallet ${details.client_wallet.slice(0, 10)}...${details.client_wallet.slice(-6)}`;
+  }
+  if (typeof details.total_bytes === 'number') {
+    return formatBytes(details.total_bytes, 1);
+  }
+  if (event.source) return event.source.replace(/_/g, ' ');
+  return 'node event';
+}
+
+function VpnEventSeverityBadge({ severity }: { severity: VpnEventSeverity }) {
+  const config = VPN_EVENT_SEVERITY_CONFIG[severity];
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium ${config.badgeClass}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${config.dotClass}`} />
+      {config.label}
+    </span>
+  );
+}
+
+function NodeVpnEventsPanel({
+  nodeId,
+  isVpnNode,
+}: {
+  nodeId: string;
+  isVpnNode: boolean;
+}) {
+  const { events, isLoading, isError, refetch } = useVpnEvents({
+    days: 7,
+    nodeId,
+    severity: 'all',
+    limit: 6,
+  });
+
+  if (!isVpnNode) return null;
+
+  const recentEvents = events?.events ?? [];
+  const summary = events?.summary;
+
+  return (
+    <Card variant="default" padding="md" className="mb-6">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="font-semibold text-white">Recent VPN Events</h3>
+          <p className="mt-1 text-sm text-gray-500">
+            Node-scoped health, session, command, and policy events from the last 7 days.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {summary ? (
+            <span className="text-xs text-gray-500">
+              {summary.open} open · {summary.critical} critical · {summary.warning} warning
+            </span>
+          ) : null}
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[...Array(3)].map((_, index) => (
+            <div key={index} className="h-16 rounded-xl bg-white/[0.04] animate-pulse" />
+          ))}
+        </div>
+      ) : isError ? (
+        <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/[0.06] px-4 py-3">
+          <p className="text-sm text-yellow-200">Recent VPN events are temporarily unavailable.</p>
+        </div>
+      ) : recentEvents.length === 0 ? (
+        <p className="text-sm text-emerald-300">No VPN events recorded for this node in the last 7 days.</p>
+      ) : (
+        <div className="space-y-3">
+          {recentEvents.map((event) => (
+            <div key={event.id} className="rounded-xl border border-white/5 bg-white/[0.03] p-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <VpnEventSeverityBadge severity={event.severity} />
+                    <span className="truncate text-sm font-medium text-white">{event.title}</span>
+                  </div>
+                  <p className="mt-2 text-sm text-gray-400">{event.message}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                    <span>{eventReason(event)}</span>
+                    <span>{eventImpact(event)}</span>
+                    {event.session_id ? <span className="font-mono">session {event.session_id}</span> : null}
+                  </div>
+                </div>
+                <div className="shrink-0 text-xs text-gray-500">
+                  {event.created_at ? formatRelativeTime(event.created_at) : 'now'}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ============================================
 // Wallet Ban Policies
 // ============================================
 
@@ -1374,13 +1537,16 @@ export default function NodeDetailPage() {
       {/* 3. VPN Health Panel */}
       <VpnHealthPanel nodeId={nodeId} isVpnNode={node.is_vpn_node} onToast={showToast} />
 
-      {/* 4. Wallet Ban Policies */}
+      {/* 4. Recent VPN Events */}
+      <NodeVpnEventsPanel nodeId={nodeId} isVpnNode={node.is_vpn_node} />
+
+      {/* 5. Wallet Ban Policies */}
       <WalletBanPolicyPanel nodeId={nodeId} isVpnNode={node.is_vpn_node} onToast={showToast} />
 
-      {/* 5. Stats Grid */}
+      {/* 6. Stats Grid */}
       <StatsGrid nodeId={nodeId} />
 
-      {/* 6. Hardware Info + Node Details */}
+      {/* 7. Hardware Info + Node Details */}
       <div className="grid lg:grid-cols-3 gap-6 mb-6">
         <Card variant="default" padding="md" className="lg:col-span-1">
           <h3 className="font-semibold text-white mb-4">Hardware Info</h3>
