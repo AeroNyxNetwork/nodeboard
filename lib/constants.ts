@@ -26,6 +26,12 @@
 // API Configuration
 // ============================================
 
+// Backend base:
+//   https://api.aeronyx.network/api/privacy_network
+// Route registry:
+//   /root/aeronyx/privacy_network/urls.py
+// Keep endpoint names aligned with lib/api.ts and hooks/useNodes.ts so the
+// operator UI can be traced from a component to the exact Django view file.
 export const API_BASE_URL = 'https://api.aeronyx.network/api/privacy_network';
 
 export const API_ENDPOINTS = {
@@ -39,17 +45,31 @@ export const API_ENDPOINTS = {
   CODES_REVOKE: '/codes/',
 
   // Owner Nodes (API Key required)
+  // Backend: /root/aeronyx/privacy_network/api/nodes.py
+  // Serializers: /root/aeronyx/privacy_network/serializers.py
   NODES_LIST: '/nodes/',
   NODE_DETAIL: (id: string) => `/nodes/${id}/`,
   NODE_STATUS: (id: string) => `/nodes/${id}/status/`,
   NODE_STATS: (id: string) => `/nodes/${id}/stats/`,
   NODE_SESSIONS: (id: string) => `/nodes/${id}/sessions/`,
+
+  // VPN node safety controls.
+  // Backend: /root/aeronyx/privacy_network/api/vpn_commands.py
+  // Service: /root/aeronyx/privacy_network/services/command_service.py
   NODE_WALLET_BANS: (id: string) => `/nodes/${id}/wallet_bans/`,
   NODE_COMMANDS: (id: string) => `/nodes/${id}/commands/`,
   NODE_COMMAND_RUN: (id: string) => `/nodes/${id}/commands/run/`,
   NODE_COMMAND_CANCEL: (id: string, commandId: string) => `/nodes/${id}/commands/${commandId}/cancel/`,
 
   // VPN Observability (operator control plane)
+  // Overview/sessions/metrics backend:
+  //   /root/aeronyx/privacy_network/api/vpn_observability.py
+  // Billing backend:
+  //   /root/aeronyx/privacy_network/api/vpn_billing.py
+  // Events backend:
+  //   /root/aeronyx/privacy_network/api/vpn_events.py
+  // Server placement backend:
+  //   /root/aeronyx/privacy_network/api/vpn_servers.py
   VPN_OVERVIEW: '/vpn/overview/',
   VPN_SESSIONS: '/vpn/sessions/',
   VPN_BILLING: '/vpn/billing/',

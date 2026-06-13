@@ -23,6 +23,15 @@
  *   - components/common/Card.tsx
  *   - components/common/Button.tsx
  *
+ * Backend API:
+ *   - PATCH /api/privacy_network/nodes/<node_id>/
+ * Backend source files:
+ *   - /root/aeronyx/privacy_network/api/nodes.py
+ *   - /root/aeronyx/privacy_network/serializers.py
+ * Rust consumers:
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *
  * Main Logical Flow:
  *   1. Initialize local form state from current node values
  *   2. User edits fields — local state updates, no network call yet
@@ -42,7 +51,7 @@
  *   - This component does NOT handle node name editing —
  *     that remains inline in NodeDetailPage (EditableName component)
  *
- * Last Modified: v1.4.0 - Initial implementation
+ * Last Modified: v1.4.1 - Documented backend API and Rust policy consumers
  * ============================================
  */
 

@@ -3,8 +3,26 @@
  * AeroNyx Dashboard Overview Page
  * ============================================
  * File Path: app/dashboard/page.tsx
- * 
- * Last Modified: v1.0.1 - Fixed re-render issues
+ *
+ * Backend APIs used on this page:
+ *   - GET /api/privacy_network/nodes/
+ *     /root/aeronyx/privacy_network/api/nodes.py
+ *   - GET /api/privacy_network/vpn/overview/
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   - GET /api/privacy_network/vpn/events/
+ *     /root/aeronyx/privacy_network/api/vpn_events.py
+ *   - GET /api/privacy_network/vpn/billing/
+ *     /root/aeronyx/privacy_network/api/vpn_billing.py
+ *   - GET /api/privacy_network/vpn/servers/
+ *     /root/aeronyx/privacy_network/api/vpn_servers.py
+ *
+ * Rust sources behind the VPN snapshot:
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/handlers/packet.rs
+ *
+ * Last Modified: v1.0.2 - Documented VPN backend/Rust data sources
  * ============================================
  */
 

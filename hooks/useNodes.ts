@@ -19,6 +19,30 @@
  *   - stores/authStore.ts
  *   - types/index.ts
  *
+ * Backend API Map:
+ *   Route registry:
+ *     /root/aeronyx/privacy_network/urls.py
+ *   Node owner APIs:
+ *     /root/aeronyx/privacy_network/api/nodes.py
+ *   VPN overview/sessions/metrics:
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   VPN billing/events/placement:
+ *     /root/aeronyx/privacy_network/api/vpn_billing.py
+ *     /root/aeronyx/privacy_network/api/vpn_events.py
+ *     /root/aeronyx/privacy_network/api/vpn_servers.py
+ *   VPN commands/wallet bans:
+ *     /root/aeronyx/privacy_network/api/vpn_commands.py
+ *     /root/aeronyx/privacy_network/services/command_service.py
+ *
+ * Rust Data Lineage:
+ *   Heartbeats and VPN health originate from:
+ *     /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *     /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
+ *   Policy/placement fields consumed by Rust live in:
+ *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
+ *   Encrypted packet counters are incremented in:
+ *     /root/open/AeroNyx/crates/aeronyx-server/src/handlers/packet.rs
+ *
  * Main Logical Flow:
  * 1. Owner hooks: check isAuthenticated → disabled until login
  * 2. React Query caches per staleTime/gcTime
@@ -239,6 +263,14 @@ export function useNodeSessions(
     refetch: query.refetch,
   };
 }
+
+// ============================================
+// VPN Observability Hooks
+// ============================================
+// These hooks are the nodeboard operator surface for the commercial VPN
+// control plane. They intentionally read aggregate/session-operational data
+// only; the backend privacy boundary excludes payloads, DNS contents,
+// destinations, domains, URLs, browsing history, voucher secrets, and API keys.
 
 interface UseVpnOverviewResult {
   overview: VpnOverview | null;

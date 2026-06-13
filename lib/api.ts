@@ -17,6 +17,32 @@
  *   - types/index.ts
  *   - lib/constants.ts
  *
+ * Backend Contract Map:
+ *   Base URL:
+ *     https://api.aeronyx.network/api/privacy_network
+ *   Route registry:
+ *     /root/aeronyx/privacy_network/urls.py
+ *   Owner node detail/status/stats/sessions:
+ *     /root/aeronyx/privacy_network/api/nodes.py
+ *     /root/aeronyx/privacy_network/serializers.py
+ *   VPN overview/sessions/node metrics:
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   VPN billing:
+ *     /root/aeronyx/privacy_network/api/vpn_billing.py
+ *   VPN events:
+ *     /root/aeronyx/privacy_network/api/vpn_events.py
+ *   VPN server placement:
+ *     /root/aeronyx/privacy_network/api/vpn_servers.py
+ *   VPN commands and wallet bans:
+ *     /root/aeronyx/privacy_network/api/vpn_commands.py
+ *     /root/aeronyx/privacy_network/services/command_service.py
+ *
+ * Rust Data Sources:
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/handlers/packet.rs
+ *
  * Main Logical Flow:
  * 1. All requests go through request() which adds headers and handles errors
  * 2. Auth endpoints use skipAuth: true
@@ -282,6 +308,10 @@ class ApiClient {
     return this.request<SessionListResponse>(endpoint, { method: 'GET' });
   }
 
+  // GET /api/privacy_network/vpn/overview/
+  // Backend: /root/aeronyx/privacy_network/api/vpn_observability.py
+  // Aggregates VPN-only nodes, sessions, traffic, heartbeat freshness, and
+  // Rust-reported encrypted packet counters for node operators.
   async getVpnOverview(): Promise<VpnOverviewResponse> {
     return this.request<VpnOverviewResponse>(
       API_ENDPOINTS.VPN_OVERVIEW,
@@ -289,6 +319,9 @@ class ApiClient {
     );
   }
 
+  // GET /api/privacy_network/vpn/nodes/{id}/metrics/?hours=N
+  // Backend: /root/aeronyx/privacy_network/api/vpn_observability.py
+  // Rust source includes heartbeat health and packet counters from vpn_health.rs.
   async getVpnNodeMetrics(
     nodeId: string,
     options?: { hours?: number }
@@ -302,6 +335,10 @@ class ApiClient {
     return this.request<VpnNodeMetricsResponse>(endpoint, { method: 'GET' });
   }
 
+  // GET /api/privacy_network/vpn/sessions/
+  // Backend: /root/aeronyx/privacy_network/api/vpn_observability.py
+  // Privacy boundary: exposes operational session metadata only, never packet
+  // payloads, DNS contents, destinations, URLs, or browsing history.
   async getVpnSessions(
     options?: {
       status?: 'all' | 'active' | 'completed' | 'error';
@@ -326,6 +363,9 @@ class ApiClient {
     return this.request<VpnSessionListResponse>(endpoint, { method: 'GET' });
   }
 
+  // GET /api/privacy_network/vpn/billing/
+  // Backend: /root/aeronyx/privacy_network/api/vpn_billing.py
+  // Uses session byte counters and status windows for operator revenue/usage views.
   async getVpnBilling(
     options?: { days?: number; status?: 'all' | 'active' | 'completed' | 'error'; nodeId?: string; q?: string }
   ): Promise<VpnBillingOverviewResponse> {
@@ -341,6 +381,9 @@ class ApiClient {
     return this.request<VpnBillingOverviewResponse>(endpoint, { method: 'GET' });
   }
 
+  // GET /api/privacy_network/vpn/events/
+  // Backend: /root/aeronyx/privacy_network/api/vpn_events.py
+  // Events are derived from node heartbeats, policy checks, and VPN session state.
   async getVpnEvents(
     options?: {
       days?: number;
@@ -365,10 +408,15 @@ class ApiClient {
     return this.request<VpnEventsResponse>(endpoint, { method: 'GET' });
   }
 
+  // GET /api/privacy_network/vpn/servers/
+  // Backend: /root/aeronyx/privacy_network/api/vpn_servers.py
+  // Shows placement/failover readiness for public VPN candidates.
   async getVpnServers(): Promise<VpnServerListResponse> {
     return this.request<VpnServerListResponse>(API_ENDPOINTS.VPN_SERVERS, { method: 'GET' });
   }
 
+  // GET /api/privacy_network/nodes/{id}/wallet_bans/
+  // Backend: /root/aeronyx/privacy_network/api/vpn_commands.py
   async getNodeWalletBans(
     nodeId: string,
     status: 'active' | 'inactive' | 'all' = 'active'
@@ -380,6 +428,9 @@ class ApiClient {
     );
   }
 
+  // GET /api/privacy_network/nodes/{id}/commands/
+  // Backend: /root/aeronyx/privacy_network/api/vpn_commands.py
+  // Rust reports execution status through POST /api/privacy_network/node/vpn/status/.
   async getNodeCommands(
     nodeId: string,
     options?: { status?: string; action?: string; limit?: number; offset?: number }
@@ -396,6 +447,9 @@ class ApiClient {
     return this.request<NodeCommandListResponse>(endpoint, { method: 'GET' });
   }
 
+  // POST /api/privacy_network/nodes/{id}/commands/run/
+  // Backend service: /root/aeronyx/privacy_network/services/command_service.py
+  // Only sends whitelisted operational actions to Rust nodes.
   async runNodeCommand(
     nodeId: string,
     data: RunNodeCommandRequest
@@ -406,6 +460,8 @@ class ApiClient {
     });
   }
 
+  // POST /api/privacy_network/nodes/{id}/commands/{cmd_id}/cancel/
+  // Backend: /root/aeronyx/privacy_network/api/vpn_commands.py
   async cancelNodeCommand(
     nodeId: string,
     commandId: string
