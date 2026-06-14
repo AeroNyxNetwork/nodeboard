@@ -37,6 +37,8 @@
  *     Provides data.summary.restart_readiness.command_lifecycle_counts for
  *     Services page Command SLA card, backend-authored stale/retry copy, and
  *     cancelable_active/non_cancelable_active active command counts.
+ *     command_lifecycle_counts.outcome_summary powers Services Restart
+ *     Outcome Audit from latest per-node restart_service terminal statuses.
  *   - GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Supports /dashboard/sessions?node={id}&status=active&quality=all deep links.
@@ -95,7 +97,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.27 - Documented fleet cancelability counts
+ * Last Modified: v1.1.28 - Documented restart outcome audit summary
+ * Previous: v1.1.27 - Documented fleet cancelability counts
  * Previous: v1.1.26 - Documented backend cancel reason flag
  * Previous: v1.1.25 - Documented backend cancel eligibility flag
  * Previous: v1.1.24 - Documented command timeline deep-link contract
@@ -197,7 +200,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.command_lifecycle_counts',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level restart_service active/stale/retry/terminal lifecycle counts, cancelable_active/non_cancelable_active active command counts, plus backend-authored summary copy for the Services Command SLA card',
+      purpose: 'Fleet-level restart_service active/stale/retry/terminal lifecycle counts, cancelable_active/non_cancelable_active active command counts, outcome_summary terminal audit copy, plus backend-authored summary copy for the Services Command SLA and Restart Outcome Audit cards',
     },
     {
       endpoint: 'GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=',

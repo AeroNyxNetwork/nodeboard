@@ -70,7 +70,9 @@
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Powers the Command SLA card from backend-authored active/stale/retry
  *     restart_service lifecycle counts plus cancelable_active and
- *     non_cancelable_active active command counts.
+ *     non_cancelable_active active command counts. outcome_summary powers the
+ *     Restart Outcome Audit panel from latest per-node restart_service terminal
+ *     statuses without exposing command params, result, or error_message.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -94,7 +96,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.25 - Show fleet restart cancelability counts
+ * Last Modified: v1.1.26 - Show restart outcome audit summary
+ * Previous: v1.1.25 - Show fleet restart cancelability counts
  * Previous: v1.1.24 - Explain backend cancel eligibility in fleet triage
  * Previous: v1.1.23 - Cancel active restart commands from fleet triage
  * Previous: v1.1.22 - Show fleet command SLA summary
@@ -788,6 +791,48 @@ function fleetCommandLifecycle(summary: VpnRestartReadinessSummary | null) {
   };
 }
 
+function fleetCommandOutcome(summary: VpnRestartReadinessSummary | null) {
+  const counts = summary?.command_lifecycle_counts ?? null;
+  if (!counts) {
+    return {
+      label: 'Pending',
+      detail: 'waiting for backend restart outcome summary',
+      count: 0,
+      risk: 'info',
+      next_step: 'Waiting for data.summary.restart_readiness.command_lifecycle_counts.outcome_summary.',
+    };
+  }
+  if (counts.outcome_summary) {
+    return counts.outcome_summary;
+  }
+  const needsReview = counts.failed + counts.timeout;
+  if (needsReview > 0) {
+    return {
+      label: 'Review',
+      detail: `${counts.failed.toLocaleString()} failed, ${counts.timeout.toLocaleString()} timed out`,
+      count: needsReview,
+      risk: 'warning',
+      next_step: 'Open Retry Needed items and inspect node command history.',
+    };
+  }
+  if (counts.cancelled > 0) {
+    return {
+      label: 'Cancelled',
+      detail: `${counts.cancelled.toLocaleString()} restart command(s) cancelled`,
+      count: counts.cancelled,
+      risk: 'info',
+      next_step: 'Confirm cancelled nodes still match the rollout plan.',
+    };
+  }
+  return {
+    label: 'Clean',
+    detail: `${counts.completed.toLocaleString()} completed restart outcome(s)`,
+    count: counts.completed,
+    risk: counts.completed > 0 ? 'healthy' : 'info',
+    next_step: counts.completed > 0 ? 'No terminal restart command issue detected.' : 'No terminal restart outcome reported yet.',
+  };
+}
+
 function restartBlockerCopy(code: string) {
   const copy: Record<string, { label: string; remediation: string }> = {
     maintenance_required: {
@@ -1397,9 +1442,11 @@ function FleetRestartReadinessPanel({
   const blockerCounts = Object.entries(summary?.blocker_counts ?? {});
   const drainRisk = fleetDrainRisk(summary);
   const commandLifecycle = fleetCommandLifecycle(summary);
+  const commandOutcome = fleetCommandOutcome(summary);
+  const commandCounts = summary?.command_lifecycle_counts ?? null;
   const commandCancelability = {
-    cancelable: summary?.command_lifecycle_counts?.cancelable_active ?? 0,
-    locked: summary?.command_lifecycle_counts?.non_cancelable_active ?? 0,
+    cancelable: commandCounts?.cancelable_active ?? 0,
+    locked: commandCounts?.non_cancelable_active ?? 0,
   };
   const filterOptions = useMemo(() => restartQueueFilterOptions(nodes), [nodes]);
   const actionQueues = useMemo(
@@ -1466,6 +1513,42 @@ function FleetRestartReadinessPanel({
             <p className="mt-2 text-xs leading-5 opacity-80">{commandLifecycle.next_step}</p>
           )}
         </div>
+      </div>
+
+      <div className={`mt-4 rounded-xl border p-4 ${drainActivityHealthClass(commandOutcome.risk)}`}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Restart Outcome Audit</h3>
+            <p className="mt-1 text-xs leading-5 opacity-70">
+              Latest per-node restart_service terminal outcomes from backend lifecycle metadata.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <StatusPill status={commandOutcome.risk} />
+            <span className="rounded-full border border-white/10 px-2.5 py-1 text-xs opacity-80">
+              {commandOutcome.count.toLocaleString()} item{commandOutcome.count === 1 ? '' : 's'}
+            </span>
+          </div>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            ['Completed', commandCounts?.completed ?? 0],
+            ['Failed', commandCounts?.failed ?? 0],
+            ['Timed out', commandCounts?.timeout ?? 0],
+            ['Cancelled', commandCounts?.cancelled ?? 0],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-[0.14em] opacity-60">{label}</p>
+              <p className="mt-1 text-lg font-semibold">{Number(value).toLocaleString()}</p>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-xs leading-5 opacity-75">
+          {commandOutcome.label} · {commandOutcome.detail}
+        </p>
+        {commandOutcome.next_step && (
+          <p className="mt-2 text-xs leading-5 opacity-75">{commandOutcome.next_step}</p>
+        )}
       </div>
 
       <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
