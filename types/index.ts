@@ -484,6 +484,16 @@ export interface VpnRestartReadinessBlockedNode {
   blocker_codes: string[];
   drain_status?: string;
   drain_next_step?: string;
+  drain_activity?: {
+    active_sessions: number;
+    recent_activity_sessions: number;
+    idle_activity_sessions: number;
+    activity_pending_sessions: number;
+    activity_window_seconds: number;
+    keepalive_missed_total: number;
+    keepalive_pending_total: number;
+    source: 'restart_readiness.drain_eta' | string;
+  };
   active_restart_command_status?: string;
   recommended_action?: {
     key: string;
@@ -500,6 +510,9 @@ export interface VpnRestartReadinessBlockedNode {
  *   GET /api/privacy_network/vpn/overview/
  * Backend file:
  *   /root/aeronyx/privacy_network/api/vpn_observability.py
+ * Blocked node activity source:
+ *   data.summary.restart_readiness.blocked_nodes[].drain_activity
+ *   mirrors data.nodes[].system.restart_readiness.drain_eta aggregate buckets.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts

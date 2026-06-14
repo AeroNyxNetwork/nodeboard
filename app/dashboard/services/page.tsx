@@ -35,6 +35,10 @@
  *     Provides the backend-authored next operator action for each blocked node.
  *     cleanup_policy_pending uses intent=node_detail because the operator must
  *     inspect Rust heartbeat rollout before waiting on stale-session cleanup.
+ *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Mirrors node-level drain_eta activity buckets for fleet triage without
+ *     exposing client IPs, wallets, destinations, DNS, payloads, or browsing.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -58,7 +62,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.10 - Show cleanup rollout blocker action
+ * Last Modified: v1.1.11 - Show blocked node drain activity summary
+ * Previous: v1.1.10 - Show cleanup rollout blocker action
  * Previous: v1.1.9 - Show backend recommended blocker action
  * Previous: v1.1.8 - Added restart blocker playbook copy
  * Previous: v1.1.7 - Show restart drain ETA
@@ -552,6 +557,17 @@ function formatDrainStatus(status: string | undefined) {
   return status.replaceAll('_', ' ');
 }
 
+function formatBlockedDrainActivity(node: VpnRestartReadinessSummary['blocked_nodes'][number]) {
+  const activity = node.drain_activity;
+  if (!activity) return null;
+  const windowLabel = formatDuration(activity.activity_window_seconds || 180);
+  return [
+    `${activity.recent_activity_sessions.toLocaleString()} recent/${windowLabel}`,
+    `${activity.idle_activity_sessions.toLocaleString()} idle`,
+    `${activity.keepalive_missed_total.toLocaleString()} missed keepalives`,
+  ].join(' · ');
+}
+
 function restartBlockerCopy(code: string) {
   const copy: Record<string, { label: string; remediation: string }> = {
     maintenance_required: {
@@ -887,6 +903,7 @@ function FleetRestartReadinessPanel({
               const isEnablingMaintenance = enablingMaintenanceNodeId === node.id;
               const drainStatus = formatDrainStatus(node.drain_status);
               const recommendedAction = node.recommended_action ?? null;
+              const drainActivity = formatBlockedDrainActivity(node);
 
               return (
               <div
@@ -912,6 +929,11 @@ function FleetRestartReadinessPanel({
                         ? ` · restart ${node.active_restart_command_status}`
                         : ''}
                       {node.drain_next_step ? ` · ${node.drain_next_step}` : ''}
+                    </span>
+                  )}
+                  {drainActivity && (
+                    <span className="block text-yellow-100/45">
+                      activity: {drainActivity}
                     </span>
                   )}
                   {recommendedAction?.detail && (
