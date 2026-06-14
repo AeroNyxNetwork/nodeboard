@@ -854,7 +854,7 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3 text-xs">
-        <span className={mutedClass}>Drain composition</span>
+        <span className={mutedClass}>Client RX composition</span>
         <span className={textClass}>{activeSessions.toLocaleString()} active session{activeSessions === 1 ? '' : 's'}</span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-black/35">
@@ -906,9 +906,97 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
         )}
       </div>
       <p className={`text-[11px] leading-5 ${mutedClass}`}>
-        Window {formatDuration(eta.activity_window_seconds || 180)}
+        Client RX window {formatDuration(eta.activity_window_seconds || 180)}
         {typeof eta.estimated_seconds_remaining === 'number' ? ` · cleanup in ${formatDuration(Math.max(0, eta.estimated_seconds_remaining))}` : ''}
       </p>
+    </div>
+  );
+}
+
+function drainGatePanelClass(risk: string | undefined) {
+  if (risk === 'critical') return 'border-red-300/20 bg-red-300/[0.07]';
+  if (risk === 'warning') return 'border-yellow-200/15 bg-yellow-200/[0.05]';
+  if (risk === 'healthy') return 'border-emerald-300/15 bg-emerald-300/[0.05]';
+  return 'border-sky-200/15 bg-sky-200/[0.04]';
+}
+
+function clientRxGateCopy(eta: VpnRestartDrainEta) {
+  const active = Math.max(0, eta.active_sessions ?? 0);
+  const recent = Math.max(0, eta.recent_client_rx_sessions ?? eta.recent_activity_sessions ?? 0);
+  const never = Math.max(0, eta.never_client_rx_sessions ?? 0);
+  const stale = Math.max(0, (eta.stale_client_rx_sessions ?? active - recent) - never);
+  const health = eta.activity_health ?? null;
+  const windowLabel = formatDuration(eta.activity_window_seconds || 180);
+
+  if (active === 0) {
+    return {
+      title: 'Client RX gate clear',
+      detail: 'No active client sessions are blocking this runtime change.',
+      nextStep: eta.next_step,
+      risk: health?.risk ?? 'healthy',
+    };
+  }
+
+  if (health?.status === 'client_rx_stale' || stale + never > 0) {
+    return {
+      title: health?.label ?? 'Client RX gate blocked',
+      detail: `${recent.toLocaleString()}/${active.toLocaleString()} active session${active === 1 ? '' : 's'} received client traffic inside ${windowLabel}; ${stale.toLocaleString()} stale and ${never.toLocaleString()} never reported client RX.`,
+      nextStep: health?.detail ?? eta.next_step,
+      risk: health?.risk ?? 'warning',
+    };
+  }
+
+  return {
+    title: health?.label ?? 'Client RX gate passing',
+    detail: `All ${active.toLocaleString()} active session${active === 1 ? '' : 's'} have recent client RX inside ${windowLabel}.`,
+    nextStep: health?.detail ?? eta.next_step,
+    risk: health?.risk ?? 'healthy',
+  };
+}
+
+function RuntimeDrainGatePanel({ eta }: { eta: VpnRestartDrainEta }) {
+  const gate = clientRxGateCopy(eta);
+
+  return (
+    <div className={`mt-3 rounded-lg border p-3 ${drainGatePanelClass(gate.risk)}`}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-yellow-100/45">Client RX Restart Gate</p>
+          <p className="mt-1 text-sm font-semibold text-yellow-100">{gate.title}</p>
+          <p className="mt-1 text-xs leading-5 text-yellow-100/60">{gate.detail}</p>
+        </div>
+        <StatusPill status={gate.risk} />
+      </div>
+      <div className="mt-3">
+        <DrainComposition eta={eta} />
+      </div>
+      <div className="mt-3 grid gap-2 text-xs text-yellow-100/60 sm:grid-cols-2 xl:grid-cols-4">
+        <div>
+          <p className="text-yellow-100/35">Backend Status</p>
+          <p className="mt-1 text-yellow-100">{eta.activity_health?.status?.replaceAll('_', ' ') ?? eta.status.replaceAll('_', ' ')}</p>
+        </div>
+        <div>
+          <p className="text-yellow-100/35">Restart ETA</p>
+          <p className="mt-1 text-yellow-100">
+            {eta.estimated_seconds_remaining === null
+              ? 'pending'
+              : formatDuration(eta.estimated_seconds_remaining)}
+          </p>
+        </div>
+        <div>
+          <p className="text-yellow-100/35">Keepalive Totals</p>
+          <p className="mt-1 text-yellow-100">
+            {(eta.keepalive_missed_total ?? 0).toLocaleString()} missed · {(eta.keepalive_pending_total ?? 0).toLocaleString()} pending
+          </p>
+        </div>
+        <div>
+          <p className="text-yellow-100/35">Backend Next Step</p>
+          <p className="mt-1 text-yellow-100">{eta.next_step}</p>
+        </div>
+      </div>
+      {gate.nextStep && (
+        <p className="mt-3 text-xs leading-5 text-yellow-100/55">{gate.nextStep}</p>
+      )}
     </div>
   );
 }
@@ -2859,43 +2947,7 @@ function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
             <RolloutGateStrip node={node} />
             <RolloutImpactCallout node={node} />
             {node.drainEta && (
-              <div className="mt-3 rounded-lg border border-yellow-200/10 bg-yellow-200/[0.04] p-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-yellow-100/45">Drain ETA</p>
-                    <p className="mt-1 text-sm text-yellow-100">{node.drainEta.next_step}</p>
-                  </div>
-                  <StatusPill status={node.drainEta.activity_health?.risk ?? node.drainEta.status} />
-                </div>
-                <div className="mt-3">
-                  <DrainComposition eta={node.drainEta} />
-                </div>
-                <div className="mt-3 grid gap-2 text-xs text-yellow-100/60 sm:grid-cols-2 xl:grid-cols-3">
-                  <div>
-                    <p className="text-yellow-100/35">Status</p>
-                    <p className="mt-1 text-yellow-100">{node.drainEta.status.replaceAll('_', ' ')}</p>
-                  </div>
-                  <div>
-                    <p className="text-yellow-100/35">Remaining</p>
-                    <p className="mt-1 text-yellow-100">
-                      {node.drainEta.estimated_seconds_remaining === null
-                        ? 'pending'
-                        : formatDuration(node.drainEta.estimated_seconds_remaining)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-yellow-100/35">Keepalive Totals</p>
-                    <p className="mt-1 text-yellow-100">
-                      {(node.drainEta.keepalive_missed_total ?? 0).toLocaleString()} missed · {(node.drainEta.keepalive_pending_total ?? 0).toLocaleString()} pending
-                    </p>
-                  </div>
-                </div>
-                {node.drainEta.activity_health && (
-                  <p className="mt-2 text-xs leading-5 text-yellow-100/50">
-                    {node.drainEta.activity_health.label}: {node.drainEta.activity_health.detail}
-                  </p>
-                )}
-              </div>
+              <RuntimeDrainGatePanel eta={node.drainEta} />
             )}
           </div>
         ))}

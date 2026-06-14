@@ -472,7 +472,7 @@ export interface VpnRestartCommandState {
 }
 
 export interface VpnDrainActivityHealth {
-  status: 'clear' | 'active_traffic' | 'keepalive_degraded' | 'idle_or_stale' | string;
+  status: 'clear' | 'active_traffic' | 'keepalive_degraded' | 'client_rx_stale' | 'idle_or_stale' | string;
   risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
   label: string;
   detail: string;
