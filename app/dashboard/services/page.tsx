@@ -137,7 +137,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.41 - Show runtime rollout drain ETA
+ * Last Modified: v1.1.42 - Add visual drain composition for restart gating
+ * Previous: v1.1.41 - Show runtime rollout drain ETA
  * Previous: v1.1.40 - Show Rust service manager active state
  * Previous: v1.1.39 - Explain placement blockers with failed health checks
  * Previous: v1.1.38 - Show placement blocker node triage
@@ -784,6 +785,95 @@ function formatDrainEta(eta: VpnRestartDrainEta | null) {
 function formatDrainStatus(status: string | undefined) {
   if (!status) return null;
   return status.replaceAll('_', ' ');
+}
+
+function clampDrainPercent(value: number, total: number) {
+  if (total <= 0 || value <= 0) return 0;
+  return Math.max(5, Math.min(100, (value / total) * 100));
+}
+
+function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; tone?: 'yellow' | 'neutral' }) {
+  const activeSessions = Math.max(0, eta.active_sessions ?? 0);
+  const recentSessions = Math.max(0, eta.recent_activity_sessions ?? 0);
+  const idleSessions = Math.max(0, eta.idle_activity_sessions ?? 0);
+  const pendingSessions = Math.max(
+    0,
+    eta.activity_pending_sessions ?? activeSessions - recentSessions - idleSessions,
+  );
+  const keepaliveIssueSessions = Math.max(
+    eta.keepalive_missed_sessions ?? 0,
+    eta.keepalive_pending_sessions ?? 0,
+  );
+  const total = Math.max(activeSessions, recentSessions + idleSessions + pendingSessions, 1);
+  const textClass = tone === 'yellow' ? 'text-yellow-100' : 'text-gray-200';
+  const mutedClass = tone === 'yellow' ? 'text-yellow-100/45' : 'text-gray-500';
+  const chipClass = tone === 'yellow'
+    ? 'border-yellow-100/10 bg-yellow-100/[0.04] text-yellow-100/70'
+    : 'border-white/10 bg-white/[0.03] text-gray-400';
+  const segments = [
+    {
+      key: 'recent',
+      label: 'recent traffic',
+      value: recentSessions,
+      className: 'bg-emerald-300/80',
+    },
+    {
+      key: 'idle',
+      label: 'idle',
+      value: idleSessions,
+      className: 'bg-sky-300/75',
+    },
+    {
+      key: 'pending',
+      label: 'activity pending',
+      value: pendingSessions,
+      className: 'bg-zinc-400/70',
+    },
+  ].filter((segment) => segment.value > 0);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3 text-xs">
+        <span className={mutedClass}>Drain composition</span>
+        <span className={textClass}>{activeSessions.toLocaleString()} active session{activeSessions === 1 ? '' : 's'}</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-black/35">
+        {segments.length === 0 ? (
+          <div className="h-full w-full bg-emerald-300/70" />
+        ) : (
+          <div className="flex h-full w-full">
+            {segments.map((segment) => (
+              <div
+                key={segment.key}
+                className={`${segment.className} h-full`}
+                style={{ width: `${clampDrainPercent(segment.value, total)}%` }}
+                title={`${segment.label}: ${segment.value.toLocaleString()}`}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2 text-[11px]">
+        <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
+          {recentSessions.toLocaleString()} recent
+        </span>
+        <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
+          {idleSessions.toLocaleString()} idle
+        </span>
+        <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
+          {pendingSessions.toLocaleString()} pending
+        </span>
+        <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
+          {keepaliveIssueSessions.toLocaleString()} keepalive issue
+        </span>
+      </div>
+      <p className={`text-[11px] leading-5 ${mutedClass}`}>
+        Window {formatDuration(eta.activity_window_seconds || 180)}
+        {eta.latest_activity_at ? ` · latest activity ${formatRelativeTime(eta.latest_activity_at)}` : ''}
+        {eta.estimated_seconds_remaining !== null ? ` · cleanup in ${formatDuration(Math.max(0, eta.estimated_seconds_remaining))}` : ''}
+      </p>
+    </div>
+  );
 }
 
 function formatBlockedDrainActivity(node: VpnRestartReadinessSummary['blocked_nodes'][number]) {
@@ -2480,6 +2570,11 @@ function FleetRestartReadinessPanel({
               {node.drainEta?.cleanup_timeout_seconds ? ` cleanup ${formatDuration(node.drainEta.cleanup_timeout_seconds)} ·` : ''}
               source {node.source}.
             </p>
+            {node.drainEta && node.drainEta.active_sessions > 0 && (
+              <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.02] p-3">
+                <DrainComposition eta={node.drainEta} tone="neutral" />
+              </div>
+            )}
             {node.blockers.length > 0 && (
               <p className="mt-2 text-xs leading-5 text-yellow-100/60">
                 Blockers: {node.blockers.join(' ')}
@@ -2582,7 +2677,10 @@ function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
                   </div>
                   <StatusPill status={node.drainEta.activity_health?.risk ?? node.drainEta.status} />
                 </div>
-                <div className="mt-3 grid gap-2 text-xs text-yellow-100/60 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="mt-3">
+                  <DrainComposition eta={node.drainEta} />
+                </div>
+                <div className="mt-3 grid gap-2 text-xs text-yellow-100/60 sm:grid-cols-2 xl:grid-cols-3">
                   <div>
                     <p className="text-yellow-100/35">Status</p>
                     <p className="mt-1 text-yellow-100">{node.drainEta.status.replaceAll('_', ' ')}</p>
@@ -2596,15 +2694,9 @@ function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
                     </p>
                   </div>
                   <div>
-                    <p className="text-yellow-100/35">Activity</p>
+                    <p className="text-yellow-100/35">Keepalive Totals</p>
                     <p className="mt-1 text-yellow-100">
-                      {(node.drainEta.recent_activity_sessions ?? 0).toLocaleString()} recent · {(node.drainEta.idle_activity_sessions ?? 0).toLocaleString()} idle
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-yellow-100/35">Keepalive Issues</p>
-                    <p className="mt-1 text-yellow-100">
-                      {(node.drainEta.keepalive_missed_sessions ?? 0).toLocaleString()} missed · {(node.drainEta.keepalive_pending_sessions ?? 0).toLocaleString()} pending
+                      {(node.drainEta.keepalive_missed_total ?? 0).toLocaleString()} missed · {(node.drainEta.keepalive_pending_total ?? 0).toLocaleString()} pending
                     </p>
                   </div>
                 </div>
