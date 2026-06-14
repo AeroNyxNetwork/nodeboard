@@ -35,8 +35,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.2 - Added live refresh state for drain and rollout monitoring
- * Previous: v1.1.1 - Added fleet session-cleanup rollout visibility
+ * Last Modified: v1.1.3 - Added fleet restart readiness decision panel
+ * Previous: v1.1.2 - Added live refresh state for drain and rollout monitoring
  * ============================================
  */
 
@@ -117,6 +117,21 @@ interface RuntimeRolloutNode {
   rollout: RuntimeRolloutStatus;
 }
 
+interface RestartReadinessNode {
+  id: string;
+  name: string;
+  publicIp: string | null;
+  activeSessions: number;
+  maintenanceMode: boolean;
+  healthStatus: string;
+  lastHeartbeat: string | null;
+  operatorReporting: boolean;
+  restartRequired: boolean;
+  cleanupReported: boolean;
+  status: 'ready' | 'blocked' | 'pending' | 'current';
+  nextStep: string;
+}
+
 interface SessionCleanupRolloutNode {
   id: string;
   name: string;
@@ -154,6 +169,7 @@ const serviceMeta: Record<ServiceKey, { label: string; eyebrow: string }> = {
 
 const statusStyles: Record<string, string> = {
   ok: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+  current: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
   ready: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
   healthy: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
   attention: 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300',
@@ -162,6 +178,7 @@ const statusStyles: Record<string, string> = {
   planned: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
   info: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
   pending: 'border-white/10 bg-white/5 text-gray-300',
+  blocked: 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300',
   disabled: 'border-white/10 bg-white/5 text-gray-400',
   failed: 'border-red-500/30 bg-red-500/10 text-red-300',
   critical: 'border-red-500/30 bg-red-500/10 text-red-300',
@@ -351,6 +368,53 @@ function collectRuntimeRolloutNodes(nodes: VpnNodeHealth[]): RuntimeRolloutNode[
     });
     return items;
   }, []);
+}
+
+function collectRestartReadinessNodes(nodes: VpnNodeHealth[]): RestartReadinessNode[] {
+  return nodes
+    .filter((node) => node.is_vpn_node)
+    .map((node) => {
+      const operatorStatus = nodeOperatorStatus(node);
+      const restartRequired = Boolean(operatorStatus?.runtime_rollout?.restart_required);
+      const operatorReporting = Boolean(operatorStatus);
+      const cleanupReported = Boolean(node.system?.session_cleanup);
+      const needsRolloutAttention = restartRequired || !operatorReporting || !cleanupReported;
+      const readyForRestart = needsRolloutAttention && node.maintenance_mode && node.active_sessions === 0;
+      const nextStep = readyForRestart
+        ? 'restart window open'
+        : !needsRolloutAttention
+          ? 'current'
+          : !node.maintenance_mode
+            ? 'enable maintenance'
+            : node.active_sessions > 0
+              ? `drain ${node.active_sessions.toLocaleString()} session(s)`
+              : !operatorReporting
+                ? 'restart old Rust process'
+                : restartRequired
+                  ? 'restart staged binary'
+                  : 'await cleanup heartbeat';
+
+      return {
+        id: node.id,
+        name: node.name,
+        publicIp: node.public_ip,
+        activeSessions: node.active_sessions,
+        maintenanceMode: node.maintenance_mode,
+        healthStatus: node.health_status,
+        lastHeartbeat: node.last_heartbeat,
+        operatorReporting,
+        restartRequired,
+        cleanupReported,
+        status: readyForRestart
+          ? 'ready'
+          : !needsRolloutAttention
+            ? 'current'
+            : node.active_sessions > 0 || !node.maintenance_mode
+              ? 'blocked'
+              : 'pending',
+        nextStep,
+      };
+    });
 }
 
 function collectSessionCleanupRolloutNodes(nodes: VpnNodeHealth[]): SessionCleanupRolloutNode[] {
@@ -595,6 +659,100 @@ function NodeReadinessRow({ node }: { node: VpnNodeHealth }) {
         {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : 'pending'}
       </td>
     </tr>
+  );
+}
+
+function FleetRestartReadinessPanel({ nodes }: { nodes: RestartReadinessNode[] }) {
+  if (nodes.length === 0) return null;
+
+  const attentionNodes = nodes.filter((node) => node.status !== 'current');
+  const readyCount = attentionNodes.filter((node) => node.status === 'ready').length;
+  const blockedCount = attentionNodes.filter((node) => node.status === 'blocked').length;
+  const pendingCount = attentionNodes.filter((node) => node.status === 'pending').length;
+  const totalActiveSessions = attentionNodes.reduce((sum, node) => sum + node.activeSessions, 0);
+
+  return (
+    <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Fleet Restart Readiness</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-400">
+            Commercial restart gate for staged Rust rollouts. A node is restart-ready only when it needs
+            rollout attention, maintenance mode is enabled, and active sessions have drained to zero.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <StatusPill status={readyCount > 0 ? 'ready' : 'pending'} />
+          {blockedCount > 0 && <StatusPill status="blocked" />}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Ready Now</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{readyCount.toLocaleString()}</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Blocked</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{blockedCount.toLocaleString()}</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Pending Signal</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{pendingCount.toLocaleString()}</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Sessions Blocking</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{totalActiveSessions.toLocaleString()}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {nodes.map((node) => (
+          <div key={node.id} className="rounded-xl border border-white/10 bg-black/20 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
+                  {node.name}
+                </Link>
+                <p className="mt-1 truncate text-xs text-gray-500">
+                  {node.publicIp ?? 'no public IP'} · {node.maintenanceMode ? 'maintenance on' : 'maintenance off'}
+                </p>
+              </div>
+              <StatusPill status={node.status} />
+            </div>
+
+            <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-gray-400">
+              <div>
+                <p className="text-gray-600">Active Sessions</p>
+                <p className="mt-1 text-gray-200">{node.activeSessions.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Operator Signal</p>
+                <p className="mt-1 text-gray-200">{node.operatorReporting ? 'reported' : 'pending'}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Next Step</p>
+                <p className="mt-1 text-gray-200">{node.nextStep}</p>
+              </div>
+            </div>
+
+            <p className="mt-3 text-xs leading-5 text-gray-600">
+              Heartbeat {node.lastHeartbeat ? formatRelativeTime(node.lastHeartbeat) : 'pending'} ·
+              cleanup policy {node.cleanupReported ? 'reported' : 'pending'} ·
+              rollout {node.restartRequired ? 'restart required' : node.operatorReporting ? 'current signal' : 'operator pending'}.
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-4 text-xs leading-5 text-gray-600">
+        UI path: /root/open/nodeboard/app/dashboard/services/page.tsx. Backend API:
+        GET /api/privacy_network/vpn/overview/ in /root/aeronyx/privacy_network/api/vpn_observability.py.
+        Rust producers: /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs,
+        /root/open/AeroNyx/crates/aeronyx-server/src/services/session.rs, and
+        /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs.
+      </p>
+    </section>
   );
 }
 
@@ -897,6 +1055,7 @@ export default function NodeServicesPage() {
   const fleetSummary = useMemo(() => buildFleetSummary(nodes, operatorStatuses), [nodes, operatorStatuses]);
   const services = useMemo(() => buildServiceViews(nodes, operatorStatuses), [nodes, operatorStatuses]);
   const risks = useMemo(() => collectRisks(nodes), [nodes]);
+  const restartReadinessNodes = useMemo(() => collectRestartReadinessNodes(nodes), [nodes]);
   const pendingOperatorNodes = useMemo(() => collectPendingOperatorNodes(nodes), [nodes]);
   const runtimeRolloutNodes = useMemo(() => collectRuntimeRolloutNodes(nodes), [nodes]);
   const sessionCleanupRolloutNodes = useMemo(() => collectSessionCleanupRolloutNodes(nodes), [nodes]);
@@ -976,6 +1135,7 @@ export default function NodeServicesPage() {
         </div>
       </div>
 
+      <FleetRestartReadinessPanel nodes={restartReadinessNodes} />
       <SessionCleanupRolloutPanel nodes={sessionCleanupRolloutNodes} />
       <PendingOperatorRolloutPanel nodes={pendingOperatorNodes} />
       <RuntimeRolloutPanel nodes={runtimeRolloutNodes} />
