@@ -38,6 +38,9 @@
  *     Exposes data.nodes[].system.session_cleanup for drain ETA context.
  *     Exposes data.nodes[].system.restart_readiness for backend-authoritative
  *     controlled-restart gating.
+ *     Exposes data.nodes[].system.restart_readiness.active_restart_command
+ *     and latest_restart_command for restart command SLA/outcome visibility
+ *     without command params, result, or error_message payloads.
  *     Exposes data.nodes[].system.restart_readiness.drain_eta for active
  *     ClientSession aggregate timing used by the Maintenance Drain panel.
  *     drain_eta also carries node-level active-session activity buckets:
@@ -81,7 +84,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.7 - Show backend drain activity health
+ * Last Modified: v1.6.8 - Show restart command SLA in node detail
+ * Previous: v1.6.7 - Show backend drain activity health
  * Previous: v1.6.6 - Show keepalive issue session counts
  * Previous: v1.6.5 - Show aggregate drain activity buckets
  * Previous: v1.6.4 - Explain cleanup rollout pending in node detail
@@ -125,6 +129,7 @@ import {
   VpnHealthStatus,
   VpnNodeHealth,
   VpnNodeMetrics,
+  VpnRestartCommandState,
   VpnRestartDrainEta,
   VpnRestartReadiness,
   VpnServerCandidate,
@@ -1386,6 +1391,45 @@ function restartDrainEtaTiming(eta: VpnRestartDrainEta | null | undefined) {
   return 'estimate unavailable';
 }
 
+function restartCommandStageIndex(command: VpnRestartCommandState | null | undefined) {
+  if (!command) return -1;
+  if (command.status === 'pending') return 0;
+  if (command.status === 'sent') return 1;
+  if (command.status === 'executing') return 2;
+  if (command.is_terminal) return 2;
+  return 0;
+}
+
+function restartCommandStageLabels(command: VpnRestartCommandState | null | undefined) {
+  if (command?.is_terminal) return ['Queued', 'Sent', 'Closed'];
+  return ['Queued', 'Sent', 'Executing'];
+}
+
+function restartCommandToneClass(command: VpnRestartCommandState | null | undefined) {
+  if (!command) return 'border-white/10 bg-white/[0.03] text-gray-400';
+  if (command.is_stale || command.status === 'failed' || command.status === 'timeout') {
+    return 'border-red-400/25 bg-red-400/[0.08] text-red-100';
+  }
+  if (command.status === 'cancelled') return 'border-yellow-400/25 bg-yellow-400/[0.08] text-yellow-100';
+  if (command.status === 'completed') return 'border-emerald-400/25 bg-emerald-400/[0.08] text-emerald-100';
+  if (command.status === 'executing') return 'border-emerald-400/25 bg-emerald-400/[0.08] text-emerald-100';
+  if (command.status === 'sent') return 'border-sky-400/25 bg-sky-400/[0.08] text-sky-100';
+  return 'border-yellow-400/25 bg-yellow-400/[0.08] text-yellow-100';
+}
+
+function restartCommandSummary(command: VpnRestartCommandState | null | undefined) {
+  if (!command) return null;
+  const timestamp = command.completed_at ?? command.acked_at ?? command.sent_at ?? command.created_at;
+  const timestampLabel = timestamp ? ` · ${formatRelativeTime(timestamp)}` : '';
+  const staleLabel = command.is_stale ? ' · stale' : '';
+  return `${command.is_terminal ? 'Last restart command' : 'Restart command'} ${command.status}${timestampLabel}${staleLabel}`;
+}
+
+function restartCommandSlaDetail(command: VpnRestartCommandState | null | undefined) {
+  if (!command?.age_seconds || !command.stale_after_seconds) return null;
+  return `${formatDuration(command.age_seconds)} elapsed / ${formatDuration(command.stale_after_seconds)} SLA`;
+}
+
 function cleanupRolloutPendingCopy(eta: VpnRestartDrainEta | null | undefined) {
   if (eta?.status !== 'cleanup_policy_pending') return null;
   return {
@@ -1542,6 +1586,12 @@ function MaintenanceDrainPanel({
   const cleanupRolloutPending = cleanupRolloutPendingCopy(backendDrainEta);
   const drainActivityBuckets = drainActivityBucketRows(backendDrainEta);
   const drainActivityHealth = backendDrainEta?.activity_health ?? null;
+  const activeRestartCommand = restartReadiness?.active_restart_command ?? null;
+  const latestRestartCommand = restartReadiness?.latest_restart_command ?? null;
+  const visibleRestartCommand = activeRestartCommand ?? latestRestartCommand;
+  const restartCommandStage = restartCommandStageIndex(visibleRestartCommand);
+  const restartCommandStages = restartCommandStageLabels(visibleRestartCommand);
+  const restartCommandSla = restartCommandSlaDetail(visibleRestartCommand);
   const restartBlockers = restartReadinessBlockers({
     health,
     maintenanceMode,
@@ -1726,6 +1776,44 @@ function MaintenanceDrainPanel({
             <p className="mt-2 text-[11px] text-yellow-200">
               {restartReadiness?.next_step || 'Restart unlocks after active tunnels reach 0.'}
             </p>
+          )}
+          {visibleRestartCommand && (
+            <div className={`mt-3 rounded-lg border px-3 py-2 ${restartCommandToneClass(visibleRestartCommand)}`}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold">
+                  {restartCommandSummary(visibleRestartCommand)}
+                </p>
+                <a
+                  href="#vpn-commands"
+                  className="shrink-0 text-xs font-medium text-sky-200 hover:text-sky-100"
+                >
+                  Open
+                </a>
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-1">
+                {restartCommandStages.map((stage, index) => (
+                  <div
+                    key={stage}
+                    className={`rounded-md px-2 py-1 text-center text-[11px] ${
+                      index <= restartCommandStage
+                        ? 'bg-white/15 text-white'
+                        : 'bg-black/20 opacity-50'
+                    }`}
+                  >
+                    {stage}
+                  </div>
+                ))}
+              </div>
+              {restartCommandSla && (
+                <p className="mt-2 text-[11px] opacity-75">
+                  {restartCommandSla}
+                  {visibleRestartCommand.stale_reason ? ` · ${visibleRestartCommand.stale_reason}` : ''}
+                </p>
+              )}
+              <p className="mt-1 text-[10px] leading-4 opacity-45">
+                Source: data.nodes[].system.restart_readiness.{activeRestartCommand ? 'active_restart_command' : 'latest_restart_command'}
+              </p>
+            </div>
           )}
         </div>
 
