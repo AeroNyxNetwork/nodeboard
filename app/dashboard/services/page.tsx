@@ -20,6 +20,10 @@
  *     /root/aeronyx/privacy_network/api/vpn_commands.py
  *     /root/aeronyx/privacy_network/services/command_service.py
  *     Queues restart_service only after the restart readiness gate is ready.
+ *   - POST /api/privacy_network/nodes/{id}/commands/{cmd_id}/cancel/
+ *     /root/aeronyx/privacy_network/api/vpn_commands.py
+ *     Cancels only active restart_service queue entries from fleet triage
+ *     before Rust reaches a terminal command state.
  *   - data.nodes[].system.restart_readiness.active_restart_command
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors NodeCommand restart_service pending/sent/executing state so the
@@ -86,7 +90,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.22 - Show fleet command SLA summary
+ * Last Modified: v1.1.23 - Cancel active restart commands from fleet triage
+ * Previous: v1.1.22 - Show fleet command SLA summary
  * Previous: v1.1.21 - Show stale restart command SLA
  * Previous: v1.1.20 - Close restart command outcomes
  * Previous: v1.1.19 - Show restart command timeline in action queue
@@ -114,7 +119,7 @@
 
 import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRunNodeCommand, useUpdateNode, useVpnOverview } from '@/hooks/useNodes';
+import { useCancelNodeCommand, useRunNodeCommand, useUpdateNode, useVpnOverview } from '@/hooks/useNodes';
 import { formatDuration, formatRelativeTime } from '@/lib/api';
 import { POLLING_INTERVALS } from '@/lib/constants';
 import {
@@ -244,6 +249,7 @@ interface RestartActionQueueItem {
   maintenanceMode: boolean;
   canEnableMaintenance: boolean;
   canQueueRestart: boolean;
+  canCancelRestartCommand: boolean;
   actionHref: string;
   actionLabel: string;
   source: 'backend_blocked_node' | 'backend_readiness_node';
@@ -852,6 +858,7 @@ function buildBlockedRestartQueueItem(
     maintenanceMode: node.maintenance_mode,
     canEnableMaintenance: !node.maintenance_mode && node.blocker_codes.includes('maintenance_required'),
     canQueueRestart: false,
+    canCancelRestartCommand: restartCommandCanCancel(readinessNode?.activeRestartCommand ?? null),
     actionHref: restartBlockedNodeActionHref(node),
     actionLabel: restartBlockedNodeActionLabel(node),
     source: 'backend_blocked_node',
@@ -883,6 +890,7 @@ function buildReadyRestartQueueItem(node: RestartReadinessNode): RestartActionQu
     maintenanceMode: node.maintenanceMode,
     canEnableMaintenance: false,
     canQueueRestart: node.canRestart && !node.activeRestartCommand,
+    canCancelRestartCommand: restartCommandCanCancel(node.activeRestartCommand),
     actionHref: `/dashboard/nodes/${node.id}`,
     actionLabel: 'Open node',
     source: 'backend_readiness_node',
@@ -1016,6 +1024,12 @@ function restartCommandIsStale(command: VpnRestartCommandState | null) {
 function restartCommandManualCheck(command: VpnRestartCommandState | null) {
   if (!command) return false;
   return command.status === 'cancelled' || command.status === 'timeout';
+}
+
+function restartCommandCanCancel(command: VpnRestartCommandState | null) {
+  if (!command) return false;
+  if (command.is_terminal) return false;
+  return !['completed', 'failed', 'cancelled', 'timeout'].includes(command.status);
 }
 
 function restartCommandSlaLabel(command: VpnRestartCommandState | null) {
@@ -1344,15 +1358,19 @@ function FleetRestartReadinessPanel({
   summary,
   enablingMaintenanceNodeId,
   restartingNodeId,
+  cancellingCommandId,
   onEnableMaintenance,
   onQueueRestart,
+  onCancelRestartCommand,
 }: {
   nodes: RestartReadinessNode[];
   summary: VpnRestartReadinessSummary | null;
   enablingMaintenanceNodeId: string | null;
   restartingNodeId: string | null;
+  cancellingCommandId: string | null;
   onEnableMaintenance: (nodeId: string, nodeName: string) => void;
   onQueueRestart: (nodeId: string, nodeName: string) => void;
+  onCancelRestartCommand: (nodeId: string, nodeName: string, commandId: string) => void;
 }) {
   const [queueFilters, setQueueFilters] = useState<RestartQueueFilters>({
     region: 'all',
@@ -1530,6 +1548,8 @@ function FleetRestartReadinessPanel({
                   const isEnablingMaintenance = enablingMaintenanceNodeId === item.id;
                   const isRestarting = restartingNodeId === item.id;
                   const visibleCommand = item.activeRestartCommand ?? item.latestRestartCommand;
+                  const cancellableRestartCommand = item.canCancelRestartCommand ? item.activeRestartCommand : null;
+                  const isCancellingCommand = cancellableRestartCommand?.id === cancellingCommandId;
                   const commandStageIndex = restartCommandStageIndex(visibleCommand);
                   const commandStageLabels = restartCommandStageLabels(visibleCommand);
                   const commandSlaLabel = restartCommandSlaLabel(visibleCommand);
@@ -1616,6 +1636,16 @@ function FleetRestartReadinessPanel({
                             {isRestarting ? 'Queueing...' : 'Queue restart'}
                           </button>
                         )}
+                        {cancellableRestartCommand && (
+                          <button
+                            type="button"
+                            onClick={() => onCancelRestartCommand(item.id, item.name, cancellableRestartCommand.id)}
+                            disabled={Boolean(cancellingCommandId)}
+                            className="inline-flex items-center justify-center rounded-md border border-red-300/20 px-2.5 py-1 font-medium text-red-100 transition hover:border-red-200/40 hover:bg-red-300/10 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isCancellingCommand ? 'Cancelling...' : 'Cancel command'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -1641,12 +1671,24 @@ function FleetRestartReadinessPanel({
               <div className="flex flex-wrap items-center gap-2">
                 <StatusPill status={node.status} />
                 {node.activeRestartCommand ? (
-                  <Link
-                    href={`/dashboard/nodes/${node.id}?command_action=restart_service#vpn-commands`}
-                    className="inline-flex items-center justify-center rounded-lg border border-sky-500/20 px-3 py-1.5 text-xs font-medium text-sky-100 transition hover:border-sky-400/40 hover:bg-sky-500/10"
-                  >
-                    Restart {node.activeRestartCommand.status}
-                  </Link>
+                  <>
+                    <Link
+                      href={`/dashboard/nodes/${node.id}?command_action=restart_service#vpn-commands`}
+                      className="inline-flex items-center justify-center rounded-lg border border-sky-500/20 px-3 py-1.5 text-xs font-medium text-sky-100 transition hover:border-sky-400/40 hover:bg-sky-500/10"
+                    >
+                      Restart {node.activeRestartCommand.status}
+                    </Link>
+                    {restartCommandCanCancel(node.activeRestartCommand) && (
+                      <button
+                        type="button"
+                        onClick={() => onCancelRestartCommand(node.id, node.name, node.activeRestartCommand!.id)}
+                        disabled={Boolean(cancellingCommandId)}
+                        className="inline-flex items-center justify-center rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-medium text-red-100 transition hover:border-red-400/40 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {cancellingCommandId === node.activeRestartCommand.id ? 'Cancelling...' : 'Cancel command'}
+                      </button>
+                    )}
+                  </>
                 ) : node.canRestart ? (
                   <button
                     type="button"
@@ -2030,8 +2072,10 @@ export default function NodeServicesPage() {
   } = useVpnOverview({ refetchIntervalMs: refreshIntervalMs });
   const updateNode = useUpdateNode();
   const runCommand = useRunNodeCommand();
+  const cancelCommand = useCancelNodeCommand();
   const [enablingMaintenanceNodeId, setEnablingMaintenanceNodeId] = useState<string | null>(null);
   const [restartingNodeId, setRestartingNodeId] = useState<string | null>(null);
+  const [cancellingCommandId, setCancellingCommandId] = useState<string | null>(null);
   const [operationNotice, setOperationNotice] = useState<OperationNotice | null>(null);
 
   const handleRefresh = () => {
@@ -2097,6 +2141,31 @@ export default function NodeServicesPage() {
       });
     } finally {
       setRestartingNodeId(null);
+    }
+  };
+
+  const handleCancelRestartCommand = async (nodeId: string, nodeName: string, commandId: string) => {
+    if (!window.confirm(`Cancel the active restart_service command for ${nodeName}? Only commands that have not reached a terminal state can be cancelled.`)) {
+      return;
+    }
+
+    setCancellingCommandId(commandId);
+    setOperationNotice(null);
+
+    try {
+      await cancelCommand.mutateAsync({ nodeId, commandId });
+      setOperationNotice({
+        type: 'success',
+        message: `${nodeName} restart_service command cancellation requested. The fleet overview will refresh after backend acknowledgement.`,
+      });
+      await refetch();
+    } catch (error) {
+      setOperationNotice({
+        type: 'error',
+        message: error instanceof Error ? error.message : `Failed to cancel restart command for ${nodeName}.`,
+      });
+    } finally {
+      setCancellingCommandId(null);
     }
   };
 
@@ -2201,8 +2270,10 @@ export default function NodeServicesPage() {
         summary={restartReadinessSummary}
         enablingMaintenanceNodeId={enablingMaintenanceNodeId}
         restartingNodeId={restartingNodeId}
+        cancellingCommandId={cancellingCommandId}
         onEnableMaintenance={handleEnableMaintenance}
         onQueueRestart={handleQueueRestart}
+        onCancelRestartCommand={handleCancelRestartCommand}
       />
       <SessionCleanupRolloutPanel nodes={sessionCleanupRolloutNodes} />
       <PendingOperatorRolloutPanel nodes={pendingOperatorNodes} />
