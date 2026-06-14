@@ -13,6 +13,8 @@
  *
  * Frontend API Contract:
  *   - API base: lib/constants.ts -> API_BASE_URL
+ *   - Runtime env: /etc/nodeboard/nodeboard.env
+ *   - Deployment helper: deploy/bin/deploy-nodeboard.sh
  *   - Dashboard service page: app/dashboard/services/page.tsx
  *   - Node detail page: app/dashboard/nodes/[id]/page.tsx
  *
@@ -104,6 +106,13 @@ export async function GET() {
   return NextResponse.json(
     {
       ...healthPayload,
+      runtime: {
+        git_sha: process.env.NODEBOARD_GIT_SHA || 'unknown',
+        deployed_at: process.env.NODEBOARD_DEPLOYED_AT || null,
+        source_dir: process.env.NODEBOARD_SOURCE_DIR || '/root/open/nodeboard',
+        port: process.env.PORT || '3000',
+        env_file: '/etc/nodeboard/nodeboard.env',
+      },
       generated_at: new Date().toISOString(),
     },
     {
@@ -113,4 +122,3 @@ export async function GET() {
     }
   );
 }
-

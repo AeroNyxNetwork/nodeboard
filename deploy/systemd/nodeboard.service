@@ -25,6 +25,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/root/open/nodeboard
+EnvironmentFile=-/etc/nodeboard/nodeboard.env
 Environment=NODE_ENV=production
 Environment=PORT=3000
 ExecStart=/usr/bin/npm run start -- --hostname 127.0.0.1 --port 3000
@@ -39,4 +40,3 @@ SyslogIdentifier=nodeboard
 
 [Install]
 WantedBy=multi-user.target
-

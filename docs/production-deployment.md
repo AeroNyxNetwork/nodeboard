@@ -25,6 +25,7 @@ Frontend repository:
 - GitHub: `AeroNyxNetwork/nodeboard`
 - Production source path on US1 test host: `/root/open/nodeboard`
 - Main UI files:
+  - `app/api/health/route.ts`
   - `app/dashboard/services/page.tsx`
   - `app/dashboard/nodes/[id]/page.tsx`
   - `lib/api.ts`
@@ -81,12 +82,33 @@ domain and TLS certificate are ready.
 
 ## Build And Start
 
-From `/root/open/nodeboard`:
+Preferred deployment path from `/root/open/nodeboard`:
+
+```bash
+./deploy/bin/deploy-nodeboard.sh
+```
+
+The script pulls `origin/main`, runs `npm ci`, builds Next.js, writes
+`/etc/nodeboard/nodeboard.env`, installs the systemd unit, restarts nodeboard,
+and checks `/api/health` plus the main dashboard routes.
+
+Manual fallback:
 
 ```bash
 git pull --ff-only origin main
 npm ci
 npm run build
+mkdir -p /etc/nodeboard
+cat >/etc/nodeboard/nodeboard.env <<EOF
+NODE_ENV=production
+PORT=3000
+NODEBOARD_GIT_SHA=$(git rev-parse --short HEAD)
+NODEBOARD_DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+NODEBOARD_SOURCE_DIR=/root/open/nodeboard
+EOF
+cp deploy/systemd/nodeboard.service /etc/systemd/system/nodeboard.service
+systemctl daemon-reload
+systemctl enable nodeboard
 systemctl restart nodeboard
 systemctl status nodeboard --no-pager
 ```
@@ -104,7 +126,8 @@ curl -s https://api.aeronyx.network/api/privacy_network/vpn/overview/ \
 
 `/api/health` is served by `app/api/health/route.ts` and returns deployment
 metadata only: nodeboard version, API base URL, backend source files, Rust
-producer files, and the privacy boundary. It does not query node or user data.
+producer files, `runtime.git_sha`, `runtime.deployed_at`, and the privacy
+boundary. It does not query node or user data.
 
 The API call should expose `data.nodes[].system.operator_status` for upgraded
 Rust nodes and `runtime_rollout` for nodes running the rollout-status build.
