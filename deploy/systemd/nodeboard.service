@@ -1,0 +1,42 @@
+# AeroNyx Nodeboard systemd unit
+#
+# Source repository:
+#   AeroNyxNetwork/nodeboard
+# Production source path:
+#   /root/open/nodeboard
+#
+# Frontend API contract:
+#   lib/constants.ts -> https://api.aeronyx.network/api/privacy_network
+#
+# Backend files consumed by the UI:
+#   /root/aeronyx/privacy_network/api/vpn_observability.py
+#   /root/aeronyx/privacy_network/services/heartbeat_service.py
+#   /root/aeronyx/privacy_network/api/vpn_commands.py
+#
+# Rust heartbeat producer files:
+#   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+#   /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
+
+[Unit]
+Description=AeroNyx Nodeboard operator console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/open/nodeboard
+Environment=NODE_ENV=production
+Environment=PORT=3000
+ExecStart=/usr/bin/npm run start -- --hostname 127.0.0.1 --port 3000
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+# Keep the process logs in journald so rollout/debug evidence stays auditable.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nodeboard
+
+[Install]
+WantedBy=multi-user.target
+
