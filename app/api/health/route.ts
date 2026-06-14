@@ -21,6 +21,9 @@
  * Backend API and File Paths:
  *   - GET /api/privacy_network/vpn/overview/
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   - GET /api/privacy_network/nodes/{id}/sessions/
+ *     /root/aeronyx/privacy_network/api/sessions.py
+ *     /root/aeronyx/privacy_network/serializers.py
  *   - Heartbeat storage:
  *     /root/aeronyx/privacy_network/services/heartbeat_service.py
  *   - Node command controls:
@@ -66,6 +69,16 @@ const healthPayload = {
       endpoint: 'GET /api/privacy_network/vpn/overview/',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Node fleet health, operator_status, runtime_rollout, metrics',
+    },
+    {
+      endpoint: 'GET /api/privacy_network/nodes/{id}/sessions/',
+      file: '/root/aeronyx/privacy_network/api/sessions.py',
+      purpose: 'Owner-scoped session list for Maintenance Drain restart guardrails',
+    },
+    {
+      endpoint: 'ClientSessionSerializer',
+      file: '/root/aeronyx/privacy_network/serializers.py',
+      purpose: 'Session telemetry fields: updated_at, last_rx_at, last_tx_at, keepalive counters',
     },
     {
       endpoint: 'POST /api/privacy_network/heartbeat/',
