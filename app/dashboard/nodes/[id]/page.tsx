@@ -38,6 +38,9 @@
  *     Exposes data.nodes[].system.session_cleanup for drain ETA context.
  *     Exposes data.nodes[].system.restart_readiness for backend-authoritative
  *     controlled-restart gating.
+ *     Exposes data.nodes[].system.restart_readiness.operator_action_plan as
+ *     a backend-authored node detail preflight summary built from restart
+ *     gate, command delivery, drain ETA, and restart command lifecycle state.
  *     Exposes data.nodes[].last_seen_seconds and
  *     data.nodes[].system.restart_readiness.operator_reporting for node-level
  *     command delivery readiness in the Maintenance Drain panel. Backend
@@ -100,7 +103,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.13 - Use backend node command delivery policy
+ * Last Modified: v1.6.14 - Show backend operator action plan
+ * Previous: v1.6.13 - Use backend node command delivery policy
  * Previous: v1.6.12 - Show node command delivery readiness
  * Previous: v1.6.11 - Explain backend restart cancel eligibility
  * Previous: v1.6.10 - Use backend cancel eligibility in restart card
@@ -1608,6 +1612,27 @@ function nodeCommandDelivery(health: VpnNodeHealth, readiness: VpnRestartReadine
   };
 }
 
+function operatorActionPlanToneClass(risk: string | undefined) {
+  if (risk === 'critical') return 'border-red-400/25 bg-red-400/[0.08]';
+  if (risk === 'warning') return 'border-yellow-300/25 bg-yellow-300/[0.08]';
+  if (risk === 'healthy') return 'border-emerald-400/20 bg-emerald-400/[0.06]';
+  return 'border-sky-300/20 bg-sky-300/[0.05]';
+}
+
+function operatorActionPlanBadgeClass(risk: string | undefined) {
+  if (risk === 'critical') return 'border-red-400/25 bg-red-400/15 text-red-100';
+  if (risk === 'warning') return 'border-yellow-300/25 bg-yellow-300/15 text-yellow-100';
+  if (risk === 'healthy') return 'border-emerald-400/25 bg-emerald-400/15 text-emerald-100';
+  return 'border-sky-300/25 bg-sky-300/15 text-sky-100';
+}
+
+function operatorChecklistClass(status: string) {
+  if (status === 'ready' || status === 'current') return 'border-emerald-500/15 bg-emerald-500/[0.04] text-emerald-200';
+  if (status === 'blocked' || status === 'failed' || status === 'timeout') return 'border-red-400/20 bg-red-400/[0.06] text-red-100';
+  if (status === 'attention' || status === 'degraded' || status === 'pending') return 'border-yellow-300/20 bg-yellow-300/[0.06] text-yellow-100';
+  return 'border-white/10 bg-white/[0.03] text-gray-300';
+}
+
 function restartReadinessLabel(blockers: string[], restartCommandActive: boolean) {
   if (restartCommandActive) return 'Restart queued';
   if (blockers.length === 0) return 'Ready to restart';
@@ -1689,6 +1714,7 @@ function MaintenanceDrainPanel({
   const cleanupTimeoutSeconds = health.system.session_cleanup?.client_liveness_timeout_seconds ?? null;
   const restartReadiness = health.system.restart_readiness ?? null;
   const commandDelivery = nodeCommandDelivery(health, restartReadiness);
+  const operatorActionPlan = restartReadiness?.operator_action_plan ?? null;
   const backendDrainEta = restartReadiness?.drain_eta ?? null;
   const policySyncStatus = health.system.policy_sync?.status || 'unknown';
   const recoveryStatus = health.system.runtime_recovery?.status || 'unknown';
@@ -1733,6 +1759,48 @@ function MaintenanceDrainPanel({
           {restartReadinessLabel(restartBlockers, restartCommandActive)}
         </span>
       </div>
+
+      {operatorActionPlan && (
+        <div className={`mb-4 rounded-lg border px-3 py-3 ${operatorActionPlanToneClass(operatorActionPlan.risk)}`}>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-semibold text-white">Operator Action Plan</p>
+                <span className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] ${operatorActionPlanBadgeClass(operatorActionPlan.risk)}`}>
+                  {operatorActionPlan.label}
+                </span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-gray-300">{operatorActionPlan.summary}</p>
+              <p className="mt-1 text-[11px] leading-5 text-gray-500">{operatorActionPlan.primary_action}</p>
+              {operatorActionPlan.secondary_action && (
+                <p className="mt-1 text-[11px] leading-5 text-gray-600">{operatorActionPlan.secondary_action}</p>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2 lg:w-[420px]">
+              {operatorActionPlan.checklist.map((item) => (
+                <div key={item.key} className={`rounded-md border px-2 py-1.5 ${operatorChecklistClass(item.status)}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold">{item.label}</p>
+                    <span className="text-[10px] uppercase opacity-70">{item.status}</span>
+                  </div>
+                  <p className="mt-1 text-[10px] leading-4 opacity-70">{item.detail}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          {operatorActionPlan.reasons.length > 0 && (
+            <div className="mt-3 grid gap-1 text-[11px] leading-5 text-gray-500">
+              {operatorActionPlan.reasons.map((reason) => (
+                <p key={reason}>{reason}</p>
+              ))}
+            </div>
+          )}
+          <p className="mt-2 text-[10px] leading-4 text-gray-600">
+            Source: GET /api/privacy_network/vpn/overview/ -&gt; data.nodes[].system.restart_readiness.operator_action_plan
+          </p>
+          <p className="mt-1 text-[10px] leading-4 text-gray-600">{operatorActionPlan.privacy_boundary}</p>
+        </div>
+      )}
 
       <div className={`mb-4 rounded-lg border px-3 py-2.5 ${drainActivityHealthClass(commandDelivery.risk)}`}>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">

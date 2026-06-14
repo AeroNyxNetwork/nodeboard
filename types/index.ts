@@ -478,6 +478,10 @@ export interface VpnRestartDrainEta {
  *   session counts, and keepalive totals.
  *   activity_health is backend-authored commercial triage status so React
  *   views do not duplicate restart/drain risk rules.
+ * Operator action plan source:
+ *   data.nodes[].system.restart_readiness.operator_action_plan is a
+ *   backend-authored node detail preflight summary built from restart gate,
+ *   command delivery, drain ETA, and restart command lifecycle metadata.
  * Nodeboard consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/dashboard/nodes/[id]/page.tsx
@@ -495,7 +499,8 @@ export interface VpnRestartDrainEta {
  * are backend-authored SLA metadata from vpn_observability.py only; drain_eta
  * is node-level aggregate timing only. command_delivery is backend-authored
  * node-level restart command delivery readiness from heartbeat freshness plus
- * operator_reporting.
+ * operator_reporting. operator_action_plan is summary copy and checklist only,
+ * never raw command params/result/error_message.
  */
 export interface VpnRestartReadiness {
   status: 'ready' | 'blocked' | 'pending' | 'current' | string;
@@ -517,6 +522,24 @@ export interface VpnRestartReadiness {
     operator_reporting: boolean;
     fresh_seconds: number;
     degraded_seconds: number;
+    source: string;
+    privacy_boundary: string;
+  };
+  operator_action_plan?: {
+    status: string;
+    risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+    label: string;
+    summary: string;
+    primary_action: string;
+    secondary_action: string;
+    can_restart: boolean;
+    reasons: string[];
+    checklist: Array<{
+      key: string;
+      label: string;
+      status: string;
+      detail: string;
+    }>;
     source: string;
     privacy_boundary: string;
   };
