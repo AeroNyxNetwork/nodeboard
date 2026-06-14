@@ -86,6 +86,9 @@
  *     Lists current/drained nodes still in maintenance mode so Services can
  *     recover commercial client placement capacity with PATCH
  *     /api/privacy_network/nodes/{id}/ maintenance_mode=false.
+ *     Includes node placement metadata public_ip / region_code / city /
+ *     version so operators understand which commercial entry point returns
+ *     to client placement before ending maintenance mode.
  *     Candidate selection is sourced from
  *     data.nodes[].system.restart_readiness.operator_action_plan.recommended_actions
  *     key=end_maintenance so Services and node detail share one backend
@@ -113,7 +116,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.32 - Source maintenance exit from action plan
+ * Last Modified: v1.1.33 - Show maintenance exit placement context
+ * Previous: v1.1.32 - Source maintenance exit from action plan
  * Previous: v1.1.31 - Show maintenance exit candidates
  * Previous: v1.1.30 - Show command delivery issue nodes
  * Previous: v1.1.29 - Show command delivery health
@@ -1644,6 +1648,9 @@ function FleetRestartReadinessPanel({
           <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
             {maintenanceExitCandidates.map((node) => {
               const isEndingMaintenance = endingMaintenanceNodeId === node.id;
+              const placementLabel = [node.city, node.region_code].filter(Boolean).join(', ') || 'unknown region';
+              const entryLabel = node.public_ip ?? 'no public IP';
+              const versionLabel = node.version ? `v${node.version}` : 'version pending';
 
               return (
                 <div key={node.id} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
@@ -1655,6 +1662,9 @@ function FleetRestartReadinessPanel({
                       {node.recommended_action?.label ?? 'End maintenance'}
                     </span>
                   </div>
+                  <p className="mt-1 truncate leading-5 text-emerald-100/50">
+                    {placementLabel} · {entryLabel} · {versionLabel}
+                  </p>
                   <p className="mt-2 leading-5 text-emerald-100/60">
                     Health {node.health_status} · sessions {node.active_sessions.toLocaleString()} ·
                     heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}

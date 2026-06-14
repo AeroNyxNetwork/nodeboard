@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.5 - Added maintenance exit placement context fields.
  *   v1.5.4 - Documented maintenance exit candidates as action-plan sourced.
  *   v1.5.3 - Added fleet maintenance exit candidate summary types.
  *   v1.5.2 - Added backend recommended operator actions under
@@ -38,7 +39,8 @@
  *     ""         → clear password
  *     "xyz"      → set new password
  *
- * Last Modified: v1.5.4 - Documented action-sourced maintenance exits
+ * Last Modified: v1.5.5 - Added maintenance exit placement context
+ * Previous: v1.5.4 - Documented action-sourced maintenance exits
  * Previous: v1.5.3 - Added maintenance exit candidate types
  * Previous: v1.5.2 - Added recommended operator action types
  * Previous: v1.5.1 - Removed public discovery types
@@ -642,6 +644,9 @@ export interface VpnRestartReadinessBlockedNode {
  *   restore commercial client placement capacity.
  *   Candidates are sourced from node-level
  *   operator_action_plan.recommended_actions key=end_maintenance.
+ *   Candidate public_ip / region_code / city / version are node placement
+ *   metadata from /root/aeronyx/privacy_network/api/vpn_observability.py so
+ *   Services can show which commercial entry point returns to placement.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts
@@ -659,6 +664,10 @@ export interface VpnRestartReadinessSummary {
   maintenance_exit_candidates?: Array<{
     id: string;
     name: string;
+    public_ip?: string | null;
+    region_code?: string | null;
+    city?: string | null;
+    version?: string | null;
     health_status: string;
     last_seen_seconds: number | null;
     active_sessions: number;
