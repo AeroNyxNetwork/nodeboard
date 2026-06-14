@@ -137,7 +137,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.46 - Surface drain activity health in rollout gates
+ * Last Modified: v1.1.47 - Show cleanup policy rollout gate
+ * Previous: v1.1.46 - Surface drain activity health in rollout gates
  * Previous: v1.1.45 - Explain staged DNS rollout impact
  * Previous: v1.1.44 - Add DNS gateway gate to rollout cards
  * Previous: v1.1.43 - Show rollout restart gates
@@ -892,11 +893,34 @@ function rolloutDrainGateDetail(node: RuntimeRolloutNode) {
   return `${node.activeSessions.toLocaleString()} active session${node.activeSessions === 1 ? '' : 's'}`;
 }
 
+function rolloutCleanupPolicyGate(node: RuntimeRolloutNode) {
+  const eta = node.drainEta;
+  if (!eta || node.activeSessions === 0) {
+    return {
+      status: 'ready',
+      detail: 'not required while drain is clear',
+    };
+  }
+  if (typeof eta.cleanup_timeout_seconds === 'number') {
+    return {
+      status: 'ready',
+      detail: `client liveness timeout ${formatDuration(eta.cleanup_timeout_seconds)}`,
+    };
+  }
+  return {
+    status: eta.status === 'cleanup_policy_pending' ? 'pending' : 'unknown',
+    detail: eta.status === 'cleanup_policy_pending'
+      ? 'waiting for upgraded Rust heartbeat to report session_cleanup policy'
+      : eta.next_step,
+  };
+}
+
 function RolloutGateStrip({ node }: { node: RuntimeRolloutNode }) {
   const serviceManagerReady = Boolean(node.serviceManager?.restart_supported);
   const policySynced = node.policySync?.status === 'synced';
   const failedDnsCheck = node.dnsChecks.find((check) => !check.ok);
   const dnsChecksReady = node.dnsChecks.length > 0 && !failedDnsCheck;
+  const cleanupPolicyGate = rolloutCleanupPolicyGate(node);
   const gates = [
     {
       label: 'Maintenance',
@@ -912,6 +936,11 @@ function RolloutGateStrip({ node }: { node: RuntimeRolloutNode }) {
       label: 'Policy Sync',
       status: policySynced ? 'ready' : node.policySync ? 'pending' : 'unknown',
       detail: node.policySync?.message ?? 'waiting for backend policy snapshot',
+    },
+    {
+      label: 'Cleanup Policy',
+      status: cleanupPolicyGate.status,
+      detail: cleanupPolicyGate.detail,
     },
     {
       label: 'DNS Gateway',
@@ -930,7 +959,7 @@ function RolloutGateStrip({ node }: { node: RuntimeRolloutNode }) {
   ];
 
   return (
-    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
       {gates.map((gate) => (
         <div key={gate.label} className="rounded-lg border border-yellow-100/10 bg-black/20 p-3">
           <div className="flex items-center justify-between gap-2">
