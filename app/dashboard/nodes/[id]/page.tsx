@@ -65,6 +65,9 @@
  *     an active restart command is not cancellable.
  *     Exposes data.nodes[].system.restart_readiness.drain_eta for active
  *     ClientSession aggregate timing used by the Maintenance Drain panel.
+ *     The AeroNyx Service Readiness fallback also uses drain_eta when older
+ *     Rust runtimes have not reported operator_status yet, so operators still
+ *     see active-session blockers and cleanup rollout state before restart.
  *     drain_eta also carries node-level active-session activity buckets:
  *     recent_activity_sessions / idle_activity_sessions /
  *     activity_pending_sessions / keepalive issue session counts /
@@ -1513,6 +1516,32 @@ function cleanupRolloutPendingCopy(eta: VpnRestartDrainEta | null | undefined) {
   };
 }
 
+function legacyRuntimeDrainCopy(health: VpnNodeHealth | null | undefined) {
+  const readiness = health?.system.restart_readiness;
+  const eta = readiness?.drain_eta;
+  const actionPlan = readiness?.operator_action_plan;
+  if (!health || (!eta && !actionPlan)) return null;
+
+  const activityHealth = eta?.activity_health;
+  const title = activityHealth?.label || actionPlan?.label || 'Runtime rollout pending';
+  const detail = activityHealth?.detail || actionPlan?.summary || 'Waiting for upgraded Rust heartbeat telemetry.';
+  const nextStep = eta?.status === 'cleanup_policy_pending'
+    ? 'Keep maintenance on until the staged Rust runtime reports session_cleanup, then re-check drain readiness.'
+    : actionPlan?.primary_action || eta?.next_step || 'Inspect active sessions before restart.';
+
+  return {
+    title,
+    detail,
+    nextStep,
+    recent: eta?.recent_activity_sessions ?? null,
+    idle: eta?.idle_activity_sessions ?? null,
+    keepaliveIssue: Math.max(eta?.keepalive_missed_sessions ?? 0, eta?.keepalive_pending_sessions ?? 0),
+    oldestStartedAt: eta?.oldest_started_at ?? null,
+    latestActivityAt: eta?.latest_activity_at ?? null,
+    source: 'GET /api/privacy_network/vpn/overview/ -> data.nodes[].system.restart_readiness',
+  };
+}
+
 function drainActivityBucketRows(eta: VpnRestartDrainEta | null | undefined) {
   if (!eta) return [];
   const hasActivityBuckets = [
@@ -2359,6 +2388,7 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
 
   if (isError || !health || !operatorStatus) {
     const hasHeartbeatWithoutOperatorStatus = Boolean(health && !operatorStatus);
+    const legacyDrain = legacyRuntimeDrainCopy(health);
 
     return (
       <Card variant="outline" padding="md" className="mb-6">
@@ -2391,6 +2421,46 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
                     {health.active_sessions > 0 ? 'drain before restart' : 'restart Rust node'}
                   </p>
                 </div>
+              </div>
+            )}
+            {legacyDrain && (
+              <div className="mt-3 rounded-lg border border-yellow-500/15 bg-yellow-500/[0.05] p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-yellow-100">{legacyDrain.title}</p>
+                    <p className="mt-1 text-xs leading-5 text-yellow-100/70">{legacyDrain.detail}</p>
+                  </div>
+                  <span className="inline-flex w-fit rounded-full border border-yellow-500/25 bg-yellow-500/10 px-2.5 py-1 text-xs font-medium text-yellow-200">
+                    legacy runtime
+                  </span>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                  <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
+                    <p className="text-[10px] uppercase text-yellow-100/35">Recent</p>
+                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.recent ?? 'pending'}</p>
+                  </div>
+                  <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
+                    <p className="text-[10px] uppercase text-yellow-100/35">Idle</p>
+                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.idle ?? 'pending'}</p>
+                  </div>
+                  <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
+                    <p className="text-[10px] uppercase text-yellow-100/35">Keepalive Issue</p>
+                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.keepaliveIssue.toLocaleString()}</p>
+                  </div>
+                  <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
+                    <p className="text-[10px] uppercase text-yellow-100/35">Latest Activity</p>
+                    <p className="mt-1 text-xs text-yellow-100">
+                      {legacyDrain.latestActivityAt ? formatRelativeTime(legacyDrain.latestActivityAt) : 'pending'}
+                    </p>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs leading-5 text-yellow-100/60">{legacyDrain.nextStep}</p>
+                {legacyDrain.oldestStartedAt && (
+                  <p className="mt-1 text-[11px] text-yellow-100/40">
+                    Oldest active session started {formatRelativeTime(legacyDrain.oldestStartedAt)}.
+                  </p>
+                )}
+                <p className="mt-2 text-[10px] leading-4 text-yellow-100/35">Source: {legacyDrain.source}</p>
               </div>
             )}
             <p className="mt-3 text-xs leading-5 text-gray-600">
