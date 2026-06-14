@@ -87,7 +87,8 @@
  *     problem_nodes[].upgrade_gate mirrors backend cutover_guard so runtime
  *     upgrade tasks show whether replacing/restarting Rust is safe right now.
  *     upgrade_gate.checklist and checklist_summary are backend-authored
- *     upgrade preflight copy and counts.
+ *     upgrade preflight copy and counts. primary_action is the backend-owned
+ *     operator intent for the Restart Action Queue button.
  *   - data.summary.restart_readiness.policy_sync_health
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates data.nodes[].system.policy_sync so Services can verify
@@ -1623,6 +1624,19 @@ function buildCutoverGuardQueueItem(
   };
 }
 
+function runtimeCapabilityActionHref(
+  node: NonNullable<NonNullable<VpnRestartReadinessSummary['runtime_capability_health']>['problem_nodes']>[number],
+) {
+  const intent = node.primary_action?.intent;
+  if (intent === 'sessions') {
+    return `/dashboard/sessions?node=${encodeURIComponent(node.id)}&status=active&quality=all`;
+  }
+  if (intent === 'node_commands') {
+    return `/dashboard/nodes/${node.id}?command_action=restart_service#vpn-commands`;
+  }
+  return `/dashboard/nodes/${node.id}`;
+}
+
 function buildRuntimeCapabilityQueueItem(
   node: NonNullable<NonNullable<VpnRestartReadinessSummary['runtime_capability_health']>['problem_nodes']>[number],
   readinessNode: RestartReadinessNode | undefined,
@@ -1646,6 +1660,7 @@ function buildRuntimeCapabilityQueueItem(
     node.cleanup_reported ? 'cleanup reported' : 'cleanup missing',
     node.rollout_reporting ? 'rollout reported' : 'rollout missing',
     upgradeGate?.user_impact_if_forced ? `impact ${upgradeGate.user_impact_if_forced.replaceAll('_', ' ')}` : null,
+    node.primary_action?.key ? `action ${node.primary_action.key.replaceAll('_', ' ')}` : null,
     readinessNode?.regionLabel ?? 'unknown region',
     readinessNode?.version ? `v${readinessNode.version}` : null,
   ].filter((item): item is string => Boolean(item));
@@ -1667,10 +1682,8 @@ function buildRuntimeCapabilityQueueItem(
     canEnableMaintenance: !node.maintenance_mode,
     canQueueRestart: false,
     canCancelRestartCommand: restartCommandCanCancel(readinessNode?.activeRestartCommand ?? null),
-    actionHref: node.active_sessions > 0
-      ? `/dashboard/sessions?node=${encodeURIComponent(node.id)}&status=active&quality=all`
-      : `/dashboard/nodes/${node.id}?command_action=restart_service#vpn-commands`,
-    actionLabel: node.active_sessions > 0 ? 'Open sessions' : 'Open node',
+    actionHref: runtimeCapabilityActionHref(node),
+    actionLabel: node.primary_action?.label ?? 'Open node',
     source: 'backend_runtime_capability',
   };
 }
@@ -2756,6 +2769,11 @@ function FleetRestartReadinessPanel({
                   </div>
                 )}
                 <p className="mt-1 leading-5 text-yellow-100/50">{node.recommended_action}</p>
+                {node.primary_action && (
+                  <p className="mt-1 leading-5 text-yellow-100/45">
+                    Primary action {node.primary_action.label} · {node.primary_action.detail}
+                  </p>
+                )}
               </div>
             ))}
           </div>

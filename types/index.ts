@@ -753,7 +753,8 @@ export interface VpnRestartReadinessBlockedNode {
  *   upgrading/restarting Rust is safe now. upgrade_gate.checklist is
  *   backend-authored preflight copy for maintenance, recent client RX, active
  *   sessions, and runtime telemetry. checklist_summary is the backend-owned
- *   count contract; React should not derive readiness totals.
+ *   count contract; React should not derive readiness totals. primary_action
+ *   is the backend-owned next operator intent for the Restart Action Queue.
  * Policy sync source:
  *   data.summary.restart_readiness.policy_sync_health aggregates
  *   data.nodes[].system.policy_sync from
@@ -956,6 +957,12 @@ export interface VpnRestartReadinessSummary {
       issue_label: string;
       risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
       recommended_action: string;
+      primary_action?: {
+        key: string;
+        label: string;
+        intent: 'sessions' | 'node_detail' | 'node_commands' | string;
+        detail: string;
+      };
       upgrade_gate?: {
         safe_to_upgrade: boolean;
         status: string;
