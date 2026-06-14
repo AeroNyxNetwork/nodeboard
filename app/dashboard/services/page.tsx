@@ -1456,6 +1456,16 @@ function restartBlockedNodeActionLabel(node: VpnRestartReadinessSummary['blocked
   return node.recommended_action?.label ?? 'Open node';
 }
 
+function cutoverActionReasonLabel(reason: string | undefined) {
+  const copy: Record<string, string> = {
+    maintenance_mode: 'maintenance mode',
+    restart_readiness_blocked: 'restart gate blocked',
+    runtime_rollout_required: 'runtime rollout required',
+    active_restart_command: 'restart command active',
+  };
+  return copy[reason || ''] ?? (reason ? reason.replaceAll('_', ' ') : 'backend action');
+}
+
 function buildBlockedRestartQueueItem(
   node: VpnRestartReadinessSummary['blocked_nodes'][number],
   readinessNode: RestartReadinessNode | undefined,
@@ -1503,7 +1513,9 @@ function buildCutoverGuardQueueItem(
   readinessNode: RestartReadinessNode | undefined,
 ): RestartActionQueueItem {
   const forcedImpact = node.user_impact_if_forced.replaceAll('_', ' ');
+  const actionReason = cutoverActionReasonLabel(node.actionable_reason);
   const meta = [
+    `reason ${actionReason}`,
     `${node.active_sessions.toLocaleString()} active`,
     `${node.recent_client_rx_sessions.toLocaleString()} recent client RX`,
     `${node.stale_client_rx_sessions.toLocaleString()} stale client RX`,
