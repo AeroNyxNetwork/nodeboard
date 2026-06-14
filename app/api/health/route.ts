@@ -21,6 +21,7 @@
  * Backend API and File Paths:
  *   - GET /api/privacy_network/vpn/overview/
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Provides data.nodes[].system.session_cleanup for drain timeout context.
  *   - GET /api/privacy_network/nodes/{id}/sessions/
  *     /root/aeronyx/privacy_network/api/sessions.py
  *     /root/aeronyx/privacy_network/serializers.py
@@ -32,6 +33,7 @@
  *
  * Rust Producer Paths:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/services/session.rs
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
  *
  * Privacy Boundary:
@@ -40,7 +42,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.1 - Production health route
+ * Last Modified: v1.1.2 - Documented session_cleanup drain contract
+ * Previous: v1.1.1 - Production health route
  * ============================================
  */
 
@@ -71,6 +74,11 @@ const healthPayload = {
       purpose: 'Node fleet health, operator_status, runtime_rollout, metrics',
     },
     {
+      endpoint: 'data.nodes[].system.session_cleanup',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Drain ETA context from Rust client-liveness cleanup policy',
+    },
+    {
       endpoint: 'GET /api/privacy_network/nodes/{id}/sessions/',
       file: '/root/aeronyx/privacy_network/api/sessions.py',
       purpose: 'Owner-scoped session list for Maintenance Drain restart guardrails',
@@ -94,7 +102,11 @@ const healthPayload = {
   rust_producers: [
     {
       file: '/root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs',
-      purpose: 'Local node health, operator_status, runtime_rollout',
+      purpose: 'Local node health, operator_status, runtime_rollout, session_cleanup',
+    },
+    {
+      file: '/root/open/AeroNyx/crates/aeronyx-server/src/services/session.rs',
+      purpose: 'Client-liveness timeout used to expire unresponsive VPN sessions during maintenance drain',
     },
     {
       file: '/root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs',
