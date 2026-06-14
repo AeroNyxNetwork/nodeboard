@@ -46,6 +46,9 @@
  *     command_lifecycle_counts.history_24h powers Services 24h restart
  *     command reliability and latest_any restart context without exposing
  *     command params/result/errors.
+ *     data.summary.restart_readiness.maintenance_exit_candidates powers the
+ *     Services capacity recovery card for nodes left in maintenance mode after
+ *     restart work is complete.
  *   - GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Supports /dashboard/sessions?node={id}&status=active&quality=all deep links.
@@ -114,7 +117,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.36 - Documented recommended operator actions
+ * Last Modified: v1.1.37 - Documented maintenance exit candidates
+ * Previous: v1.1.36 - Documented recommended operator actions
  * Previous: v1.1.35 - Documented node operator action plan
  * Previous: v1.1.34 - Documented backend node command delivery policy
  * Previous: v1.1.33 - Documented node detail command delivery readiness
@@ -251,6 +255,11 @@ const healthPayload = {
       endpoint: 'data.summary.restart_readiness.command_lifecycle_counts',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Fleet-level restart_service active/stale/retry/terminal lifecycle counts, cancelable_active/non_cancelable_active active command counts, outcome_summary terminal audit copy, history_24h reliability aggregate with latest_any_created_at/latest_any_status context, plus backend-authored summary copy for the Services Command SLA and Restart Outcome Audit cards',
+    },
+    {
+      endpoint: 'data.summary.restart_readiness.maintenance_exit_candidates',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Fleet-level current/drained maintenance nodes that can be returned to commercial client placement with maintenance_mode=false',
     },
     {
       endpoint: 'GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=',

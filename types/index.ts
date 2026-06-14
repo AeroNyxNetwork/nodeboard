@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.3 - Added fleet maintenance exit candidate summary types.
  *   v1.5.2 - Added backend recommended operator actions under
  *     restart_readiness.operator_action_plan for node detail controls.
  *   v1.5.1 - Removed public discovery response types from nodeboard.
@@ -36,7 +37,8 @@
  *     ""         → clear password
  *     "xyz"      → set new password
  *
- * Last Modified: v1.5.2 - Added recommended operator action types
+ * Last Modified: v1.5.3 - Added maintenance exit candidate types
+ * Previous: v1.5.2 - Added recommended operator action types
  * Previous: v1.5.1 - Removed public discovery types
  * Previous: v1.1.0 - Added window.phantom type declaration
  * ============================================
@@ -632,6 +634,10 @@ export interface VpnRestartReadinessBlockedNode {
  *   heartbeat freshness plus backend operator_reporting for the Services
  *   Command Delivery card. problem_nodes is a capped privacy-safe triage list
  *   for nodes that cannot receive restart commands promptly.
+ * Maintenance recovery source:
+ *   data.summary.restart_readiness.maintenance_exit_candidates lists nodes
+ *   that are current, drained, and still in maintenance mode so Services can
+ *   restore commercial client placement capacity.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts
@@ -645,6 +651,22 @@ export interface VpnRestartReadinessSummary {
   can_restart: number;
   sessions_blocking_restart: number;
   blocker_counts: Record<string, number>;
+  maintenance_exit_candidate_count?: number;
+  maintenance_exit_candidates?: Array<{
+    id: string;
+    name: string;
+    health_status: string;
+    last_seen_seconds: number | null;
+    active_sessions: number;
+    next_step: string;
+    recommended_action?: {
+      key: 'end_maintenance' | string;
+      label: string;
+      intent: 'node_policy' | string;
+      detail: string;
+    };
+    source: string;
+  }>;
   command_delivery_health?: {
     total_nodes: number;
     command_ready_nodes: number;

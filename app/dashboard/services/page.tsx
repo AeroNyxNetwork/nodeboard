@@ -81,6 +81,11 @@
  *     statuses, while history_24h powers the 24h reliability strip and
  *     latest_any restart command context without exposing command params,
  *     result, or error_message.
+ *   - data.summary.restart_readiness.maintenance_exit_candidates
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Lists current/drained nodes still in maintenance mode so Services can
+ *     recover commercial client placement capacity with PATCH
+ *     /api/privacy_network/nodes/{id}/ maintenance_mode=false.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -104,7 +109,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.30 - Show command delivery issue nodes
+ * Last Modified: v1.1.31 - Show maintenance exit candidates
+ * Previous: v1.1.30 - Show command delivery issue nodes
  * Previous: v1.1.29 - Show command delivery health
  * Previous: v1.1.28 - Show latest restart command activity context
  * Previous: v1.1.27 - Show 24h restart command reliability
@@ -1466,18 +1472,22 @@ function FleetRestartReadinessPanel({
   nodes,
   summary,
   enablingMaintenanceNodeId,
+  endingMaintenanceNodeId,
   restartingNodeId,
   cancellingCommandId,
   onEnableMaintenance,
+  onEndMaintenance,
   onQueueRestart,
   onCancelRestartCommand,
 }: {
   nodes: RestartReadinessNode[];
   summary: VpnRestartReadinessSummary | null;
   enablingMaintenanceNodeId: string | null;
+  endingMaintenanceNodeId: string | null;
   restartingNodeId: string | null;
   cancellingCommandId: string | null;
   onEnableMaintenance: (nodeId: string, nodeName: string) => void;
+  onEndMaintenance: (nodeId: string, nodeName: string) => void;
   onQueueRestart: (nodeId: string, nodeName: string) => void;
   onCancelRestartCommand: (nodeId: string, nodeName: string, commandId: string) => void;
 }) {
@@ -1499,6 +1509,8 @@ function FleetRestartReadinessPanel({
   const commandOutcome = fleetCommandOutcome(summary);
   const commandCounts = summary?.command_lifecycle_counts ?? null;
   const commandHistory = commandCounts?.history_24h ?? null;
+  const maintenanceExitCandidates = summary?.maintenance_exit_candidates ?? [];
+  const maintenanceExitCandidateCount = summary?.maintenance_exit_candidate_count ?? maintenanceExitCandidates.length;
   const commandCancelability = {
     cancelable: commandCounts?.cancelable_active ?? 0,
     locked: commandCounts?.non_cancelable_active ?? 0,
@@ -1610,6 +1622,66 @@ function FleetRestartReadinessPanel({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {maintenanceExitCandidateCount > 0 && (
+        <div className="mt-4 rounded-xl border border-emerald-300/20 bg-emerald-500/[0.04] p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-emerald-100">Maintenance Exit Candidates</h3>
+              <p className="mt-1 text-xs leading-5 text-emerald-100/60">
+                Backend found current, drained nodes still in maintenance mode. Ending maintenance restores client placement capacity.
+              </p>
+            </div>
+            <StatusPill status="ready" />
+          </div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+            {maintenanceExitCandidates.map((node) => {
+              const isEndingMaintenance = endingMaintenanceNodeId === node.id;
+
+              return (
+                <div key={node.id} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <Link href={`/dashboard/nodes/${node.id}`} className="min-w-0 truncate font-medium text-white hover:text-purple-300">
+                      {node.name}
+                    </Link>
+                    <span className="shrink-0 rounded-md border border-emerald-200/20 px-2 py-0.5 text-emerald-100/80">
+                      {node.recommended_action?.label ?? 'End maintenance'}
+                    </span>
+                  </div>
+                  <p className="mt-2 leading-5 text-emerald-100/60">
+                    Health {node.health_status} · sessions {node.active_sessions.toLocaleString()} ·
+                    heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
+                  </p>
+                  <p className="mt-1 leading-5 text-emerald-100/50">
+                    {node.next_step}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onEndMaintenance(node.id, node.name)}
+                      disabled={Boolean(endingMaintenanceNodeId)}
+                      className="inline-flex items-center justify-center rounded-md border border-emerald-300/20 px-2.5 py-1 font-medium text-emerald-100 transition hover:border-emerald-200/40 hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isEndingMaintenance ? 'Ending...' : node.recommended_action?.label ?? 'End maintenance'}
+                    </button>
+                    <Link
+                      href={`/dashboard/nodes/${node.id}`}
+                      className="inline-flex items-center justify-center rounded-md border border-white/10 px-2.5 py-1 font-medium text-gray-300 transition hover:border-white/20 hover:bg-white/5"
+                    >
+                      Open node
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {maintenanceExitCandidateCount > maintenanceExitCandidates.length && (
+            <p className="mt-2 text-xs leading-5 text-emerald-100/50">
+              Showing {maintenanceExitCandidates.length.toLocaleString()} of {maintenanceExitCandidateCount.toLocaleString()} candidates.
+            </p>
+          )}
         </div>
       )}
 
@@ -2320,6 +2392,7 @@ export default function NodeServicesPage() {
   const runCommand = useRunNodeCommand();
   const cancelCommand = useCancelNodeCommand();
   const [enablingMaintenanceNodeId, setEnablingMaintenanceNodeId] = useState<string | null>(null);
+  const [endingMaintenanceNodeId, setEndingMaintenanceNodeId] = useState<string | null>(null);
   const [restartingNodeId, setRestartingNodeId] = useState<string | null>(null);
   const [cancellingCommandId, setCancellingCommandId] = useState<string | null>(null);
   const [operationNotice, setOperationNotice] = useState<OperationNotice | null>(null);
@@ -2353,6 +2426,34 @@ export default function NodeServicesPage() {
       });
     } finally {
       setEnablingMaintenanceNodeId(null);
+    }
+  };
+
+  const handleEndMaintenance = async (nodeId: string, nodeName: string) => {
+    if (!window.confirm(`End maintenance mode for ${nodeName}? This returns the node to client placement if policy and health remain eligible.`)) {
+      return;
+    }
+
+    setEndingMaintenanceNodeId(nodeId);
+    setOperationNotice(null);
+
+    try {
+      await updateNode.mutateAsync({
+        nodeId,
+        data: { maintenance_mode: false },
+      });
+      setOperationNotice({
+        type: 'success',
+        message: `${nodeName} maintenance mode ended. Client placement eligibility will update after the next backend overview sync.`,
+      });
+      await refetch();
+    } catch (error) {
+      setOperationNotice({
+        type: 'error',
+        message: error instanceof Error ? error.message : `Failed to end maintenance mode for ${nodeName}.`,
+      });
+    } finally {
+      setEndingMaintenanceNodeId(null);
     }
   };
 
@@ -2515,9 +2616,11 @@ export default function NodeServicesPage() {
         nodes={restartReadinessNodes}
         summary={restartReadinessSummary}
         enablingMaintenanceNodeId={enablingMaintenanceNodeId}
+        endingMaintenanceNodeId={endingMaintenanceNodeId}
         restartingNodeId={restartingNodeId}
         cancellingCommandId={cancellingCommandId}
         onEnableMaintenance={handleEnableMaintenance}
+        onEndMaintenance={handleEndMaintenance}
         onQueueRestart={handleQueueRestart}
         onCancelRestartCommand={handleCancelRestartCommand}
       />
