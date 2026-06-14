@@ -35,10 +35,13 @@
  *   - Restart drain context reads overview.nodes[].system.restart_readiness
  *     from GET /api/privacy_network/vpn/overview/ so operators can understand
  *     why a Services page restart gate opened this session view.
+ *   - Deep links are currently emitted by:
+ *       /root/open/nodeboard/app/dashboard/services/page.tsx
  *   - The UI intentionally shows operational metadata only. It must not display
  *     traffic destinations, DNS queries, packet payloads, or browsing history.
  *
- * Last Modified: v1.1.2 - Added restart drain deep-link context
+ * Last Modified: v1.1.3 - Added drain health and age to deep-link context
+ * Previous: v1.1.2 - Added restart drain deep-link context
  * Previous: v1.1.1 - Documented sessions deep-link contract
  * Previous: v1.1.0 - VPN observability MVP
  * ============================================
@@ -281,6 +284,8 @@ function RestartDrainContextPanel({
   onClear: () => void;
 }) {
   const readiness = node.system.restart_readiness;
+  const drainEta = readiness?.drain_eta ?? null;
+  const drainHealth = drainEta?.activity_health ?? null;
   const activeSessions = readiness?.active_sessions ?? node.active_sessions;
   const maintenanceMode = readiness?.maintenance_mode ?? node.maintenance_mode;
   const blockers = readiness?.blockers?.map((blocker) => blocker.message) ?? [];
@@ -326,6 +331,12 @@ function RestartDrainContextPanel({
               ))}
             </div>
           ) : null}
+          {drainHealth ? (
+            <div className="mt-3 rounded-lg border border-yellow-500/15 bg-black/20 px-3 py-2">
+              <div className="text-xs font-medium text-yellow-100">{drainHealth.label}</div>
+              <div className="mt-1 text-xs leading-5 text-yellow-100/65">{drainHealth.detail}</div>
+            </div>
+          ) : null}
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-xs text-gray-400 sm:flex sm:flex-wrap sm:justify-end">
@@ -337,6 +348,18 @@ function RestartDrainContextPanel({
             <div className="text-gray-600">Maintenance</div>
             <div className="mt-1 text-sm font-semibold text-white">{maintenanceMode ? 'On' : 'Off'}</div>
           </div>
+          {drainEta?.oldest_started_at ? (
+            <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+              <div className="text-gray-600">Oldest Active</div>
+              <div className="mt-1 text-sm font-semibold text-white">{formatRelativeTime(drainEta.oldest_started_at)}</div>
+            </div>
+          ) : null}
+          {drainEta?.latest_activity_at ? (
+            <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+              <div className="text-gray-600">Latest Activity</div>
+              <div className="mt-1 text-sm font-semibold text-white">{formatRelativeTime(drainEta.latest_activity_at)}</div>
+            </div>
+          ) : null}
           <Link
             href={`/dashboard/nodes/${node.id}`}
             className="inline-flex items-center justify-center rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-gray-200 transition hover:border-white/20 hover:bg-white/5"
