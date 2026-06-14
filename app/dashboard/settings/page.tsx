@@ -1,19 +1,61 @@
 /**
- * AeroNyx VPN Settings page.
+ * ============================================
+ * AeroNyx Nodeboard - Settings Page
+ * ============================================
+ * File Path: app/dashboard/settings/page.tsx
  *
- * Source path:
- *   /root/open/nodeboard/app/dashboard/settings/page.tsx
+ * Product Requirement:
+ *   Node operators need one place to manage commercial AeroNyx Privacy
+ *   Protocol policy and verify the nodeboard control plane runtime. This page
+ *   combines per-node policy controls with the nodeboard /api/health metadata
+ *   so an operator can confirm which frontend commit is deployed and which
+ *   backend/Rust contracts the UI is using.
  *
- * Backend:
- *   PATCH /api/privacy_network/nodes/{id}/
+ * Frontend API and File Paths:
+ *   - GET /api/health
+ *     /root/open/nodeboard/app/api/health/route.ts
+ *   - Settings page:
+ *     /root/open/nodeboard/app/dashboard/settings/page.tsx
+ *
+ * Backend API and File Paths:
+ *   - PATCH /api/privacy_network/nodes/{id}/
+ *     /root/aeronyx/privacy_network/api/nodes.py
+ *   - GET /api/privacy_network/vpn/overview/
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   - GET /api/privacy_network/vpn/events/
+ *     /root/aeronyx/privacy_network/api/vpn_events.py
+ *   - Node policy command service:
+ *     /root/aeronyx/privacy_network/services/command_service.py
+ *
+ * Rust Producer Paths:
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
+ *
+ * Privacy Boundary:
+ *   This page shows operator policy metadata, nodeboard runtime metadata, and
+ *   aggregate service status only. It must not expose packet payloads, DNS
+ *   contents, traffic destinations, domains, URLs, browsing history, voucher
+ *   secrets, wallet-level traffic, or plaintext social graph data.
+ *
+ * Last Modified: v1.6.1 - Control plane runtime panel
+ * ============================================
  */
 
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useNodes, useUpdateNode, useVpnEvents, useVpnOverview } from '@/hooks/useNodes';
-import { Node, NodeTier, NodeUpdateRequest, NodeVisibility, VpnEvent, VpnPolicySync } from '@/types';
+import { useNodeboardHealth, useNodes, useUpdateNode, useVpnEvents, useVpnOverview } from '@/hooks/useNodes';
+import {
+  Node,
+  NodeTier,
+  NodeUpdateRequest,
+  NodeVisibility,
+  NodeboardHealthResponse,
+  VpnEvent,
+  VpnPolicySync,
+} from '@/types';
 import { formatRelativeTime } from '@/lib/api';
 import Card, { EmptyState, LoadingCard } from '@/components/common/Card';
 import Button from '@/components/common/Button';
@@ -131,6 +173,153 @@ function auditChanges(event: VpnEvent) {
       oldValue: shortValue(change?.old),
       newValue: shortValue(change?.new),
     }));
+}
+
+function formatRuntimeTime(value: string | null | undefined) {
+  return value ? formatRelativeTime(value) : 'pending';
+}
+
+function runtimeStatusClass(status: string | null | undefined) {
+  if (status === 'ok') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300';
+  if (status === 'degraded') return 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300';
+  if (status === 'error') return 'border-red-500/30 bg-red-500/10 text-red-300';
+  return 'border-white/10 bg-white/5 text-gray-300';
+}
+
+function RuntimeValue({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+      <p className="text-[11px] uppercase text-gray-600">{label}</p>
+      <p className={`mt-1 truncate text-sm text-gray-200 ${mono ? 'font-mono' : ''}`}>{value}</p>
+    </div>
+  );
+}
+
+function ControlPlaneRuntimePanel() {
+  const { health, isLoading, isError, error, refetch } = useNodeboardHealth();
+
+  if (isLoading) {
+    return (
+      <Card variant="default" padding="md">
+        <div className="animate-pulse space-y-4">
+          <div className="h-4 w-56 rounded bg-white/10" />
+          <div className="grid gap-3 md:grid-cols-4">
+            {[...Array(4)].map((_, index) => (
+              <div key={index} className="h-16 rounded-lg bg-white/5" />
+            ))}
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  if (isError || !health) {
+    return (
+      <Card variant="outline" padding="md">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-white">Control Plane Runtime</h2>
+            <p className="mt-1 text-sm text-red-300">
+              {error?.message || 'Nodeboard runtime health is unavailable.'}
+            </p>
+          </div>
+          <Button variant="secondary" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
+  return <ControlPlaneRuntimeContent health={health} onRefresh={refetch} />;
+}
+
+function ControlPlaneRuntimeContent({
+  health,
+  onRefresh,
+}: {
+  health: NodeboardHealthResponse;
+  onRefresh: () => void;
+}) {
+  const runtime = health.runtime;
+  const privacyBoundary = health.privacy_boundary.slice(0, 4).join(' - ');
+
+  return (
+    <Card variant="default" padding="none">
+      <div className="border-b border-white/5 px-5 py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-semibold text-white">Control Plane Runtime</h2>
+              <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${runtimeStatusClass(health.status)}`}>
+                {health.status}
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-gray-500">
+              Nodeboard {health.version} - generated {formatRuntimeTime(health.generated_at)}
+            </p>
+          </div>
+          <Button variant="secondary" onClick={onRefresh}>
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      <div className="p-5 space-y-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <RuntimeValue label="Git SHA" value={runtime.git_sha} mono />
+          <RuntimeValue label="Deployed" value={formatRuntimeTime(runtime.deployed_at)} />
+          <RuntimeValue label="API Base" value={health.api_base_url} mono />
+          <RuntimeValue label="Port" value={runtime.port} mono />
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-3">
+          <RuntimeValue label="Source Dir" value={runtime.source_dir} mono />
+          <RuntimeValue label="Env File" value={runtime.env_file} mono />
+          <RuntimeValue
+            label="Contracts"
+            value={`${health.backend_contracts.length} backend / ${health.rust_producers.length} rust`}
+          />
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+            <p className="text-xs font-medium uppercase text-gray-600">Backend Contract</p>
+            <div className="mt-3 space-y-2">
+              {health.backend_contracts.slice(0, 3).map((contract) => (
+                <div key={`${contract.endpoint}-${contract.file}`} className="min-w-0">
+                  <p className="truncate text-xs text-gray-300">{contract.endpoint || contract.purpose}</p>
+                  <p className="mt-0.5 truncate font-mono text-[11px] text-gray-600">{contract.file}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+            <p className="text-xs font-medium uppercase text-gray-600">Rust Producers</p>
+            <div className="mt-3 space-y-2">
+              {health.rust_producers.slice(0, 2).map((producer) => (
+                <div key={producer.file} className="min-w-0">
+                  <p className="truncate text-xs text-gray-300">{producer.purpose}</p>
+                  <p className="mt-0.5 truncate font-mono text-[11px] text-gray-600">{producer.file}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <p className="text-xs leading-5 text-gray-600">{privacyBoundary}</p>
+      </div>
+    </Card>
+  );
 }
 
 function nodePolicy(node: Node | null): NodeSettingsForm {
@@ -839,6 +1028,8 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      <ControlPlaneRuntimePanel />
 
       <FleetPresets
         selectedNodeName={selectedNode.name}

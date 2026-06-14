@@ -85,6 +85,7 @@ import {
   VpnServerListResponse,
   NodeWalletBanListResponse,
   NodeCommandListResponse,
+  NodeboardHealthResponse,
   RunNodeCommandRequest,
   RunNodeCommandResponse,
   SuccessResponse,
@@ -479,6 +480,34 @@ class ApiClient {
 // ============================================
 
 export const api = new ApiClient(API_BASE_URL);
+
+/**
+ * Read nodeboard's local runtime health endpoint.
+ *
+ * Frontend endpoint and file:
+ *   GET /api/health
+ *   /root/open/nodeboard/app/api/health/route.ts
+ *
+ * The endpoint exposes deployment metadata, backend API file paths, and Rust
+ * heartbeat producer file paths for operator audit. It intentionally does not
+ * use the authenticated backend ApiClient because it is served by nodeboard
+ * itself and contains no user/node-sensitive data.
+ */
+export async function getNodeboardHealth(): Promise<NodeboardHealthResponse> {
+  const response = await fetch('/api/health', {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Nodeboard health check failed: HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
 
 // ============================================
 // Utility Functions

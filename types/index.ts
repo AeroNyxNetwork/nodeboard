@@ -428,6 +428,55 @@ export interface NodeOperatorStatus {
   privacy_boundary: string;
 }
 
+export interface NodeboardHealthContract {
+  endpoint?: string;
+  file: string;
+  purpose: string;
+}
+
+export interface NodeboardHealthRuntime {
+  git_sha: string;
+  deployed_at: string | null;
+  source_dir: string;
+  port: string;
+  env_file: string;
+}
+
+/**
+ * Local nodeboard runtime health response.
+ *
+ * Frontend endpoint:
+ *   GET /api/health
+ * Frontend file:
+ *   /root/open/nodeboard/app/api/health/route.ts
+ *
+ * Backend paths returned by this response:
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   /root/aeronyx/privacy_network/services/heartbeat_service.py
+ *   /root/aeronyx/privacy_network/api/vpn_commands.py
+ *
+ * Rust producer paths returned by this response:
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
+ *
+ * This payload is deployment metadata only. It does not include node public
+ * keys, client public IPs, DNS contents, packet payloads, domains, URLs,
+ * browsing history, voucher secrets, wallet-level traffic, or plaintext social
+ * graph data.
+ */
+export interface NodeboardHealthResponse {
+  service: string;
+  status: 'ok' | 'degraded' | 'error' | string;
+  version: string;
+  api_base_url: string;
+  frontend_paths: string[];
+  backend_contracts: NodeboardHealthContract[];
+  rust_producers: NodeboardHealthContract[];
+  privacy_boundary: string[];
+  runtime: NodeboardHealthRuntime;
+  generated_at: string;
+}
+
 export interface VpnNodeHealth {
   id: string;
   name: string;

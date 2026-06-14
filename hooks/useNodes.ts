@@ -61,7 +61,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, getNodeboardHealth } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import {
   Node,
@@ -84,6 +84,7 @@ import {
   NodeWalletBan,
   NodeCommand,
   NodeCommandListResponse,
+  NodeboardHealthResponse,
   RunNodeCommandRequest,
   RunNodeCommandResponse,
 } from '@/types';
@@ -112,7 +113,38 @@ export const nodeKeys = {
     ['nodes', 'wallet-bans', id, status] as const,
   commands: (id: string, options?: UseNodeCommandsOptions) =>
     ['nodes', 'commands', id, options] as const,
+  nodeboardHealth: () => ['nodeboard', 'health'] as const,
 };
+
+// ============================================
+// Nodeboard Runtime Hook
+// ============================================
+
+interface UseNodeboardHealthResult {
+  health: NodeboardHealthResponse | null;
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  refetch: () => void;
+}
+
+export function useNodeboardHealth(): UseNodeboardHealthResult {
+  const query = useQuery({
+    queryKey: nodeKeys.nodeboardHealth(),
+    queryFn: getNodeboardHealth,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+
+  return {
+    health: query.data ?? null,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
 
 // ============================================
 // Owner Hooks (auth required)
