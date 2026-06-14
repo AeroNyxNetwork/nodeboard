@@ -74,10 +74,10 @@ Run nodeboard as a Next.js production server behind nginx:
 - Runtime user: `root` on current US1 test host, or a dedicated `nodeboard`
   user on production hosts.
 
-The current US1 test host `34.136.167.59` has nginx and Django/gunicorn
-listening, but no persistent nodeboard process was found during the deployment
-audit. Use the systemd and nginx templates in `deploy/` when a public nodeboard
-domain is ready.
+US1 test host `34.136.167.59` now runs nodeboard through systemd on
+`127.0.0.1:3000` for private validation. nginx is still not configured to expose
+nodeboard publicly; use `deploy/nginx/nodeboard.conf` when a public nodeboard
+domain and TLS certificate are ready.
 
 ## Build And Start
 
@@ -94,7 +94,9 @@ systemctl status nodeboard --no-pager
 Health checks:
 
 ```bash
+systemctl is-active nodeboard
 curl -I http://127.0.0.1:3000/dashboard/services
+curl -I http://127.0.0.1:3000/dashboard/nodes/test-node-id
 curl -s https://api.aeronyx.network/api/privacy_network/vpn/overview/ \
   -H "Authorization: Bearer <operator-api-key>"
 ```
@@ -140,4 +142,3 @@ If `restart_required` is true, the UI must tell the operator to:
   traffic, or plaintext social graph data in nodeboard.
 - Keep comments in frontend files aligned with the backend file paths above.
 - Keep backend heartbeat storage comments aligned with the Rust producer files.
-
