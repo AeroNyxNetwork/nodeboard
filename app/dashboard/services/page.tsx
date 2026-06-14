@@ -72,8 +72,9 @@
  *     restart_service lifecycle counts plus cancelable_active and
  *     non_cancelable_active active command counts. outcome_summary powers the
  *     Restart Outcome Audit panel from latest per-node restart_service terminal
- *     statuses, while history_24h powers the 24h reliability strip without
- *     exposing command params, result, or error_message.
+ *     statuses, while history_24h powers the 24h reliability strip and
+ *     latest_any restart command context without exposing command params,
+ *     result, or error_message.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -97,7 +98,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.27 - Show 24h restart command reliability
+ * Last Modified: v1.1.28 - Show latest restart command activity context
+ * Previous: v1.1.27 - Show 24h restart command reliability
  * Previous: v1.1.26 - Show restart outcome audit summary
  * Previous: v1.1.25 - Show fleet restart cancelability counts
  * Previous: v1.1.24 - Explain backend cancel eligibility in fleet triage
@@ -1583,6 +1585,12 @@ function FleetRestartReadinessPanel({
               {commandHistory.summary.label} · {commandHistory.summary.detail}
             </p>
           )}
+          <p className="mt-2 text-xs leading-5 opacity-60">
+            Last command{' '}
+            {commandHistory?.latest_any_created_at
+              ? `${formatRelativeTime(commandHistory.latest_any_created_at)} · ${commandHistory.latest_any_status || 'unknown'}`
+              : 'not reported yet'}
+          </p>
         </div>
         <p className="mt-3 text-xs leading-5 opacity-75">
           {commandOutcome.label} · {commandOutcome.detail}

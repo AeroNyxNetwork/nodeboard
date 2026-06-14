@@ -564,7 +564,8 @@ export interface VpnRestartReadinessBlockedNode {
  *   cancelable_active/non_cancelable_active counts for the Services Command
  *   SLA card. outcome_summary is backend-authored copy for the Services
  *   Restart Outcome Audit panel. history_24h is a backend aggregate
- *   reliability window that excludes raw command params/result/error_message.
+ *   reliability window with latest_any_created_at/latest_any_status context
+ *   that excludes raw command params/result/error_message.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts
@@ -637,6 +638,8 @@ export interface VpnRestartReadinessSummary {
       average_completion_seconds: number | null;
       latest_created_at?: string | null;
       latest_completed_at?: string | null;
+      latest_any_created_at?: string | null;
+      latest_any_status?: string;
       summary?: {
         status?: string;
         risk: 'healthy' | 'info' | 'warning' | 'critical' | string;

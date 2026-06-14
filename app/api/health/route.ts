@@ -40,7 +40,8 @@
  *     command_lifecycle_counts.outcome_summary powers Services Restart
  *     Outcome Audit from latest per-node restart_service terminal statuses.
  *     command_lifecycle_counts.history_24h powers Services 24h restart
- *     command reliability without exposing command params/result/errors.
+ *     command reliability and latest_any restart context without exposing
+ *     command params/result/errors.
  *   - GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Supports /dashboard/sessions?node={id}&status=active&quality=all deep links.
@@ -99,7 +100,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.29 - Documented 24h restart command reliability
+ * Last Modified: v1.1.30 - Documented latest restart command context
+ * Previous: v1.1.29 - Documented 24h restart command reliability
  * Previous: v1.1.28 - Documented restart outcome audit summary
  * Previous: v1.1.27 - Documented fleet cancelability counts
  * Previous: v1.1.26 - Documented backend cancel reason flag
@@ -203,7 +205,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.command_lifecycle_counts',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level restart_service active/stale/retry/terminal lifecycle counts, cancelable_active/non_cancelable_active active command counts, outcome_summary terminal audit copy, history_24h reliability aggregate, plus backend-authored summary copy for the Services Command SLA and Restart Outcome Audit cards',
+      purpose: 'Fleet-level restart_service active/stale/retry/terminal lifecycle counts, cancelable_active/non_cancelable_active active command counts, outcome_summary terminal audit copy, history_24h reliability aggregate with latest_any_created_at/latest_any_status context, plus backend-authored summary copy for the Services Command SLA and Restart Outcome Audit cards',
     },
     {
       endpoint: 'GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=',
