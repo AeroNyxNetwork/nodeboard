@@ -70,7 +70,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.16 - Show backend drain risk next step
+ * Last Modified: v1.1.17 - Add prioritized restart action queue
+ * Previous: v1.1.16 - Show backend drain risk next step
  * Previous: v1.1.15 - Use backend-authored fleet drain risk copy
  * Previous: v1.1.14 - Show fleet drain risk summary
  * Previous: v1.1.13 - Show backend drain activity health badge
@@ -192,6 +193,33 @@ interface RestartReadinessNode {
   nextStep: string;
   blockers: string[];
   source: string;
+}
+
+type RestartActionQueueKey = 'critical' | 'warning' | 'ready' | 'current';
+
+interface RestartActionQueueItem {
+  id: string;
+  name: string;
+  status: string;
+  detail: string;
+  meta: string[];
+  risk: string;
+  activeSessions: number;
+  maintenanceMode: boolean;
+  canEnableMaintenance: boolean;
+  canQueueRestart: boolean;
+  actionHref: string;
+  actionLabel: string;
+  source: 'backend_blocked_node' | 'backend_readiness_node';
+}
+
+interface RestartActionQueue {
+  key: RestartActionQueueKey;
+  label: string;
+  description: string;
+  status: string;
+  emptyState: string;
+  items: RestartActionQueueItem[];
 }
 
 interface SessionCleanupRolloutNode {
@@ -664,6 +692,129 @@ function restartBlockerCopy(code: string) {
   };
 }
 
+function restartBlockedNodeActionHref(node: VpnRestartReadinessSummary['blocked_nodes'][number]) {
+  const intent = node.recommended_action?.intent;
+  if (intent === 'sessions') {
+    return `/dashboard/sessions?node=${encodeURIComponent(node.id)}&status=active&quality=all`;
+  }
+  if (intent === 'node_commands') {
+    return `/dashboard/nodes/${node.id}?command_action=restart_service#vpn-commands`;
+  }
+  return `/dashboard/nodes/${node.id}`;
+}
+
+function restartBlockedNodeActionLabel(node: VpnRestartReadinessSummary['blocked_nodes'][number]) {
+  return node.recommended_action?.label ?? 'Open node';
+}
+
+function buildBlockedRestartQueueItem(
+  node: VpnRestartReadinessSummary['blocked_nodes'][number],
+): RestartActionQueueItem {
+  const activity = formatBlockedDrainActivity(node);
+  const drainStatus = formatDrainStatus(node.drain_status);
+  const health = node.drain_activity?.activity_health ?? null;
+  const risk = health?.risk ?? 'warning';
+  const meta = [
+    `${node.active_sessions.toLocaleString()} active`,
+    node.maintenance_mode ? 'maintenance on' : 'maintenance off',
+    drainStatus ? `drain ${drainStatus}` : null,
+    node.active_restart_command_status ? `restart ${node.active_restart_command_status}` : null,
+    activity ? `activity ${activity}` : null,
+    node.blocker_codes.length > 0 ? node.blocker_codes.join(', ') : null,
+  ].filter((item): item is string => Boolean(item));
+
+  return {
+    id: node.id,
+    name: node.name,
+    status: health?.label ?? 'Blocked',
+    detail: node.recommended_action?.detail || node.drain_next_step || node.next_step,
+    meta,
+    risk,
+    activeSessions: node.active_sessions,
+    maintenanceMode: node.maintenance_mode,
+    canEnableMaintenance: !node.maintenance_mode && node.blocker_codes.includes('maintenance_required'),
+    canQueueRestart: false,
+    actionHref: restartBlockedNodeActionHref(node),
+    actionLabel: restartBlockedNodeActionLabel(node),
+    source: 'backend_blocked_node',
+  };
+}
+
+function buildReadyRestartQueueItem(node: RestartReadinessNode): RestartActionQueueItem {
+  return {
+    id: node.id,
+    name: node.name,
+    status: node.status,
+    detail: node.canRestart ? 'Restart window open from backend readiness gate.' : node.nextStep,
+    meta: [
+      `${node.activeSessions.toLocaleString()} active`,
+      node.maintenanceMode ? 'maintenance on' : 'maintenance off',
+      node.operatorReporting ? 'operator reported' : 'operator pending',
+      node.cleanupReported ? 'cleanup reported' : 'cleanup pending',
+      node.activeRestartCommand ? `restart ${node.activeRestartCommand.status}` : null,
+    ].filter((item): item is string => Boolean(item)),
+    risk: node.status === 'ready' ? 'healthy' : 'info',
+    activeSessions: node.activeSessions,
+    maintenanceMode: node.maintenanceMode,
+    canEnableMaintenance: false,
+    canQueueRestart: node.canRestart && !node.activeRestartCommand,
+    actionHref: `/dashboard/nodes/${node.id}`,
+    actionLabel: 'Open node',
+    source: 'backend_readiness_node',
+  };
+}
+
+function buildRestartActionQueues(
+  summary: VpnRestartReadinessSummary | null,
+  nodes: RestartReadinessNode[],
+): RestartActionQueue[] {
+  const blockedItems = (summary?.blocked_nodes ?? []).map(buildBlockedRestartQueueItem);
+  const criticalItems = blockedItems.filter((item) => item.risk === 'critical');
+  const warningItems = blockedItems.filter((item) => item.risk !== 'critical');
+  const readyItems = nodes
+    .filter((node) => node.status === 'ready')
+    .map(buildReadyRestartQueueItem);
+  const currentItems = nodes
+    .filter((node) => node.status === 'current')
+    .slice(0, 4)
+    .map(buildReadyRestartQueueItem);
+
+  return [
+    {
+      key: 'critical',
+      label: 'Critical Drain',
+      description: 'Handle first. Backend activity_health marked these blocked nodes as critical.',
+      status: criticalItems.length > 0 ? 'critical' : 'healthy',
+      emptyState: 'No critical drain risk.',
+      items: criticalItems,
+    },
+    {
+      key: 'warning',
+      label: 'Warning Drain',
+      description: 'Review before restart. These blocked nodes still need drain or signal work.',
+      status: warningItems.length > 0 ? 'warning' : 'healthy',
+      emptyState: 'No warning drain items.',
+      items: warningItems,
+    },
+    {
+      key: 'ready',
+      label: 'Ready to Restart',
+      description: 'Maintenance is on, active sessions are drained, and backend gate allows restart.',
+      status: readyItems.length > 0 ? 'ready' : 'pending',
+      emptyState: 'No node is restart-ready right now.',
+      items: readyItems,
+    },
+    {
+      key: 'current',
+      label: 'Current',
+      description: 'Healthy baseline sample. These nodes do not need rollout action.',
+      status: 'current',
+      emptyState: 'No current nodes reported in this owner scope.',
+      items: currentItems,
+    },
+  ];
+}
+
 function StatusPill({ status }: { status: string }) {
   const normalized = normalizeStatus(status);
   return (
@@ -897,6 +1048,7 @@ function FleetRestartReadinessPanel({
     ?? attentionNodes.reduce((sum, node) => sum + node.activeSessions, 0);
   const blockerCounts = Object.entries(summary?.blocker_counts ?? {});
   const drainRisk = fleetDrainRisk(summary);
+  const actionQueues = buildRestartActionQueues(summary, nodes);
 
   return (
     <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
@@ -942,135 +1094,123 @@ function FleetRestartReadinessPanel({
         </div>
       </div>
 
-      {summary?.blocked_nodes && summary.blocked_nodes.length > 0 && (
-        <div className="mt-4 rounded-xl border border-yellow-500/20 bg-yellow-500/[0.05] p-4">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-yellow-100">Backend Blocked Nodes</h3>
-              <p className="mt-1 text-xs leading-5 text-yellow-100/60">
-                Owner-scoped blockers from data.summary.restart_readiness.blocked_nodes.
-              </p>
-            </div>
-            <StatusPill status="blocked" />
+      <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Restart Action Queue</h3>
+            <p className="mt-1 text-xs leading-5 text-gray-500">
+              Prioritized from data.summary.restart_readiness.blocked_nodes and
+              data.nodes[].system.restart_readiness.
+            </p>
           </div>
-          {blockerCounts.length > 0 && (
-            <div className="mt-3 grid gap-2 lg:grid-cols-3">
-              {blockerCounts.map(([code, count]) => {
-                const blocker = restartBlockerCopy(code);
+          <StatusPill status={blockedCount > 0 ? 'blocked' : readyCount > 0 ? 'ready' : 'current'} />
+        </div>
 
-                return (
-                  <div
-                    key={code}
-                    className="rounded-lg border border-yellow-300/10 bg-black/20 px-3 py-2 text-xs"
-                  >
-                    <div className="flex items-center justify-between gap-2 text-yellow-100/80">
-                      <span className="font-medium">{blocker.label}</span>
-                      <span className="text-yellow-100">{count.toLocaleString()}</span>
-                    </div>
-                    <p className="mt-1 leading-5 text-yellow-100/45">
-                      {blocker.remediation}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          <div className="mt-3 grid gap-2">
-            {summary.blocked_nodes.map((node) => {
-              const canEnableMaintenance = !node.maintenance_mode && node.blocker_codes.includes('maintenance_required');
-              const isEnablingMaintenance = enablingMaintenanceNodeId === node.id;
-              const drainStatus = formatDrainStatus(node.drain_status);
-              const recommendedAction = node.recommended_action ?? null;
-              const drainActivity = formatBlockedDrainActivity(node);
-              const drainActivityHealth = node.drain_activity?.activity_health ?? null;
+        {blockerCounts.length > 0 && (
+          <div className="mt-3 grid gap-2 lg:grid-cols-3">
+            {blockerCounts.map(([code, count]) => {
+              const blocker = restartBlockerCopy(code);
 
               return (
-              <div
-                key={node.id}
-                className="grid gap-3 rounded-lg border border-yellow-300/10 bg-black/20 p-3 text-xs text-yellow-100/65 md:grid-cols-[minmax(0,1fr)_110px_120px_minmax(0,1.3fr)_minmax(150px,auto)] md:items-center"
-              >
-                <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
-                  {node.name}
-                </Link>
-                <span>{node.active_sessions.toLocaleString()} active</span>
-                <span>{node.maintenance_mode ? 'maintenance on' : 'maintenance off'}</span>
-                <span className="min-w-0 leading-5">
-                  <span className="block">{node.next_step}</span>
-                  {node.blocker_codes.length > 0 && (
-                    <span className="text-yellow-100/35">
-                      {node.blocker_codes.join(', ')}
-                    </span>
-                  )}
-                  {drainStatus && (
-                    <span className="block text-yellow-100/40">
-                      drain {drainStatus}
-                      {node.active_restart_command_status
-                        ? ` · restart ${node.active_restart_command_status}`
-                        : ''}
-                      {node.drain_next_step ? ` · ${node.drain_next_step}` : ''}
-                    </span>
-                  )}
-                  {drainActivity && (
-                    <span className="block text-yellow-100/45">
-                      activity: {drainActivity}
-                    </span>
-                  )}
-                  {drainActivityHealth && (
-                    <span className={`mt-1 inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium ${drainActivityHealthClass(drainActivityHealth.risk)}`}>
-                      {drainActivityHealth.label}
-                    </span>
-                  )}
-                  {recommendedAction?.detail && (
-                    <span className="block text-yellow-100/50">
-                      next action: {recommendedAction.detail}
-                    </span>
-                  )}
-                </span>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link
-                    href={`/dashboard/sessions?node=${encodeURIComponent(node.id)}&status=active&quality=all`}
-                    className="font-medium text-sky-300 hover:text-sky-200"
-                  >
-                    {recommendedAction?.intent === 'sessions' ? recommendedAction.label : 'Open sessions'}
-                  </Link>
-                  {recommendedAction?.intent === 'node_detail' && (
-                    <Link
-                      href={`/dashboard/nodes/${node.id}`}
-                      className="font-medium text-purple-300 hover:text-purple-200"
-                    >
-                      {recommendedAction.label}
-                    </Link>
-                  )}
-                  {recommendedAction?.intent === 'node_commands' && (
-                    <Link
-                      href={`/dashboard/nodes/${node.id}?command_action=restart_service#vpn-commands`}
-                      className="font-medium text-sky-300 hover:text-sky-200"
-                    >
-                      {recommendedAction.label}
-                    </Link>
-                  )}
-                  {canEnableMaintenance && (
-                    <button
-                      type="button"
-                      onClick={() => onEnableMaintenance(node.id, node.name)}
-                      disabled={Boolean(enablingMaintenanceNodeId)}
-                      className="rounded-md border border-yellow-300/20 px-2 py-1 font-medium text-yellow-100 transition hover:border-yellow-200/40 hover:bg-yellow-300/10 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isEnablingMaintenance
-                        ? 'Enabling...'
-                        : recommendedAction?.intent === 'node_policy'
-                          ? recommendedAction.label
-                          : 'Enable maintenance'}
-                    </button>
-                  )}
+                <div
+                  key={code}
+                  className="rounded-lg border border-yellow-300/10 bg-yellow-500/[0.04] px-3 py-2 text-xs"
+                >
+                  <div className="flex items-center justify-between gap-2 text-yellow-100/80">
+                    <span className="font-medium">{blocker.label}</span>
+                    <span className="text-yellow-100">{count.toLocaleString()}</span>
+                  </div>
+                  <p className="mt-1 leading-5 text-yellow-100/45">
+                    {blocker.remediation}
+                  </p>
                 </div>
-              </div>
               );
             })}
           </div>
+        )}
+
+        <div className="mt-4 grid gap-3 xl:grid-cols-4">
+          {actionQueues.map((queue) => (
+            <div
+              key={queue.key}
+              className={`rounded-xl border p-3 ${queue.items.length > 0 ? drainActivityHealthClass(queue.status) : 'border-white/10 bg-white/[0.03] text-gray-400'}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] opacity-70">
+                    {queue.label}
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold">{queue.items.length.toLocaleString()}</p>
+                </div>
+                <StatusPill status={queue.status} />
+              </div>
+              <p className="mt-2 min-h-[40px] text-xs leading-5 opacity-70">{queue.description}</p>
+
+              <div className="mt-3 space-y-2">
+                {queue.items.length === 0 ? (
+                  <p className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs opacity-60">
+                    {queue.emptyState}
+                  </p>
+                ) : queue.items.map((item) => {
+                  const isEnablingMaintenance = enablingMaintenanceNodeId === item.id;
+                  const isRestarting = restartingNodeId === item.id;
+
+                  return (
+                    <div
+                      key={`${queue.key}-${item.id}`}
+                      className="rounded-lg border border-white/10 bg-black/25 p-3 text-xs"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <Link
+                          href={`/dashboard/nodes/${item.id}`}
+                          className="min-w-0 truncate font-medium text-white hover:text-purple-300"
+                        >
+                          {item.name}
+                        </Link>
+                        <span className="shrink-0 rounded-md border border-white/10 px-2 py-0.5 opacity-70">
+                          {item.status}
+                        </span>
+                      </div>
+                      <p className="mt-2 leading-5 opacity-75">{item.detail}</p>
+                      <p className="mt-2 line-clamp-2 leading-5 opacity-45">
+                        {item.meta.join(' · ')}
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Link
+                          href={item.actionHref}
+                          className="inline-flex items-center justify-center rounded-md border border-sky-400/20 px-2.5 py-1 font-medium text-sky-200 transition hover:border-sky-300/40 hover:bg-sky-400/10"
+                        >
+                          {item.actionLabel}
+                        </Link>
+                        {item.canEnableMaintenance && (
+                          <button
+                            type="button"
+                            onClick={() => onEnableMaintenance(item.id, item.name)}
+                            disabled={Boolean(enablingMaintenanceNodeId)}
+                            className="inline-flex items-center justify-center rounded-md border border-yellow-300/20 px-2.5 py-1 font-medium text-yellow-100 transition hover:border-yellow-200/40 hover:bg-yellow-300/10 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isEnablingMaintenance ? 'Enabling...' : 'Enable maintenance'}
+                          </button>
+                        )}
+                        {item.canQueueRestart && (
+                          <button
+                            type="button"
+                            onClick={() => onQueueRestart(item.id, item.name)}
+                            disabled={Boolean(restartingNodeId)}
+                            className="inline-flex items-center justify-center rounded-md border border-emerald-300/20 px-2.5 py-1 font-medium text-emerald-100 transition hover:border-emerald-200/40 hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isRestarting ? 'Queueing...' : 'Queue restart'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
-      )}
+      </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         {nodes.map((node) => (
