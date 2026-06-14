@@ -15,6 +15,8 @@
  *   - API base: lib/constants.ts -> API_BASE_URL
  *   - Runtime env: /etc/nodeboard/nodeboard.env
  *   - Deployment helper: deploy/bin/deploy-nodeboard.sh
+ *     Verifies /dashboard/nodes/{id}?command_action=restart_service when
+ *     NODEBOARD_CANARY_NODE_ID is configured for the production environment.
  *   - Dashboard service page: app/dashboard/services/page.tsx
  *   - Dashboard sessions page: app/dashboard/sessions/page.tsx
  *   - Node detail page: app/dashboard/nodes/[id]/page.tsx
@@ -70,6 +72,12 @@
  *   - Node command controls:
  *     /root/aeronyx/privacy_network/api/vpn_commands.py
  *     /root/aeronyx/privacy_network/services/command_service.py
+ *     GET /api/privacy_network/nodes/{id}/commands/?status=&action=&limit=
+ *     feeds node detail command history and command_action deep links.
+ *     POST /api/privacy_network/nodes/{id}/commands/run/ queues diagnostics,
+ *     restart_service, policy, wallet, and session control commands.
+ *     POST /api/privacy_network/nodes/{id}/commands/{cmd_id}/cancel/ cancels
+ *     pending command queue entries before Rust acknowledges them.
  *
  * Rust Producer Paths:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -82,7 +90,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.23 - Documented fleet command lifecycle summary
+ * Last Modified: v1.1.24 - Documented command timeline deep-link contract
+ * Previous: v1.1.23 - Documented fleet command lifecycle summary
  * Previous: v1.1.22 - Documented restart command SLA fields
  * Previous: v1.1.21 - Documented latest restart command outcome
  * Previous: v1.1.20 - Documented backend drain risk next step
@@ -203,9 +212,19 @@ const healthPayload = {
       purpose: 'Signed heartbeat ingestion and Node.hardware_info storage',
     },
     {
+      endpoint: 'GET /api/privacy_network/nodes/{id}/commands/?status=&action=&limit=',
+      file: '/root/aeronyx/privacy_network/api/vpn_commands.py',
+      purpose: 'Node detail command timeline, including command_action=restart_service deep links from Services',
+    },
+    {
       endpoint: 'POST /api/privacy_network/nodes/{id}/commands/run/',
       file: '/root/aeronyx/privacy_network/api/vpn_commands.py',
       purpose: 'Operator command queue for restart, diagnostics, and policy actions',
+    },
+    {
+      endpoint: 'POST /api/privacy_network/nodes/{id}/commands/{cmd_id}/cancel/',
+      file: '/root/aeronyx/privacy_network/api/vpn_commands.py',
+      purpose: 'Operator cancellation for pending node commands before Rust acknowledgement',
     },
   ],
   rust_producers: [

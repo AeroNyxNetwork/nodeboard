@@ -9,12 +9,16 @@
 #   Node operators need a repeatable, auditable deploy path for the nodeboard
 #   console. This script updates the checked-out main branch, builds Next.js,
 #   installs the systemd unit, writes runtime version metadata, restarts the
-#   service, and verifies the health endpoint.
+#   service, and verifies the health endpoint plus the operator dashboard
+#   routes used during controlled VPN service restart triage.
 #
 # Frontend paths verified by this script:
 #   /root/open/nodeboard/app/api/health/route.ts
 #   /root/open/nodeboard/app/dashboard/services/page.tsx
 #   /root/open/nodeboard/app/dashboard/nodes/[id]/page.tsx
+#   /root/open/nodeboard/app/dashboard/nodes/[id]/page.tsx consumes
+#     command_action=restart_service so Services can deep-link operators into
+#     the node command timeline after restart_service queue actions.
 #
 # Backend API contract exposed by /api/health:
 #   https://api.aeronyx.network/api/privacy_network
@@ -41,7 +45,16 @@ PORT="${NODEBOARD_PORT:-3000}"
 HOST="${NODEBOARD_HOST:-127.0.0.1}"
 HEALTH_URL="http://${HOST}:${PORT}/api/health"
 SERVICES_URL="http://${HOST}:${PORT}/dashboard/services"
-NODE_DETAIL_URL="http://${HOST}:${PORT}/dashboard/nodes/test-node-id"
+EXISTING_CANARY_NODE_ID=""
+if [ -f "$ENV_FILE" ]; then
+  EXISTING_CANARY_NODE_ID="$(grep -E '^NODEBOARD_CANARY_NODE_ID=' "$ENV_FILE" | tail -n 1 | cut -d= -f2- || true)"
+fi
+CANARY_NODE_ID="${NODEBOARD_CANARY_NODE_ID:-${EXISTING_CANARY_NODE_ID}}"
+if [ -n "$CANARY_NODE_ID" ]; then
+  NODE_DETAIL_URL="http://${HOST}:${PORT}/dashboard/nodes/${CANARY_NODE_ID}?command_action=restart_service"
+else
+  NODE_DETAIL_URL="http://${HOST}:${PORT}/dashboard/nodes/test-node-id"
+fi
 
 log() {
   printf '[nodeboard-deploy] %s\n' "$*"
@@ -97,6 +110,9 @@ NODEBOARD_GIT_SHA=${GIT_SHA}
 NODEBOARD_DEPLOYED_AT=${DEPLOYED_AT}
 NODEBOARD_SOURCE_DIR=${SOURCE_DIR}
 EOF
+if [ -n "$CANARY_NODE_ID" ]; then
+  printf 'NODEBOARD_CANARY_NODE_ID=%s\n' "$CANARY_NODE_ID" >> "$ENV_FILE"
+fi
 chmod 0644 "$ENV_FILE"
 
 log "installing systemd unit"
@@ -114,6 +130,11 @@ curl --fail --silent --show-error "$HEALTH_URL" | grep -q "\"git_sha\":\"${GIT_S
 
 log "checking dashboard routes"
 curl --fail --silent --show-error --output /dev/null "$SERVICES_URL"
+if [ -n "$CANARY_NODE_ID" ]; then
+  log "checking restart command deep-link route for canary node ${CANARY_NODE_ID}"
+else
+  log "checking generic node detail route; set NODEBOARD_CANARY_NODE_ID to verify restart command deep links"
+fi
 curl --fail --silent --show-error --output /dev/null "$NODE_DETAIL_URL"
 
 log "deployed ${SERVICE_NAME} at ${GIT_SHA}"

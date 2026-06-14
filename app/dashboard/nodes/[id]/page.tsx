@@ -53,7 +53,7 @@
  *   - GET /api/privacy_network/nodes/{id}/sessions/?status=active
  *     /root/aeronyx/privacy_network/api/sessions.py
  *     /root/aeronyx/privacy_network/serializers.py
- *   - POST /api/privacy_network/nodes/{id}/commands/
+ *   - POST /api/privacy_network/nodes/{id}/commands/run/
  *     /root/aeronyx/privacy_network/api/vpn_commands.py
  *   - GET /api/privacy_network/nodes/{id}/commands/?status=&action=&limit=
  *     /root/aeronyx/privacy_network/api/vpn_commands.py
