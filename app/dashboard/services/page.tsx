@@ -1267,6 +1267,7 @@ function fleetCutoverGuard(summary: VpnRestartReadinessSummary | null) {
       next_step: 'Waiting for data.summary.restart_readiness.cutover_guard_counts.',
       safe: 0,
       blocked: 0,
+      actionable: 0,
       total: 0,
       impact: 'unknown',
     };
@@ -1283,6 +1284,7 @@ function fleetCutoverGuard(summary: VpnRestartReadinessSummary | null) {
     next_step: summaryCopy?.next_step ?? 'Open blocked nodes before replacing or restarting Rust.',
     safe: counts.safe_nodes ?? 0,
     blocked: counts.blocked_nodes ?? 0,
+    actionable: counts.actionable_blocked_nodes ?? counts.actionable_problem_nodes?.length ?? 0,
     total: counts.total_nodes ?? 0,
     impact,
   };
@@ -2362,10 +2364,11 @@ function FleetRestartReadinessPanel({
         </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(cutoverGuard.risk)}`}>
           <p className="text-xs uppercase tracking-[0.16em] opacity-70">Cutover Safety</p>
-          <p className="mt-2 text-2xl font-semibold">{cutoverGuard.count.toLocaleString()}</p>
+          <p className="mt-2 text-2xl font-semibold">{cutoverGuard.count.toLocaleString()} unsafe</p>
           <p className="mt-1 text-xs opacity-70">{cutoverGuard.label} · {cutoverGuard.detail}</p>
           <p className="mt-2 text-xs leading-5 opacity-80">
-            Safe {cutoverGuard.safe.toLocaleString()} / {cutoverGuard.total.toLocaleString()} · Blocked{' '}
+            Actionable {cutoverGuard.actionable.toLocaleString()} · Safe{' '}
+            {cutoverGuard.safe.toLocaleString()} / {cutoverGuard.total.toLocaleString()} · Unsafe{' '}
             {cutoverGuard.blocked.toLocaleString()} · Impact {cutoverGuard.impact}
           </p>
           {cutoverGuard.next_step && (
