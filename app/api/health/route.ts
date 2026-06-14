@@ -54,7 +54,7 @@
  *     the Services Rust Capability card and Rust Capability Gaps panel. The
  *     backend owns the operator_status/runtime_rollout/session_cleanup
  *     capability decision plus problem_nodes[].upgrade_gate cutover safety
- *     and checklist copy.
+ *     and checklist/checklist_summary copy.
  *     Provides data.summary.restart_readiness.command_lifecycle_counts for
  *     Services page Command SLA card, backend-authored stale/retry copy, and
  *     cancelable_active/non_cancelable_active active command counts.
@@ -284,7 +284,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.runtime_capability_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level Rust commercial runtime capability summary for operator_status.runtime_rollout/session_cleanup reporting, including capped problem_nodes plus upgrade_gate cutover safety/checklist copy for the Services Rust Capability card, Rust Capability Gaps panel, and Restart Action Queue',
+      purpose: 'Fleet-level Rust commercial runtime capability summary for operator_status.runtime_rollout/session_cleanup reporting, including capped problem_nodes plus upgrade_gate cutover safety/checklist/checklist_summary copy for the Services Rust Capability card, Rust Capability Gaps panel, and Restart Action Queue',
     },
     {
       endpoint: 'data.summary.restart_readiness.policy_sync_health',

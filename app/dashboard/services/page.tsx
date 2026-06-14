@@ -86,7 +86,8 @@
  *     runtime_rollout instead of assuming operator_status alone is enough.
  *     problem_nodes[].upgrade_gate mirrors backend cutover_guard so runtime
  *     upgrade tasks show whether replacing/restarting Rust is safe right now.
- *     upgrade_gate.checklist is backend-authored upgrade preflight copy.
+ *     upgrade_gate.checklist and checklist_summary are backend-authored
+ *     upgrade preflight copy and counts.
  *   - data.summary.restart_readiness.policy_sync_health
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates data.nodes[].system.policy_sync so Services can verify
@@ -1633,12 +1634,11 @@ function buildRuntimeCapabilityQueueItem(
   // and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
   const missing = node.missing_capabilities.map((item) => item.replaceAll('_', ' '));
   const upgradeGate = node.upgrade_gate ?? null;
-  const upgradeChecklist = upgradeGate?.checklist ?? [];
-  const readyChecks = upgradeChecklist.filter((item) => item.status === 'ready').length;
+  const checklistSummary = upgradeGate?.checklist_summary ?? null;
   const meta = [
     `missing ${missing.join(', ')}`,
     upgradeGate ? `upgrade ${upgradeGate.label.toLowerCase()}` : null,
-    upgradeChecklist.length > 0 ? `checks ${readyChecks}/${upgradeChecklist.length} ready` : null,
+    checklistSummary ? `checks ${checklistSummary.ready}/${checklistSummary.total} ready` : null,
     `${node.active_sessions.toLocaleString()} active`,
     node.maintenance_mode ? 'maintenance on' : 'maintenance off',
     node.operator_reporting ? 'operator reported' : 'operator missing',
