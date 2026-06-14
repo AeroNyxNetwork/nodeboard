@@ -527,6 +527,9 @@ function formatDataUpdatedAt(dataUpdatedAt: number) {
 
 function formatDrainEta(eta: VpnRestartDrainEta | null) {
   if (!eta || eta.active_sessions === 0) return 'no active drain';
+  if (eta.status === 'cleanup_policy_pending') return 'cleanup policy pending';
+  if (eta.status === 'activity_pending') return 'activity pending';
+  if (eta.status === 'cleanup_due') return 'cleanup due';
   if (!eta.cleanup_timeout_seconds) return 'cleanup timeout pending';
   if (eta.estimated_seconds_remaining === null) return 'awaiting session activity';
   if (eta.estimated_seconds_remaining <= 0) return 'cleanup due';
@@ -934,6 +937,11 @@ function FleetRestartReadinessPanel({
               <div>
                 <p className="text-gray-600">Drain ETA</p>
                 <p className="mt-1 text-gray-200">{formatDrainEta(node.drainEta)}</p>
+                {node.drainEta?.next_step && (
+                  <p className="mt-1 text-[11px] text-gray-600">
+                    {node.drainEta.next_step}
+                  </p>
+                )}
                 {node.drainEta?.latest_activity_at && (
                   <p className="mt-1 text-[11px] text-gray-600">
                     activity {formatRelativeTime(node.drainEta.latest_activity_at)}

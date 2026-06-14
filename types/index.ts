@@ -399,6 +399,14 @@ export interface VpnRestartCommandState {
 }
 
 export interface VpnRestartDrainEta {
+  status:
+    | 'no_active_sessions'
+    | 'cleanup_policy_pending'
+    | 'activity_pending'
+    | 'cleanup_due'
+    | 'waiting_for_idle_cleanup'
+    | string;
+  next_step: string;
   active_sessions: number;
   oldest_started_at: string | null;
   latest_activity_at: string | null;

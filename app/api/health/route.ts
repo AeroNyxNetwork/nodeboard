@@ -40,6 +40,7 @@
  *   - data.nodes[].system.restart_readiness.drain_eta
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates active ClientSession timing for restart drain visibility.
+ *     Includes status and next_step for fleet operator decision-making.
  *   - GET /api/privacy_network/nodes/{id}/sessions/
  *     /root/aeronyx/privacy_network/api/sessions.py
  *     /root/aeronyx/privacy_network/serializers.py
@@ -60,7 +61,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.8 - Documented restart drain ETA
+ * Last Modified: v1.1.9 - Documented restart drain status
+ * Previous: v1.1.8 - Documented restart drain ETA
  * Previous: v1.1.7 - Documented active restart command gate
  * Previous: v1.1.6 - Documented restart gate maintenance action
  * Previous: v1.1.5 - Documented sessions deep-link contract
@@ -113,7 +115,7 @@ const healthPayload = {
     {
       endpoint: 'data.nodes[].system.restart_readiness.drain_eta',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Node-level active ClientSession timing aggregate used for maintenance drain ETA',
+      purpose: 'Node-level active ClientSession timing aggregate, status, and next step used for maintenance drain ETA',
     },
     {
       endpoint: 'data.summary.restart_readiness',
