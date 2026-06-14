@@ -12,6 +12,8 @@
  * Backend APIs used on this page:
  *   - GET /api/privacy_network/vpn/overview/
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Provides data.nodes[].checks from Rust /api/vpn/health so Services can
+ *     explain placement blockers such as dns_stub and dns_query failures.
  *   - GET /api/privacy_network/vpn/servers/
  *     /root/aeronyx/privacy_network/api/vpn_servers.py
  *     Provides client placement capacity summary used by Services to show
@@ -132,7 +134,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.38 - Show placement blocker node triage
+ * Last Modified: v1.1.39 - Explain placement blockers with failed health checks
+ * Previous: v1.1.38 - Show placement blocker node triage
  * Previous: v1.1.37 - Refresh placement capacity after maintenance changes
  * Previous: v1.1.36 - Show client placement capacity
  * Previous: v1.1.35 - Show fleet policy enforcement blocks
@@ -743,6 +746,10 @@ function placementSessionCopy(server: VpnServerCandidate) {
     return `${sessions}/${server.max_sessions.toLocaleString()} sessions`;
   }
   return `${sessions} sessions, unlimited cap`;
+}
+
+function failedPlacementChecks(node: VpnNodeHealth | undefined) {
+  return (node?.checks ?? []).filter((check) => !check.ok).slice(0, 3);
 }
 
 function formatOptionalPercent(value: number | null | undefined) {
@@ -1506,12 +1513,14 @@ function ServiceCard({ service }: { service: ServiceView }) {
 function PlacementCapacityPanel({
   summary,
   servers,
+  nodesById,
   available,
   total,
   isLoading,
 }: {
   summary: VpnServerPlacementSummary | null;
   servers: VpnServerCandidate[];
+  nodesById: Map<string, VpnNodeHealth>;
   available: number;
   total: number;
   isLoading: boolean;
@@ -1653,35 +1662,49 @@ function PlacementCapacityPanel({
           </div>
           <div className="mt-3 grid gap-2 lg:grid-cols-2">
             {blockedServers.map((server) => (
-              <Link
-                key={server.id}
-                href={`/dashboard/nodes/${server.id}`}
-                className="rounded-lg border border-yellow-200/10 bg-black/20 p-3 transition hover:border-yellow-200/25 hover:bg-yellow-200/[0.04]"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-white">{server.name}</p>
-                    <p className="mt-1 text-xs text-gray-500">
-                      {server.city || server.region_code || server.country_name || 'unknown region'} · {placementSessionCopy(server)}
+              (() => {
+                const failedChecks = failedPlacementChecks(nodesById.get(server.id));
+                return (
+                  <Link
+                    key={server.id}
+                    href={`/dashboard/nodes/${server.id}`}
+                    className="rounded-lg border border-yellow-200/10 bg-black/20 p-3 transition hover:border-yellow-200/25 hover:bg-yellow-200/[0.04]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-white">{server.name}</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {server.city || server.region_code || server.country_name || 'unknown region'} · {placementSessionCopy(server)}
+                        </p>
+                      </div>
+                      <StatusPill status={server.health_status} />
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500">
+                      <span className="rounded-md border border-white/10 px-2 py-1">
+                        {formatPlacementReason(server.unavailable_reason)}
+                      </span>
+                      <span className="rounded-md border border-white/10 px-2 py-1">
+                        load {server.load === null ? 'pending' : `${server.load}%`}
+                      </span>
+                      <span className="rounded-md border border-white/10 px-2 py-1">
+                        rank {server.failover_rank ?? 'pending'}
+                      </span>
+                    </div>
+                    {failedChecks.length > 0 && (
+                      <div className="mt-3 space-y-1">
+                        {failedChecks.map((check) => (
+                          <p key={check.name} className="text-xs leading-5 text-red-200/80">
+                            {check.name.replaceAll('_', ' ')}: {check.detail}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                    <p className="mt-3 text-xs leading-5 text-yellow-100/65">
+                      {placementBlockerAction(server.unavailable_reason)}
                     </p>
-                  </div>
-                  <StatusPill status={server.health_status} />
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500">
-                  <span className="rounded-md border border-white/10 px-2 py-1">
-                    {formatPlacementReason(server.unavailable_reason)}
-                  </span>
-                  <span className="rounded-md border border-white/10 px-2 py-1">
-                    load {server.load === null ? 'pending' : `${server.load}%`}
-                  </span>
-                  <span className="rounded-md border border-white/10 px-2 py-1">
-                    rank {server.failover_rank ?? 'pending'}
-                  </span>
-                </div>
-                <p className="mt-3 text-xs leading-5 text-yellow-100/65">
-                  {placementBlockerAction(server.unavailable_reason)}
-                </p>
-              </Link>
+                  </Link>
+                );
+              })()
             ))}
           </div>
         </div>
@@ -2914,6 +2937,7 @@ export default function NodeServicesPage() {
   const operatorStatuses = useMemo(() => collectOperatorStatuses(nodes), [nodes]);
   const fleetSummary = useMemo(() => buildFleetSummary(nodes, operatorStatuses), [nodes, operatorStatuses]);
   const services = useMemo(() => buildServiceViews(nodes, operatorStatuses), [nodes, operatorStatuses]);
+  const nodesById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const risks = useMemo(() => collectRisks(nodes), [nodes]);
   const restartReadinessNodes = useMemo(() => collectRestartReadinessNodes(nodes), [nodes]);
   const pendingOperatorNodes = useMemo(() => collectPendingOperatorNodes(nodes), [nodes]);
@@ -3008,6 +3032,7 @@ export default function NodeServicesPage() {
       <PlacementCapacityPanel
         summary={placementSummary}
         servers={placementServers}
+        nodesById={nodesById}
         available={placementAvailable}
         total={placementTotal}
         isLoading={isPlacementLoading}
