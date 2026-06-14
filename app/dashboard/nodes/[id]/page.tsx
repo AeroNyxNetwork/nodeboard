@@ -6,6 +6,8 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.2 - Consumes backend system.restart_readiness so detail-page restart
+ *     actions use the same controlled-restart gate as services fleet view.
  *   v1.6.1 - Added maintenance restart readiness guard so every restart
  *     entry point respects maintenance drain, active-session, and command
  *     queue state before issuing restart_service.
@@ -34,6 +36,8 @@
  *   - GET /api/privacy_network/vpn/overview/
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Exposes data.nodes[].system.session_cleanup for drain ETA context.
+ *     Exposes data.nodes[].system.restart_readiness for backend-authoritative
+ *     controlled-restart gating.
  *   - GET /api/privacy_network/nodes/{id}/sessions/?status=active
  *     /root/aeronyx/privacy_network/api/sessions.py
  *     /root/aeronyx/privacy_network/serializers.py
@@ -68,8 +72,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.1 - Guarded restart actions with maintenance drain readiness
- * Previous: v1.6.0 - Added node-level service readiness view
+ * Last Modified: v1.6.2 - Backend restart_readiness gate for restart actions
+ * Previous: v1.6.1 - Guarded restart actions with maintenance drain readiness
  * Previous: v1.5.0 - Focused nodeboard on VPN operations UI
  * Previous: v1.4.0 - Added NodeSettings panel
  * ============================================
@@ -107,6 +111,7 @@ import {
   VpnHealthStatus,
   VpnNodeHealth,
   VpnNodeMetrics,
+  VpnRestartReadiness,
   VpnServerCandidate,
 } from '@/types';
 import { formatRelativeTime, formatDuration, formatBytes, copyToClipboard } from '@/lib/api';
@@ -1298,26 +1303,40 @@ function restartReadinessBlockers({
   restartSupported: boolean;
   restartCommandActive: boolean;
 }) {
-  const blockers: string[] = [];
+  const backendReadiness = health.system.restart_readiness ?? null;
+  const blockers: string[] = backendReadiness
+    ? backendReadiness.blockers.map((blocker) => blocker.message)
+    : [];
   const policySyncStatus = health.system.policy_sync?.status || 'unknown';
 
   if (!restartSupported) {
     blockers.push(health.system.service_manager?.detail || 'The Rust node did not report restart support.');
   }
-  if (!maintenanceMode) {
+  if (!backendReadiness && !maintenanceMode) {
     blockers.push('Start maintenance mode first so new VPN handshakes stop before restart.');
   }
   if (policySyncStatus !== 'synced') {
     blockers.push(`Wait for Rust policy sync before restart. Current policy status: ${policySyncStatus}.`);
   }
-  if (health.active_sessions > 0) {
+  if (!backendReadiness && health.active_sessions > 0) {
     blockers.push(`${health.active_sessions} active tunnel${health.active_sessions === 1 ? '' : 's'} must drain to 0.`);
+  }
+  if (backendReadiness && !backendReadiness.can_restart && backendReadiness.blockers.length === 0) {
+    blockers.push(backendReadiness.next_step || 'Backend restart gate has not opened yet.');
   }
   if (restartCommandActive) {
     blockers.push('A restart_service command is already queued or executing.');
   }
 
   return blockers;
+}
+
+function restartReadinessSourceLabel(readiness: VpnRestartReadiness | null | undefined) {
+  if (!readiness) return 'nodeboard fallback gate';
+  if (readiness.source === 'backend_vpn_observability_restart_gate') {
+    return 'backend restart gate';
+  }
+  return readiness.source || 'backend restart gate';
 }
 
 function restartReadinessLabel(blockers: string[], restartCommandActive: boolean) {
@@ -1395,6 +1414,7 @@ function MaintenanceDrainPanel({
   const newestActivityAt = newestSessionActivity(activeSessions);
   const missedKeepalives = activeSessions.reduce((total, session) => total + (session.keepalive_missed ?? 0), 0);
   const cleanupTimeoutSeconds = health.system.session_cleanup?.client_liveness_timeout_seconds ?? null;
+  const restartReadiness = health.system.restart_readiness ?? null;
   const policySyncStatus = health.system.policy_sync?.status || 'unknown';
   const recoveryStatus = health.system.runtime_recovery?.status || 'unknown';
   const maintenanceReady = maintenanceMode && policySyncStatus === 'synced';
@@ -1416,6 +1436,7 @@ function MaintenanceDrainPanel({
           <h4 className="text-sm font-semibold text-white">Maintenance Drain</h4>
           <p className="text-xs text-gray-500 mt-1">
             Controlled restart path for commercial AeroNyx Privacy Protocol traffic.
+            {' '}Gate source: {restartReadinessSourceLabel(restartReadiness)}.
           </p>
         </div>
         <span className={`inline-flex self-start rounded-full border px-2.5 py-1 text-xs ${restartReadinessClass(restartBlockers, restartCommandActive)}`}>
@@ -1431,6 +1452,11 @@ function MaintenanceDrainPanel({
               <p key={blocker}>{blocker}</p>
             ))}
           </div>
+          {restartReadiness?.privacy_boundary && (
+            <p className="mt-2 text-[11px] leading-5 text-yellow-100/50">
+              {restartReadiness.privacy_boundary}
+            </p>
+          )}
         </div>
       )}
 
@@ -1508,15 +1534,15 @@ function MaintenanceDrainPanel({
             variant="danger"
             size="sm"
             className="mt-3"
-            disabled={isCommandPending || !restartSupported || !maintenanceMode || !drainReady || restartCommandActive}
+            disabled={isCommandPending || !restartReady}
             isLoading={isCommandPending}
             onClick={onRestartService}
           >
             Restart VPN
           </Button>
-          {!drainReady && (
+          {!restartReady && (
             <p className="mt-2 text-[11px] text-yellow-200">
-              Restart unlocks after active tunnels reach 0.
+              {restartReadiness?.next_step || 'Restart unlocks after active tunnels reach 0.'}
             </p>
           )}
         </div>
