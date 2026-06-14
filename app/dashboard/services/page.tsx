@@ -533,7 +533,7 @@ function NodeReadinessRow({ node }: { node: VpnNodeHealth }) {
     <tr className="border-t border-white/5">
       <td className="px-4 py-4">
         <div className="min-w-0">
-          <Link href={`/dashboard/nodes`} className="font-medium text-white hover:text-purple-300">
+          <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
             {node.name}
           </Link>
           <p className="mt-1 truncate text-xs text-gray-500">
@@ -575,7 +575,9 @@ function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
           <div key={node.id} className="rounded-xl border border-yellow-300/10 bg-black/20 p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
-                <p className="font-medium text-white">{node.name}</p>
+                <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
+                  {node.name}
+                </Link>
                 <p className="mt-1 truncate text-xs text-yellow-100/50">
                   {node.publicIp ?? 'no public IP'} · {node.rollout.executable_path ?? 'executable path pending'}
                 </p>
@@ -725,7 +727,9 @@ function PendingOperatorRolloutPanel({ nodes }: { nodes: PendingOperatorNode[] }
           <div key={node.id} className="rounded-xl border border-sky-300/10 bg-black/20 p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
-                <p className="font-medium text-white">{node.name}</p>
+                <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
+                  {node.name}
+                </Link>
                 <p className="mt-1 truncate text-xs text-sky-100/50">
                   {node.publicIp ?? 'no public IP'} · v{node.version}
                 </p>
@@ -773,7 +777,7 @@ function NodeDetailCard({ node }: { node: VpnNodeHealth }) {
     <section className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <Link href="/dashboard/nodes" className="font-semibold text-white hover:text-purple-300">
+          <Link href={`/dashboard/nodes/${node.id}`} className="font-semibold text-white hover:text-purple-300">
             {node.name}
           </Link>
           <p className="mt-1 truncate text-xs text-gray-500">
