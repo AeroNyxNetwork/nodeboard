@@ -92,11 +92,17 @@ The script pulls `origin/main`, runs `npm ci`, builds Next.js, writes
 `/etc/nodeboard/nodeboard.env`, installs the systemd unit, restarts nodeboard,
 and checks `/api/health` plus the main dashboard routes.
 
+The deploy script also runs `npm audit --audit-level=high` before building.
+High or critical dependency advisories block deployment. Lower-severity
+advisories should be triaged in a planned dependency update instead of using
+`npm audit fix --force` on a production branch.
+
 Manual fallback:
 
 ```bash
 git pull --ff-only origin main
 npm ci
+npm audit --audit-level=high
 npm run build
 mkdir -p /etc/nodeboard
 cat >/etc/nodeboard/nodeboard.env <<EOF
@@ -131,6 +137,25 @@ boundary. It does not query node or user data.
 
 The API call should expose `data.nodes[].system.operator_status` for upgraded
 Rust nodes and `runtime_rollout` for nodes running the rollout-status build.
+
+## Dependency Security
+
+Current production baseline:
+
+- `next`: `15.5.19`
+- `eslint-config-next`: `15.5.19`
+- `postcss`: `8.5.15`
+- `overrides.postcss`: `8.5.15`
+
+Reasoning:
+
+- Nodeboard uses the App Router and must stay on a modern Next.js line.
+- The earlier `next@14.2.35` lockfile produced high-severity advisories.
+- `next@15.5.19` removes the high-severity Next.js advisories while remaining
+  compatible with React 18 on the US1 Node.js 22 runtime.
+- The PostCSS override keeps nested Next.js PostCSS resolution on the patched
+  `8.5.15` line. Keep this override unless a future Next.js release removes the
+  nested vulnerable PostCSS dependency.
 
 ## Runtime Rollout Contract
 

@@ -78,6 +78,11 @@ DEPLOYED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 log "installing dependencies"
 npm ci
 
+if [ "${NODEBOARD_SKIP_AUDIT:-0}" != "1" ]; then
+  log "checking npm audit threshold high"
+  npm audit --audit-level=high
+fi
+
 log "building Next.js app"
 npm run build
 
