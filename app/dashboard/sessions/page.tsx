@@ -40,7 +40,8 @@
  *   - The UI intentionally shows operational metadata only. It must not display
  *     traffic destinations, DNS queries, packet payloads, or browsing history.
  *
- * Last Modified: v1.1.3 - Added drain health and age to deep-link context
+ * Last Modified: v1.1.4 - Added cleanup and DNS blocker context
+ * Previous: v1.1.3 - Added drain health and age to deep-link context
  * Previous: v1.1.2 - Added restart drain deep-link context
  * Previous: v1.1.1 - Documented sessions deep-link contract
  * Previous: v1.1.0 - VPN observability MVP
@@ -286,6 +287,14 @@ function RestartDrainContextPanel({
   const readiness = node.system.restart_readiness;
   const drainEta = readiness?.drain_eta ?? null;
   const drainHealth = drainEta?.activity_health ?? null;
+  const failedDnsCheck = node.checks.find((check) => (
+    (check.name === 'dns_stub' || check.name === 'dns_query') && !check.ok
+  ));
+  const cleanupPolicyDetail = typeof drainEta?.cleanup_timeout_seconds === 'number'
+    ? `client liveness timeout ${formatDuration(drainEta.cleanup_timeout_seconds)}`
+    : drainEta?.status === 'cleanup_policy_pending'
+      ? 'waiting for upgraded Rust heartbeat to report session_cleanup policy'
+      : drainEta?.next_step ?? 'waiting for restart drain data';
   const activeSessions = readiness?.active_sessions ?? node.active_sessions;
   const maintenanceMode = readiness?.maintenance_mode ?? node.maintenance_mode;
   const blockers = readiness?.blockers?.map((blocker) => blocker.message) ?? [];
@@ -337,6 +346,20 @@ function RestartDrainContextPanel({
               <div className="mt-1 text-xs leading-5 text-yellow-100/65">{drainHealth.detail}</div>
             </div>
           ) : null}
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+              <div className="text-xs font-medium text-gray-300">Cleanup Policy</div>
+              <div className="mt-1 text-xs leading-5 text-gray-500">{cleanupPolicyDetail}</div>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+              <div className="text-xs font-medium text-gray-300">DNS Gateway</div>
+              <div className="mt-1 text-xs leading-5 text-gray-500">
+                {failedDnsCheck
+                  ? `${formatHealthCheckName(failedDnsCheck.name)}: ${failedDnsCheck.detail}`
+                  : 'gateway DNS checks are not blocking this session view'}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-xs text-gray-400 sm:flex sm:flex-wrap sm:justify-end">
