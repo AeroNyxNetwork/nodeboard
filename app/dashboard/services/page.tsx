@@ -750,6 +750,43 @@ function FleetRestartReadinessPanel({
         </div>
       </div>
 
+      {summary?.blocked_nodes && summary.blocked_nodes.length > 0 && (
+        <div className="mt-4 rounded-xl border border-yellow-500/20 bg-yellow-500/[0.05] p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-yellow-100">Backend Blocked Nodes</h3>
+              <p className="mt-1 text-xs leading-5 text-yellow-100/60">
+                Owner-scoped blockers from data.summary.restart_readiness.blocked_nodes.
+              </p>
+            </div>
+            <StatusPill status="blocked" />
+          </div>
+
+          <div className="mt-3 grid gap-2">
+            {summary.blocked_nodes.map((node) => (
+              <div
+                key={node.id}
+                className="grid gap-3 rounded-lg border border-yellow-300/10 bg-black/20 p-3 text-xs text-yellow-100/65 md:grid-cols-[minmax(0,1fr)_120px_120px_minmax(0,1.4fr)] md:items-center"
+              >
+                <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
+                  {node.name}
+                </Link>
+                <span>{node.active_sessions.toLocaleString()} active</span>
+                <span>{node.maintenance_mode ? 'maintenance on' : 'maintenance off'}</span>
+                <span className="min-w-0">
+                  {node.next_step}
+                  {node.blocker_codes.length > 0 && (
+                    <span className="ml-2 text-yellow-100/35">
+                      {node.blocker_codes.join(', ')}
+                    </span>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         {nodes.map((node) => (
           <div key={node.id} className="rounded-xl border border-white/10 bg-black/20 p-4">
