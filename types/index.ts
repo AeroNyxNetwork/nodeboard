@@ -606,8 +606,9 @@ export interface VpnRestartDrainEta {
  * are backend-authored SLA metadata from vpn_observability.py only; drain_eta
  * is node-level aggregate timing only. command_delivery is backend-authored
  * node-level restart command delivery readiness from heartbeat freshness plus
- * operator_reporting. operator_action_plan is summary copy and checklist only,
- * never raw command params/result/error_message.
+ * operator_reporting. rollout_reported confirms operator_status.runtime_rollout
+ * exists in /root/aeronyx/privacy_network/api/vpn_observability.py. operator_action_plan
+ * is summary copy and checklist only, never raw command params/result/error_message.
  */
 export interface VpnRestartReadiness {
   status: 'ready' | 'blocked' | 'pending' | 'current' | string;
@@ -617,6 +618,7 @@ export interface VpnRestartReadiness {
   maintenance_mode: boolean;
   active_sessions: number;
   operator_reporting: boolean;
+  rollout_reported?: boolean;
   restart_required: boolean;
   cleanup_reported: boolean;
   command_delivery?: {
@@ -741,11 +743,12 @@ export interface VpnRestartReadinessBlockedNode {
  *   for nodes that cannot receive restart commands promptly.
  * Runtime capability source:
  *   data.summary.restart_readiness.runtime_capability_health aggregates
- *   backend restart_readiness.operator_reporting and cleanup_reported from
- *   /root/aeronyx/privacy_network/api/vpn_observability.py so Services can
- *   show stale Rust binaries that do not report operator_status or
- *   session_cleanup before commercial cutover work. problem_nodes also feeds
- *   the Restart Action Queue as backend-authored runtime upgrade work.
+ *   backend restart_readiness.operator_reporting, rollout_reported, and
+ *   cleanup_reported from /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   so Services can show stale Rust binaries that do not report
+ *   operator_status.runtime_rollout or session_cleanup before commercial
+ *   cutover work. problem_nodes also feeds the Restart Action Queue as
+ *   backend-authored runtime upgrade work.
  * Policy sync source:
  *   data.summary.restart_readiness.policy_sync_health aggregates
  *   data.nodes[].system.policy_sync from

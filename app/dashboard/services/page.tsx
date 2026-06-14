@@ -82,7 +82,8 @@
  *     Aggregates Rust operator_status and session_cleanup capability reporting
  *     for the Rust Capability card, Rust Capability Gaps panel, and Restart
  *     Action Queue. problem_nodes is backend-authored; React only maps it to
- *     operator navigation.
+ *     operator navigation. rollout_reporting confirms operator_status includes
+ *     runtime_rollout instead of assuming operator_status alone is enough.
  *   - data.summary.restart_readiness.policy_sync_health
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates data.nodes[].system.policy_sync so Services can verify
@@ -1393,6 +1394,7 @@ function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
       total: 0,
       operatorReporting: 0,
       cleanupReporting: 0,
+      rolloutReporting: 0,
       problemNodes: [],
       label: 'Pending',
       detail: 'waiting for backend runtime capability summary',
@@ -1415,6 +1417,7 @@ function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
     total: capability.total_nodes,
     operatorReporting: capability.operator_reporting_nodes,
     cleanupReporting: capability.cleanup_reporting_nodes,
+    rolloutReporting: capability.rollout_reporting_nodes,
     problemNodes: capability.problem_nodes ?? [],
     label: summaryCopy.label,
     detail: summaryCopy.detail,
@@ -1628,6 +1631,7 @@ function buildRuntimeCapabilityQueueItem(
     node.maintenance_mode ? 'maintenance on' : 'maintenance off',
     node.operator_reporting ? 'operator reported' : 'operator missing',
     node.cleanup_reported ? 'cleanup reported' : 'cleanup missing',
+    node.rollout_reporting ? 'rollout reported' : 'rollout missing',
     readinessNode?.regionLabel ?? 'unknown region',
     readinessNode?.version ? `v${readinessNode.version}` : null,
   ].filter((item): item is string => Boolean(item));
@@ -2543,7 +2547,8 @@ function FleetRestartReadinessPanel({
           <p className="mt-1 text-xs opacity-70">{runtimeCapability.label} · {runtimeCapability.detail}</p>
           <p className="mt-2 text-xs leading-5 opacity-80">
             Operator {runtimeCapability.operatorReporting.toLocaleString()} / {runtimeCapability.total.toLocaleString()} ·
-            Cleanup {runtimeCapability.cleanupReporting.toLocaleString()} / {runtimeCapability.total.toLocaleString()}
+            Cleanup {runtimeCapability.cleanupReporting.toLocaleString()} / {runtimeCapability.total.toLocaleString()} ·
+            Rollout {runtimeCapability.rolloutReporting.toLocaleString()} / {runtimeCapability.total.toLocaleString()}
           </p>
           {runtimeCapability.next_step && (
             <p className="mt-2 text-xs leading-5 opacity-80">{runtimeCapability.next_step}</p>
@@ -2704,6 +2709,7 @@ function FleetRestartReadinessPanel({
                 <p className="mt-1 leading-5 text-yellow-100/50">
                   Operator {node.operator_reporting ? 'reported' : 'missing'} ·
                   cleanup {node.cleanup_reported ? 'reported' : 'missing'} ·
+                  rollout {node.rollout_reporting ? 'reported' : 'missing'} ·
                   heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
                 </p>
                 <p className="mt-1 leading-5 text-yellow-100/50">{node.recommended_action}</p>
