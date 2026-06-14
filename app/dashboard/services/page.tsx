@@ -84,6 +84,8 @@
  *     Action Queue. problem_nodes is backend-authored; React only maps it to
  *     operator navigation. rollout_reporting confirms operator_status includes
  *     runtime_rollout instead of assuming operator_status alone is enough.
+ *     problem_nodes[].upgrade_gate mirrors backend cutover_guard so runtime
+ *     upgrade tasks show whether replacing/restarting Rust is safe right now.
  *   - data.summary.restart_readiness.policy_sync_health
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates data.nodes[].system.policy_sync so Services can verify
@@ -1395,6 +1397,8 @@ function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
       operatorReporting: 0,
       cleanupReporting: 0,
       rolloutReporting: 0,
+      upgradeSafe: 0,
+      upgradeBlocked: 0,
       problemNodes: [],
       label: 'Pending',
       detail: 'waiting for backend runtime capability summary',
@@ -1418,6 +1422,8 @@ function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
     operatorReporting: capability.operator_reporting_nodes,
     cleanupReporting: capability.cleanup_reporting_nodes,
     rolloutReporting: capability.rollout_reporting_nodes,
+    upgradeSafe: capability.upgrade_safe_nodes ?? 0,
+    upgradeBlocked: capability.upgrade_blocked_nodes ?? 0,
     problemNodes: capability.problem_nodes ?? [],
     label: summaryCopy.label,
     detail: summaryCopy.detail,
@@ -1625,13 +1631,16 @@ function buildRuntimeCapabilityQueueItem(
   // Rust producers: /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
   // and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
   const missing = node.missing_capabilities.map((item) => item.replaceAll('_', ' '));
+  const upgradeGate = node.upgrade_gate ?? null;
   const meta = [
     `missing ${missing.join(', ')}`,
+    upgradeGate ? `upgrade ${upgradeGate.label.toLowerCase()}` : null,
     `${node.active_sessions.toLocaleString()} active`,
     node.maintenance_mode ? 'maintenance on' : 'maintenance off',
     node.operator_reporting ? 'operator reported' : 'operator missing',
     node.cleanup_reported ? 'cleanup reported' : 'cleanup missing',
     node.rollout_reporting ? 'rollout reported' : 'rollout missing',
+    upgradeGate?.user_impact_if_forced ? `impact ${upgradeGate.user_impact_if_forced.replaceAll('_', ' ')}` : null,
     readinessNode?.regionLabel ?? 'unknown region',
     readinessNode?.version ? `v${readinessNode.version}` : null,
   ].filter((item): item is string => Boolean(item));
@@ -1639,10 +1648,10 @@ function buildRuntimeCapabilityQueueItem(
   return {
     id: node.id,
     name: node.name,
-    status: node.issue_label,
-    detail: node.recommended_action,
+    status: upgradeGate?.label ?? node.issue_label,
+    detail: upgradeGate?.next_step ?? node.recommended_action,
     meta,
-    risk: node.risk,
+    risk: upgradeGate?.risk ?? node.risk,
     regionLabel: readinessNode?.regionLabel ?? 'unknown region',
     version: readinessNode?.version ?? 'unknown version',
     healthStatus: readinessNode?.healthStatus ?? node.health_status,
@@ -2550,6 +2559,12 @@ function FleetRestartReadinessPanel({
             Cleanup {runtimeCapability.cleanupReporting.toLocaleString()} / {runtimeCapability.total.toLocaleString()} ·
             Rollout {runtimeCapability.rolloutReporting.toLocaleString()} / {runtimeCapability.total.toLocaleString()}
           </p>
+          {(runtimeCapability.upgradeSafe > 0 || runtimeCapability.upgradeBlocked > 0) && (
+            <p className="mt-1 text-xs leading-5 opacity-75">
+              Upgrade safe {runtimeCapability.upgradeSafe.toLocaleString()} ·
+              blocked {runtimeCapability.upgradeBlocked.toLocaleString()}
+            </p>
+          )}
           {runtimeCapability.next_step && (
             <p className="mt-2 text-xs leading-5 opacity-80">{runtimeCapability.next_step}</p>
           )}
@@ -2712,6 +2727,11 @@ function FleetRestartReadinessPanel({
                   rollout {node.rollout_reporting ? 'reported' : 'missing'} ·
                   heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
                 </p>
+                {node.upgrade_gate && (
+                  <p className="mt-1 leading-5 text-yellow-100/50">
+                    Upgrade gate {node.upgrade_gate.label} · {node.upgrade_gate.next_step}
+                  </p>
+                )}
                 <p className="mt-1 leading-5 text-yellow-100/50">{node.recommended_action}</p>
               </div>
             ))}

@@ -748,7 +748,9 @@ export interface VpnRestartReadinessBlockedNode {
  *   so Services can show stale Rust binaries that do not report
  *   operator_status.runtime_rollout or session_cleanup before commercial
  *   cutover work. problem_nodes also feeds the Restart Action Queue as
- *   backend-authored runtime upgrade work.
+ *   backend-authored runtime upgrade work. upgrade_gate mirrors
+ *   restart_readiness.drain_eta.cutover_guard so the UI can show whether
+ *   upgrading/restarting Rust is safe now.
  * Policy sync source:
  *   data.summary.restart_readiness.policy_sync_health aggregates
  *   data.nodes[].system.policy_sync from
@@ -933,6 +935,8 @@ export interface VpnRestartReadinessSummary {
     rollout_reporting_nodes: number;
     critical_nodes: number;
     warning_nodes: number;
+    upgrade_safe_nodes?: number;
+    upgrade_blocked_nodes?: number;
     problem_nodes?: Array<{
       id: string;
       name: string;
@@ -949,6 +953,16 @@ export interface VpnRestartReadinessSummary {
       issue_label: string;
       risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
       recommended_action: string;
+      upgrade_gate?: {
+        safe_to_upgrade: boolean;
+        status: string;
+        risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+        label: string;
+        detail: string;
+        next_step: string;
+        user_impact_if_forced: string;
+        source: 'restart_readiness.drain_eta.cutover_guard' | string;
+      };
     }>;
     summary?: {
       status?: string;
