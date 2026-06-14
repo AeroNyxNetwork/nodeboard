@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.7 - Added fleet policy sync health summary types.
  *   v1.5.6 - Documented commercial capacity PATCH policy fields.
  *   v1.5.5 - Added maintenance exit placement context fields.
  *   v1.5.4 - Documented maintenance exit candidates as action-plan sourced.
@@ -46,7 +47,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.6 - Documented commercial capacity policy fields
+ * Last Modified: v1.5.7 - Added fleet policy sync health summary
+ * Previous: v1.5.6 - Documented commercial capacity policy fields
  * Previous: v1.5.5 - Added maintenance exit placement context
  * Previous: v1.5.4 - Documented action-sourced maintenance exits
  * Previous: v1.5.3 - Added maintenance exit candidate types
@@ -654,6 +656,12 @@ export interface VpnRestartReadinessBlockedNode {
  *   heartbeat freshness plus backend operator_reporting for the Services
  *   Command Delivery card. problem_nodes is a capped privacy-safe triage list
  *   for nodes that cannot receive restart commands promptly.
+ * Policy sync source:
+ *   data.summary.restart_readiness.policy_sync_health aggregates
+ *   data.nodes[].system.policy_sync from
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py so Services can
+ *   show whether max_sessions / bandwidth_limit_mbps policy changes have
+ *   reached Rust node_policy before operators trust commercial capacity.
  * Maintenance recovery source:
  *   data.summary.restart_readiness.maintenance_exit_candidates lists nodes
  *   that are current, drained, and still in maintenance mode so Services can
@@ -696,6 +704,30 @@ export interface VpnRestartReadinessSummary {
     };
     source: string;
   }>;
+  policy_sync_health?: {
+    total_nodes: number;
+    synced_nodes: number;
+    pending_nodes: number;
+    unknown_nodes: number;
+    attention_nodes: number;
+    label: string;
+    risk: 'healthy' | 'warning' | 'critical' | 'info' | string;
+    detail: string;
+    next_step: string;
+    mismatched_field_counts: Record<string, number>;
+    problem_nodes?: Array<{
+      id: string;
+      name: string;
+      health_status: string;
+      last_seen_seconds: number | null;
+      status: 'synced' | 'pending' | 'unknown' | string;
+      mismatched_fields: string[];
+      message: string;
+      next_step: string;
+    }>;
+    source: 'nodes.system.policy_sync' | string;
+    privacy_boundary: string;
+  };
   command_delivery_health?: {
     total_nodes: number;
     command_ready_nodes: number;

@@ -60,6 +60,11 @@
  *     the Services page can show whether restart commands can be delivered
  *     before operators queue fleet actions. problem_nodes is a capped triage
  *     list for delivery blockers and links operators to node detail.
+ *   - data.summary.restart_readiness.policy_sync_health
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Aggregates data.nodes[].system.policy_sync so Services can verify
+ *     max_sessions and bandwidth_limit_mbps changes have reached Rust
+ *     node_policy before operators trust commercial capacity limits.
  *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
@@ -116,7 +121,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.33 - Show maintenance exit placement context
+ * Last Modified: v1.1.34 - Show fleet policy sync health
+ * Previous: v1.1.33 - Show maintenance exit placement context
  * Previous: v1.1.32 - Source maintenance exit from action plan
  * Previous: v1.1.31 - Show maintenance exit candidates
  * Previous: v1.1.30 - Show command delivery issue nodes
@@ -1518,6 +1524,7 @@ function FleetRestartReadinessPanel({
   const commandOutcome = fleetCommandOutcome(summary);
   const commandCounts = summary?.command_lifecycle_counts ?? null;
   const commandHistory = commandCounts?.history_24h ?? null;
+  const policySyncHealth = summary?.policy_sync_health ?? null;
   const maintenanceExitCandidates = summary?.maintenance_exit_candidates ?? [];
   const maintenanceExitCandidateCount = summary?.maintenance_exit_candidate_count ?? maintenanceExitCandidates.length;
   const commandCancelability = {
@@ -1550,7 +1557,7 @@ function FleetRestartReadinessPanel({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
           <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Ready Now</p>
           <p className="mt-2 text-2xl font-semibold text-white">{readyCount.toLocaleString()}</p>
@@ -1599,7 +1606,61 @@ function FleetRestartReadinessPanel({
             <p className="mt-2 text-xs leading-5 opacity-80">{commandLifecycle.next_step}</p>
           )}
         </div>
+        <div className={`rounded-xl border p-4 ${drainActivityHealthClass(policySyncHealth?.risk ?? 'info')}`}>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Policy Sync</p>
+          <p className="mt-2 text-2xl font-semibold">
+            {(policySyncHealth?.attention_nodes ?? 0).toLocaleString()}
+          </p>
+          <p className="mt-1 text-xs opacity-70">
+            {policySyncHealth?.label ?? 'Pending'} · {policySyncHealth?.detail ?? 'waiting for backend policy sync summary'}
+          </p>
+          <p className="mt-2 text-xs leading-5 opacity-80">
+            Synced {(policySyncHealth?.synced_nodes ?? 0).toLocaleString()} / {(policySyncHealth?.total_nodes ?? 0).toLocaleString()}
+          </p>
+        </div>
       </div>
+
+      {policySyncHealth?.problem_nodes?.length ? (
+        <div className="mt-4 rounded-xl border border-yellow-300/20 bg-yellow-500/[0.04] p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-yellow-100">Policy Sync Attention</h3>
+              <p className="mt-1 text-xs leading-5 text-yellow-100/60">
+                Backend found capacity policy that Rust has not confirmed yet. Wait for signed heartbeat before trusting new max_sessions or bandwidth limits.
+              </p>
+            </div>
+            <StatusPill status={policySyncHealth.risk} />
+          </div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+            {policySyncHealth.problem_nodes.map((node) => (
+              <div key={node.id} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <Link href={`/dashboard/nodes/${node.id}`} className="min-w-0 truncate font-medium text-white hover:text-purple-300">
+                    {node.name}
+                  </Link>
+                  <span className="shrink-0 rounded-md border border-yellow-200/20 px-2 py-0.5 text-yellow-100/80">
+                    {node.status}
+                  </span>
+                </div>
+                <p className="mt-2 leading-5 text-yellow-100/60">
+                  Health {node.health_status} · heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
+                </p>
+                {node.mismatched_fields.length > 0 && (
+                  <p className="mt-1 leading-5 text-yellow-100/50">
+                    Pending fields: {node.mismatched_fields.map((field) => field.replaceAll('_', ' ')).join(', ')}
+                  </p>
+                )}
+                <p className="mt-1 leading-5 text-yellow-100/50">{node.next_step}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs leading-5 text-yellow-100/45">
+            Backend contract: GET /api/privacy_network/vpn/overview/ exposes
+            data.summary.restart_readiness.policy_sync_health from /root/aeronyx/privacy_network/api/vpn_observability.py.
+            Rust source: /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs.
+          </p>
+        </div>
+      ) : null}
 
       {commandDelivery.problemNodes.length > 0 && (
         <div className="mt-4 rounded-xl border border-yellow-300/20 bg-yellow-500/[0.04] p-4">

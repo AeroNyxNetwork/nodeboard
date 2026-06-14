@@ -34,6 +34,9 @@
  *     Services Command Delivery health from Rust heartbeat freshness and
  *     backend operator_reporting. problem_nodes is a capped node-level triage
  *     list for command delivery blockers.
+ *     Provides data.summary.restart_readiness.policy_sync_health for Services
+ *     Policy Sync health from data.nodes[].system.policy_sync so operators can
+ *     verify max_sessions / bandwidth_limit_mbps reached Rust node_policy.
  *     Provides data.summary.restart_readiness.drain_activity_health_counts
  *     for the Services page top-level Drain Risk card.
  *     drain_activity_health_counts.summary is backend-authored display copy
@@ -125,7 +128,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.40 - Documented capacity policy PATCH fields
+ * Last Modified: v1.1.41 - Documented fleet policy sync health
+ * Previous: v1.1.40 - Documented capacity policy PATCH fields
  * Previous: v1.1.39 - Documented maintenance placement context
  * Previous: v1.1.38 - Documented action-sourced maintenance exits
  * Previous: v1.1.37 - Documented maintenance exit candidates
@@ -251,6 +255,11 @@ const healthPayload = {
       endpoint: 'data.summary.restart_readiness.command_delivery_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Fleet-level restart command delivery readiness plus capped problem_nodes triage list from Rust heartbeat freshness and backend operator_reporting for the Services Command Delivery card',
+    },
+    {
+      endpoint: 'data.summary.restart_readiness.policy_sync_health',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Fleet-level commercial capacity policy sync summary for max_sessions/bandwidth_limit_mbps desired-vs-runtime state from data.nodes[].system.policy_sync and Rust node_policy',
     },
     {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',
