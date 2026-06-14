@@ -767,6 +767,8 @@ export interface VpnRestartReadinessBlockedNode {
  *   actionable_problem_nodes is backend-authored queue input for Services
  *   Cutover Blockers. problem_nodes remains the full safety-accounting list,
  *   including healthy current nodes that are simply serving client traffic.
+ *   observed_only_nodes / serving_traffic_nodes explain unsafe cutover states
+ *   that are not operator work.
  *   actionable/actionable_reason explain why a node became operator work.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
@@ -786,6 +788,8 @@ export interface VpnRestartReadinessSummary {
     safe_nodes: number;
     blocked_nodes: number;
     actionable_blocked_nodes?: number;
+    observed_only_nodes?: number;
+    serving_traffic_nodes?: number;
     critical_nodes: number;
     warning_nodes: number;
     status_counts: Record<string, number>;

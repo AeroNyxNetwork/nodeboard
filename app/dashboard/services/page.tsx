@@ -1268,6 +1268,8 @@ function fleetCutoverGuard(summary: VpnRestartReadinessSummary | null) {
       safe: 0,
       blocked: 0,
       actionable: 0,
+      observedOnly: 0,
+      servingTraffic: 0,
       total: 0,
       impact: 'unknown',
     };
@@ -1285,6 +1287,8 @@ function fleetCutoverGuard(summary: VpnRestartReadinessSummary | null) {
     safe: counts.safe_nodes ?? 0,
     blocked: counts.blocked_nodes ?? 0,
     actionable: counts.actionable_blocked_nodes ?? counts.actionable_problem_nodes?.length ?? 0,
+    observedOnly: counts.observed_only_nodes ?? 0,
+    servingTraffic: counts.serving_traffic_nodes ?? 0,
     total: counts.total_nodes ?? 0,
     impact,
   };
@@ -2383,6 +2387,12 @@ function FleetRestartReadinessPanel({
             {cutoverGuard.safe.toLocaleString()} / {cutoverGuard.total.toLocaleString()} · Unsafe{' '}
             {cutoverGuard.blocked.toLocaleString()} · Impact {cutoverGuard.impact}
           </p>
+          {(cutoverGuard.observedOnly > 0 || cutoverGuard.servingTraffic > 0) && (
+            <p className="mt-1 text-xs leading-5 opacity-75">
+              Observed only {cutoverGuard.observedOnly.toLocaleString()} · Serving traffic{' '}
+              {cutoverGuard.servingTraffic.toLocaleString()}
+            </p>
+          )}
           {cutoverGuard.next_step && (
             <p className="mt-2 text-xs leading-5 opacity-80">{cutoverGuard.next_step}</p>
           )}

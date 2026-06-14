@@ -298,7 +298,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.cutover_guard_counts',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level Rust cutover safety counts, full problem_nodes, and backend-authored actionable_problem_nodes/actionable_reason derived from data.nodes[].system.restart_readiness.drain_eta.cutover_guard for the Services Cutover Safety card and Cutover Blockers action queue',
+      purpose: 'Fleet-level Rust cutover safety counts, observed_only_nodes/serving_traffic_nodes, full problem_nodes, and backend-authored actionable_problem_nodes/actionable_reason derived from data.nodes[].system.restart_readiness.drain_eta.cutover_guard for the Services Cutover Safety card and Cutover Blockers action queue',
     },
     {
       endpoint: 'data.summary.restart_readiness.command_lifecycle_counts',
