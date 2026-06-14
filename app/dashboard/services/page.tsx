@@ -16,6 +16,10 @@
  *     /root/aeronyx/privacy_network/api/nodes.py
  *     Used only for operator-approved maintenance_mode changes from the
  *     restart readiness gate.
+ *   - POST /api/privacy_network/nodes/{id}/commands/run/
+ *     /root/aeronyx/privacy_network/api/vpn_commands.py
+ *     /root/aeronyx/privacy_network/services/command_service.py
+ *     Queues restart_service only after the restart readiness gate is ready.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -39,7 +43,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.4 - Added restart gate maintenance action
+ * Last Modified: v1.1.5 - Added restart gate command action
+ * Previous: v1.1.4 - Added restart gate maintenance action
  * Previous: v1.1.3 - Added fleet restart readiness decision panel
  * Previous: v1.1.2 - Added live refresh state for drain and rollout monitoring
  * ============================================
@@ -49,7 +54,7 @@
 
 import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useUpdateNode, useVpnOverview } from '@/hooks/useNodes';
+import { useRunNodeCommand, useUpdateNode, useVpnOverview } from '@/hooks/useNodes';
 import { formatDuration, formatRelativeTime } from '@/lib/api';
 import { POLLING_INTERVALS } from '@/lib/constants';
 import {
@@ -141,6 +146,7 @@ interface RestartReadinessNode {
   restartRequired: boolean;
   cleanupReported: boolean;
   status: 'ready' | 'blocked' | 'pending' | 'current';
+  canRestart: boolean;
   nextStep: string;
   blockers: string[];
   source: string;
@@ -408,6 +414,7 @@ function collectRestartReadinessNodes(nodes: VpnNodeHealth[]): RestartReadinessN
           restartRequired: backendReadiness.restart_required,
           cleanupReported: backendReadiness.cleanup_reported,
           status: normalizeBackendStatus(backendReadiness.status),
+          canRestart: backendReadiness.can_restart,
           nextStep: backendReadiness.next_step,
           blockers: backendReadiness.blockers.map((blocker) => blocker.message),
           source: backendReadiness.source,
@@ -456,6 +463,7 @@ function collectRestartReadinessNodes(nodes: VpnNodeHealth[]): RestartReadinessN
             : node.active_sessions > 0 || !node.maintenance_mode
               ? 'blocked'
               : 'pending',
+        canRestart: readyForRestart,
         nextStep,
         blockers: needsRolloutAttention ? blockers : [],
         source: 'nodeboard_fallback_restart_gate',
@@ -712,12 +720,16 @@ function FleetRestartReadinessPanel({
   nodes,
   summary,
   enablingMaintenanceNodeId,
+  restartingNodeId,
   onEnableMaintenance,
+  onQueueRestart,
 }: {
   nodes: RestartReadinessNode[];
   summary: VpnRestartReadinessSummary | null;
   enablingMaintenanceNodeId: string | null;
+  restartingNodeId: string | null;
   onEnableMaintenance: (nodeId: string, nodeName: string) => void;
+  onQueueRestart: (nodeId: string, nodeName: string) => void;
 }) {
   if (nodes.length === 0) return null;
 
@@ -851,6 +863,16 @@ function FleetRestartReadinessPanel({
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusPill status={node.status} />
+                {node.canRestart && (
+                  <button
+                    type="button"
+                    onClick={() => onQueueRestart(node.id, node.name)}
+                    disabled={Boolean(restartingNodeId)}
+                    className="inline-flex items-center justify-center rounded-lg border border-emerald-500/20 px-3 py-1.5 text-xs font-medium text-emerald-100 transition hover:border-emerald-400/40 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {restartingNodeId === node.id ? 'Queueing...' : 'Queue restart'}
+                  </button>
+                )}
                 {!node.maintenanceMode && node.status !== 'current' && (
                   <button
                     type="button"
@@ -900,6 +922,9 @@ function FleetRestartReadinessPanel({
         data.nodes[].system.restart_readiness from /root/aeronyx/privacy_network/api/vpn_observability.py.
         PATCH /api/privacy_network/nodes/{'{id}'}/ updates maintenance_mode through
         /root/aeronyx/privacy_network/api/nodes.py.
+        POST /api/privacy_network/nodes/{'{id}'}/commands/run/ queues restart_service through
+        /root/aeronyx/privacy_network/api/vpn_commands.py and
+        /root/aeronyx/privacy_network/services/command_service.py.
         Rust producers: /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs,
         /root/open/AeroNyx/crates/aeronyx-server/src/services/session.rs, and
         /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs.
@@ -1204,7 +1229,9 @@ export default function NodeServicesPage() {
     refetch,
   } = useVpnOverview({ refetchIntervalMs: refreshIntervalMs });
   const updateNode = useUpdateNode();
+  const runCommand = useRunNodeCommand();
   const [enablingMaintenanceNodeId, setEnablingMaintenanceNodeId] = useState<string | null>(null);
+  const [restartingNodeId, setRestartingNodeId] = useState<string | null>(null);
   const [operationNotice, setOperationNotice] = useState<OperationNotice | null>(null);
 
   const handleRefresh = () => {
@@ -1236,6 +1263,40 @@ export default function NodeServicesPage() {
       });
     } finally {
       setEnablingMaintenanceNodeId(null);
+    }
+  };
+
+  const handleQueueRestart = async (nodeId: string, nodeName: string) => {
+    if (!window.confirm(`Queue a controlled Rust restart for ${nodeName}? The backend gate reports this node is restart-ready.`)) {
+      return;
+    }
+
+    setRestartingNodeId(nodeId);
+    setOperationNotice(null);
+
+    try {
+      await runCommand.mutateAsync({
+        nodeId,
+        data: {
+          action: 'restart_service',
+          params: {
+            confirm: 'restart',
+          },
+          priority: 1,
+        },
+      });
+      setOperationNotice({
+        type: 'success',
+        message: `${nodeName} restart_service command queued. Watch command status on the node detail page before ending maintenance mode.`,
+      });
+      await refetch();
+    } catch (error) {
+      setOperationNotice({
+        type: 'error',
+        message: error instanceof Error ? error.message : `Failed to queue restart for ${nodeName}.`,
+      });
+    } finally {
+      setRestartingNodeId(null);
     }
   };
 
@@ -1339,7 +1400,9 @@ export default function NodeServicesPage() {
         nodes={restartReadinessNodes}
         summary={restartReadinessSummary}
         enablingMaintenanceNodeId={enablingMaintenanceNodeId}
+        restartingNodeId={restartingNodeId}
         onEnableMaintenance={handleEnableMaintenance}
+        onQueueRestart={handleQueueRestart}
       />
       <SessionCleanupRolloutPanel nodes={sessionCleanupRolloutNodes} />
       <PendingOperatorRolloutPanel nodes={pendingOperatorNodes} />
