@@ -12,6 +12,10 @@
  * Backend APIs used on this page:
  *   - GET /api/privacy_network/vpn/overview/
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   - PATCH /api/privacy_network/nodes/{id}/
+ *     /root/aeronyx/privacy_network/api/nodes.py
+ *     Used only for operator-approved maintenance_mode changes from the
+ *     restart readiness gate.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -35,16 +39,17 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.3 - Added fleet restart readiness decision panel
+ * Last Modified: v1.1.4 - Added restart gate maintenance action
+ * Previous: v1.1.3 - Added fleet restart readiness decision panel
  * Previous: v1.1.2 - Added live refresh state for drain and rollout monitoring
  * ============================================
  */
 
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useVpnOverview } from '@/hooks/useNodes';
+import { useUpdateNode, useVpnOverview } from '@/hooks/useNodes';
 import { formatDuration, formatRelativeTime } from '@/lib/api';
 import { POLLING_INTERVALS } from '@/lib/constants';
 import {
@@ -93,6 +98,11 @@ interface PageHeaderProps {
   dataUpdatedAt: number;
   refreshIntervalMs: number;
   onRefresh: () => void;
+}
+
+interface OperationNotice {
+  type: 'success' | 'error';
+  message: string;
 }
 
 interface RiskView extends OperatorRisk {
@@ -701,9 +711,13 @@ function NodeReadinessRow({ node }: { node: VpnNodeHealth }) {
 function FleetRestartReadinessPanel({
   nodes,
   summary,
+  enablingMaintenanceNodeId,
+  onEnableMaintenance,
 }: {
   nodes: RestartReadinessNode[];
   summary: VpnRestartReadinessSummary | null;
+  enablingMaintenanceNodeId: string | null;
+  onEnableMaintenance: (nodeId: string, nodeName: string) => void;
 }) {
   if (nodes.length === 0) return null;
 
@@ -776,10 +790,14 @@ function FleetRestartReadinessPanel({
           )}
 
           <div className="mt-3 grid gap-2">
-            {summary.blocked_nodes.map((node) => (
+            {summary.blocked_nodes.map((node) => {
+              const canEnableMaintenance = !node.maintenance_mode && node.blocker_codes.includes('maintenance_required');
+              const isEnablingMaintenance = enablingMaintenanceNodeId === node.id;
+
+              return (
               <div
                 key={node.id}
-                className="grid gap-3 rounded-lg border border-yellow-300/10 bg-black/20 p-3 text-xs text-yellow-100/65 md:grid-cols-[minmax(0,1fr)_120px_120px_minmax(0,1.4fr)_110px] md:items-center"
+                className="grid gap-3 rounded-lg border border-yellow-300/10 bg-black/20 p-3 text-xs text-yellow-100/65 md:grid-cols-[minmax(0,1fr)_110px_120px_minmax(0,1.3fr)_minmax(150px,auto)] md:items-center"
               >
                 <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
                   {node.name}
@@ -794,14 +812,27 @@ function FleetRestartReadinessPanel({
                     </span>
                   )}
                 </span>
-                <Link
-                  href={`/dashboard/sessions?node=${encodeURIComponent(node.id)}&status=active&quality=all`}
-                  className="font-medium text-sky-300 hover:text-sky-200"
-                >
-                  Open sessions
-                </Link>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    href={`/dashboard/sessions?node=${encodeURIComponent(node.id)}&status=active&quality=all`}
+                    className="font-medium text-sky-300 hover:text-sky-200"
+                  >
+                    Open sessions
+                  </Link>
+                  {canEnableMaintenance && (
+                    <button
+                      type="button"
+                      onClick={() => onEnableMaintenance(node.id, node.name)}
+                      disabled={Boolean(enablingMaintenanceNodeId)}
+                      className="rounded-md border border-yellow-300/20 px-2 py-1 font-medium text-yellow-100 transition hover:border-yellow-200/40 hover:bg-yellow-300/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isEnablingMaintenance ? 'Enabling...' : 'Enable maintenance'}
+                    </button>
+                  )}
+                </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -818,7 +849,19 @@ function FleetRestartReadinessPanel({
                   {node.publicIp ?? 'no public IP'} · {node.maintenanceMode ? 'maintenance on' : 'maintenance off'}
                 </p>
               </div>
-              <StatusPill status={node.status} />
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusPill status={node.status} />
+                {!node.maintenanceMode && node.status !== 'current' && (
+                  <button
+                    type="button"
+                    onClick={() => onEnableMaintenance(node.id, node.name)}
+                    disabled={Boolean(enablingMaintenanceNodeId)}
+                    className="inline-flex items-center justify-center rounded-lg border border-yellow-500/20 px-3 py-1.5 text-xs font-medium text-yellow-100 transition hover:border-yellow-400/40 hover:bg-yellow-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {enablingMaintenanceNodeId === node.id ? 'Enabling...' : 'Enable maintenance'}
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-gray-400">
@@ -855,6 +898,8 @@ function FleetRestartReadinessPanel({
         UI path: /root/open/nodeboard/app/dashboard/services/page.tsx. Backend API:
         GET /api/privacy_network/vpn/overview/ exposes data.summary.restart_readiness and
         data.nodes[].system.restart_readiness from /root/aeronyx/privacy_network/api/vpn_observability.py.
+        PATCH /api/privacy_network/nodes/{'{id}'}/ updates maintenance_mode through
+        /root/aeronyx/privacy_network/api/nodes.py.
         Rust producers: /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs,
         /root/open/AeroNyx/crates/aeronyx-server/src/services/session.rs, and
         /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs.
@@ -1158,8 +1203,40 @@ export default function NodeServicesPage() {
     dataUpdatedAt,
     refetch,
   } = useVpnOverview({ refetchIntervalMs: refreshIntervalMs });
+  const updateNode = useUpdateNode();
+  const [enablingMaintenanceNodeId, setEnablingMaintenanceNodeId] = useState<string | null>(null);
+  const [operationNotice, setOperationNotice] = useState<OperationNotice | null>(null);
+
   const handleRefresh = () => {
     void refetch();
+  };
+
+  const handleEnableMaintenance = async (nodeId: string, nodeName: string) => {
+    if (!window.confirm(`Enable maintenance mode for ${nodeName}? New placement should stop while active sessions drain before restart.`)) {
+      return;
+    }
+
+    setEnablingMaintenanceNodeId(nodeId);
+    setOperationNotice(null);
+
+    try {
+      await updateNode.mutateAsync({
+        nodeId,
+        data: { maintenance_mode: true },
+      });
+      setOperationNotice({
+        type: 'success',
+        message: `${nodeName} maintenance mode enabled. Restart readiness will update after the next backend overview sync.`,
+      });
+      await refetch();
+    } catch (error) {
+      setOperationNotice({
+        type: 'error',
+        message: error instanceof Error ? error.message : `Failed to enable maintenance mode for ${nodeName}.`,
+      });
+    } finally {
+      setEnablingMaintenanceNodeId(null);
+    }
   };
 
   const nodes = overview?.nodes ?? [];
@@ -1226,6 +1303,16 @@ export default function NodeServicesPage() {
         onRefresh={handleRefresh}
       />
 
+      {operationNotice && (
+        <div className={`mb-6 rounded-xl border p-4 text-sm ${
+          operationNotice.type === 'success'
+            ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100'
+            : 'border-red-500/20 bg-red-500/10 text-red-100'
+        }`}>
+          {operationNotice.message}
+        </div>
+      )}
+
       <FleetSummaryGrid summary={fleetSummary} latestReportedAt={latestReportedAt} />
 
       <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1248,7 +1335,12 @@ export default function NodeServicesPage() {
         </div>
       </div>
 
-      <FleetRestartReadinessPanel nodes={restartReadinessNodes} summary={restartReadinessSummary} />
+      <FleetRestartReadinessPanel
+        nodes={restartReadinessNodes}
+        summary={restartReadinessSummary}
+        enablingMaintenanceNodeId={enablingMaintenanceNodeId}
+        onEnableMaintenance={handleEnableMaintenance}
+      />
       <SessionCleanupRolloutPanel nodes={sessionCleanupRolloutNodes} />
       <PendingOperatorRolloutPanel nodes={pendingOperatorNodes} />
       <RuntimeRolloutPanel nodes={runtimeRolloutNodes} />

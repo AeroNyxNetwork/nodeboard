@@ -30,6 +30,10 @@
  *   - GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Supports /dashboard/sessions?node={id}&status=active&quality=all deep links.
+ *   - PATCH /api/privacy_network/nodes/{id}/
+ *     /root/aeronyx/privacy_network/api/nodes.py
+ *     Used by /dashboard/services to enable maintenance_mode from the restart
+ *     readiness gate before a controlled Rust restart.
  *   - GET /api/privacy_network/nodes/{id}/sessions/
  *     /root/aeronyx/privacy_network/api/sessions.py
  *     /root/aeronyx/privacy_network/serializers.py
@@ -50,7 +54,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.5 - Documented sessions deep-link contract
+ * Last Modified: v1.1.6 - Documented restart gate maintenance action
+ * Previous: v1.1.5 - Documented sessions deep-link contract
  * Previous: v1.1.1 - Production health route
  * ============================================
  */
@@ -101,6 +106,11 @@ const healthPayload = {
       endpoint: 'GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Global VPN session list used by /dashboard/sessions deep links from blocked restart nodes',
+    },
+    {
+      endpoint: 'PATCH /api/privacy_network/nodes/{id}/',
+      file: '/root/aeronyx/privacy_network/api/nodes.py',
+      purpose: 'Operator-approved maintenance_mode update from /dashboard/services restart gate',
     },
     {
       endpoint: 'GET /api/privacy_network/nodes/{id}/sessions/',

@@ -5,6 +5,8 @@
  * File Path: hooks/useNodes.ts
  *
  * Modification Reason:
+ *   v1.5.4 - Refresh VPN overview after node setting updates so Services
+ *     restart readiness reflects maintenance_mode changes immediately.
  *   v1.5.3 - Exposed VPN overview refresh metadata so services can show live
  *     drain/rollout sync status while reading the same backend overview API.
  *   v1.5.2 - Added authenticated VPN server placement hook for operator
@@ -55,7 +57,8 @@
 * - useUpdateNode now accepts NodeUpdateRequest — do NOT revert to narrow type
 * - staleTime: Infinity on owner hooks = manual refetch only
  *
- * Last Modified: v1.5.3 - VPN overview live refresh metadata
+ * Last Modified: v1.5.4 - Refresh VPN overview after node updates
+ * Previous: v1.5.3 - VPN overview live refresh metadata
  * Previous: v1.1.0 - Auth guard on all owner hooks
  * ============================================
  */
@@ -669,6 +672,16 @@ export function useNodeCommands(
  * Update node settings.
  * v1.2.0: accepts full NodeUpdateRequest including visibility / region /
  * city / is_vpn_node / access_password.
+ *
+ * Backend API and file:
+ *   PATCH /api/privacy_network/nodes/{id}/
+ *   /root/aeronyx/privacy_network/api/nodes.py
+ *
+ * Services dependency:
+ *   app/dashboard/services/page.tsx uses this mutation to enable
+ *   maintenance_mode from the restart readiness gate. The VPN overview cache
+ *   must be invalidated so GET /api/privacy_network/vpn/overview/ reflects
+ *   the new backend restart_readiness immediately.
  */
 export function useUpdateNode() {
   const queryClient = useQueryClient();
@@ -691,6 +704,10 @@ export function useUpdateNode() {
       });
       queryClient.invalidateQueries({
         queryKey: nodeKeys.list(),
+        refetchType: 'all',
+      });
+      queryClient.invalidateQueries({
+        queryKey: nodeKeys.vpnOverview(),
         refetchType: 'all',
       });
       queryClient.invalidateQueries({
