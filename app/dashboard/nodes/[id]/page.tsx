@@ -44,6 +44,7 @@
  *     recent_activity_sessions / idle_activity_sessions /
  *     activity_pending_sessions / keepalive issue session counts /
  *     keepalive aggregate totals.
+ *     activity_health is backend-authored drain risk triage for operators.
  *     cleanup_policy_pending means Rust has not reported
  *     heartbeat.system_stats.vpn_health.session_cleanup yet.
  *   - GET /api/privacy_network/nodes/{id}/sessions/?status=active
@@ -80,7 +81,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.6 - Show keepalive issue session counts
+ * Last Modified: v1.6.7 - Show backend drain activity health
+ * Previous: v1.6.6 - Show keepalive issue session counts
  * Previous: v1.6.5 - Show aggregate drain activity buckets
  * Previous: v1.6.4 - Explain cleanup rollout pending in node detail
  * Previous: v1.6.3 - Node detail consumes backend restart drain ETA
@@ -1448,6 +1450,13 @@ function drainActivityBucketRows(eta: VpnRestartDrainEta | null | undefined) {
   ];
 }
 
+function drainActivityHealthClass(risk: string | undefined) {
+  if (risk === 'critical') return 'border-red-400/25 bg-red-400/[0.08] text-red-100';
+  if (risk === 'warning') return 'border-yellow-300/25 bg-yellow-300/[0.08] text-yellow-100';
+  if (risk === 'healthy') return 'border-emerald-400/25 bg-emerald-400/[0.08] text-emerald-100';
+  return 'border-sky-300/25 bg-sky-300/[0.08] text-sky-100';
+}
+
 function restartReadinessLabel(blockers: string[], restartCommandActive: boolean) {
   if (restartCommandActive) return 'Restart queued';
   if (blockers.length === 0) return 'Ready to restart';
@@ -1532,6 +1541,7 @@ function MaintenanceDrainPanel({
   const drainDisplaySessions = backendDrainEta?.active_sessions ?? activeTunnels;
   const cleanupRolloutPending = cleanupRolloutPendingCopy(backendDrainEta);
   const drainActivityBuckets = drainActivityBucketRows(backendDrainEta);
+  const drainActivityHealth = backendDrainEta?.activity_health ?? null;
   const restartBlockers = restartReadinessBlockers({
     health,
     maintenanceMode,
@@ -1624,7 +1634,17 @@ function MaintenanceDrainPanel({
           </div>
           {drainActivityBuckets.length > 0 && (
             <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-              <p className="text-[11px] font-medium text-gray-300">Aggregate drain activity</p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <p className="text-[11px] font-medium text-gray-300">Aggregate drain activity</p>
+                {drainActivityHealth && (
+                  <span className={`inline-flex self-start rounded-md border px-2 py-0.5 text-[11px] font-medium ${drainActivityHealthClass(drainActivityHealth.risk)}`}>
+                    {drainActivityHealth.label}
+                  </span>
+                )}
+              </div>
+              {drainActivityHealth?.detail && (
+                <p className="mt-1 text-[11px] leading-5 text-gray-500">{drainActivityHealth.detail}</p>
+              )}
               <div className="mt-2 grid grid-cols-2 gap-2">
                 {drainActivityBuckets.map((bucket) => (
                   <div key={bucket.label} className="rounded-md bg-white/[0.03] px-2 py-1.5">

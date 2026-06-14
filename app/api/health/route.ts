@@ -44,6 +44,8 @@
  *     Includes status, next_step, timing fields, activity bucket counts, and
  *     keepalive issue session counts plus aggregate totals used by node detail
  *     and services restart UX.
+ *     Includes activity_health backend triage so frontend views share one
+ *     operational risk interpretation.
  *     cleanup_policy_pending is rendered in node detail as Rust cleanup
  *     rollout pending until heartbeat.system_stats.vpn_health.session_cleanup
  *     is reported.
@@ -67,7 +69,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.16 - Documented keepalive issue session counts
+ * Last Modified: v1.1.17 - Documented backend drain activity health
+ * Previous: v1.1.16 - Documented keepalive issue session counts
  * Previous: v1.1.15 - Documented blocked node drain activity contract
  * Previous: v1.1.14 - Documented drain activity bucket contract
  * Previous: v1.1.13 - Documented cleanup rollout pending node detail UX
@@ -128,7 +131,7 @@ const healthPayload = {
     {
       endpoint: 'data.nodes[].system.restart_readiness.drain_eta',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Node-level active ClientSession timing aggregate, activity bucket counts, keepalive issue session counts, keepalive totals, and cleanup rollout pending signal used by node detail and services maintenance drain ETA',
+      purpose: 'Node-level active ClientSession timing aggregate, activity buckets, keepalive issue session counts, backend activity_health triage, and cleanup rollout pending signal used by node detail and services maintenance drain ETA',
     },
     {
       endpoint: 'data.summary.restart_readiness',
@@ -138,7 +141,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet blocked-node node-level activity buckets and keepalive issue session counts mirrored from restart_readiness.drain_eta for services triage',
+      purpose: 'Fleet blocked-node node-level activity buckets, keepalive issue session counts, and backend activity_health mirrored from restart_readiness.drain_eta for services triage',
     },
     {
       endpoint: 'GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=',

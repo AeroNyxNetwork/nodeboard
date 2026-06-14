@@ -405,6 +405,13 @@ export interface VpnRestartCommandState {
   source: 'node_command_restart_service_queue' | string;
 }
 
+export interface VpnDrainActivityHealth {
+  status: 'clear' | 'active_traffic' | 'keepalive_degraded' | 'idle_or_stale' | string;
+  risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+  label: string;
+  detail: string;
+}
+
 export interface VpnRestartDrainEta {
   status:
     | 'no_active_sessions'
@@ -423,6 +430,7 @@ export interface VpnRestartDrainEta {
   keepalive_pending_sessions?: number;
   keepalive_missed_total?: number;
   keepalive_pending_total?: number;
+  activity_health?: VpnDrainActivityHealth | null;
   oldest_started_at: string | null;
   latest_activity_at: string | null;
   cleanup_timeout_seconds: number | null;
@@ -448,6 +456,8 @@ export interface VpnRestartDrainEta {
  *   are node-level counts only: recent_activity_sessions,
  *   idle_activity_sessions, activity_pending_sessions, keepalive issue
  *   session counts, and keepalive totals.
+ *   activity_health is backend-authored commercial triage status so React
+ *   views do not duplicate restart/drain risk rules.
  * Nodeboard consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/dashboard/nodes/[id]/page.tsx
@@ -497,6 +507,7 @@ export interface VpnRestartReadinessBlockedNode {
     keepalive_pending_sessions: number;
     keepalive_missed_total: number;
     keepalive_pending_total: number;
+    activity_health?: VpnDrainActivityHealth | null;
     source: 'restart_readiness.drain_eta' | string;
   };
   active_restart_command_status?: string;

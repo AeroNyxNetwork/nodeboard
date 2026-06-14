@@ -41,6 +41,7 @@
  *     exposing client IPs, wallets, destinations, DNS, payloads, or browsing.
  *     Includes keepalive_missed_sessions / keepalive_pending_sessions so large
  *     counters can be interpreted as affected-session counts.
+ *     Includes activity_health from backend commercial triage rules.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -64,7 +65,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.12 - Show keepalive issue session counts
+ * Last Modified: v1.1.13 - Show backend drain activity health badge
+ * Previous: v1.1.12 - Show keepalive issue session counts
  * Previous: v1.1.11 - Show blocked node drain activity summary
  * Previous: v1.1.10 - Show cleanup rollout blocker action
  * Previous: v1.1.9 - Show backend recommended blocker action
@@ -576,6 +578,13 @@ function formatBlockedDrainActivity(node: VpnRestartReadinessSummary['blocked_no
   ].join(' · ');
 }
 
+function drainActivityHealthClass(risk: string | undefined) {
+  if (risk === 'critical') return 'border-red-400/25 bg-red-400/[0.08] text-red-100';
+  if (risk === 'warning') return 'border-yellow-300/25 bg-yellow-300/[0.08] text-yellow-100';
+  if (risk === 'healthy') return 'border-emerald-400/25 bg-emerald-400/[0.08] text-emerald-100';
+  return 'border-sky-300/25 bg-sky-300/[0.08] text-sky-100';
+}
+
 function restartBlockerCopy(code: string) {
   const copy: Record<string, { label: string; remediation: string }> = {
     maintenance_required: {
@@ -912,6 +921,7 @@ function FleetRestartReadinessPanel({
               const drainStatus = formatDrainStatus(node.drain_status);
               const recommendedAction = node.recommended_action ?? null;
               const drainActivity = formatBlockedDrainActivity(node);
+              const drainActivityHealth = node.drain_activity?.activity_health ?? null;
 
               return (
               <div
@@ -942,6 +952,11 @@ function FleetRestartReadinessPanel({
                   {drainActivity && (
                     <span className="block text-yellow-100/45">
                       activity: {drainActivity}
+                    </span>
+                  )}
+                  {drainActivityHealth && (
+                    <span className={`mt-1 inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium ${drainActivityHealthClass(drainActivityHealth.risk)}`}>
+                      {drainActivityHealth.label}
                     </span>
                   )}
                   {recommendedAction?.detail && (
