@@ -400,8 +400,22 @@ export interface VpnRestartReadinessBlocker {
 
 export interface VpnRestartCommandState {
   id: string;
-  status: 'pending' | 'sent' | 'executing' | string;
+  action?: 'restart_service' | string;
+  status:
+    | 'pending'
+    | 'sent'
+    | 'executing'
+    | 'completed'
+    | 'failed'
+    | 'cancelled'
+    | 'timeout'
+    | string;
   created_at: string | null;
+  sent_at?: string | null;
+  acked_at?: string | null;
+  completed_at?: string | null;
+  is_terminal?: boolean;
+  can_retry?: boolean;
   source: 'node_command_restart_service_queue' | string;
 }
 
@@ -469,8 +483,10 @@ export interface VpnRestartDrainEta {
  * Privacy boundary: aggregate restart readiness only. No client public IPs,
  * destinations, DNS contents, packet payloads, domains, URLs, browsing
  * history, voucher secrets, or wallet-level traffic. active_restart_command is
- * command lifecycle metadata only and never contains command payload secrets;
- * drain_eta is node-level aggregate timing only.
+ * command lifecycle metadata only and never contains command payload secrets.
+ * latest_restart_command extends the same privacy boundary to terminal
+ * outcomes for fleet restart closure; drain_eta is node-level aggregate
+ * timing only.
  */
 export interface VpnRestartReadiness {
   status: 'ready' | 'blocked' | 'pending' | 'current' | string;
@@ -483,6 +499,7 @@ export interface VpnRestartReadiness {
   restart_required: boolean;
   cleanup_reported: boolean;
   active_restart_command?: VpnRestartCommandState | null;
+  latest_restart_command?: VpnRestartCommandState | null;
   drain_eta?: VpnRestartDrainEta | null;
   source: string;
   privacy_boundary: string;
