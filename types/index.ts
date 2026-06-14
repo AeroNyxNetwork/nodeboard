@@ -380,6 +380,12 @@ export interface VpnServiceManagerStatus {
   detail: string;
 }
 
+export interface VpnSessionCleanupStatus {
+  client_liveness_timeout_seconds: number;
+  source: string;
+  privacy_boundary: string;
+}
+
 export type OperatorServiceKey =
   | 'privacy_protocol'
   | 'memchain'
@@ -531,6 +537,20 @@ export interface VpnNodeHealth {
     configured_mtu?: number | null;
     running_mtu?: number | null;
     service_manager?: VpnServiceManagerStatus | null;
+    /**
+     * Backend API:
+     *   GET /api/privacy_network/vpn/overview/
+     * Backend file:
+     *   /root/aeronyx/privacy_network/api/vpn_observability.py
+     * Rust source:
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/services/session.rs
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+     *
+     * Privacy boundary: cleanup policy metadata only. No client public IPs,
+     * destinations, DNS contents, packet payloads, domains, URLs, browsing
+     * history, voucher secrets, or wallet-level traffic.
+     */
+    session_cleanup?: VpnSessionCleanupStatus | null;
     policy_sync?: VpnPolicySync;
     policy_enforcement?: VpnPolicyEnforcement;
     runtime_recovery?: VpnRuntimeRecovery;

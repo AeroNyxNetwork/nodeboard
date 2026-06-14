@@ -33,6 +33,7 @@
  *     /root/aeronyx/privacy_network/api/nodes.py
  *   - GET /api/privacy_network/vpn/overview/
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Exposes data.nodes[].system.session_cleanup for drain ETA context.
  *   - GET /api/privacy_network/nodes/{id}/sessions/?status=active
  *     /root/aeronyx/privacy_network/api/sessions.py
  *     /root/aeronyx/privacy_network/serializers.py
@@ -1393,6 +1394,7 @@ function MaintenanceDrainPanel({
   const oldestStartedAt = oldestSessionStartedAt(activeSessions);
   const newestActivityAt = newestSessionActivity(activeSessions);
   const missedKeepalives = activeSessions.reduce((total, session) => total + (session.keepalive_missed ?? 0), 0);
+  const cleanupTimeoutSeconds = health.system.session_cleanup?.client_liveness_timeout_seconds ?? null;
   const policySyncStatus = health.system.policy_sync?.status || 'unknown';
   const recoveryStatus = health.system.runtime_recovery?.status || 'unknown';
   const maintenanceReady = maintenanceMode && policySyncStatus === 'synced';
@@ -1481,6 +1483,11 @@ function MaintenanceDrainPanel({
             <p>Oldest active: {oldestStartedAt ? formatRelativeTime(oldestStartedAt) : 'none'}</p>
             <p>Latest activity: {newestActivityAt ? formatRelativeTime(newestActivityAt) : 'none'}</p>
             <p>Listed traffic: {formatBytes(listedTrafficBytes, 1)}</p>
+            <p>
+              Stale client cleanup: {cleanupTimeoutSeconds
+                ? formatDuration(cleanupTimeoutSeconds)
+                : 'pending Rust rollout'}
+            </p>
             {missedKeepalives > 0 && <p>Missed keepalives: {missedKeepalives}</p>}
           </div>
         </div>
