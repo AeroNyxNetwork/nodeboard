@@ -72,7 +72,8 @@
  *     restart_service lifecycle counts plus cancelable_active and
  *     non_cancelable_active active command counts. outcome_summary powers the
  *     Restart Outcome Audit panel from latest per-node restart_service terminal
- *     statuses without exposing command params, result, or error_message.
+ *     statuses, while history_24h powers the 24h reliability strip without
+ *     exposing command params, result, or error_message.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -96,7 +97,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.26 - Show restart outcome audit summary
+ * Last Modified: v1.1.27 - Show 24h restart command reliability
+ * Previous: v1.1.26 - Show restart outcome audit summary
  * Previous: v1.1.25 - Show fleet restart cancelability counts
  * Previous: v1.1.24 - Explain backend cancel eligibility in fleet triage
  * Previous: v1.1.23 - Cancel active restart commands from fleet triage
@@ -655,6 +657,14 @@ function formatRefreshInterval(milliseconds: number) {
 function formatDataUpdatedAt(dataUpdatedAt: number) {
   if (!dataUpdatedAt) return 'waiting for first API sync';
   return `last API sync ${formatRelativeTime(new Date(dataUpdatedAt).toISOString())}`;
+}
+
+function formatOptionalPercent(value: number | null | undefined) {
+  return typeof value === 'number' ? `${value.toFixed(1)}%` : 'pending';
+}
+
+function formatOptionalDuration(value: number | null | undefined) {
+  return typeof value === 'number' ? formatDuration(Math.round(value)) : 'pending';
 }
 
 function formatDrainEta(eta: VpnRestartDrainEta | null) {
@@ -1444,6 +1454,7 @@ function FleetRestartReadinessPanel({
   const commandLifecycle = fleetCommandLifecycle(summary);
   const commandOutcome = fleetCommandOutcome(summary);
   const commandCounts = summary?.command_lifecycle_counts ?? null;
+  const commandHistory = commandCounts?.history_24h ?? null;
   const commandCancelability = {
     cancelable: commandCounts?.cancelable_active ?? 0,
     locked: commandCounts?.non_cancelable_active ?? 0,
@@ -1542,6 +1553,36 @@ function FleetRestartReadinessPanel({
               <p className="mt-1 text-lg font-semibold">{Number(value).toLocaleString()}</p>
             </div>
           ))}
+        </div>
+        <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.14em] opacity-60">24h Reliability</p>
+              <p className="mt-1 text-xs leading-5 opacity-70">
+                Aggregate restart_service lifecycle timing from backend command history.
+              </p>
+            </div>
+            {commandHistory?.summary && <StatusPill status={commandHistory.summary.risk} />}
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+            {[
+              ['Commands', (commandHistory?.total ?? 0).toLocaleString()],
+              ['Success', formatOptionalPercent(commandHistory?.success_rate_percent)],
+              ['Delivery', formatOptionalPercent(commandHistory?.delivery_rate_percent)],
+              ['Rust ACK', formatOptionalPercent(commandHistory?.ack_rate_percent)],
+              ['Avg complete', formatOptionalDuration(commandHistory?.average_completion_seconds)],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2">
+                <p className="text-[11px] uppercase tracking-[0.12em] opacity-50">{label}</p>
+                <p className="mt-1 text-sm font-semibold text-white">{value}</p>
+              </div>
+            ))}
+          </div>
+          {commandHistory?.summary && (
+            <p className="mt-3 text-xs leading-5 opacity-75">
+              {commandHistory.summary.label} · {commandHistory.summary.detail}
+            </p>
+          )}
         </div>
         <p className="mt-3 text-xs leading-5 opacity-75">
           {commandOutcome.label} · {commandOutcome.detail}

@@ -563,7 +563,8 @@ export interface VpnRestartReadinessBlockedNode {
  *   active/stale/retry/terminal restart_service lifecycle metadata and
  *   cancelable_active/non_cancelable_active counts for the Services Command
  *   SLA card. outcome_summary is backend-authored copy for the Services
- *   Restart Outcome Audit panel.
+ *   Restart Outcome Audit panel. history_24h is a backend aggregate
+ *   reliability window that excludes raw command params/result/error_message.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts
@@ -618,6 +619,34 @@ export interface VpnRestartReadinessSummary {
       detail: string;
       next_step?: string;
       count: number;
+    };
+    history_24h?: {
+      window_hours: number;
+      window_started_at?: string | null;
+      window_ended_at?: string | null;
+      total: number;
+      active: number;
+      terminal: number;
+      needs_review: number;
+      status_counts: Record<string, number>;
+      sent: number;
+      acked: number;
+      success_rate_percent: number | null;
+      delivery_rate_percent: number | null;
+      ack_rate_percent: number | null;
+      average_completion_seconds: number | null;
+      latest_created_at?: string | null;
+      latest_completed_at?: string | null;
+      summary?: {
+        status?: string;
+        risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+        label: string;
+        detail: string;
+        next_step?: string;
+        count: number;
+      };
+      source: string;
+      privacy_boundary: string;
     };
     source: 'nodes.system.restart_readiness.restart_command_metadata' | string;
     privacy_boundary: string;
