@@ -424,6 +424,39 @@ export interface VpnRestartReadiness {
   privacy_boundary: string;
 }
 
+export interface VpnRestartReadinessBlockedNode {
+  id: string;
+  name: string;
+  active_sessions: number;
+  maintenance_mode: boolean;
+  next_step: string;
+  blocker_codes: string[];
+}
+
+/**
+ * Owner-scoped fleet restart summary from the backend overview API.
+ *
+ * Backend API:
+ *   GET /api/privacy_network/vpn/overview/
+ * Backend file:
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py
+ * Frontend consumers:
+ *   /root/open/nodeboard/app/dashboard/services/page.tsx
+ *   /root/open/nodeboard/app/api/health/route.ts
+ */
+export interface VpnRestartReadinessSummary {
+  total_vpn_nodes: number;
+  ready: number;
+  blocked: number;
+  pending: number;
+  current: number;
+  can_restart: number;
+  sessions_blocking_restart: number;
+  blocked_nodes: VpnRestartReadinessBlockedNode[];
+  source: string;
+  privacy_boundary: string;
+}
+
 export type OperatorServiceKey =
   | 'privacy_protocol'
   | 'memchain'
@@ -665,6 +698,7 @@ export interface VpnOverviewSummary {
   traffic_in_mb: number;
   traffic_out_mb: number;
   open_alerts: number;
+  restart_readiness?: VpnRestartReadinessSummary;
   availability_24h_percent: number | null;
 }
 
