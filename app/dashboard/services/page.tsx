@@ -69,7 +69,8 @@
  *   - data.summary.restart_readiness.command_lifecycle_counts
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Powers the Command SLA card from backend-authored active/stale/retry
- *     restart_service lifecycle counts.
+ *     restart_service lifecycle counts plus cancelable_active and
+ *     non_cancelable_active active command counts.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -93,7 +94,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.24 - Explain backend cancel eligibility in fleet triage
+ * Last Modified: v1.1.25 - Show fleet restart cancelability counts
+ * Previous: v1.1.24 - Explain backend cancel eligibility in fleet triage
  * Previous: v1.1.23 - Cancel active restart commands from fleet triage
  * Previous: v1.1.22 - Show fleet command SLA summary
  * Previous: v1.1.21 - Show stale restart command SLA
@@ -1395,6 +1397,10 @@ function FleetRestartReadinessPanel({
   const blockerCounts = Object.entries(summary?.blocker_counts ?? {});
   const drainRisk = fleetDrainRisk(summary);
   const commandLifecycle = fleetCommandLifecycle(summary);
+  const commandCancelability = {
+    cancelable: summary?.command_lifecycle_counts?.cancelable_active ?? 0,
+    locked: summary?.command_lifecycle_counts?.non_cancelable_active ?? 0,
+  };
   const filterOptions = useMemo(() => restartQueueFilterOptions(nodes), [nodes]);
   const actionQueues = useMemo(
     () => buildRestartActionQueues(summary, nodes, queueFilters),
@@ -1450,6 +1456,12 @@ function FleetRestartReadinessPanel({
           <p className="text-xs uppercase tracking-[0.16em] opacity-70">Command SLA</p>
           <p className="mt-2 text-2xl font-semibold">{commandLifecycle.count.toLocaleString()}</p>
           <p className="mt-1 text-xs opacity-70">{commandLifecycle.label} · {commandLifecycle.detail}</p>
+          {(commandCancelability.cancelable > 0 || commandCancelability.locked > 0) && (
+            <p className="mt-2 text-xs leading-5 opacity-80">
+              Cancelable {commandCancelability.cancelable.toLocaleString()} · Locked{' '}
+              {commandCancelability.locked.toLocaleString()}
+            </p>
+          )}
           {commandLifecycle.next_step && (
             <p className="mt-2 text-xs leading-5 opacity-80">{commandLifecycle.next_step}</p>
           )}
