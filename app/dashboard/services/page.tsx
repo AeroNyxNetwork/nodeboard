@@ -27,6 +27,11 @@
  *   - data.nodes[].system.restart_readiness.drain_eta
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates active ClientSession timing for maintenance drain visibility.
+ *   - data.nodes[].city / data.nodes[].region_code / data.nodes[].version
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Joined by node id with blocked_nodes to filter restart queues by
+ *     commercial region and Rust node version without expanding backend
+ *     blocked-node privacy payloads.
  *   - data.summary.restart_readiness.blocker_counts
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Drives the fleet restart blocker playbook shown in this page.
@@ -70,7 +75,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.17 - Add prioritized restart action queue
+ * Last Modified: v1.1.18 - Add queue filters and stable impact ordering
+ * Previous: v1.1.17 - Add prioritized restart action queue
  * Previous: v1.1.16 - Show backend drain risk next step
  * Previous: v1.1.15 - Use backend-authored fleet drain risk copy
  * Previous: v1.1.14 - Show fleet drain risk summary
@@ -179,6 +185,8 @@ interface RestartReadinessNode {
   id: string;
   name: string;
   publicIp: string | null;
+  regionLabel: string;
+  version: string;
   activeSessions: number;
   maintenanceMode: boolean;
   healthStatus: string;
@@ -196,6 +204,13 @@ interface RestartReadinessNode {
 }
 
 type RestartActionQueueKey = 'critical' | 'warning' | 'ready' | 'current';
+type RestartQueueStatusFilter = 'all' | 'attention' | 'blocked' | 'ready' | 'current';
+
+interface RestartQueueFilters {
+  region: string;
+  version: string;
+  status: RestartQueueStatusFilter;
+}
 
 interface RestartActionQueueItem {
   id: string;
@@ -204,6 +219,9 @@ interface RestartActionQueueItem {
   detail: string;
   meta: string[];
   risk: string;
+  regionLabel: string;
+  version: string;
+  healthStatus: string;
   activeSessions: number;
   maintenanceMode: boolean;
   canEnableMaintenance: boolean;
@@ -233,6 +251,14 @@ interface SessionCleanupRolloutNode {
   operatorReporting: boolean;
   restartRequired: boolean;
 }
+
+const restartQueueStatusFilters: Array<{ value: RestartQueueStatusFilter; label: string }> = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'attention', label: 'Needs action' },
+  { value: 'blocked', label: 'Blocked' },
+  { value: 'ready', label: 'Ready' },
+  { value: 'current', label: 'Current' },
+];
 
 const serviceMeta: Record<ServiceKey, { label: string; eyebrow: string }> = {
   privacy_protocol: {
@@ -295,6 +321,14 @@ function collectOperatorStatuses(nodes: VpnNodeHealth[]): NodeOperatorStatus[] {
 
 function nodeOperatorStatus(node: VpnNodeHealth): NodeOperatorStatus | null {
   return node.system?.operator_status ?? null;
+}
+
+function nodeRegionLabel(node: VpnNodeHealth) {
+  return node.city || node.region_code || 'unknown region';
+}
+
+function nodeVersionLabel(version: string | null | undefined) {
+  return version?.trim() || 'unknown version';
 }
 
 function collectService(statuses: NodeOperatorStatus[], key: ServiceKey): OperatorServiceStatus[] {
@@ -476,6 +510,8 @@ function collectRestartReadinessNodes(nodes: VpnNodeHealth[]): RestartReadinessN
           id: node.id,
           name: node.name,
           publicIp: node.public_ip,
+          regionLabel: nodeRegionLabel(node),
+          version: nodeVersionLabel(node.version),
           activeSessions: backendReadiness.active_sessions,
           maintenanceMode: backendReadiness.maintenance_mode,
           healthStatus: node.health_status,
@@ -521,6 +557,8 @@ function collectRestartReadinessNodes(nodes: VpnNodeHealth[]): RestartReadinessN
         id: node.id,
         name: node.name,
         publicIp: node.public_ip,
+        regionLabel: nodeRegionLabel(node),
+        version: nodeVersionLabel(node.version),
         activeSessions: node.active_sessions,
         maintenanceMode: node.maintenance_mode,
         healthStatus: node.health_status,
@@ -709,6 +747,7 @@ function restartBlockedNodeActionLabel(node: VpnRestartReadinessSummary['blocked
 
 function buildBlockedRestartQueueItem(
   node: VpnRestartReadinessSummary['blocked_nodes'][number],
+  readinessNode: RestartReadinessNode | undefined,
 ): RestartActionQueueItem {
   const activity = formatBlockedDrainActivity(node);
   const drainStatus = formatDrainStatus(node.drain_status);
@@ -716,6 +755,8 @@ function buildBlockedRestartQueueItem(
   const risk = health?.risk ?? 'warning';
   const meta = [
     `${node.active_sessions.toLocaleString()} active`,
+    readinessNode?.regionLabel ?? 'unknown region',
+    `v${readinessNode?.version ?? 'unknown version'}`,
     node.maintenance_mode ? 'maintenance on' : 'maintenance off',
     drainStatus ? `drain ${drainStatus}` : null,
     node.active_restart_command_status ? `restart ${node.active_restart_command_status}` : null,
@@ -730,6 +771,9 @@ function buildBlockedRestartQueueItem(
     detail: node.recommended_action?.detail || node.drain_next_step || node.next_step,
     meta,
     risk,
+    regionLabel: readinessNode?.regionLabel ?? 'unknown region',
+    version: readinessNode?.version ?? 'unknown version',
+    healthStatus: readinessNode?.healthStatus ?? 'blocked',
     activeSessions: node.active_sessions,
     maintenanceMode: node.maintenance_mode,
     canEnableMaintenance: !node.maintenance_mode && node.blocker_codes.includes('maintenance_required'),
@@ -748,12 +792,17 @@ function buildReadyRestartQueueItem(node: RestartReadinessNode): RestartActionQu
     detail: node.canRestart ? 'Restart window open from backend readiness gate.' : node.nextStep,
     meta: [
       `${node.activeSessions.toLocaleString()} active`,
+      node.regionLabel,
+      `v${node.version}`,
       node.maintenanceMode ? 'maintenance on' : 'maintenance off',
       node.operatorReporting ? 'operator reported' : 'operator pending',
       node.cleanupReported ? 'cleanup reported' : 'cleanup pending',
       node.activeRestartCommand ? `restart ${node.activeRestartCommand.status}` : null,
     ].filter((item): item is string => Boolean(item)),
     risk: node.status === 'ready' ? 'healthy' : 'info',
+    regionLabel: node.regionLabel,
+    version: node.version,
+    healthStatus: node.healthStatus,
     activeSessions: node.activeSessions,
     maintenanceMode: node.maintenanceMode,
     canEnableMaintenance: false,
@@ -764,20 +813,79 @@ function buildReadyRestartQueueItem(node: RestartReadinessNode): RestartActionQu
   };
 }
 
+function restartQueueSortScore(item: RestartActionQueueItem) {
+  const riskScore = item.risk === 'critical' ? 0 : item.risk === 'warning' ? 1 : item.risk === 'healthy' ? 2 : 3;
+  const maintenanceScore = item.maintenanceMode ? 1 : 0;
+  const restartScore = item.canQueueRestart ? 0 : 1;
+  return [
+    riskScore,
+    restartScore,
+    maintenanceScore,
+    -item.activeSessions,
+    item.name.toLowerCase(),
+  ] as const;
+}
+
+function sortRestartQueueItems(items: RestartActionQueueItem[]) {
+  return [...items].sort((left, right) => {
+    const leftScore = restartQueueSortScore(left);
+    const rightScore = restartQueueSortScore(right);
+    return (
+      leftScore[0] - rightScore[0]
+      || leftScore[1] - rightScore[1]
+      || leftScore[2] - rightScore[2]
+      || leftScore[3] - rightScore[3]
+      || leftScore[4].localeCompare(rightScore[4])
+    );
+  });
+}
+
+function filterRestartQueueItems(
+  items: RestartActionQueueItem[],
+  filters: RestartQueueFilters,
+) {
+  return items.filter((item) => {
+    if (filters.region !== 'all' && item.regionLabel !== filters.region) return false;
+    if (filters.version !== 'all' && item.version !== filters.version) return false;
+    if (filters.status === 'blocked') return item.source === 'backend_blocked_node';
+    if (filters.status === 'ready') return item.canQueueRestart;
+    if (filters.status === 'current') return item.status === 'current';
+    if (filters.status === 'attention') return item.source === 'backend_blocked_node' || item.canQueueRestart;
+    return true;
+  });
+}
+
+function restartQueueFilterOptions(nodes: RestartReadinessNode[]) {
+  const regions = Array.from(new Set(nodes.map((node) => node.regionLabel))).sort();
+  const versions = Array.from(new Set(nodes.map((node) => node.version))).sort();
+  return { regions, versions };
+}
+
 function buildRestartActionQueues(
   summary: VpnRestartReadinessSummary | null,
   nodes: RestartReadinessNode[],
+  filters: RestartQueueFilters,
 ): RestartActionQueue[] {
-  const blockedItems = (summary?.blocked_nodes ?? []).map(buildBlockedRestartQueueItem);
-  const criticalItems = blockedItems.filter((item) => item.risk === 'critical');
-  const warningItems = blockedItems.filter((item) => item.risk !== 'critical');
+  const readinessById = new Map(nodes.map((node) => [node.id, node]));
+  const filteredNodeIds = new Set(nodes.map((node) => node.id));
+  const blockedItems = (summary?.blocked_nodes ?? [])
+    .filter((node) => filteredNodeIds.has(node.id))
+    .map((node) => buildBlockedRestartQueueItem(node, readinessById.get(node.id)));
   const readyItems = nodes
     .filter((node) => node.status === 'ready')
     .map(buildReadyRestartQueueItem);
   const currentItems = nodes
     .filter((node) => node.status === 'current')
-    .slice(0, 4)
     .map(buildReadyRestartQueueItem);
+  const filteredBlockedItems = filterRestartQueueItems(blockedItems, filters);
+  const filteredReadyItems = filterRestartQueueItems(readyItems, filters);
+  const filteredCurrentItems = filterRestartQueueItems(currentItems, filters);
+  const criticalItems = sortRestartQueueItems(
+    filteredBlockedItems.filter((item) => item.risk === 'critical'),
+  );
+  const warningItems = sortRestartQueueItems(
+    filteredBlockedItems.filter((item) => item.risk !== 'critical'),
+  );
 
   return [
     {
@@ -802,7 +910,7 @@ function buildRestartActionQueues(
       description: 'Maintenance is on, active sessions are drained, and backend gate allows restart.',
       status: readyItems.length > 0 ? 'ready' : 'pending',
       emptyState: 'No node is restart-ready right now.',
-      items: readyItems,
+      items: sortRestartQueueItems(filteredReadyItems),
     },
     {
       key: 'current',
@@ -810,7 +918,7 @@ function buildRestartActionQueues(
       description: 'Healthy baseline sample. These nodes do not need rollout action.',
       status: 'current',
       emptyState: 'No current nodes reported in this owner scope.',
-      items: currentItems,
+      items: sortRestartQueueItems(filteredCurrentItems).slice(0, 4),
     },
   ];
 }
@@ -1038,8 +1146,11 @@ function FleetRestartReadinessPanel({
   onEnableMaintenance: (nodeId: string, nodeName: string) => void;
   onQueueRestart: (nodeId: string, nodeName: string) => void;
 }) {
-  if (nodes.length === 0) return null;
-
+  const [queueFilters, setQueueFilters] = useState<RestartQueueFilters>({
+    region: 'all',
+    version: 'all',
+    status: 'attention',
+  });
   const attentionNodes = nodes.filter((node) => node.status !== 'current');
   const readyCount = summary?.ready ?? attentionNodes.filter((node) => node.status === 'ready').length;
   const blockedCount = summary?.blocked ?? attentionNodes.filter((node) => node.status === 'blocked').length;
@@ -1048,7 +1159,14 @@ function FleetRestartReadinessPanel({
     ?? attentionNodes.reduce((sum, node) => sum + node.activeSessions, 0);
   const blockerCounts = Object.entries(summary?.blocker_counts ?? {});
   const drainRisk = fleetDrainRisk(summary);
-  const actionQueues = buildRestartActionQueues(summary, nodes);
+  const filterOptions = useMemo(() => restartQueueFilterOptions(nodes), [nodes]);
+  const actionQueues = useMemo(
+    () => buildRestartActionQueues(summary, nodes, queueFilters),
+    [summary, nodes, queueFilters],
+  );
+  const queueItemCount = actionQueues.reduce((sum, queue) => sum + queue.items.length, 0);
+
+  if (nodes.length === 0) return null;
 
   return (
     <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
@@ -1095,15 +1213,55 @@ function FleetRestartReadinessPanel({
       </div>
 
       <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <h3 className="text-sm font-semibold text-white">Restart Action Queue</h3>
             <p className="mt-1 text-xs leading-5 text-gray-500">
               Prioritized from data.summary.restart_readiness.blocked_nodes and
               data.nodes[].system.restart_readiness.
             </p>
+            <p className="mt-1 text-xs text-gray-600">
+              Showing {queueItemCount.toLocaleString()} item{queueItemCount === 1 ? '' : 's'}.
+            </p>
           </div>
-          <StatusPill status={blockedCount > 0 ? 'blocked' : readyCount > 0 ? 'ready' : 'current'} />
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={queueFilters.region}
+              onChange={(event) => setQueueFilters((current) => ({ ...current, region: event.target.value }))}
+              className="h-9 rounded-lg border border-white/10 bg-black/30 px-3 text-xs text-gray-200 outline-none transition hover:border-white/20 focus:border-emerald-400/40"
+              aria-label="Restart queue region filter"
+            >
+              <option value="all">All regions</option>
+              {filterOptions.regions.map((region) => (
+                <option key={region} value={region}>{region}</option>
+              ))}
+            </select>
+            <select
+              value={queueFilters.version}
+              onChange={(event) => setQueueFilters((current) => ({ ...current, version: event.target.value }))}
+              className="h-9 rounded-lg border border-white/10 bg-black/30 px-3 text-xs text-gray-200 outline-none transition hover:border-white/20 focus:border-emerald-400/40"
+              aria-label="Restart queue version filter"
+            >
+              <option value="all">All versions</option>
+              {filterOptions.versions.map((version) => (
+                <option key={version} value={version}>v{version}</option>
+              ))}
+            </select>
+            <select
+              value={queueFilters.status}
+              onChange={(event) => setQueueFilters((current) => ({
+                ...current,
+                status: event.target.value as RestartQueueStatusFilter,
+              }))}
+              className="h-9 rounded-lg border border-white/10 bg-black/30 px-3 text-xs text-gray-200 outline-none transition hover:border-white/20 focus:border-emerald-400/40"
+              aria-label="Restart queue status filter"
+            >
+              {restartQueueStatusFilters.map((filter) => (
+                <option key={filter.value} value={filter.value}>{filter.label}</option>
+              ))}
+            </select>
+            <StatusPill status={blockedCount > 0 ? 'blocked' : readyCount > 0 ? 'ready' : 'current'} />
+          </div>
         </div>
 
         {blockerCounts.length > 0 && (
