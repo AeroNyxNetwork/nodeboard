@@ -137,7 +137,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.48 - Show long-tail drain session age
+ * Last Modified: v1.1.49 - Add drain age chips
+ * Previous: v1.1.48 - Show long-tail drain session age
  * Previous: v1.1.47 - Show cleanup policy rollout gate
  * Previous: v1.1.46 - Surface drain activity health in rollout gates
  * Previous: v1.1.45 - Explain staged DNS rollout impact
@@ -872,11 +873,19 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
         <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
           {keepaliveIssueSessions.toLocaleString()} keepalive issue
         </span>
+        {eta.oldest_started_at && (
+          <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
+            oldest {formatRelativeTime(eta.oldest_started_at)}
+          </span>
+        )}
+        {eta.latest_activity_at && (
+          <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
+            latest {formatRelativeTime(eta.latest_activity_at)}
+          </span>
+        )}
       </div>
       <p className={`text-[11px] leading-5 ${mutedClass}`}>
         Window {formatDuration(eta.activity_window_seconds || 180)}
-        {eta.oldest_started_at ? ` · oldest active ${formatRelativeTime(eta.oldest_started_at)}` : ''}
-        {eta.latest_activity_at ? ` · latest activity ${formatRelativeTime(eta.latest_activity_at)}` : ''}
         {typeof eta.estimated_seconds_remaining === 'number' ? ` · cleanup in ${formatDuration(Math.max(0, eta.estimated_seconds_remaining))}` : ''}
       </p>
     </div>
