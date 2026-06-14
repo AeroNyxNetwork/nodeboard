@@ -33,6 +33,8 @@
  *   - data.summary.restart_readiness.blocked_nodes[].recommended_action
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Provides the backend-authored next operator action for each blocked node.
+ *     cleanup_policy_pending uses intent=node_detail because the operator must
+ *     inspect Rust heartbeat rollout before waiting on stale-session cleanup.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -56,7 +58,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.9 - Show backend recommended blocker action
+ * Last Modified: v1.1.10 - Show cleanup rollout blocker action
+ * Previous: v1.1.9 - Show backend recommended blocker action
  * Previous: v1.1.8 - Added restart blocker playbook copy
  * Previous: v1.1.7 - Show restart drain ETA
  * Previous: v1.1.6 - Show active restart command state
@@ -561,7 +564,7 @@ function restartBlockerCopy(code: string) {
     },
     cleanup_policy_pending: {
       label: 'Cleanup policy pending',
-      remediation: 'Restart after drain so Rust reports session_cleanup policy.',
+      remediation: 'Open node detail and confirm Rust reports session_cleanup before relying on drain ETA.',
     },
     restart_command_active: {
       label: 'Restart already queued',
@@ -924,6 +927,14 @@ function FleetRestartReadinessPanel({
                   >
                     {recommendedAction?.intent === 'sessions' ? recommendedAction.label : 'Open sessions'}
                   </Link>
+                  {recommendedAction?.intent === 'node_detail' && (
+                    <Link
+                      href={`/dashboard/nodes/${node.id}`}
+                      className="font-medium text-purple-300 hover:text-purple-200"
+                    >
+                      {recommendedAction.label}
+                    </Link>
+                  )}
                   {recommendedAction?.intent === 'node_commands' && (
                     <Link
                       href={`/dashboard/nodes/${node.id}?command_action=restart_service#vpn-commands`}
