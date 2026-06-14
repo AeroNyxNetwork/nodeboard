@@ -35,8 +35,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.1 - Added fleet session-cleanup rollout visibility
- * Previous: v1.1.0 - Production operator readiness view
+ * Last Modified: v1.1.2 - Added live refresh state for drain and rollout monitoring
+ * Previous: v1.1.1 - Added fleet session-cleanup rollout visibility
  * ============================================
  */
 
@@ -46,6 +46,7 @@ import React, { useMemo } from 'react';
 import Link from 'next/link';
 import { useVpnOverview } from '@/hooks/useNodes';
 import { formatDuration, formatRelativeTime } from '@/lib/api';
+import { POLLING_INTERVALS } from '@/lib/constants';
 import {
   NodeOperatorStatus,
   OperatorRisk,
@@ -83,6 +84,13 @@ interface FleetSummary {
   rolloutRestartRequired: number;
   enabledServices: number;
   totalServiceSlots: number;
+}
+
+interface PageHeaderProps {
+  isFetching: boolean;
+  dataUpdatedAt: number;
+  refreshIntervalMs: number;
+  onRefresh: () => void;
 }
 
 interface RiskView extends OperatorRisk {
@@ -372,6 +380,16 @@ function latestReportTime(statuses: NodeOperatorStatus[]) {
   return values.length > 0 ? values[values.length - 1] : null;
 }
 
+function formatRefreshInterval(milliseconds: number) {
+  const seconds = Math.round(milliseconds / 1000);
+  return `${seconds}s`;
+}
+
+function formatDataUpdatedAt(dataUpdatedAt: number) {
+  if (!dataUpdatedAt) return 'waiting for first API sync';
+  return `last API sync ${formatRelativeTime(new Date(dataUpdatedAt).toISOString())}`;
+}
+
 function StatusPill({ status }: { status: string }) {
   const normalized = normalizeStatus(status);
   return (
@@ -381,7 +399,12 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-function PageHeader() {
+function PageHeader({
+  isFetching,
+  dataUpdatedAt,
+  refreshIntervalMs,
+  onRefresh,
+}: PageHeaderProps) {
   return (
     <div className="mb-8 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
       <div>
@@ -393,13 +416,34 @@ function PageHeader() {
           Privacy Protocol transport, MemChain memory, encrypted relay, sovereign data RPC,
           and SuperNode worker status from signed Rust heartbeats.
         </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+          <span className="inline-flex items-center rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2 py-1 text-emerald-200">
+            Live refresh {formatRefreshInterval(refreshIntervalMs)}
+          </span>
+          <span className="rounded-md border border-white/10 px-2 py-1">
+            {isFetching ? 'updating backend overview' : formatDataUpdatedAt(dataUpdatedAt)}
+          </span>
+          <span className="rounded-md border border-white/10 px-2 py-1">
+            API GET /api/privacy_network/vpn/overview/
+          </span>
+        </div>
       </div>
-      <Link
-        href="/dashboard/nodes"
-        className="inline-flex items-center justify-center rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-200 transition hover:border-white/20 hover:bg-white/5"
-      >
-        Manage nodes
-      </Link>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={isFetching}
+          className="inline-flex items-center justify-center rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-200 transition hover:border-white/20 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isFetching ? 'Refreshing' : 'Refresh now'}
+        </button>
+        <Link
+          href="/dashboard/nodes"
+          className="inline-flex items-center justify-center rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-200 transition hover:border-white/20 hover:bg-white/5"
+        >
+          Manage nodes
+        </Link>
+      </div>
     </div>
   );
 }
@@ -835,7 +879,18 @@ function NodeDetailCard({ node }: { node: VpnNodeHealth }) {
 }
 
 export default function NodeServicesPage() {
-  const { overview, isLoading, isError, refetch } = useVpnOverview();
+  const refreshIntervalMs = POLLING_INTERVALS.SERVICE_READINESS;
+  const {
+    overview,
+    isLoading,
+    isFetching,
+    isError,
+    dataUpdatedAt,
+    refetch,
+  } = useVpnOverview({ refetchIntervalMs: refreshIntervalMs });
+  const handleRefresh = () => {
+    void refetch();
+  };
 
   const nodes = overview?.nodes ?? [];
   const operatorStatuses = useMemo(() => collectOperatorStatuses(nodes), [nodes]);
@@ -850,7 +905,12 @@ export default function NodeServicesPage() {
   if (isLoading) {
     return (
       <div>
-        <PageHeader />
+        <PageHeader
+          isFetching={isFetching}
+          dataUpdatedAt={dataUpdatedAt}
+          refreshIntervalMs={refreshIntervalMs}
+          onRefresh={handleRefresh}
+        />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {[...Array(5)].map((_, index) => (
             <div key={index} className="h-[210px] rounded-2xl bg-white/5 animate-pulse" />
@@ -863,14 +923,19 @@ export default function NodeServicesPage() {
   if (isError) {
     return (
       <div>
-        <PageHeader />
+        <PageHeader
+          isFetching={isFetching}
+          dataUpdatedAt={dataUpdatedAt}
+          refreshIntervalMs={refreshIntervalMs}
+          onRefresh={handleRefresh}
+        />
         <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-6">
           <h2 className="text-lg font-semibold text-red-200">Service data unavailable</h2>
           <p className="mt-2 text-sm text-red-100/70">
             The operator console could not load service overview data from the backend.
           </p>
           <button
-            onClick={() => refetch()}
+            onClick={handleRefresh}
             className="mt-4 rounded-lg border border-red-300/20 px-4 py-2 text-sm font-medium text-red-100 hover:bg-red-400/10"
           >
             Retry
@@ -882,7 +947,12 @@ export default function NodeServicesPage() {
 
   return (
     <div>
-      <PageHeader />
+      <PageHeader
+        isFetching={isFetching}
+        dataUpdatedAt={dataUpdatedAt}
+        refreshIntervalMs={refreshIntervalMs}
+        onRefresh={handleRefresh}
+      />
 
       <FleetSummaryGrid summary={fleetSummary} latestReportedAt={latestReportedAt} />
 

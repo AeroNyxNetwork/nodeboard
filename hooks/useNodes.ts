@@ -5,6 +5,8 @@
  * File Path: hooks/useNodes.ts
  *
  * Modification Reason:
+ *   v1.5.3 - Exposed VPN overview refresh metadata so services can show live
+ *     drain/rollout sync status while reading the same backend overview API.
  *   v1.5.2 - Added authenticated VPN server placement hook for operator
  *     failover visibility.
  *   v1.5.1 - Removed public discovery hooks so nodeboard remains an operator
@@ -53,7 +55,7 @@
 * - useUpdateNode now accepts NodeUpdateRequest — do NOT revert to narrow type
 * - staleTime: Infinity on owner hooks = manual refetch only
  *
- * Last Modified: v1.5.2 - Operator VPN placement hook
+ * Last Modified: v1.5.3 - VPN overview live refresh metadata
  * Previous: v1.1.0 - Auth guard on all owner hooks
  * ============================================
  */
@@ -324,13 +326,34 @@ export function useNodeSessions(
 interface UseVpnOverviewResult {
   overview: VpnOverview | null;
   isLoading: boolean;
+  isFetching: boolean;
   isError: boolean;
   error: Error | null;
+  dataUpdatedAt: number;
   refetch: () => void;
 }
 
-export function useVpnOverview(): UseVpnOverviewResult {
+interface UseVpnOverviewOptions {
+  /**
+   * Optional live refresh cadence for operator pages.
+   *
+   * Backend endpoint:
+   *   GET /api/privacy_network/vpn/overview/
+   *   /root/aeronyx/privacy_network/api/vpn_observability.py
+   * Rust heartbeat producers:
+   *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+   *   /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
+   *
+   * Keep this aggregate-only: it refreshes fleet health, active-session counts,
+   * rollout state, and cleanup policy metadata; it never requests payloads,
+   * DNS contents, destinations, domains, URLs, or wallet-level traffic.
+   */
+  refetchIntervalMs?: number | false;
+}
+
+export function useVpnOverview(options: UseVpnOverviewOptions = {}): UseVpnOverviewResult {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const refetchIntervalMs = options.refetchIntervalMs ?? POLLING_INTERVALS.VPN_OVERVIEW;
 
   const query = useQuery({
     queryKey: nodeKeys.vpnOverview(),
@@ -339,16 +362,18 @@ export function useVpnOverview(): UseVpnOverviewResult {
       return res.data;
     },
     enabled: isAuthenticated,
-    staleTime: POLLING_INTERVALS.VPN_OVERVIEW,
-    refetchInterval: POLLING_INTERVALS.VPN_OVERVIEW,
+    staleTime: refetchIntervalMs || POLLING_INTERVALS.VPN_OVERVIEW,
+    refetchInterval: refetchIntervalMs,
     refetchOnWindowFocus: true,
   });
 
   return {
     overview: query.data ?? null,
     isLoading: query.isLoading,
+    isFetching: query.isFetching,
     isError: query.isError,
     error: query.error,
+    dataUpdatedAt: query.dataUpdatedAt,
     refetch: query.refetch,
   };
 }

@@ -6,6 +6,8 @@
  *
  * Creation Reason: Centralized configuration and constants
  * Modification Reason:
+ *   v1.5.3 - Added service readiness live refresh cadence for drain/rollout
+ *     monitoring on the operator services page.
  *   v1.5.2 - Added VPN server placement endpoint for operator failover view.
  *   v1.5.1 - Removed public discovery endpoints and polling constants.
  *   v1.5.0 - Focused endpoints and polling on VPN operations
@@ -17,7 +19,7 @@
  * ⚠️ Important Note for Next Developer:
  * - NODE_VISIBILITY_CONFIG keys MUST match NodeVisibility type in types/index.ts
  *
- * Last Modified: v1.5.2 - Operator VPN placement constants
+ * Last Modified: v1.5.3 - Service readiness refresh cadence
  * Previous: v1.4.0 - Public node pool endpoints + visibility config
  * ============================================
  */
@@ -87,6 +89,11 @@ export const POLLING_INTERVALS = {
   NODES_LIST: 30000,
   NODE_STATUS: 30000,
   SESSIONS_LIST: 60000,
+  // Services page live-readiness view:
+  // GET /api/privacy_network/vpn/overview/
+  // Backend: /root/aeronyx/privacy_network/api/vpn_observability.py
+  // Rust: /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+  SERVICE_READINESS: 15000,
   VPN_OVERVIEW: 30000,
   VPN_SESSIONS: 15000,
   VPN_EVENTS: 15000,
