@@ -54,6 +54,11 @@
  *     Provides the backend-authored next operator action for each blocked node.
  *     cleanup_policy_pending uses intent=node_detail because the operator must
  *     inspect Rust heartbeat rollout before waiting on stale-session cleanup.
+ *   - data.summary.restart_readiness.command_delivery_health
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Aggregates Rust heartbeat freshness and backend operator_reporting so
+ *     the Services page can show whether restart commands can be delivered
+ *     before operators queue fleet actions.
  *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
@@ -98,7 +103,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.28 - Show latest restart command activity context
+ * Last Modified: v1.1.29 - Show command delivery health
+ * Previous: v1.1.28 - Show latest restart command activity context
  * Previous: v1.1.27 - Show 24h restart command reliability
  * Previous: v1.1.26 - Show restart outcome audit summary
  * Previous: v1.1.25 - Show fleet restart cancelability counts
@@ -803,6 +809,37 @@ function fleetCommandLifecycle(summary: VpnRestartReadinessSummary | null) {
   };
 }
 
+function fleetCommandDelivery(summary: VpnRestartReadinessSummary | null) {
+  const delivery = summary?.command_delivery_health ?? null;
+  if (!delivery) {
+    return {
+      count: 0,
+      ready: 0,
+      attention: 0,
+      label: 'Pending',
+      detail: 'waiting for backend command delivery summary',
+      risk: 'info',
+      next_step: 'Waiting for data.summary.restart_readiness.command_delivery_health.',
+    };
+  }
+  const summaryCopy = delivery.summary ?? {
+    label: delivery.command_ready_nodes > 0 ? 'Ready' : 'Blocked',
+    detail: `${delivery.command_ready_nodes.toLocaleString()} of ${delivery.total_nodes.toLocaleString()} node(s) command-ready`,
+    risk: delivery.attention_nodes > 0 ? 'warning' : 'healthy',
+    next_step: 'Review Rust heartbeat and operator reporting before queueing commands.',
+  };
+
+  return {
+    count: delivery.command_ready_nodes,
+    ready: delivery.command_ready_nodes,
+    attention: delivery.attention_nodes,
+    label: summaryCopy.label,
+    detail: summaryCopy.detail,
+    risk: summaryCopy.risk,
+    next_step: summaryCopy.next_step,
+  };
+}
+
 function fleetCommandOutcome(summary: VpnRestartReadinessSummary | null) {
   const counts = summary?.command_lifecycle_counts ?? null;
   if (!counts) {
@@ -1454,6 +1491,7 @@ function FleetRestartReadinessPanel({
   const blockerCounts = Object.entries(summary?.blocker_counts ?? {});
   const drainRisk = fleetDrainRisk(summary);
   const commandLifecycle = fleetCommandLifecycle(summary);
+  const commandDelivery = fleetCommandDelivery(summary);
   const commandOutcome = fleetCommandOutcome(summary);
   const commandCounts = summary?.command_lifecycle_counts ?? null;
   const commandHistory = commandCounts?.history_24h ?? null;
@@ -1487,7 +1525,7 @@ function FleetRestartReadinessPanel({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7">
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
           <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Ready Now</p>
           <p className="mt-2 text-2xl font-semibold text-white">{readyCount.toLocaleString()}</p>
@@ -1510,6 +1548,16 @@ function FleetRestartReadinessPanel({
           <p className="mt-1 text-xs opacity-70">{drainRisk.label} · {drainRisk.detail}</p>
           {drainRisk.next_step && (
             <p className="mt-2 text-xs leading-5 opacity-80">{drainRisk.next_step}</p>
+          )}
+        </div>
+        <div className={`rounded-xl border p-4 ${drainActivityHealthClass(commandDelivery.risk)}`}>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Command Delivery</p>
+          <p className="mt-2 text-2xl font-semibold">{commandDelivery.count.toLocaleString()}</p>
+          <p className="mt-1 text-xs opacity-70">{commandDelivery.label} · {commandDelivery.detail}</p>
+          {commandDelivery.attention > 0 && (
+            <p className="mt-2 text-xs leading-5 opacity-80">
+              Attention {commandDelivery.attention.toLocaleString()} · Ready {commandDelivery.ready.toLocaleString()}
+            </p>
           )}
         </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(commandLifecycle.risk)}`}>

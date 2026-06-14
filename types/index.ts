@@ -566,6 +566,10 @@ export interface VpnRestartReadinessBlockedNode {
  *   Restart Outcome Audit panel. history_24h is a backend aggregate
  *   reliability window with latest_any_created_at/latest_any_status context
  *   that excludes raw command params/result/error_message.
+ * Command delivery source:
+ *   data.summary.restart_readiness.command_delivery_health aggregates Rust
+ *   heartbeat freshness plus backend operator_reporting for the Services
+ *   Command Delivery card.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts
@@ -579,6 +583,27 @@ export interface VpnRestartReadinessSummary {
   can_restart: number;
   sessions_blocking_restart: number;
   blocker_counts: Record<string, number>;
+  command_delivery_health?: {
+    total_nodes: number;
+    command_ready_nodes: number;
+    attention_nodes: number;
+    fresh_nodes: number;
+    delayed_nodes: number;
+    offline_nodes: number;
+    operator_reporting_nodes: number;
+    fresh_seconds: number;
+    degraded_seconds: number;
+    summary?: {
+      status?: string;
+      risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+      label: string;
+      detail: string;
+      next_step?: string;
+      count: number;
+    };
+    source: string;
+    privacy_boundary: string;
+  };
   drain_activity_health_counts?: {
     status_counts: Record<string, number>;
     risk_counts: Record<string, number>;
