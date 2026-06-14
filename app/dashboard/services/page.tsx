@@ -1461,7 +1461,16 @@ function restartBlockedNodeActionLabel(node: VpnRestartReadinessSummary['blocked
 }
 
 function cutoverActionReasonLabel(reason: string | undefined) {
+  // Backend contract:
+  // GET /api/privacy_network/vpn/overview/
+  // data.summary.restart_readiness.cutover_guard_counts.actionable_problem_nodes[].actionable_reason
+  // Source: /root/aeronyx/privacy_network/api/vpn_observability.py
+  // Keep these labels presentation-only; queue eligibility remains backend-authored.
   const copy: Record<string, string> = {
+    active_client_traffic: 'active client traffic',
+    cleanup_policy_pending: 'cleanup policy pending',
+    active_sessions: 'active sessions',
+    operator_reporting_missing: 'operator reporting missing',
     maintenance_mode: 'maintenance mode',
     restart_readiness_blocked: 'restart gate blocked',
     runtime_rollout_required: 'runtime rollout required',
@@ -1528,6 +1537,7 @@ function buildCutoverGuardQueueItem(
     readinessNode?.regionLabel ?? 'unknown region',
     readinessNode?.version ? `v${readinessNode.version}` : null,
     node.maintenance_mode ? 'maintenance on' : 'maintenance off',
+    node.blocker_codes?.length ? `blockers ${node.blocker_codes.join(', ')}` : null,
   ].filter((item): item is string => Boolean(item));
 
   return {

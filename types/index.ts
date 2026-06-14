@@ -510,6 +510,7 @@ export interface VpnRestartCutoverProblemNode {
   last_seen_seconds: number | null;
   maintenance_mode: boolean;
   active_sessions: number;
+  blocker_codes?: string[];
   status: VpnRestartCutoverGuard['status'];
   risk: VpnRestartCutoverGuard['risk'];
   label: string;
@@ -769,7 +770,9 @@ export interface VpnRestartReadinessBlockedNode {
  *   including healthy current nodes that are simply serving client traffic.
  *   observed_only_nodes / serving_traffic_nodes explain unsafe cutover states
  *   that are not operator work.
- *   actionable/actionable_reason explain why a node became operator work.
+ *   actionable/actionable_reason explain why a node became operator work;
+ *   blocker_codes mirrors backend restart_readiness.blockers for compact
+ *   cutover queue diagnostics without exposing client-level traffic details.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts

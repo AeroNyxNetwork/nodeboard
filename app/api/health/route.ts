@@ -48,7 +48,8 @@
  *     Services page Cutover Safety card from backend cutover_guard policy.
  *     cutover_guard_counts.actionable_problem_nodes powers Services Cutover
  *     Blockers in the Restart Action Queue; problem_nodes remains full safety
- *     accounting.
+ *     accounting. actionable_reason/blocker_codes are backend-authored
+ *     operator diagnostics, not React-derived policy.
  *     Provides data.summary.restart_readiness.command_lifecycle_counts for
  *     Services page Command SLA card, backend-authored stale/retry copy, and
  *     cancelable_active/non_cancelable_active active command counts.
@@ -298,7 +299,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.cutover_guard_counts',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level Rust cutover safety counts, observed_only_nodes/serving_traffic_nodes, full problem_nodes, and backend-authored actionable_problem_nodes/actionable_reason derived from data.nodes[].system.restart_readiness.drain_eta.cutover_guard for the Services Cutover Safety card and Cutover Blockers action queue',
+      purpose: 'Fleet-level Rust cutover safety counts, observed_only_nodes/serving_traffic_nodes, full problem_nodes, and backend-authored actionable_problem_nodes/actionable_reason/blocker_codes derived from data.nodes[].system.restart_readiness.drain_eta.cutover_guard for the Services Cutover Safety card and Cutover Blockers action queue',
     },
     {
       endpoint: 'data.summary.restart_readiness.command_lifecycle_counts',
