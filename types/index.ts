@@ -742,8 +742,9 @@ export interface VpnRestartReadinessBlockedNode {
  *   /root/aeronyx/privacy_network/api/vpn_observability.py so Services can
  *   show whether Rust replacement/restart is commercially safe across the
  *   fleet without parsing backend English copy.
- *   problem_nodes drives Services Cutover Blockers action queue rows with
- *   active session, client RX, and forced-impact metadata.
+ *   problem_nodes supplies active session, client RX, and forced-impact
+ *   metadata; Services filters it to maintenance/rollout nodes before showing
+ *   Cutover Blockers action queue rows.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts

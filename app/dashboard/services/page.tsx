@@ -107,8 +107,10 @@
  *     Aggregates data.nodes[].system.restart_readiness.drain_eta.cutover_guard
  *     so Services can show fleet-level safe/blocked Rust cutover state without
  *     parsing backend English copy.
- *     problem_nodes powers the Cutover Blockers action queue so operators can
- *     open active sessions or node detail before any Rust replacement.
+ *     problem_nodes powers the Cutover Blockers action queue after Services
+ *     filters out healthy current nodes that are simply serving normal client
+ *     traffic. Operators then open active sessions or node detail before any
+ *     Rust replacement.
  *   - data.summary.restart_readiness.command_lifecycle_counts
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Powers the Command SLA card from backend-authored active/stale/retry
@@ -1599,6 +1601,16 @@ function buildStaleCommandQueueItem(node: RestartReadinessNode): RestartActionQu
   };
 }
 
+function isActionableCutoverBlocker(readinessNode: RestartReadinessNode | undefined) {
+  if (!readinessNode) return true;
+  return (
+    readinessNode.status !== 'current'
+    || readinessNode.maintenanceMode
+    || readinessNode.restartRequired
+    || Boolean(readinessNode.activeRestartCommand)
+  );
+}
+
 function restartQueueSortScore(item: RestartActionQueueItem) {
   const riskScore = item.risk === 'critical' ? 0 : item.risk === 'warning' ? 1 : item.risk === 'healthy' ? 2 : 3;
   const maintenanceScore = item.maintenanceMode ? 1 : 0;
@@ -1731,6 +1743,7 @@ function buildRestartActionQueues(
     .map((node) => buildBlockedRestartQueueItem(node, readinessById.get(node.id)));
   const cutoverGuardItems = (summary?.cutover_guard_counts?.problem_nodes ?? [])
     .filter((node) => filteredNodeIds.has(node.id))
+    .filter((node) => isActionableCutoverBlocker(readinessById.get(node.id)))
     .map((node) => buildCutoverGuardQueueItem(node, readinessById.get(node.id)));
   const staleCommandItems = nodes
     .filter((node) => restartCommandIsStale(node.activeRestartCommand))
@@ -1794,7 +1807,7 @@ function buildRestartActionQueues(
     {
       key: 'cutover',
       label: 'Cutover Blockers',
-      description: 'Backend cutover_guard says replacing or restarting Rust may disconnect client traffic.',
+      description: 'Maintenance or rollout nodes where backend cutover_guard says replacing Rust may disconnect client traffic.',
       status: filteredCutoverGuardItems.length > 0
         ? (filteredCutoverGuardItems.some((item) => item.risk === 'critical') ? 'critical' : 'warning')
         : 'healthy',
