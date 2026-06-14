@@ -37,6 +37,9 @@
  *   - data.nodes[].system.restart_readiness.active_restart_command
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors NodeCommand restart_service pending/sent/executing state.
+ *   - data.nodes[].system.restart_readiness.drain_eta
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Aggregates active ClientSession timing for restart drain visibility.
  *   - GET /api/privacy_network/nodes/{id}/sessions/
  *     /root/aeronyx/privacy_network/api/sessions.py
  *     /root/aeronyx/privacy_network/serializers.py
@@ -57,7 +60,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.7 - Documented active restart command gate
+ * Last Modified: v1.1.8 - Documented restart drain ETA
+ * Previous: v1.1.7 - Documented active restart command gate
  * Previous: v1.1.6 - Documented restart gate maintenance action
  * Previous: v1.1.5 - Documented sessions deep-link contract
  * Previous: v1.1.1 - Production health route
@@ -105,6 +109,11 @@ const healthPayload = {
       endpoint: 'data.nodes[].system.restart_readiness.active_restart_command',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Active restart_service command state from NodeCommand to prevent duplicate fleet restarts',
+    },
+    {
+      endpoint: 'data.nodes[].system.restart_readiness.drain_eta',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Node-level active ClientSession timing aggregate used for maintenance drain ETA',
     },
     {
       endpoint: 'data.summary.restart_readiness',

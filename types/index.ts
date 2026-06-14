@@ -398,6 +398,17 @@ export interface VpnRestartCommandState {
   source: 'node_command_restart_service_queue' | string;
 }
 
+export interface VpnRestartDrainEta {
+  active_sessions: number;
+  oldest_started_at: string | null;
+  latest_activity_at: string | null;
+  cleanup_timeout_seconds: number | null;
+  estimated_cleanup_at: string | null;
+  estimated_seconds_remaining: number | null;
+  source: 'client_session_activity_aggregate' | string;
+  privacy_boundary: string;
+}
+
 /**
  * Backend-authoritative controlled restart gate.
  *
@@ -408,6 +419,8 @@ export interface VpnRestartCommandState {
  * Command source:
  *   /root/aeronyx/privacy_network/models.py (NodeCommand)
  *   /root/aeronyx/privacy_network/services/command_service.py
+ * Drain ETA source:
+ *   /root/aeronyx/privacy_network/models.py (ClientSession aggregate timing)
  * Nodeboard consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/dashboard/nodes/[id]/page.tsx
@@ -419,7 +432,8 @@ export interface VpnRestartCommandState {
  * Privacy boundary: aggregate restart readiness only. No client public IPs,
  * destinations, DNS contents, packet payloads, domains, URLs, browsing
  * history, voucher secrets, or wallet-level traffic. active_restart_command is
- * command lifecycle metadata only and never contains command payload secrets.
+ * command lifecycle metadata only and never contains command payload secrets;
+ * drain_eta is node-level aggregate timing only.
  */
 export interface VpnRestartReadiness {
   status: 'ready' | 'blocked' | 'pending' | 'current' | string;
@@ -432,6 +446,7 @@ export interface VpnRestartReadiness {
   restart_required: boolean;
   cleanup_reported: boolean;
   active_restart_command?: VpnRestartCommandState | null;
+  drain_eta?: VpnRestartDrainEta | null;
   source: string;
   privacy_boundary: string;
 }

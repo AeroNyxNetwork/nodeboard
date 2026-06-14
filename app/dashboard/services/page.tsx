@@ -24,6 +24,9 @@
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors NodeCommand restart_service pending/sent/executing state so the
  *     fleet view does not offer duplicate restarts.
+ *   - data.nodes[].system.restart_readiness.drain_eta
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Aggregates active ClientSession timing for maintenance drain visibility.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -47,7 +50,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.6 - Show active restart command state
+ * Last Modified: v1.1.7 - Show restart drain ETA
+ * Previous: v1.1.6 - Show active restart command state
  * Previous: v1.1.5 - Added restart gate command action
  * Previous: v1.1.4 - Added restart gate maintenance action
  * Previous: v1.1.3 - Added fleet restart readiness decision panel
@@ -69,6 +73,7 @@ import {
   RuntimeRolloutStatus,
   VpnNodeHealth,
   VpnRestartCommandState,
+  VpnRestartDrainEta,
   VpnRestartReadiness,
   VpnRestartReadinessSummary,
   VpnSessionCleanupStatus,
@@ -154,6 +159,7 @@ interface RestartReadinessNode {
   status: 'ready' | 'blocked' | 'pending' | 'current';
   canRestart: boolean;
   activeRestartCommand: VpnRestartCommandState | null;
+  drainEta: VpnRestartDrainEta | null;
   nextStep: string;
   blockers: string[];
   source: string;
@@ -423,6 +429,7 @@ function collectRestartReadinessNodes(nodes: VpnNodeHealth[]): RestartReadinessN
           status: normalizeBackendStatus(backendReadiness.status),
           canRestart: backendReadiness.can_restart,
           activeRestartCommand: backendReadiness.active_restart_command ?? null,
+          drainEta: backendReadiness.drain_eta ?? null,
           nextStep: backendReadiness.next_step,
           blockers: backendReadiness.blockers.map((blocker) => blocker.message),
           source: backendReadiness.source,
@@ -473,6 +480,7 @@ function collectRestartReadinessNodes(nodes: VpnNodeHealth[]): RestartReadinessN
               : 'pending',
         canRestart: readyForRestart,
         activeRestartCommand: null,
+        drainEta: null,
         nextStep,
         blockers: needsRolloutAttention ? blockers : [],
         source: 'nodeboard_fallback_restart_gate',
@@ -515,6 +523,14 @@ function formatRefreshInterval(milliseconds: number) {
 function formatDataUpdatedAt(dataUpdatedAt: number) {
   if (!dataUpdatedAt) return 'waiting for first API sync';
   return `last API sync ${formatRelativeTime(new Date(dataUpdatedAt).toISOString())}`;
+}
+
+function formatDrainEta(eta: VpnRestartDrainEta | null) {
+  if (!eta || eta.active_sessions === 0) return 'no active drain';
+  if (!eta.cleanup_timeout_seconds) return 'cleanup timeout pending';
+  if (eta.estimated_seconds_remaining === null) return 'awaiting session activity';
+  if (eta.estimated_seconds_remaining <= 0) return 'cleanup due';
+  return `${formatDuration(eta.estimated_seconds_remaining)} if idle`;
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -902,7 +918,7 @@ function FleetRestartReadinessPanel({
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-gray-400">
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-gray-400 lg:grid-cols-4">
               <div>
                 <p className="text-gray-600">Active Sessions</p>
                 <p className="mt-1 text-gray-200">{node.activeSessions.toLocaleString()}</p>
@@ -915,6 +931,15 @@ function FleetRestartReadinessPanel({
                 <p className="text-gray-600">Next Step</p>
                 <p className="mt-1 text-gray-200">{node.nextStep}</p>
               </div>
+              <div>
+                <p className="text-gray-600">Drain ETA</p>
+                <p className="mt-1 text-gray-200">{formatDrainEta(node.drainEta)}</p>
+                {node.drainEta?.latest_activity_at && (
+                  <p className="mt-1 text-[11px] text-gray-600">
+                    activity {formatRelativeTime(node.drainEta.latest_activity_at)}
+                  </p>
+                )}
+              </div>
             </div>
 
             <p className="mt-3 text-xs leading-5 text-gray-600">
@@ -922,6 +947,7 @@ function FleetRestartReadinessPanel({
               cleanup policy {node.cleanupReported ? 'reported' : 'pending'} ·
               rollout {node.restartRequired ? 'restart required' : node.operatorReporting ? 'current signal' : 'operator pending'} ·
               {node.activeRestartCommand ? ` restart ${node.activeRestartCommand.status} ·` : ''}
+              {node.drainEta?.cleanup_timeout_seconds ? ` cleanup ${formatDuration(node.drainEta.cleanup_timeout_seconds)} ·` : ''}
               source {node.source}.
             </p>
             {node.blockers.length > 0 && (
