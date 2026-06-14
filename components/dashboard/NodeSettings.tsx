@@ -14,7 +14,8 @@
  *   2. Access password field (shown only when password_protected)
  *   3. Region code input (ISO 3166-1 alpha-2) + city input
  *   4. VPN node toggle
- *   5. Batch save — all fields submitted in a single PATCH request
+ *   5. Commercial capacity policy: max sessions and bandwidth cap
+ *   6. Batch save — all fields submitted in a single PATCH request
  *
  * Dependencies:
  *   - hooks/useNodes.ts (useUpdateNode)
@@ -28,9 +29,11 @@
  * Backend source files:
  *   - /root/aeronyx/privacy_network/api/nodes.py
  *   - /root/aeronyx/privacy_network/serializers.py
+ *   - /root/aeronyx/privacy_network/models.py
  * Rust consumers:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/handlers/packet.rs
  *
  * Main Logical Flow:
  *   1. Initialize local form state from current node values
@@ -50,8 +53,12 @@
  *   - NODE_VISIBILITY_CONFIG keys must match NodeVisibility type
  *   - This component does NOT handle node name editing —
  *     that remains inline in NodeDetailPage (EditableName component)
+ *   - max_sessions and bandwidth_limit_mbps are backend/Rust operator policy
+ *     fields. 0 means unlimited/local default and is passed through exactly
+ *     so the Rust node policy can enforce the same value nodeboard displays.
  *
- * Last Modified: v1.4.1 - Documented backend API and Rust policy consumers
+ * Last Modified: v1.4.2 - Added commercial capacity policy controls
+ * Previous: v1.4.1 - Documented backend API and Rust policy consumers
  * ============================================
  */
 
@@ -92,6 +99,14 @@ const REGIONS: { code: string; label: string; flag: string }[] = [
   { code: 'NO', label: 'Norway',        flag: '🇳🇴' },
   { code: 'FI', label: 'Finland',       flag: '🇫🇮' },
 ];
+
+const MAX_COMMERCIAL_SESSIONS = 100000;
+const MAX_BANDWIDTH_LIMIT_MBPS = 100000;
+
+function clampWholeNumber(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.floor(value)));
+}
 
 // ============================================
 // Props
@@ -160,6 +175,8 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
   const [regionCode, setRegionCode] = useState(node.region_code ?? '');
   const [city, setCity] = useState(node.city ?? '');
   const [isVpnNode, setIsVpnNode] = useState(node.is_vpn_node ?? false);
+  const [maxSessions, setMaxSessions] = useState(node.max_sessions ?? 0);
+  const [bandwidthLimitMbps, setBandwidthLimitMbps] = useState(node.bandwidth_limit_mbps ?? 0);
   const [errorMsg, setErrorMsg] = useState('');
   const [isDirty, setIsDirty] = useState(false);
 
@@ -169,6 +186,8 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
     setRegionCode(node.region_code ?? '');
     setCity(node.city ?? '');
     setIsVpnNode(node.is_vpn_node ?? false);
+    setMaxSessions(node.max_sessions ?? 0);
+    setBandwidthLimitMbps(node.bandwidth_limit_mbps ?? 0);
     setPassword('');
     setIsDirty(false);
   }, [node.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -196,6 +215,16 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
     markDirty();
   }, [markDirty]);
 
+  const handleMaxSessionsChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setMaxSessions(clampWholeNumber(Number(e.target.value), 0, MAX_COMMERCIAL_SESSIONS));
+    markDirty();
+  }, [markDirty]);
+
+  const handleBandwidthLimitChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setBandwidthLimitMbps(clampWholeNumber(Number(e.target.value), 0, MAX_BANDWIDTH_LIMIT_MBPS));
+    markDirty();
+  }, [markDirty]);
+
   const handlePasswordChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setPassword(e.target.value);
     markDirty();
@@ -213,8 +242,14 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
     if (visibility === 'password_protected' && !password && !node.has_access_password) {
       return 'A password is required for password-protected nodes.';
     }
+    if (maxSessions < 0 || maxSessions > MAX_COMMERCIAL_SESSIONS) {
+      return `Max sessions must be between 0 and ${MAX_COMMERCIAL_SESSIONS}.`;
+    }
+    if (bandwidthLimitMbps < 0 || bandwidthLimitMbps > MAX_BANDWIDTH_LIMIT_MBPS) {
+      return `Bandwidth limit must be between 0 and ${MAX_BANDWIDTH_LIMIT_MBPS} Mbps.`;
+    }
     return '';
-  }, [visibility, password, node.has_access_password]);
+  }, [visibility, password, node.has_access_password, maxSessions, bandwidthLimitMbps]);
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
@@ -235,6 +270,8 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
       region_code: regionCode,
       city,
       is_vpn_node: isVpnNode,
+      max_sessions: maxSessions,
+      bandwidth_limit_mbps: bandwidthLimitMbps,
     };
 
     if (visibility === 'password_protected') {
@@ -258,7 +295,7 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
       onToast(msg, 'error');
     }
   }, [
-    validate, visibility, regionCode, city, isVpnNode,
+    validate, visibility, regionCode, city, isVpnNode, maxSessions, bandwidthLimitMbps,
     password, node.id, updateNode, onToast, onSaved,
   ]);
 
@@ -269,6 +306,8 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
       region_code: regionCode,
       city,
       is_vpn_node: isVpnNode,
+      max_sessions: maxSessions,
+      bandwidth_limit_mbps: bandwidthLimitMbps,
       access_password: '', // Explicit clear
     };
     try {
@@ -282,7 +321,10 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
       setErrorMsg(msg);
       onToast(msg, 'error');
     }
-  }, [visibility, regionCode, city, isVpnNode, node.id, updateNode, onToast, onSaved]);
+  }, [
+    visibility, regionCode, city, isVpnNode, maxSessions, bandwidthLimitMbps,
+    node.id, updateNode, onToast, onSaved,
+  ]);
 
   const isSaving = updateNode.isPending;
 
@@ -474,6 +516,59 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
                 ${isVpnNode ? 'translate-x-5' : 'translate-x-0'}
               `} />
             </button>
+          </div>
+        </section>
+
+        {/* ── Commercial Capacity Policy ──────────────────────────────────── */}
+        <section>
+          <h4 className="text-sm font-medium text-gray-300 mb-1">Commercial Capacity</h4>
+          <p className="text-xs text-gray-500 mb-3">
+            These owner-scoped limits are sent through PATCH /api/privacy_network/nodes/{'{id}'}/ and enforced by Rust node_policy.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1.5">Max active sessions</label>
+              <input
+                type="number"
+                min={0}
+                max={MAX_COMMERCIAL_SESSIONS}
+                step={1}
+                value={maxSessions}
+                onChange={handleMaxSessionsChange}
+                className="
+                  w-full px-4 py-2.5 rounded-xl
+                  bg-white/5 border border-white/10
+                  text-white placeholder-gray-600
+                  focus:outline-none focus:border-purple-500/50
+                  transition-colors
+                "
+              />
+              <p className="text-xs text-gray-600 mt-1.5">
+                0 means unlimited by nodeboard policy.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs text-gray-500 mb-1.5">Bandwidth cap Mbps</label>
+              <input
+                type="number"
+                min={0}
+                max={MAX_BANDWIDTH_LIMIT_MBPS}
+                step={1}
+                value={bandwidthLimitMbps}
+                onChange={handleBandwidthLimitChange}
+                className="
+                  w-full px-4 py-2.5 rounded-xl
+                  bg-white/5 border border-white/10
+                  text-white placeholder-gray-600
+                  focus:outline-none focus:border-purple-500/50
+                  transition-colors
+                "
+              />
+              <p className="text-xs text-gray-600 mt-1.5">
+                0 means unlimited/local default; Rust drops packets when the cap is exceeded.
+              </p>
+            </div>
           </div>
         </section>
 

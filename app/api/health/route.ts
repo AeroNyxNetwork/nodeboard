@@ -60,6 +60,10 @@
  *     /root/aeronyx/privacy_network/api/nodes.py
  *     Used by /dashboard/services to enable maintenance_mode from the restart
  *     readiness gate before a controlled Rust restart.
+ *     Used by /dashboard/nodes/[id] NodeSettings for commercial capacity
+ *     policy fields max_sessions and bandwidth_limit_mbps, validated by
+ *     /root/aeronyx/privacy_network/serializers.py and consumed by Rust
+ *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs.
  *   - data.nodes[].system.restart_readiness.active_restart_command
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors NodeCommand restart_service pending/sent/executing state.
@@ -121,7 +125,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.39 - Documented maintenance placement context
+ * Last Modified: v1.1.40 - Documented capacity policy PATCH fields
+ * Previous: v1.1.39 - Documented maintenance placement context
  * Previous: v1.1.38 - Documented action-sourced maintenance exits
  * Previous: v1.1.37 - Documented maintenance exit candidates
  * Previous: v1.1.36 - Documented recommended operator actions
@@ -275,7 +280,7 @@ const healthPayload = {
     {
       endpoint: 'PATCH /api/privacy_network/nodes/{id}/',
       file: '/root/aeronyx/privacy_network/api/nodes.py',
-      purpose: 'Operator-approved maintenance_mode update from /dashboard/services restart gate',
+      purpose: 'Operator-approved maintenance_mode updates from /dashboard/services and NodeSettings commercial capacity policy updates for max_sessions/bandwidth_limit_mbps consumed by Rust node_policy',
     },
     {
       endpoint: 'GET /api/privacy_network/nodes/{id}/sessions/',

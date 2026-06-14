@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.6 - Documented commercial capacity PATCH policy fields.
  *   v1.5.5 - Added maintenance exit placement context fields.
  *   v1.5.4 - Documented maintenance exit candidates as action-plan sourced.
  *   v1.5.3 - Added fleet maintenance exit candidate summary types.
@@ -38,8 +39,15 @@
  *     undefined  → key not sent → password unchanged
  *     ""         → clear password
  *     "xyz"      → set new password
+ * - NodeUpdateRequest.max_sessions / bandwidth_limit_mbps are commercial
+ *   capacity policy fields accepted by:
+ *     /root/aeronyx/privacy_network/serializers.py
+ *     /root/aeronyx/privacy_network/api/nodes.py
+ *   and consumed by Rust node policy:
+ *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.5 - Added maintenance exit placement context
+ * Last Modified: v1.5.6 - Documented commercial capacity policy fields
+ * Previous: v1.5.5 - Added maintenance exit placement context
  * Previous: v1.5.4 - Documented action-sourced maintenance exits
  * Previous: v1.5.3 - Added maintenance exit candidate types
  * Previous: v1.5.2 - Added recommended operator action types
@@ -212,6 +220,14 @@ export interface NodeDetail extends Node {
  *   undefined  → do not send the key → password unchanged
  *   ""         → send empty string → clear existing password
  *   "xyz"      → send string → set new password
+ *
+ * Commercial capacity semantics:
+ *   max_sessions and bandwidth_limit_mbps are PATCHed through
+ *   /api/privacy_network/nodes/{id}/ and validated in
+ *   /root/aeronyx/privacy_network/serializers.py. Rust consumes the resulting
+ *   node_policy values in
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs.
+ *   0 means unlimited/local default.
  */
 export interface NodeUpdateRequest {
   name?: string;
