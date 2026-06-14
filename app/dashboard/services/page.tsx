@@ -77,6 +77,12 @@
  *     the Services page can show whether restart commands can be delivered
  *     before operators queue fleet actions. problem_nodes is a capped triage
  *     list for delivery blockers and links operators to node detail.
+ *   - data.summary.restart_readiness.runtime_capability_health
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Aggregates Rust operator_status and session_cleanup capability reporting
+ *     for the Rust Capability card, Rust Capability Gaps panel, and Restart
+ *     Action Queue. problem_nodes is backend-authored; React only maps it to
+ *     operator navigation.
  *   - data.summary.restart_readiness.policy_sync_health
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates data.nodes[].system.policy_sync so Services can verify
@@ -324,7 +330,7 @@ interface RestartReadinessNode {
   source: string;
 }
 
-type RestartActionQueueKey = 'stale' | 'retry' | 'cutover' | 'critical' | 'warning' | 'ready' | 'current';
+type RestartActionQueueKey = 'stale' | 'retry' | 'capability' | 'cutover' | 'critical' | 'warning' | 'ready' | 'current';
 type RestartQueueStatusFilter = 'all' | 'attention' | 'stale' | 'retry' | 'blocked' | 'ready' | 'current';
 
 interface RestartQueueFilters {
@@ -352,7 +358,7 @@ interface RestartActionQueueItem {
   canCancelRestartCommand: boolean;
   actionHref: string;
   actionLabel: string;
-  source: 'backend_blocked_node' | 'backend_cutover_guard' | 'backend_readiness_node';
+  source: 'backend_blocked_node' | 'backend_cutover_guard' | 'backend_runtime_capability' | 'backend_readiness_node';
 }
 
 interface RestartActionQueue {
@@ -1605,6 +1611,52 @@ function buildCutoverGuardQueueItem(
   };
 }
 
+function buildRuntimeCapabilityQueueItem(
+  node: NonNullable<NonNullable<VpnRestartReadinessSummary['runtime_capability_health']>['problem_nodes']>[number],
+  readinessNode: RestartReadinessNode | undefined,
+): RestartActionQueueItem {
+  // Backend contract:
+  // GET /api/privacy_network/vpn/overview/
+  // data.summary.restart_readiness.runtime_capability_health.problem_nodes[]
+  // Source: /root/aeronyx/privacy_network/api/vpn_observability.py
+  // Rust producers: /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
+  // and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
+  const missing = node.missing_capabilities.map((item) => item.replaceAll('_', ' '));
+  const meta = [
+    `missing ${missing.join(', ')}`,
+    `${node.active_sessions.toLocaleString()} active`,
+    node.maintenance_mode ? 'maintenance on' : 'maintenance off',
+    node.operator_reporting ? 'operator reported' : 'operator missing',
+    node.cleanup_reported ? 'cleanup reported' : 'cleanup missing',
+    readinessNode?.regionLabel ?? 'unknown region',
+    readinessNode?.version ? `v${readinessNode.version}` : null,
+  ].filter((item): item is string => Boolean(item));
+
+  return {
+    id: node.id,
+    name: node.name,
+    status: node.issue_label,
+    detail: node.recommended_action,
+    meta,
+    risk: node.risk,
+    regionLabel: readinessNode?.regionLabel ?? 'unknown region',
+    version: readinessNode?.version ?? 'unknown version',
+    healthStatus: readinessNode?.healthStatus ?? node.health_status,
+    activeRestartCommand: readinessNode?.activeRestartCommand ?? null,
+    latestRestartCommand: readinessNode?.latestRestartCommand ?? null,
+    activeSessions: node.active_sessions,
+    maintenanceMode: node.maintenance_mode,
+    canEnableMaintenance: !node.maintenance_mode,
+    canQueueRestart: false,
+    canCancelRestartCommand: restartCommandCanCancel(readinessNode?.activeRestartCommand ?? null),
+    actionHref: node.active_sessions > 0
+      ? `/dashboard/sessions?node=${encodeURIComponent(node.id)}&status=active&quality=all`
+      : `/dashboard/nodes/${node.id}?command_action=restart_service#vpn-commands`,
+    actionLabel: node.active_sessions > 0 ? 'Open sessions' : 'Open node',
+    source: 'backend_runtime_capability',
+  };
+}
+
 function buildReadyRestartQueueItem(node: RestartReadinessNode): RestartActionQueueItem {
   return {
     id: node.id,
@@ -1715,12 +1767,17 @@ function filterRestartQueueItems(
     if (filters.version !== 'all' && item.version !== filters.version) return false;
     if (filters.status === 'stale') return restartCommandIsStale(item.activeRestartCommand);
     if (filters.status === 'retry') return restartCommandNeedsRetry(item.latestRestartCommand);
-    if (filters.status === 'blocked') return item.source === 'backend_blocked_node' || item.source === 'backend_cutover_guard';
+    if (filters.status === 'blocked') {
+      return item.source === 'backend_blocked_node'
+        || item.source === 'backend_cutover_guard'
+        || item.source === 'backend_runtime_capability';
+    }
     if (filters.status === 'ready') return item.canQueueRestart;
     if (filters.status === 'current') return item.status === 'current';
     if (filters.status === 'attention') {
       return item.source === 'backend_blocked_node'
         || item.source === 'backend_cutover_guard'
+        || item.source === 'backend_runtime_capability'
         || item.canQueueRestart
         || restartCommandIsStale(item.activeRestartCommand)
         || restartCommandNeedsRetry(item.latestRestartCommand)
@@ -1815,6 +1872,9 @@ function buildRestartActionQueues(
   const cutoverGuardItems = backendCutoverNodes
     .filter((node) => filteredNodeIds.has(node.id))
     .map((node) => buildCutoverGuardQueueItem(node, readinessById.get(node.id)));
+  const runtimeCapabilityItems = (summary?.runtime_capability_health?.problem_nodes ?? [])
+    .filter((node) => filteredNodeIds.has(node.id))
+    .map((node) => buildRuntimeCapabilityQueueItem(node, readinessById.get(node.id)));
   const staleCommandItems = nodes
     .filter((node) => restartCommandIsStale(node.activeRestartCommand))
     .map(buildStaleCommandQueueItem);
@@ -1842,6 +1902,7 @@ function buildRestartActionQueues(
     .map(buildReadyRestartQueueItem);
   const filteredBlockedItems = filterRestartQueueItems(blockedItems, filters);
   const filteredCutoverGuardItems = filterRestartQueueItems(cutoverGuardItems, filters);
+  const filteredRuntimeCapabilityItems = filterRestartQueueItems(runtimeCapabilityItems, filters);
   const filteredStaleCommandItems = filterRestartQueueItems(staleCommandItems, filters);
   const filteredCommandClosureItems = filterRestartQueueItems(commandClosureItems, filters);
   const filteredReadyItems = filterRestartQueueItems(readyItems, filters);
@@ -1873,6 +1934,16 @@ function buildRestartActionQueues(
       status: filteredCommandClosureItems.length > 0 ? 'critical' : 'healthy',
       emptyState: 'No failed restart command outcome.',
       items: sortRestartQueueItems(filteredCommandClosureItems),
+    },
+    {
+      key: 'capability',
+      label: 'Rust Capability',
+      description: 'Rust nodes missing operator_status or session_cleanup telemetry required for commercial restart and cutover operations.',
+      status: filteredRuntimeCapabilityItems.length > 0
+        ? (filteredRuntimeCapabilityItems.some((item) => item.risk === 'critical') ? 'critical' : 'warning')
+        : 'healthy',
+      emptyState: 'No Rust runtime capability gap.',
+      items: sortRestartQueueItems(filteredRuntimeCapabilityItems),
     },
     {
       key: 'cutover',

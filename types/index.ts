@@ -744,7 +744,8 @@ export interface VpnRestartReadinessBlockedNode {
  *   backend restart_readiness.operator_reporting and cleanup_reported from
  *   /root/aeronyx/privacy_network/api/vpn_observability.py so Services can
  *   show stale Rust binaries that do not report operator_status or
- *   session_cleanup before commercial cutover work.
+ *   session_cleanup before commercial cutover work. problem_nodes also feeds
+ *   the Restart Action Queue as backend-authored runtime upgrade work.
  * Policy sync source:
  *   data.summary.restart_readiness.policy_sync_health aggregates
  *   data.nodes[].system.policy_sync from
