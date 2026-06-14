@@ -396,12 +396,23 @@ export interface OperatorRisk {
  * /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
  * /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
  *
- * Backend stores this under heartbeat system_stats.operator_status. The field
- * is optional until the Django API exposes it in node health snapshots.
+ * Backend API:
+ *   GET /api/privacy_network/vpn/overview/
+ * Backend files:
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   /root/aeronyx/privacy_network/services/heartbeat_service.py
+ *
+ * Backend stores this under heartbeat system_stats.operator_status and exposes
+ * the latest snapshot as data.nodes[].system.operator_status. The payload is
+ * service/config telemetry only and must not include user plaintext, social
+ * graph contents, DNS contents, packet payloads, browsing history, or
+ * wallet-level traffic.
  */
 export interface NodeOperatorStatus {
   status: 'ok' | 'attention' | 'critical' | 'failed' | string;
   generated_at: number;
+  last_reported_at?: string;
+  source?: string;
   services: OperatorServiceStatus[];
   risks: OperatorRisk[];
   privacy_boundary: string;

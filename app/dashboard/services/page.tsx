@@ -17,11 +17,22 @@
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
  *
- * The Rust node reports service readiness under system_stats.operator_status.
- * Until the Django backend exposes that field in VPN node health snapshots,
- * non-VPN services intentionally render as pending instead of inferred facts.
+ * Data Contract:
+ *   Rust reports service readiness under:
+ *     heartbeat.system_stats.operator_status
+ *   Django stores it in:
+ *     Node.hardware_info["operator_status"]
+ *   Django exposes it to nodeboard as:
+ *     GET /api/privacy_network/vpn/overview/
+ *       data.nodes[].system.operator_status
  *
- * Last Modified: v1.0.0 - Initial node services overview
+ * Product Requirement:
+ *   Treat this as a commercial node readiness console, not a VPN-only page.
+ *   Operators need a clear answer to: which nodes can serve AeroNyx Privacy
+ *   Protocol traffic today, which service layers are enabled, what risks need
+ *   remediation, and whether the backend/Rust heartbeat path is fresh.
+ *
+ * Last Modified: v1.1.0 - Production operator readiness view
  * ============================================
  */
 
@@ -49,12 +60,27 @@ interface ServiceView {
   enabledCount: number;
   totalCount: number;
   detail: string;
+  reportingCount: number;
+  metricChips: string[];
+}
+
+interface FleetSummary {
+  totalNodes: number;
+  reportingNodes: number;
+  healthyPrivacyNodes: number;
+  attentionNodes: number;
+  enabledServices: number;
+  totalServiceSlots: number;
+}
+
+interface RiskView extends OperatorRisk {
+  nodeName: string;
 }
 
 const serviceMeta: Record<ServiceKey, { label: string; eyebrow: string }> = {
   privacy_protocol: {
     label: 'AeroNyx Privacy Protocol',
-    eyebrow: 'VPN transport',
+    eyebrow: 'Privacy transport',
   },
   memchain: {
     label: 'MemChain / MPI',
@@ -77,13 +103,18 @@ const serviceMeta: Record<ServiceKey, { label: string; eyebrow: string }> = {
 const statusStyles: Record<string, string> = {
   ok: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
   ready: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+  healthy: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
   attention: 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300',
   degraded: 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300',
+  warning: 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300',
   planned: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
+  info: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
   pending: 'border-white/10 bg-white/5 text-gray-300',
   disabled: 'border-white/10 bg-white/5 text-gray-400',
   failed: 'border-red-500/30 bg-red-500/10 text-red-300',
   critical: 'border-red-500/30 bg-red-500/10 text-red-300',
+  offline: 'border-red-500/30 bg-red-500/10 text-red-300',
+  overloaded: 'border-orange-500/30 bg-orange-500/10 text-orange-300',
 };
 
 function statusClass(status: string) {
@@ -103,6 +134,10 @@ function collectOperatorStatuses(nodes: VpnNodeHealth[]): NodeOperatorStatus[] {
     .filter((status): status is NodeOperatorStatus => Boolean(status));
 }
 
+function nodeOperatorStatus(node: VpnNodeHealth): NodeOperatorStatus | null {
+  return node.system?.operator_status ?? null;
+}
+
 function collectService(statuses: NodeOperatorStatus[], key: ServiceKey): OperatorServiceStatus[] {
   return statuses
     .map((status) => status.services.find((service) => service.key === key))
@@ -119,9 +154,63 @@ function serviceStatus(services: OperatorServiceStatus[]) {
   return services[0]?.status ?? 'pending';
 }
 
+function metricValue(metrics: Record<string, unknown>, key: string): string | null {
+  const value = metrics[key];
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value.toLocaleString();
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'yes' : 'no';
+  }
+  if (typeof value === 'string' && value.trim()) {
+    return value.length > 28 ? `${value.slice(0, 25)}...` : value;
+  }
+  return null;
+}
+
+function serviceMetricChips(service: OperatorServiceStatus | undefined): string[] {
+  if (!service?.metrics) return [];
+  const preferredKeys = [
+    'active_sessions',
+    'active_wallet_devices',
+    'configured_mtu',
+    'mode',
+    'api_listen_addr',
+    'enabled',
+    'remote_enabled',
+    'supernode_enabled',
+    'failed_checks',
+  ];
+
+  return preferredKeys
+    .map((key) => {
+      const value = metricValue(service.metrics, key);
+      return value ? `${key.replaceAll('_', ' ')}: ${value}` : null;
+    })
+    .filter((item): item is string => Boolean(item))
+    .slice(0, 4);
+}
+
+function buildFleetSummary(nodes: VpnNodeHealth[], statuses: NodeOperatorStatus[]): FleetSummary {
+  const serviceSlots = statuses.flatMap((status) => status.services);
+  return {
+    totalNodes: nodes.length,
+    reportingNodes: statuses.length,
+    healthyPrivacyNodes: nodes.filter((node) => node.is_vpn_node && node.health_status === 'healthy').length,
+    attentionNodes: nodes.filter((node) => {
+      const status = nodeOperatorStatus(node)?.status ?? node.health_status;
+      return ['attention', 'degraded', 'failed', 'critical', 'offline', 'overloaded'].includes(status);
+    }).length,
+    enabledServices: serviceSlots.filter((service) => service.enabled).length,
+    totalServiceSlots: serviceSlots.length,
+  };
+}
+
 function buildServiceViews(nodes: VpnNodeHealth[], statuses: NodeOperatorStatus[]): ServiceView[] {
   const privacyNodes = nodes.filter((node) => node.is_vpn_node);
   const healthyPrivacyNodes = privacyNodes.filter((node) => node.health_status === 'healthy');
+  const privacyServices = collectService(statuses, 'privacy_protocol');
+  const latestPrivacy = privacyServices[0];
 
   const privacyView: ServiceView = {
     key: 'privacy_protocol',
@@ -134,10 +223,12 @@ function buildServiceViews(nodes: VpnNodeHealth[], statuses: NodeOperatorStatus[
         : healthyPrivacyNodes.length > 0
           ? 'attention'
           : 'failed',
-    summary: `${healthyPrivacyNodes.length}/${privacyNodes.length} VPN nodes healthy`,
+    summary: latestPrivacy?.summary ?? `${healthyPrivacyNodes.length}/${privacyNodes.length} privacy protocol nodes healthy`,
     enabledCount: privacyNodes.length,
     totalCount: nodes.length,
-    detail: 'Transport, tunnel health, policy sync, encrypted packet counters, and placement readiness.',
+    reportingCount: privacyServices.length,
+    metricChips: serviceMetricChips(latestPrivacy),
+    detail: 'Transport health, policy sync, encrypted packet counters, and commercial placement readiness.',
   };
 
   const rest = (['memchain', 'chat_relay', 'sovereign_data_layer', 'supernode'] as ServiceKey[]).map((key) => {
@@ -154,17 +245,35 @@ function buildServiceViews(nodes: VpnNodeHealth[], statuses: NodeOperatorStatus[
       summary: latest?.summary ?? 'Awaiting operator_status from Rust heartbeat',
       enabledCount,
       totalCount: statuses.length || nodes.length,
+      reportingCount: services.length,
+      metricChips: serviceMetricChips(latest),
       detail: key === 'sovereign_data_layer'
         ? 'Encrypted user-owned records, node RPC, full-network sync readiness, and Ethereum settlement boundary.'
-        : 'Reported by Rust node heartbeat when the backend exposes system_stats.operator_status.',
+        : 'Reported by signed Rust node heartbeat through the backend overview API.',
     };
   });
 
   return [privacyView, ...rest];
 }
 
-function collectRisks(statuses: NodeOperatorStatus[]): OperatorRisk[] {
-  return statuses.flatMap((status) => status.risks).slice(0, 8);
+function collectRisks(nodes: VpnNodeHealth[]): RiskView[] {
+  return nodes
+    .flatMap((node) => {
+      const status = nodeOperatorStatus(node);
+      return (status?.risks ?? []).map((risk) => ({
+        ...risk,
+        nodeName: node.name,
+      }));
+    })
+    .slice(0, 10);
+}
+
+function latestReportTime(statuses: NodeOperatorStatus[]) {
+  const values = statuses
+    .map((status) => status.last_reported_at)
+    .filter((value): value is string => Boolean(value))
+    .sort();
+  return values.length > 0 ? values[values.length - 1] : null;
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -183,10 +292,10 @@ function PageHeader() {
         <p className="text-sm font-medium uppercase tracking-[0.18em] text-emerald-300">
           Node Operator Console
         </p>
-        <h1 className="mt-2 text-2xl font-bold text-white">Node Services</h1>
+        <h1 className="mt-2 text-2xl font-bold text-white">AeroNyx Service Readiness</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-400">
-          Monitor the service layers each AeroNyx node can provide: privacy protocol transport,
-          MemChain memory, encrypted chat relay, sovereign encrypted data RPC, and SuperNode workers.
+          Privacy Protocol transport, MemChain memory, encrypted relay, sovereign data RPC,
+          and SuperNode worker status from signed Rust heartbeats.
         </p>
       </div>
       <Link
@@ -195,6 +304,70 @@ function PageHeader() {
       >
         Manage nodes
       </Link>
+    </div>
+  );
+}
+
+function SummaryTile({
+  label,
+  value,
+  detail,
+  status,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  status: string;
+}) {
+  return (
+    <section className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.16em] text-gray-500">
+            {label}
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-white">{value}</p>
+        </div>
+        <StatusPill status={status} />
+      </div>
+      <p className="mt-3 text-xs leading-5 text-gray-500">{detail}</p>
+    </section>
+  );
+}
+
+function FleetSummaryGrid({
+  summary,
+  latestReportedAt,
+}: {
+  summary: FleetSummary;
+  latestReportedAt: string | null;
+}) {
+  return (
+    <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <SummaryTile
+        label="Reporting Nodes"
+        value={`${summary.reportingNodes}/${summary.totalNodes}`}
+        detail={latestReportedAt ? `Latest operator heartbeat ${formatRelativeTime(latestReportedAt)}` : 'Waiting for Rust operator heartbeat'}
+        status={summary.reportingNodes > 0 ? 'ok' : 'pending'}
+      />
+      <SummaryTile
+        label="Privacy Ready"
+        value={summary.healthyPrivacyNodes.toLocaleString()}
+        detail="AeroNyx Privacy Protocol nodes with healthy tunnel checks."
+        status={summary.healthyPrivacyNodes > 0 ? 'ok' : 'attention'}
+      />
+      <SummaryTile
+        label="Enabled Services"
+        value={`${summary.enabledServices}/${summary.totalServiceSlots || 0}`}
+        detail="Service slots enabled across reporting nodes."
+        status={summary.enabledServices > 0 ? 'ok' : 'pending'}
+      />
+      <SummaryTile
+        label="Needs Attention"
+        value={summary.attentionNodes.toLocaleString()}
+        detail="Nodes reporting degraded, failed, or attention status."
+        status={summary.attentionNodes > 0 ? 'attention' : 'ok'}
+      />
     </div>
   );
 }
@@ -226,13 +399,27 @@ function ServiceCard({ service }: { service: ServiceView }) {
           </p>
         </div>
       </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <span className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-xs text-gray-400">
+          reporting {service.reportingCount.toLocaleString()}
+        </span>
+        {service.metricChips.map((chip) => (
+          <span
+            key={chip}
+            className="max-w-full truncate rounded-md border border-white/10 bg-black/20 px-2 py-1 text-xs text-gray-400"
+          >
+            {chip}
+          </span>
+        ))}
+      </div>
       <p className="mt-4 text-xs leading-5 text-gray-500">{service.detail}</p>
     </section>
   );
 }
 
 function NodeReadinessRow({ node }: { node: VpnNodeHealth }) {
-  const services = node.system?.operator_status?.services ?? [];
+  const operatorStatus = nodeOperatorStatus(node);
+  const services = operatorStatus?.services ?? [];
   const serviceByKey = (key: ServiceKey) => services.find((service) => service.key === key);
 
   return (
@@ -251,10 +438,70 @@ function NodeReadinessRow({ node }: { node: VpnNodeHealth }) {
       <td className="px-4 py-4"><StatusPill status={serviceByKey('memchain')?.status ?? 'pending'} /></td>
       <td className="px-4 py-4"><StatusPill status={serviceByKey('chat_relay')?.status ?? 'pending'} /></td>
       <td className="px-4 py-4"><StatusPill status={serviceByKey('sovereign_data_layer')?.status ?? 'pending'} /></td>
+      <td className="px-4 py-4"><StatusPill status={operatorStatus?.status ?? 'pending'} /></td>
       <td className="px-4 py-4 text-sm text-gray-400">
         {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : 'pending'}
       </td>
     </tr>
+  );
+}
+
+function NodeDetailCard({ node }: { node: VpnNodeHealth }) {
+  const operatorStatus = nodeOperatorStatus(node);
+  const services = operatorStatus?.services ?? [];
+  const privacyBoundary = operatorStatus?.privacy_boundary;
+
+  return (
+    <section className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <Link href="/dashboard/nodes" className="font-semibold text-white hover:text-purple-300">
+            {node.name}
+          </Link>
+          <p className="mt-1 truncate text-xs text-gray-500">
+            {node.city || node.region_code || 'unknown region'} · {node.public_ip ?? 'no public IP'}
+          </p>
+        </div>
+        <StatusPill status={operatorStatus?.status ?? node.health_status} />
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        {(['privacy_protocol', 'memchain', 'chat_relay', 'sovereign_data_layer'] as ServiceKey[]).map((key) => {
+          const service = services.find((item) => item.key === key);
+          return (
+            <div key={key} className="rounded-lg border border-white/10 bg-black/20 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="truncate text-xs font-medium text-gray-300">
+                  {service?.label ?? serviceMeta[key].label}
+                </p>
+                <StatusPill status={service?.status ?? 'pending'} />
+              </div>
+              <p className="mt-2 line-clamp-2 text-xs leading-5 text-gray-500">
+                {service?.summary ?? 'Awaiting signed Rust service snapshot'}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2 text-xs text-gray-500">
+        <span className="rounded-md border border-white/10 px-2 py-1">
+          heartbeat {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : 'pending'}
+        </span>
+        <span className="rounded-md border border-white/10 px-2 py-1">
+          source {operatorStatus?.source ?? node.system?.source ?? 'pending'}
+        </span>
+        {operatorStatus?.last_reported_at && (
+          <span className="rounded-md border border-white/10 px-2 py-1">
+            operator {formatRelativeTime(operatorStatus.last_reported_at)}
+          </span>
+        )}
+      </div>
+
+      {privacyBoundary && (
+        <p className="mt-3 text-xs leading-5 text-gray-600">{privacyBoundary}</p>
+      )}
+    </section>
   );
 }
 
@@ -263,8 +510,10 @@ export default function NodeServicesPage() {
 
   const nodes = overview?.nodes ?? [];
   const operatorStatuses = useMemo(() => collectOperatorStatuses(nodes), [nodes]);
+  const fleetSummary = useMemo(() => buildFleetSummary(nodes, operatorStatuses), [nodes, operatorStatuses]);
   const services = useMemo(() => buildServiceViews(nodes, operatorStatuses), [nodes, operatorStatuses]);
-  const risks = useMemo(() => collectRisks(operatorStatuses), [operatorStatuses]);
+  const risks = useMemo(() => collectRisks(nodes), [nodes]);
+  const latestReportedAt = useMemo(() => latestReportTime(operatorStatuses), [operatorStatuses]);
 
   if (isLoading) {
     return (
@@ -286,7 +535,7 @@ export default function NodeServicesPage() {
         <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-6">
           <h2 className="text-lg font-semibold text-red-200">Service data unavailable</h2>
           <p className="mt-2 text-sm text-red-100/70">
-            The operator console could not load VPN overview data from the backend.
+            The operator console could not load service overview data from the backend.
           </p>
           <button
             onClick={() => refetch()}
@@ -303,6 +552,8 @@ export default function NodeServicesPage() {
     <div>
       <PageHeader />
 
+      <FleetSummaryGrid summary={fleetSummary} latestReportedAt={latestReportedAt} />
+
       <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {services.map((service) => (
           <ServiceCard key={service.key} service={service} />
@@ -315,8 +566,8 @@ export default function NodeServicesPage() {
             <h2 className="text-lg font-semibold text-white">Operator Signal</h2>
             <p className="mt-1 text-sm text-gray-400">
               {operatorStatuses.length > 0
-                ? `${operatorStatuses.length} node(s) reporting operator_status through Rust heartbeat`
-                : 'Waiting for backend exposure of system_stats.operator_status from Rust heartbeats'}
+                ? `${operatorStatuses.length} node(s) reporting operator_status through signed Rust heartbeat`
+                : 'Waiting for system_stats.operator_status from Rust heartbeats'}
             </p>
           </div>
           <StatusPill status={operatorStatuses.length > 0 ? 'ok' : 'pending'} />
@@ -330,7 +581,9 @@ export default function NodeServicesPage() {
             {risks.map((risk, index) => (
               <div key={`${risk.code}-${index}`} className="rounded-xl border border-yellow-300/10 bg-black/20 p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium text-yellow-100">{risk.message}</p>
+                  <p className="text-sm font-medium text-yellow-100">
+                    {risk.nodeName}: {risk.message}
+                  </p>
                   <StatusPill status={risk.severity} />
                 </div>
                 <p className="mt-2 text-xs leading-5 text-yellow-100/70">{risk.remediation}</p>
@@ -344,11 +597,11 @@ export default function NodeServicesPage() {
         <div className="border-b border-white/10 px-5 py-4">
           <h2 className="text-lg font-semibold text-white">Node Readiness</h2>
           <p className="mt-1 text-sm text-gray-400">
-            Per-node service readiness. Pending values mean the backend has not exposed the Rust operator heartbeat yet.
+            Per-node service readiness from Django overview snapshots and Rust operator heartbeats.
           </p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[840px] text-left">
+          <table className="w-full min-w-[960px] text-left">
             <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.12em] text-gray-500">
               <tr>
                 <th className="px-4 py-3 font-medium">Node</th>
@@ -356,6 +609,7 @@ export default function NodeServicesPage() {
                 <th className="px-4 py-3 font-medium">MemChain</th>
                 <th className="px-4 py-3 font-medium">ChatRelay</th>
                 <th className="px-4 py-3 font-medium">Data Layer</th>
+                <th className="px-4 py-3 font-medium">Operator</th>
                 <th className="px-4 py-3 font-medium">Heartbeat</th>
               </tr>
             </thead>
@@ -364,7 +618,7 @@ export default function NodeServicesPage() {
                 nodes.map((node) => <NodeReadinessRow key={node.id} node={node} />)
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-500">
                     No nodes are reporting yet.
                   </td>
                 </tr>
@@ -373,6 +627,14 @@ export default function NodeServicesPage() {
           </table>
         </div>
       </section>
+
+      {nodes.length > 0 && (
+        <div className="mt-6 grid gap-4 xl:grid-cols-2">
+          {nodes.map((node) => (
+            <NodeDetailCard key={node.id} node={node} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
