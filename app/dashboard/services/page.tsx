@@ -86,6 +86,7 @@
  *     runtime_rollout instead of assuming operator_status alone is enough.
  *     problem_nodes[].upgrade_gate mirrors backend cutover_guard so runtime
  *     upgrade tasks show whether replacing/restarting Rust is safe right now.
+ *     upgrade_gate.checklist is backend-authored upgrade preflight copy.
  *   - data.summary.restart_readiness.policy_sync_health
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates data.nodes[].system.policy_sync so Services can verify
@@ -1632,9 +1633,12 @@ function buildRuntimeCapabilityQueueItem(
   // and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
   const missing = node.missing_capabilities.map((item) => item.replaceAll('_', ' '));
   const upgradeGate = node.upgrade_gate ?? null;
+  const upgradeChecklist = upgradeGate?.checklist ?? [];
+  const readyChecks = upgradeChecklist.filter((item) => item.status === 'ready').length;
   const meta = [
     `missing ${missing.join(', ')}`,
     upgradeGate ? `upgrade ${upgradeGate.label.toLowerCase()}` : null,
+    upgradeChecklist.length > 0 ? `checks ${readyChecks}/${upgradeChecklist.length} ready` : null,
     `${node.active_sessions.toLocaleString()} active`,
     node.maintenance_mode ? 'maintenance on' : 'maintenance off',
     node.operator_reporting ? 'operator reported' : 'operator missing',
@@ -2728,9 +2732,26 @@ function FleetRestartReadinessPanel({
                   heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
                 </p>
                 {node.upgrade_gate && (
-                  <p className="mt-1 leading-5 text-yellow-100/50">
-                    Upgrade gate {node.upgrade_gate.label} · {node.upgrade_gate.next_step}
-                  </p>
+                  <div className="mt-2 rounded-md border border-yellow-100/10 bg-black/20 p-2">
+                    <p className="leading-5 text-yellow-100/60">
+                      Upgrade gate {node.upgrade_gate.label} · {node.upgrade_gate.next_step}
+                    </p>
+                    {node.upgrade_gate.checklist?.length ? (
+                      <div className="mt-2 grid gap-1.5">
+                        {node.upgrade_gate.checklist.map((item) => (
+                          <div key={item.key} className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-medium text-yellow-100/70">{item.label}</p>
+                              <p className="mt-0.5 leading-5 text-yellow-100/45">{item.detail}</p>
+                            </div>
+                            <span className={`shrink-0 rounded-md border px-2 py-0.5 ${statusClass(item.status)}`}>
+                              {item.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 )}
                 <p className="mt-1 leading-5 text-yellow-100/50">{node.recommended_action}</p>
               </div>

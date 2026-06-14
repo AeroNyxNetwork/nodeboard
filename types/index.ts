@@ -750,7 +750,9 @@ export interface VpnRestartReadinessBlockedNode {
  *   cutover work. problem_nodes also feeds the Restart Action Queue as
  *   backend-authored runtime upgrade work. upgrade_gate mirrors
  *   restart_readiness.drain_eta.cutover_guard so the UI can show whether
- *   upgrading/restarting Rust is safe now.
+ *   upgrading/restarting Rust is safe now. upgrade_gate.checklist is
+ *   backend-authored preflight copy for maintenance, recent client RX, active
+ *   sessions, and runtime telemetry.
  * Policy sync source:
  *   data.summary.restart_readiness.policy_sync_health aggregates
  *   data.nodes[].system.policy_sync from
@@ -961,6 +963,12 @@ export interface VpnRestartReadinessSummary {
         detail: string;
         next_step: string;
         user_impact_if_forced: string;
+        checklist?: Array<{
+          key: string;
+          label: string;
+          status: 'ready' | 'attention' | 'blocked' | 'healthy' | 'warning' | 'critical' | string;
+          detail: string;
+        }>;
         source: 'restart_readiness.drain_eta.cutover_guard' | string;
       };
     }>;
