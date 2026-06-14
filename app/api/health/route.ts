@@ -30,7 +30,8 @@
  *     backend-authored recommended_action plus drain_activity buckets.
  *     Provides data.summary.restart_readiness.drain_activity_health_counts
  *     for the Services page top-level Drain Risk card.
- *     drain_activity_health_counts.summary is backend-authored display copy.
+ *     drain_activity_health_counts.summary is backend-authored display copy
+ *     and next_step.
  *   - GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Supports /dashboard/sessions?node={id}&status=active&quality=all deep links.
@@ -72,7 +73,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.19 - Documented backend-authored drain risk copy
+ * Last Modified: v1.1.20 - Documented backend drain risk next step
+ * Previous: v1.1.19 - Documented backend-authored drain risk copy
  * Previous: v1.1.18 - Documented fleet drain risk summary
  * Previous: v1.1.17 - Documented backend drain activity health
  * Previous: v1.1.16 - Documented keepalive issue session counts
@@ -151,7 +153,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.drain_activity_health_counts',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level blocked-node activity_health risk/status counts and backend-authored summary copy used by the Services Drain Risk card',
+      purpose: 'Fleet-level blocked-node activity_health risk/status counts plus backend-authored summary copy and next_step used by the Services Drain Risk card',
     },
     {
       endpoint: 'GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=',

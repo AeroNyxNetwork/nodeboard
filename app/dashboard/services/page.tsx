@@ -45,8 +45,8 @@
  *   - data.summary.restart_readiness.drain_activity_health_counts
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Powers the top-level Drain Risk card in the restart readiness panel.
- *     summary is backend-authored copy so nodeboard does not reimplement
- *     fleet drain risk business rules.
+ *     summary is backend-authored copy and next_step so nodeboard does not
+ *     reimplement fleet drain risk business rules.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -70,7 +70,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.15 - Use backend-authored fleet drain risk copy
+ * Last Modified: v1.1.16 - Show backend drain risk next step
+ * Previous: v1.1.15 - Use backend-authored fleet drain risk copy
  * Previous: v1.1.14 - Show fleet drain risk summary
  * Previous: v1.1.13 - Show backend drain activity health badge
  * Previous: v1.1.12 - Show keepalive issue session counts
@@ -600,6 +601,7 @@ function fleetDrainRisk(summary: VpnRestartReadinessSummary | null) {
       detail: 'waiting for backend summary',
       count: 0,
       risk: 'info',
+      next_step: 'Waiting for data.summary.restart_readiness.drain_activity_health_counts.summary.',
     };
   }
   if (counts.summary) {
@@ -615,6 +617,7 @@ function fleetDrainRisk(summary: VpnRestartReadinessSummary | null) {
       detail: `${critical.toLocaleString()} critical · ${warning.toLocaleString()} warning`,
       count: issueCount,
       risk: 'critical',
+      next_step: 'Open critical blocked nodes before queueing restarts.',
     };
   }
   if (warning > 0) {
@@ -623,6 +626,7 @@ function fleetDrainRisk(summary: VpnRestartReadinessSummary | null) {
       detail: `${warning.toLocaleString()} warning`,
       count: issueCount,
       risk: 'warning',
+      next_step: 'Review warning drain nodes before restart.',
     };
   }
   return {
@@ -630,6 +634,7 @@ function fleetDrainRisk(summary: VpnRestartReadinessSummary | null) {
     detail: 'no critical drain activity',
     count: 0,
     risk: 'healthy',
+    next_step: 'Continue normal rollout gate checks.',
   };
 }
 
@@ -931,6 +936,9 @@ function FleetRestartReadinessPanel({
           <p className="text-xs uppercase tracking-[0.16em] opacity-70">Drain Risk</p>
           <p className="mt-2 text-2xl font-semibold">{drainRisk.count.toLocaleString()}</p>
           <p className="mt-1 text-xs opacity-70">{drainRisk.label} · {drainRisk.detail}</p>
+          {drainRisk.next_step && (
+            <p className="mt-2 text-xs leading-5 opacity-80">{drainRisk.next_step}</p>
+          )}
         </div>
       </div>
 
