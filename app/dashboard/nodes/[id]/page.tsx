@@ -1535,18 +1535,44 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
   }
 
   if (isError || !health || !operatorStatus) {
+    const hasHeartbeatWithoutOperatorStatus = Boolean(health && !operatorStatus);
+
     return (
       <Card variant="outline" padding="md" className="mb-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="font-semibold text-white">AeroNyx Service Readiness</h3>
             <p className="mt-1 text-sm text-yellow-300">
-              Waiting for system_stats.operator_status from the signed Rust heartbeat.
+              {hasHeartbeatWithoutOperatorStatus
+                ? 'Signed heartbeat is live, but this Rust process is not reporting system_stats.operator_status yet.'
+                : 'Waiting for system_stats.operator_status from the signed Rust heartbeat.'}
             </p>
             <p className="mt-2 text-xs leading-5 text-gray-500">
               Backend contract: GET /api/privacy_network/vpn/overview/ reads
               /root/aeronyx/privacy_network/api/vpn_observability.py, which exposes
               Node.hardware_info["operator_status"] written by heartbeat_service.py.
+            </p>
+            {health && (
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                  <p className="text-[11px] uppercase text-gray-600">Privacy Health</p>
+                  <p className="mt-1 text-xs text-gray-300">{health.health_status}</p>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                  <p className="text-[11px] uppercase text-gray-600">Active Sessions</p>
+                  <p className="mt-1 text-xs text-gray-300">{health.active_sessions.toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                  <p className="text-[11px] uppercase text-gray-600">Upgrade Path</p>
+                  <p className="mt-1 text-xs text-gray-300">
+                    {health.active_sessions > 0 ? 'drain before restart' : 'restart Rust node'}
+                  </p>
+                </div>
+              </div>
+            )}
+            <p className="mt-3 text-xs leading-5 text-gray-600">
+              Rust producer files: /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
+              and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
             </p>
           </div>
           <Button variant="secondary" size="sm" onClick={() => refetch()}>

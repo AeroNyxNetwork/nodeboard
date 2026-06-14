@@ -77,6 +77,16 @@ interface RiskView extends OperatorRisk {
   nodeName: string;
 }
 
+interface PendingOperatorNode {
+  id: string;
+  name: string;
+  publicIp: string | null;
+  activeSessions: number;
+  healthStatus: string;
+  lastHeartbeat: string | null;
+  version: string;
+}
+
 const serviceMeta: Record<ServiceKey, { label: string; eyebrow: string }> = {
   privacy_protocol: {
     label: 'AeroNyx Privacy Protocol',
@@ -268,6 +278,20 @@ function collectRisks(nodes: VpnNodeHealth[]): RiskView[] {
     .slice(0, 10);
 }
 
+function collectPendingOperatorNodes(nodes: VpnNodeHealth[]): PendingOperatorNode[] {
+  return nodes
+    .filter((node) => node.is_vpn_node && !nodeOperatorStatus(node))
+    .map((node) => ({
+      id: node.id,
+      name: node.name,
+      publicIp: node.public_ip,
+      activeSessions: node.active_sessions,
+      healthStatus: node.health_status,
+      lastHeartbeat: node.last_heartbeat,
+      version: node.version,
+    }));
+}
+
 function latestReportTime(statuses: NodeOperatorStatus[]) {
   const values = statuses
     .map((status) => status.last_reported_at)
@@ -446,6 +470,67 @@ function NodeReadinessRow({ node }: { node: VpnNodeHealth }) {
   );
 }
 
+function PendingOperatorRolloutPanel({ nodes }: { nodes: PendingOperatorNode[] }) {
+  if (nodes.length === 0) return null;
+
+  return (
+    <section className="mb-6 rounded-2xl border border-sky-500/20 bg-sky-500/[0.06] p-5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-sky-100">Operator Status Rollout Pending</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-sky-100/70">
+            These privacy protocol nodes are healthy enough to heartbeat, but they are not reporting
+            <span className="font-mono"> system_stats.operator_status</span>. In production this usually means the Rust
+            binary has not been upgraded or the process has not restarted after the operator-status build.
+          </p>
+        </div>
+        <StatusPill status="info" />
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {nodes.map((node) => (
+          <div key={node.id} className="rounded-xl border border-sky-300/10 bg-black/20 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <p className="font-medium text-white">{node.name}</p>
+                <p className="mt-1 truncate text-xs text-sky-100/50">
+                  {node.publicIp ?? 'no public IP'} · v{node.version}
+                </p>
+              </div>
+              <StatusPill status={node.healthStatus} />
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-sky-100/60">
+              <div>
+                <p className="text-sky-100/35">Active Sessions</p>
+                <p className="mt-1 text-sky-100">{node.activeSessions.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-sky-100/35">Heartbeat</p>
+                <p className="mt-1 text-sky-100">
+                  {node.lastHeartbeat ? formatRelativeTime(node.lastHeartbeat) : 'pending'}
+                </p>
+              </div>
+              <div>
+                <p className="text-sky-100/35">Next Step</p>
+                <p className="mt-1 text-sky-100">
+                  {node.activeSessions > 0 ? 'drain first' : 'restart node'}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-4 text-xs leading-5 text-sky-100/45">
+        Backend contract: GET /api/privacy_network/vpn/overview/ from
+        /root/aeronyx/privacy_network/api/vpn_observability.py. Rust producer:
+        /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs and
+        /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
+      </p>
+    </section>
+  );
+}
+
 function NodeDetailCard({ node }: { node: VpnNodeHealth }) {
   const operatorStatus = nodeOperatorStatus(node);
   const services = operatorStatus?.services ?? [];
@@ -513,6 +598,7 @@ export default function NodeServicesPage() {
   const fleetSummary = useMemo(() => buildFleetSummary(nodes, operatorStatuses), [nodes, operatorStatuses]);
   const services = useMemo(() => buildServiceViews(nodes, operatorStatuses), [nodes, operatorStatuses]);
   const risks = useMemo(() => collectRisks(nodes), [nodes]);
+  const pendingOperatorNodes = useMemo(() => collectPendingOperatorNodes(nodes), [nodes]);
   const latestReportedAt = useMemo(() => latestReportTime(operatorStatuses), [operatorStatuses]);
 
   if (isLoading) {
@@ -573,6 +659,8 @@ export default function NodeServicesPage() {
           <StatusPill status={operatorStatuses.length > 0 ? 'ok' : 'pending'} />
         </div>
       </div>
+
+      <PendingOperatorRolloutPanel nodes={pendingOperatorNodes} />
 
       {risks.length > 0 && (
         <div className="mb-6 rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-5">
