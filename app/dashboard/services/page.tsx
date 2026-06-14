@@ -137,7 +137,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.44 - Add DNS gateway gate to rollout cards
+ * Last Modified: v1.1.45 - Explain staged DNS rollout impact
+ * Previous: v1.1.44 - Add DNS gateway gate to rollout cards
  * Previous: v1.1.43 - Show rollout restart gates
  * Previous: v1.1.42 - Add visual drain composition for restart gating
  * Previous: v1.1.41 - Show runtime rollout drain ETA
@@ -928,6 +929,39 @@ function RolloutGateStrip({ node }: { node: RuntimeRolloutNode }) {
           <p className="mt-2 line-clamp-2 text-[11px] leading-5 text-yellow-100/45">{gate.detail}</p>
         </div>
       ))}
+    </div>
+  );
+}
+
+function RolloutImpactCallout({ node }: { node: RuntimeRolloutNode }) {
+  const failedDnsCheck = node.dnsChecks.find((check) => !check.ok);
+  const hasDnsGatewayBlocker = Boolean(failedDnsCheck);
+  const restartWindowOpen = node.maintenanceMode && node.activeSessions === 0;
+  const impactStatus = restartWindowOpen ? 'ready' : 'blocked';
+  const primaryDetail = hasDnsGatewayBlocker
+    ? 'Restart applies the staged Rust binary that provides the gateway DNS listener required for client placement.'
+    : 'Restart applies the staged Rust binary and refreshes runtime health reported through signed heartbeats.';
+  const nextStep = restartWindowOpen
+    ? 'Restart window open: queue restart_service from nodeboard or start the systemd-managed process.'
+    : node.activeSessions > 0
+      ? `Drain ${node.activeSessions.toLocaleString()} active session${node.activeSessions === 1 ? '' : 's'} before restarting.`
+      : !node.maintenanceMode
+        ? 'Enable maintenance mode before restarting.'
+        : 'Wait for backend restart readiness to become ready.';
+
+  return (
+    <div className="mt-3 rounded-lg border border-yellow-100/10 bg-yellow-100/[0.04] p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-yellow-100/45">Restart Impact</p>
+          <p className="mt-1 text-sm leading-6 text-yellow-100">{primaryDetail}</p>
+        </div>
+        <StatusPill status={impactStatus} />
+      </div>
+      <p className="mt-2 text-xs leading-5 text-yellow-100/55">
+        {nextStep}
+        {failedDnsCheck ? ` Current DNS blocker: ${failedDnsCheck.name.replaceAll('_', ' ')}.` : ''}
+      </p>
     </div>
   );
 }
@@ -2725,6 +2759,7 @@ function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
               </p>
             )}
             <RolloutGateStrip node={node} />
+            <RolloutImpactCallout node={node} />
             {node.drainEta && (
               <div className="mt-3 rounded-lg border border-yellow-200/10 bg-yellow-200/[0.04] p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
