@@ -779,7 +779,7 @@ function FleetRestartReadinessPanel({
             {summary.blocked_nodes.map((node) => (
               <div
                 key={node.id}
-                className="grid gap-3 rounded-lg border border-yellow-300/10 bg-black/20 p-3 text-xs text-yellow-100/65 md:grid-cols-[minmax(0,1fr)_120px_120px_minmax(0,1.4fr)] md:items-center"
+                className="grid gap-3 rounded-lg border border-yellow-300/10 bg-black/20 p-3 text-xs text-yellow-100/65 md:grid-cols-[minmax(0,1fr)_120px_120px_minmax(0,1.4fr)_110px] md:items-center"
               >
                 <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
                   {node.name}
@@ -794,6 +794,12 @@ function FleetRestartReadinessPanel({
                     </span>
                   )}
                 </span>
+                <Link
+                  href={`/dashboard/sessions?node=${encodeURIComponent(node.id)}&status=active&quality=all`}
+                  className="font-medium text-sky-300 hover:text-sky-200"
+                >
+                  Open sessions
+                </Link>
               </div>
             ))}
           </div>
