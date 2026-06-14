@@ -54,6 +54,7 @@ import {
   RuntimeRolloutStatus,
   VpnNodeHealth,
   VpnRestartReadiness,
+  VpnRestartReadinessSummary,
   VpnSessionCleanupStatus,
 } from '@/types';
 
@@ -697,14 +698,21 @@ function NodeReadinessRow({ node }: { node: VpnNodeHealth }) {
   );
 }
 
-function FleetRestartReadinessPanel({ nodes }: { nodes: RestartReadinessNode[] }) {
+function FleetRestartReadinessPanel({
+  nodes,
+  summary,
+}: {
+  nodes: RestartReadinessNode[];
+  summary: VpnRestartReadinessSummary | null;
+}) {
   if (nodes.length === 0) return null;
 
   const attentionNodes = nodes.filter((node) => node.status !== 'current');
-  const readyCount = attentionNodes.filter((node) => node.status === 'ready').length;
-  const blockedCount = attentionNodes.filter((node) => node.status === 'blocked').length;
-  const pendingCount = attentionNodes.filter((node) => node.status === 'pending').length;
-  const totalActiveSessions = attentionNodes.reduce((sum, node) => sum + node.activeSessions, 0);
+  const readyCount = summary?.ready ?? attentionNodes.filter((node) => node.status === 'ready').length;
+  const blockedCount = summary?.blocked ?? attentionNodes.filter((node) => node.status === 'blocked').length;
+  const pendingCount = summary?.pending ?? attentionNodes.filter((node) => node.status === 'pending').length;
+  const totalActiveSessions = summary?.sessions_blocking_restart
+    ?? attentionNodes.reduce((sum, node) => sum + node.activeSessions, 0);
 
   return (
     <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
@@ -789,11 +797,17 @@ function FleetRestartReadinessPanel({ nodes }: { nodes: RestartReadinessNode[] }
 
       <p className="mt-4 text-xs leading-5 text-gray-600">
         UI path: /root/open/nodeboard/app/dashboard/services/page.tsx. Backend API:
-        GET /api/privacy_network/vpn/overview/ in /root/aeronyx/privacy_network/api/vpn_observability.py.
+        GET /api/privacy_network/vpn/overview/ exposes data.summary.restart_readiness and
+        data.nodes[].system.restart_readiness from /root/aeronyx/privacy_network/api/vpn_observability.py.
         Rust producers: /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs,
         /root/open/AeroNyx/crates/aeronyx-server/src/services/session.rs, and
         /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs.
       </p>
+      {summary?.privacy_boundary && (
+        <p className="mt-2 text-xs leading-5 text-gray-600">
+          Summary source {summary.source}: {summary.privacy_boundary}
+        </p>
+      )}
     </section>
   );
 }
@@ -1093,6 +1107,7 @@ export default function NodeServicesPage() {
   };
 
   const nodes = overview?.nodes ?? [];
+  const restartReadinessSummary = overview?.summary.restart_readiness ?? null;
   const operatorStatuses = useMemo(() => collectOperatorStatuses(nodes), [nodes]);
   const fleetSummary = useMemo(() => buildFleetSummary(nodes, operatorStatuses), [nodes, operatorStatuses]);
   const services = useMemo(() => buildServiceViews(nodes, operatorStatuses), [nodes, operatorStatuses]);
@@ -1177,7 +1192,7 @@ export default function NodeServicesPage() {
         </div>
       </div>
 
-      <FleetRestartReadinessPanel nodes={restartReadinessNodes} />
+      <FleetRestartReadinessPanel nodes={restartReadinessNodes} summary={restartReadinessSummary} />
       <SessionCleanupRolloutPanel nodes={sessionCleanupRolloutNodes} />
       <PendingOperatorRolloutPanel nodes={pendingOperatorNodes} />
       <RuntimeRolloutPanel nodes={runtimeRolloutNodes} />
