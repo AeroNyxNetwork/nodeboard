@@ -14,6 +14,9 @@
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Provides data.nodes[].checks from Rust /api/vpn/health so Services can
  *     explain placement blockers such as dns_stub and dns_query failures.
+ *     Provides data.nodes[].system.restart_readiness.drain_eta so Runtime
+ *     Rollout can explain active-session drain status before controlled Rust
+ *     restarts.
  *   - GET /api/privacy_network/vpn/servers/
  *     /root/aeronyx/privacy_network/api/vpn_servers.py
  *     Provides client placement capacity summary used by Services to show
@@ -134,7 +137,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.40 - Show Rust service manager active state
+ * Last Modified: v1.1.41 - Show runtime rollout drain ETA
+ * Previous: v1.1.40 - Show Rust service manager active state
  * Previous: v1.1.39 - Explain placement blockers with failed health checks
  * Previous: v1.1.38 - Show placement blocker node triage
  * Previous: v1.1.37 - Refresh placement capacity after maintenance changes
@@ -264,6 +268,7 @@ interface RuntimeRolloutNode {
   lastHeartbeat: string | null;
   rollout: RuntimeRolloutStatus;
   serviceManager: VpnServiceManagerStatus | null;
+  drainEta: VpnRestartDrainEta | null;
 }
 
 interface RestartReadinessNode {
@@ -581,6 +586,7 @@ function collectRuntimeRolloutNodes(nodes: VpnNodeHealth[]): RuntimeRolloutNode[
       lastHeartbeat: node.last_heartbeat,
       rollout,
       serviceManager: node.system.service_manager ?? null,
+      drainEta: node.system.restart_readiness?.drain_eta ?? null,
     });
     return items;
   }, []);
@@ -2567,6 +2573,48 @@ function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
                 {node.serviceManager.detail}
               </p>
             )}
+            {node.drainEta && (
+              <div className="mt-3 rounded-lg border border-yellow-200/10 bg-yellow-200/[0.04] p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-yellow-100/45">Drain ETA</p>
+                    <p className="mt-1 text-sm text-yellow-100">{node.drainEta.next_step}</p>
+                  </div>
+                  <StatusPill status={node.drainEta.activity_health?.risk ?? node.drainEta.status} />
+                </div>
+                <div className="mt-3 grid gap-2 text-xs text-yellow-100/60 sm:grid-cols-2 xl:grid-cols-4">
+                  <div>
+                    <p className="text-yellow-100/35">Status</p>
+                    <p className="mt-1 text-yellow-100">{node.drainEta.status.replaceAll('_', ' ')}</p>
+                  </div>
+                  <div>
+                    <p className="text-yellow-100/35">Remaining</p>
+                    <p className="mt-1 text-yellow-100">
+                      {node.drainEta.estimated_seconds_remaining === null
+                        ? 'pending'
+                        : formatDuration(node.drainEta.estimated_seconds_remaining)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-yellow-100/35">Activity</p>
+                    <p className="mt-1 text-yellow-100">
+                      {(node.drainEta.recent_activity_sessions ?? 0).toLocaleString()} recent · {(node.drainEta.idle_activity_sessions ?? 0).toLocaleString()} idle
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-yellow-100/35">Keepalive Issues</p>
+                    <p className="mt-1 text-yellow-100">
+                      {(node.drainEta.keepalive_missed_sessions ?? 0).toLocaleString()} missed · {(node.drainEta.keepalive_pending_sessions ?? 0).toLocaleString()} pending
+                    </p>
+                  </div>
+                </div>
+                {node.drainEta.activity_health && (
+                  <p className="mt-2 text-xs leading-5 text-yellow-100/50">
+                    {node.drainEta.activity_health.label}: {node.drainEta.activity_health.detail}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -2574,7 +2622,7 @@ function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
       <p className="mt-4 text-xs leading-5 text-yellow-100/45">
         Rust source: /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs reads /proc/self/exe.
         Backend path: /root/aeronyx/privacy_network/api/vpn_observability.py exposes
-        data.nodes[].system.service_manager from the Rust heartbeat snapshot.
+        data.nodes[].system.service_manager and restart_readiness.drain_eta from Rust heartbeat and ClientSession aggregates.
       </p>
     </section>
   );
