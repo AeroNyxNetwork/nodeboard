@@ -108,6 +108,9 @@
  *     and services restart UX.
  *     Includes activity_health backend triage so frontend views share one
  *     operational risk interpretation.
+ *     Includes cutover_guard.safe_to_cutover/status/risk/next_step so
+ *     Services and node detail can show whether replacing or restarting Rust
+ *     is commercially safe without parsing backend English copy.
  *     cleanup_policy_pending is rendered in node detail as Rust cleanup
  *     rollout pending until heartbeat.system_stats.vpn_health.session_cleanup
  *     is reported.
@@ -255,7 +258,7 @@ const healthPayload = {
     {
       endpoint: 'data.nodes[].system.restart_readiness.drain_eta',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Node-level active ClientSession timing aggregate, activity buckets, keepalive issue session counts, backend activity_health triage, and cleanup rollout pending signal used by node detail and services maintenance drain ETA',
+      purpose: 'Node-level active ClientSession timing aggregate, activity buckets, keepalive issue session counts, backend activity_health triage, cutover_guard safe_to_cutover status, and cleanup rollout pending signal used by node detail and services maintenance drain UX',
     },
     {
       endpoint: 'data.summary.restart_readiness',

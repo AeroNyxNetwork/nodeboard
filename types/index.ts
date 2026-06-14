@@ -478,6 +478,31 @@ export interface VpnDrainActivityHealth {
   detail: string;
 }
 
+export interface VpnRestartCutoverGuard {
+  safe_to_cutover: boolean;
+  requires_active_sessions_zero?: boolean;
+  status:
+    | 'safe'
+    | 'active_client_rx'
+    | 'cleanup_policy_pending'
+    | 'cleanup_window_open'
+    | 'stale_sessions_pending_cleanup'
+    | 'active_sessions_present'
+    | string;
+  risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+  label: string;
+  detail: string;
+  next_step: string;
+  user_impact_if_forced?: string;
+  active_sessions?: number;
+  recent_client_rx_sessions?: number;
+  stale_client_rx_sessions?: number;
+  never_client_rx_sessions?: number;
+  activity_window_seconds?: number;
+  source?: 'restart_readiness.drain_eta' | string;
+  privacy_boundary?: string;
+}
+
 export interface VpnRestartDrainEta {
   status:
     | 'no_active_sessions'
@@ -500,6 +525,7 @@ export interface VpnRestartDrainEta {
   keepalive_missed_total?: number;
   keepalive_pending_total?: number;
   activity_health?: VpnDrainActivityHealth | null;
+  cutover_guard?: VpnRestartCutoverGuard | null;
   oldest_started_at: string | null;
   latest_activity_at: string | null;
   latest_client_rx_at?: string | null;

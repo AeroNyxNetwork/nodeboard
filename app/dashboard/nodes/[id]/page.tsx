@@ -1526,16 +1526,20 @@ function legacyRuntimeDrainCopy(health: VpnNodeHealth | null | undefined) {
   if (!health || (!eta && !actionPlan)) return null;
 
   const activityHealth = eta?.activity_health;
-  const title = activityHealth?.label || actionPlan?.label || 'Runtime rollout pending';
-  const detail = activityHealth?.detail || actionPlan?.summary || 'Waiting for upgraded Rust heartbeat telemetry.';
-  const nextStep = eta?.status === 'cleanup_policy_pending'
+  const cutoverGuard = eta?.cutover_guard;
+  const title = cutoverGuard?.label || activityHealth?.label || actionPlan?.label || 'Runtime rollout pending';
+  const detail = cutoverGuard?.detail || activityHealth?.detail || actionPlan?.summary || 'Waiting for upgraded Rust heartbeat telemetry.';
+  const nextStep = cutoverGuard?.next_step || (eta?.status === 'cleanup_policy_pending'
     ? 'Keep maintenance on until the staged Rust runtime reports session_cleanup, then re-check drain readiness.'
-    : actionPlan?.primary_action || eta?.next_step || 'Inspect active sessions before restart.';
+    : actionPlan?.primary_action || eta?.next_step || 'Inspect active sessions before restart.');
 
   return {
     title,
     detail,
     nextStep,
+    cutoverStatus: cutoverGuard?.status ?? null,
+    safeToCutover: cutoverGuard?.safe_to_cutover ?? null,
+    forcedImpact: cutoverGuard?.user_impact_if_forced ?? null,
     recentClientRx: eta?.recent_client_rx_sessions ?? eta?.recent_activity_sessions ?? null,
     staleClientRx: eta?.stale_client_rx_sessions ?? eta?.idle_activity_sessions ?? null,
     neverClientRx: eta?.never_client_rx_sessions ?? null,
@@ -2481,7 +2485,19 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
                     <p className="mt-1 text-xs text-yellow-100">{legacyDrain.keepaliveIssue.toLocaleString()}</p>
                   </div>
                 </div>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <div className="mt-2 grid gap-2 sm:grid-cols-4">
+                  <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
+                    <p className="text-[10px] uppercase text-yellow-100/35">Cutover Status</p>
+                    <p className="mt-1 text-xs text-yellow-100">
+                      {legacyDrain.cutoverStatus ? legacyDrain.cutoverStatus.replaceAll('_', ' ') : 'pending'}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
+                    <p className="text-[10px] uppercase text-yellow-100/35">Safe Cutover</p>
+                    <p className="mt-1 text-xs text-yellow-100">
+                      {legacyDrain.safeToCutover === null ? 'pending' : legacyDrain.safeToCutover ? 'yes' : 'no'}
+                    </p>
+                  </div>
                   <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
                     <p className="text-[10px] uppercase text-yellow-100/35">Latest Client RX</p>
                     <p className="mt-1 text-xs text-yellow-100">
@@ -2495,6 +2511,11 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
                     </p>
                   </div>
                 </div>
+                {legacyDrain.forcedImpact && (
+                  <p className="mt-2 text-xs leading-5 text-yellow-100/50">
+                    Forced restart impact: {legacyDrain.forcedImpact.replaceAll('_', ' ')}.
+                  </p>
+                )}
                 <p className="mt-3 text-xs leading-5 text-yellow-100/60">{legacyDrain.nextStep}</p>
                 {legacyDrain.oldestStartedAt && (
                   <p className="mt-1 text-[11px] text-yellow-100/40">

@@ -55,6 +55,9 @@
  *   - data.nodes[].system.restart_readiness.drain_eta
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates active ClientSession timing for maintenance drain visibility.
+ *     Includes cutover_guard.safe_to_cutover/status/risk/next_step so Services
+ *     can show whether replacing or restarting Rust is commercially safe
+ *     without parsing backend English copy.
  *   - data.nodes[].city / data.nodes[].region_code / data.nodes[].version
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Joined by node id with blocked_nodes to filter restart queues by
@@ -921,6 +924,7 @@ function drainGatePanelClass(risk: string | undefined) {
 }
 
 function clientRxGateCopy(eta: VpnRestartDrainEta) {
+  const guard = eta.cutover_guard ?? null;
   const active = Math.max(0, eta.active_sessions ?? 0);
   const recent = Math.max(0, eta.recent_client_rx_sessions ?? eta.recent_activity_sessions ?? 0);
   const never = Math.max(0, eta.never_client_rx_sessions ?? 0);
@@ -928,12 +932,27 @@ function clientRxGateCopy(eta: VpnRestartDrainEta) {
   const health = eta.activity_health ?? null;
   const windowLabel = formatDuration(eta.activity_window_seconds || 180);
 
+  if (guard) {
+    return {
+      title: guard.label,
+      detail: guard.detail,
+      nextStep: guard.next_step,
+      risk: guard.risk,
+      status: guard.status,
+      safeToCutover: guard.safe_to_cutover,
+      forcedImpact: guard.user_impact_if_forced ?? 'unknown',
+    };
+  }
+
   if (active === 0) {
     return {
       title: 'Client RX gate clear',
       detail: 'No active client sessions are blocking this runtime change.',
       nextStep: eta.next_step,
       risk: health?.risk ?? 'healthy',
+      status: health?.status ?? eta.status,
+      safeToCutover: true,
+      forcedImpact: 'none',
     };
   }
 
@@ -943,6 +962,9 @@ function clientRxGateCopy(eta: VpnRestartDrainEta) {
       detail: `${recent.toLocaleString()}/${active.toLocaleString()} active session${active === 1 ? '' : 's'} received client traffic inside ${windowLabel}; ${stale.toLocaleString()} stale and ${never.toLocaleString()} never reported client RX.`,
       nextStep: health?.detail ?? eta.next_step,
       risk: health?.risk ?? 'warning',
+      status: health?.status ?? eta.status,
+      safeToCutover: false,
+      forcedImpact: recent > 0 ? 'will_disconnect_recent_clients' : 'may_drop_stale_tunnel_state',
     };
   }
 
@@ -951,6 +973,9 @@ function clientRxGateCopy(eta: VpnRestartDrainEta) {
     detail: `All ${active.toLocaleString()} active session${active === 1 ? '' : 's'} have recent client RX inside ${windowLabel}.`,
     nextStep: health?.detail ?? eta.next_step,
     risk: health?.risk ?? 'healthy',
+    status: health?.status ?? eta.status,
+    safeToCutover: active === 0,
+    forcedImpact: active === 0 ? 'none' : 'may_disconnect_clients',
   };
 }
 
@@ -972,8 +997,12 @@ function RuntimeDrainGatePanel({ eta }: { eta: VpnRestartDrainEta }) {
       </div>
       <div className="mt-3 grid gap-2 text-xs text-yellow-100/60 sm:grid-cols-2 xl:grid-cols-4">
         <div>
-          <p className="text-yellow-100/35">Backend Status</p>
-          <p className="mt-1 text-yellow-100">{eta.activity_health?.status?.replaceAll('_', ' ') ?? eta.status.replaceAll('_', ' ')}</p>
+          <p className="text-yellow-100/35">Cutover Status</p>
+          <p className="mt-1 text-yellow-100">{gate.status.replaceAll('_', ' ')}</p>
+        </div>
+        <div>
+          <p className="text-yellow-100/35">Safe Cutover</p>
+          <p className="mt-1 text-yellow-100">{gate.safeToCutover ? 'yes' : 'no'}</p>
         </div>
         <div>
           <p className="text-yellow-100/35">Restart ETA</p>
@@ -984,16 +1013,14 @@ function RuntimeDrainGatePanel({ eta }: { eta: VpnRestartDrainEta }) {
           </p>
         </div>
         <div>
-          <p className="text-yellow-100/35">Keepalive Totals</p>
-          <p className="mt-1 text-yellow-100">
-            {(eta.keepalive_missed_total ?? 0).toLocaleString()} missed · {(eta.keepalive_pending_total ?? 0).toLocaleString()} pending
-          </p>
-        </div>
-        <div>
-          <p className="text-yellow-100/35">Backend Next Step</p>
-          <p className="mt-1 text-yellow-100">{eta.next_step}</p>
+          <p className="text-yellow-100/35">Forced Impact</p>
+          <p className="mt-1 text-yellow-100">{gate.forcedImpact.replaceAll('_', ' ')}</p>
         </div>
       </div>
+      <p className="mt-2 text-xs leading-5 text-yellow-100/45">
+        Keepalive totals: {(eta.keepalive_missed_total ?? 0).toLocaleString()} missed · {(eta.keepalive_pending_total ?? 0).toLocaleString()} pending.
+        Source: data.nodes[].system.restart_readiness.drain_eta.cutover_guard from /root/aeronyx/privacy_network/api/vpn_observability.py.
+      </p>
       {gate.nextStep && (
         <p className="mt-3 text-xs leading-5 text-yellow-100/55">{gate.nextStep}</p>
       )}
