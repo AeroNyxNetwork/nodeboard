@@ -44,6 +44,8 @@
  *     for the Services page top-level Drain Risk card.
  *     drain_activity_health_counts.summary is backend-authored display copy
  *     and next_step.
+ *     Provides data.summary.restart_readiness.cutover_guard_counts for the
+ *     Services page Cutover Safety card from backend cutover_guard policy.
  *     Provides data.summary.restart_readiness.command_lifecycle_counts for
  *     Services page Command SLA card, backend-authored stale/retry copy, and
  *     cancelable_active/non_cancelable_active active command counts.
@@ -289,6 +291,11 @@ const healthPayload = {
       endpoint: 'data.summary.restart_readiness.drain_activity_health_counts',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Fleet-level blocked-node activity_health risk/status counts plus backend-authored summary copy and next_step used by the Services Drain Risk card',
+    },
+    {
+      endpoint: 'data.summary.restart_readiness.cutover_guard_counts',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Fleet-level Rust cutover safety counts derived from data.nodes[].system.restart_readiness.drain_eta.cutover_guard for the Services Cutover Safety card',
     },
     {
       endpoint: 'data.summary.restart_readiness.command_lifecycle_counts',

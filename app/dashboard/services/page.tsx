@@ -102,6 +102,11 @@
  *     Powers the top-level Drain Risk card in the restart readiness panel.
  *     summary is backend-authored copy and next_step so nodeboard does not
  *     reimplement fleet drain risk business rules.
+ *   - data.summary.restart_readiness.cutover_guard_counts
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Aggregates data.nodes[].system.restart_readiness.drain_eta.cutover_guard
+ *     so Services can show fleet-level safe/blocked Rust cutover state without
+ *     parsing backend English copy.
  *   - data.summary.restart_readiness.command_lifecycle_counts
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Powers the Command SLA card from backend-authored active/stale/retry
@@ -1247,6 +1252,38 @@ function fleetDrainRisk(summary: VpnRestartReadinessSummary | null) {
   };
 }
 
+function fleetCutoverGuard(summary: VpnRestartReadinessSummary | null) {
+  const counts = summary?.cutover_guard_counts ?? null;
+  if (!counts) {
+    return {
+      label: 'Pending',
+      detail: 'waiting for backend cutover summary',
+      count: 0,
+      risk: 'info',
+      next_step: 'Waiting for data.summary.restart_readiness.cutover_guard_counts.',
+      safe: 0,
+      blocked: 0,
+      total: 0,
+      impact: 'unknown',
+    };
+  }
+  const summaryCopy = counts.summary;
+  const impactEntries = Object.entries(counts.forced_impact_counts ?? {})
+    .sort((a, b) => b[1] - a[1]);
+  const impact = impactEntries[0]?.[0]?.replaceAll('_', ' ') ?? 'none';
+  return {
+    label: summaryCopy?.label ?? 'Pending',
+    detail: summaryCopy?.detail ?? 'waiting for backend cutover summary',
+    count: summaryCopy?.count ?? counts.blocked_nodes ?? 0,
+    risk: summaryCopy?.risk ?? 'info',
+    next_step: summaryCopy?.next_step ?? 'Open blocked nodes before replacing or restarting Rust.',
+    safe: counts.safe_nodes ?? 0,
+    blocked: counts.blocked_nodes ?? 0,
+    total: counts.total_nodes ?? 0,
+    impact,
+  };
+}
+
 function fleetCommandLifecycle(summary: VpnRestartReadinessSummary | null) {
   const counts = summary?.command_lifecycle_counts ?? null;
   if (!counts) {
@@ -2192,6 +2229,7 @@ function FleetRestartReadinessPanel({
     ?? attentionNodes.reduce((sum, node) => sum + node.activeSessions, 0);
   const blockerCounts = Object.entries(summary?.blocker_counts ?? {});
   const drainRisk = fleetDrainRisk(summary);
+  const cutoverGuard = fleetCutoverGuard(summary);
   const commandLifecycle = fleetCommandLifecycle(summary);
   const commandDelivery = fleetCommandDelivery(summary);
   const commandOutcome = fleetCommandOutcome(summary);
@@ -2247,6 +2285,18 @@ function FleetRestartReadinessPanel({
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
           <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Sessions Blocking</p>
           <p className="mt-2 text-2xl font-semibold text-white">{totalActiveSessions.toLocaleString()}</p>
+        </div>
+        <div className={`rounded-xl border p-4 ${drainActivityHealthClass(cutoverGuard.risk)}`}>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Cutover Safety</p>
+          <p className="mt-2 text-2xl font-semibold">{cutoverGuard.count.toLocaleString()}</p>
+          <p className="mt-1 text-xs opacity-70">{cutoverGuard.label} · {cutoverGuard.detail}</p>
+          <p className="mt-2 text-xs leading-5 opacity-80">
+            Safe {cutoverGuard.safe.toLocaleString()} / {cutoverGuard.total.toLocaleString()} · Blocked{' '}
+            {cutoverGuard.blocked.toLocaleString()} · Impact {cutoverGuard.impact}
+          </p>
+          {cutoverGuard.next_step && (
+            <p className="mt-2 text-xs leading-5 opacity-80">{cutoverGuard.next_step}</p>
+          )}
         </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(drainRisk.risk)}`}>
           <p className="text-xs uppercase tracking-[0.16em] opacity-70">Drain Risk</p>

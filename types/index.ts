@@ -736,6 +736,12 @@ export interface VpnRestartReadinessBlockedNode {
  *   Candidate public_ip / region_code / city / version are node placement
  *   metadata from /root/aeronyx/privacy_network/api/vpn_observability.py so
  *   Services can show which commercial entry point returns to placement.
+ * Cutover safety source:
+ *   data.summary.restart_readiness.cutover_guard_counts aggregates
+ *   data.nodes[].system.restart_readiness.drain_eta.cutover_guard from
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py so Services can
+ *   show whether Rust replacement/restart is commercially safe across the
+ *   fleet without parsing backend English copy.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts
@@ -749,6 +755,44 @@ export interface VpnRestartReadinessSummary {
   can_restart: number;
   sessions_blocking_restart: number;
   blocker_counts: Record<string, number>;
+  cutover_guard_counts?: {
+    total_nodes: number;
+    safe_nodes: number;
+    blocked_nodes: number;
+    critical_nodes: number;
+    warning_nodes: number;
+    status_counts: Record<string, number>;
+    risk_counts: Record<string, number>;
+    forced_impact_counts: Record<string, number>;
+    problem_nodes?: Array<{
+      id: string;
+      name: string;
+      health_status: string;
+      last_seen_seconds: number | null;
+      maintenance_mode: boolean;
+      active_sessions: number;
+      status: VpnRestartCutoverGuard['status'];
+      risk: VpnRestartCutoverGuard['risk'];
+      label: string;
+      detail: string;
+      next_step: string;
+      safe_to_cutover: boolean;
+      user_impact_if_forced: string;
+      recent_client_rx_sessions: number;
+      stale_client_rx_sessions: number;
+      never_client_rx_sessions: number;
+      source: 'restart_readiness.drain_eta.cutover_guard' | string;
+    }>;
+    summary?: {
+      label: string;
+      risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+      detail: string;
+      next_step: string;
+      count: number;
+    };
+    source: 'nodes.system.restart_readiness.drain_eta.cutover_guard' | string;
+    privacy_boundary: string;
+  };
   maintenance_exit_candidate_count?: number;
   maintenance_exit_candidates?: Array<{
     id: string;
