@@ -39,6 +39,8 @@
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
  *     exposing client IPs, wallets, destinations, DNS, payloads, or browsing.
+ *     Includes keepalive_missed_sessions / keepalive_pending_sessions so large
+ *     counters can be interpreted as affected-session counts.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -62,7 +64,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.11 - Show blocked node drain activity summary
+ * Last Modified: v1.1.12 - Show keepalive issue session counts
+ * Previous: v1.1.11 - Show blocked node drain activity summary
  * Previous: v1.1.10 - Show cleanup rollout blocker action
  * Previous: v1.1.9 - Show backend recommended blocker action
  * Previous: v1.1.8 - Added restart blocker playbook copy
@@ -561,10 +564,15 @@ function formatBlockedDrainActivity(node: VpnRestartReadinessSummary['blocked_no
   const activity = node.drain_activity;
   if (!activity) return null;
   const windowLabel = formatDuration(activity.activity_window_seconds || 180);
+  const keepaliveIssueSessions = Math.max(
+    activity.keepalive_missed_sessions ?? 0,
+    activity.keepalive_pending_sessions ?? 0,
+  );
   return [
     `${activity.recent_activity_sessions.toLocaleString()} recent/${windowLabel}`,
     `${activity.idle_activity_sessions.toLocaleString()} idle`,
-    `${activity.keepalive_missed_total.toLocaleString()} missed keepalives`,
+    `${keepaliveIssueSessions.toLocaleString()} keepalive issue session${keepaliveIssueSessions === 1 ? '' : 's'}`,
+    `${activity.keepalive_missed_total.toLocaleString()} missed total`,
   ].join(' · ');
 }
 

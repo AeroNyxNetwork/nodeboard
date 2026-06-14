@@ -42,7 +42,8 @@
  *     ClientSession aggregate timing used by the Maintenance Drain panel.
  *     drain_eta also carries node-level active-session activity buckets:
  *     recent_activity_sessions / idle_activity_sessions /
- *     activity_pending_sessions / keepalive aggregate totals.
+ *     activity_pending_sessions / keepalive issue session counts /
+ *     keepalive aggregate totals.
  *     cleanup_policy_pending means Rust has not reported
  *     heartbeat.system_stats.vpn_health.session_cleanup yet.
  *   - GET /api/privacy_network/nodes/{id}/sessions/?status=active
@@ -79,7 +80,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.5 - Show aggregate drain activity buckets
+ * Last Modified: v1.6.6 - Show keepalive issue session counts
+ * Previous: v1.6.5 - Show aggregate drain activity buckets
  * Previous: v1.6.4 - Explain cleanup rollout pending in node detail
  * Previous: v1.6.3 - Node detail consumes backend restart drain ETA
  * Previous: v1.6.2 - Backend restart_readiness gate for restart actions
@@ -1424,12 +1426,22 @@ function drainActivityBucketRows(eta: VpnRestartDrainEta | null | undefined) {
       tone: 'text-gray-300',
     },
     {
-      label: 'Missed keepalives',
+      label: `Missed keepalive sessions (${(eta.keepalive_missed_total ?? 0).toLocaleString()} total)`,
+      value: eta.keepalive_missed_sessions ?? 0,
+      tone: 'text-yellow-100',
+    },
+    {
+      label: `Pending keepalive sessions (${(eta.keepalive_pending_total ?? 0).toLocaleString()} total)`,
+      value: eta.keepalive_pending_sessions ?? 0,
+      tone: 'text-sky-100',
+    },
+    {
+      label: 'Missed keepalive total',
       value: eta.keepalive_missed_total ?? 0,
       tone: 'text-yellow-100',
     },
     {
-      label: 'Pending keepalives',
+      label: 'Pending keepalive total',
       value: eta.keepalive_pending_total ?? 0,
       tone: 'text-sky-100',
     },
