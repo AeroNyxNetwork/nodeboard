@@ -27,6 +27,9 @@
  *   - data.nodes[].system.restart_readiness.drain_eta
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates active ClientSession timing for maintenance drain visibility.
+ *   - data.summary.restart_readiness.blocker_counts
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Drives the fleet restart blocker playbook shown in this page.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -50,7 +53,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.7 - Show restart drain ETA
+ * Last Modified: v1.1.8 - Added restart blocker playbook copy
+ * Previous: v1.1.7 - Show restart drain ETA
  * Previous: v1.1.6 - Show active restart command state
  * Previous: v1.1.5 - Added restart gate command action
  * Previous: v1.1.4 - Added restart gate maintenance action
@@ -536,6 +540,32 @@ function formatDrainEta(eta: VpnRestartDrainEta | null) {
   return `${formatDuration(eta.estimated_seconds_remaining)} if idle`;
 }
 
+function restartBlockerCopy(code: string) {
+  const copy: Record<string, { label: string; remediation: string }> = {
+    maintenance_required: {
+      label: 'Maintenance off',
+      remediation: 'Enable maintenance so new placements stop before restart.',
+    },
+    active_sessions: {
+      label: 'Active sessions',
+      remediation: 'Open sessions and wait for tunnels to drain to zero.',
+    },
+    cleanup_policy_pending: {
+      label: 'Cleanup policy pending',
+      remediation: 'Restart after drain so Rust reports session_cleanup policy.',
+    },
+    restart_command_active: {
+      label: 'Restart already queued',
+      remediation: 'Open node commands and wait for the active restart_service command.',
+    },
+  };
+
+  return copy[code] ?? {
+    label: code.replaceAll('_', ' '),
+    remediation: 'Review the backend restart_readiness blocker message.',
+  };
+}
+
 function StatusPill({ status }: { status: string }) {
   const normalized = normalizeStatus(status);
   return (
@@ -817,15 +847,25 @@ function FleetRestartReadinessPanel({
             <StatusPill status="blocked" />
           </div>
           {blockerCounts.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {blockerCounts.map(([code, count]) => (
-                <span
-                  key={code}
-                  className="rounded-md border border-yellow-300/10 bg-black/20 px-2 py-1 text-xs text-yellow-100/65"
-                >
-                  {code.replaceAll('_', ' ')}: {count.toLocaleString()}
-                </span>
-              ))}
+            <div className="mt-3 grid gap-2 lg:grid-cols-3">
+              {blockerCounts.map(([code, count]) => {
+                const blocker = restartBlockerCopy(code);
+
+                return (
+                  <div
+                    key={code}
+                    className="rounded-lg border border-yellow-300/10 bg-black/20 px-3 py-2 text-xs"
+                  >
+                    <div className="flex items-center justify-between gap-2 text-yellow-100/80">
+                      <span className="font-medium">{blocker.label}</span>
+                      <span className="text-yellow-100">{count.toLocaleString()}</span>
+                    </div>
+                    <p className="mt-1 leading-5 text-yellow-100/45">
+                      {blocker.remediation}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           )}
 
