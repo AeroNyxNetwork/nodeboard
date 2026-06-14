@@ -386,6 +386,44 @@ export interface VpnSessionCleanupStatus {
   privacy_boundary: string;
 }
 
+export interface VpnRestartReadinessBlocker {
+  code: 'maintenance_required' | 'active_sessions' | string;
+  message: string;
+}
+
+/**
+ * Backend-authoritative controlled restart gate.
+ *
+ * Backend API:
+ *   GET /api/privacy_network/vpn/overview/
+ * Backend file:
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py
+ * Nodeboard consumers:
+ *   /root/open/nodeboard/app/dashboard/services/page.tsx
+ *   /root/open/nodeboard/app/dashboard/nodes/[id]/page.tsx
+ * Rust sources:
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/services/session.rs
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
+ *
+ * Privacy boundary: aggregate restart readiness only. No client public IPs,
+ * destinations, DNS contents, packet payloads, domains, URLs, browsing
+ * history, voucher secrets, or wallet-level traffic.
+ */
+export interface VpnRestartReadiness {
+  status: 'ready' | 'blocked' | 'pending' | 'current' | string;
+  can_restart: boolean;
+  blockers: VpnRestartReadinessBlocker[];
+  next_step: string;
+  maintenance_mode: boolean;
+  active_sessions: number;
+  operator_reporting: boolean;
+  restart_required: boolean;
+  cleanup_reported: boolean;
+  source: string;
+  privacy_boundary: string;
+}
+
 export type OperatorServiceKey =
   | 'privacy_protocol'
   | 'memchain'
@@ -551,6 +589,7 @@ export interface VpnNodeHealth {
      * history, voucher secrets, or wallet-level traffic.
      */
     session_cleanup?: VpnSessionCleanupStatus | null;
+    restart_readiness?: VpnRestartReadiness | null;
     policy_sync?: VpnPolicySync;
     policy_enforcement?: VpnPolicyEnforcement;
     runtime_recovery?: VpnRuntimeRecovery;

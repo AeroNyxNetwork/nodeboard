@@ -53,6 +53,7 @@ import {
   OperatorServiceStatus,
   RuntimeRolloutStatus,
   VpnNodeHealth,
+  VpnRestartReadiness,
   VpnSessionCleanupStatus,
 } from '@/types';
 
@@ -130,6 +131,8 @@ interface RestartReadinessNode {
   cleanupReported: boolean;
   status: 'ready' | 'blocked' | 'pending' | 'current';
   nextStep: string;
+  blockers: string[];
+  source: string;
 }
 
 interface SessionCleanupRolloutNode {
@@ -371,14 +374,44 @@ function collectRuntimeRolloutNodes(nodes: VpnNodeHealth[]): RuntimeRolloutNode[
 }
 
 function collectRestartReadinessNodes(nodes: VpnNodeHealth[]): RestartReadinessNode[] {
+  const normalizeBackendStatus = (status: VpnRestartReadiness['status']) => (
+    status === 'ready' || status === 'blocked' || status === 'pending' || status === 'current'
+      ? status
+      : 'pending'
+  );
+
   return nodes
     .filter((node) => node.is_vpn_node)
     .map((node) => {
+      const backendReadiness = node.system?.restart_readiness ?? null;
+      if (backendReadiness) {
+        return {
+          id: node.id,
+          name: node.name,
+          publicIp: node.public_ip,
+          activeSessions: backendReadiness.active_sessions,
+          maintenanceMode: backendReadiness.maintenance_mode,
+          healthStatus: node.health_status,
+          lastHeartbeat: node.last_heartbeat,
+          operatorReporting: backendReadiness.operator_reporting,
+          restartRequired: backendReadiness.restart_required,
+          cleanupReported: backendReadiness.cleanup_reported,
+          status: normalizeBackendStatus(backendReadiness.status),
+          nextStep: backendReadiness.next_step,
+          blockers: backendReadiness.blockers.map((blocker) => blocker.message),
+          source: backendReadiness.source,
+        };
+      }
+
       const operatorStatus = nodeOperatorStatus(node);
       const restartRequired = Boolean(operatorStatus?.runtime_rollout?.restart_required);
       const operatorReporting = Boolean(operatorStatus);
       const cleanupReported = Boolean(node.system?.session_cleanup);
       const needsRolloutAttention = restartRequired || !operatorReporting || !cleanupReported;
+      const blockers = [
+        ...(!node.maintenance_mode ? ['Enable maintenance mode before restart.'] : []),
+        ...(node.active_sessions > 0 ? [`Drain ${node.active_sessions.toLocaleString()} active session(s).`] : []),
+      ];
       const readyForRestart = needsRolloutAttention && node.maintenance_mode && node.active_sessions === 0;
       const nextStep = readyForRestart
         ? 'restart window open'
@@ -413,6 +446,8 @@ function collectRestartReadinessNodes(nodes: VpnNodeHealth[]): RestartReadinessN
               ? 'blocked'
               : 'pending',
         nextStep,
+        blockers: needsRolloutAttention ? blockers : [],
+        source: 'nodeboard_fallback_restart_gate',
       };
     });
 }
@@ -677,8 +712,9 @@ function FleetRestartReadinessPanel({ nodes }: { nodes: RestartReadinessNode[] }
         <div>
           <h2 className="text-lg font-semibold text-white">Fleet Restart Readiness</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-400">
-            Commercial restart gate for staged Rust rollouts. A node is restart-ready only when it needs
-            rollout attention, maintenance mode is enabled, and active sessions have drained to zero.
+            Commercial restart gate for staged Rust rollouts from the backend overview API. A node is
+            restart-ready only when it needs rollout attention, maintenance mode is enabled, and active
+            sessions have drained to zero.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -739,8 +775,14 @@ function FleetRestartReadinessPanel({ nodes }: { nodes: RestartReadinessNode[] }
             <p className="mt-3 text-xs leading-5 text-gray-600">
               Heartbeat {node.lastHeartbeat ? formatRelativeTime(node.lastHeartbeat) : 'pending'} ·
               cleanup policy {node.cleanupReported ? 'reported' : 'pending'} ·
-              rollout {node.restartRequired ? 'restart required' : node.operatorReporting ? 'current signal' : 'operator pending'}.
+              rollout {node.restartRequired ? 'restart required' : node.operatorReporting ? 'current signal' : 'operator pending'} ·
+              source {node.source}.
             </p>
+            {node.blockers.length > 0 && (
+              <p className="mt-2 text-xs leading-5 text-yellow-100/60">
+                Blockers: {node.blockers.join(' ')}
+              </p>
+            )}
           </div>
         ))}
       </div>
