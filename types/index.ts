@@ -569,7 +569,8 @@ export interface VpnRestartReadinessBlockedNode {
  * Command delivery source:
  *   data.summary.restart_readiness.command_delivery_health aggregates Rust
  *   heartbeat freshness plus backend operator_reporting for the Services
- *   Command Delivery card.
+ *   Command Delivery card. problem_nodes is a capped privacy-safe triage list
+ *   for nodes that cannot receive restart commands promptly.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts
@@ -591,6 +592,16 @@ export interface VpnRestartReadinessSummary {
     delayed_nodes: number;
     offline_nodes: number;
     operator_reporting_nodes: number;
+    problem_nodes?: Array<{
+      id: string;
+      name: string;
+      health_status: string;
+      last_seen_seconds: number | null;
+      operator_reporting: boolean;
+      issue_code: string;
+      issue_label: string;
+      recommended_action: string;
+    }>;
     fresh_seconds: number;
     degraded_seconds: number;
     summary?: {

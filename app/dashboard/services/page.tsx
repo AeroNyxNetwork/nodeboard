@@ -58,7 +58,8 @@
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates Rust heartbeat freshness and backend operator_reporting so
  *     the Services page can show whether restart commands can be delivered
- *     before operators queue fleet actions.
+ *     before operators queue fleet actions. problem_nodes is a capped triage
+ *     list for delivery blockers and links operators to node detail.
  *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
@@ -103,7 +104,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.29 - Show command delivery health
+ * Last Modified: v1.1.30 - Show command delivery issue nodes
+ * Previous: v1.1.29 - Show command delivery health
  * Previous: v1.1.28 - Show latest restart command activity context
  * Previous: v1.1.27 - Show 24h restart command reliability
  * Previous: v1.1.26 - Show restart outcome audit summary
@@ -816,6 +818,7 @@ function fleetCommandDelivery(summary: VpnRestartReadinessSummary | null) {
       count: 0,
       ready: 0,
       attention: 0,
+      problemNodes: [],
       label: 'Pending',
       detail: 'waiting for backend command delivery summary',
       risk: 'info',
@@ -833,6 +836,7 @@ function fleetCommandDelivery(summary: VpnRestartReadinessSummary | null) {
     count: delivery.command_ready_nodes,
     ready: delivery.command_ready_nodes,
     attention: delivery.attention_nodes,
+    problemNodes: delivery.problem_nodes ?? [],
     label: summaryCopy.label,
     detail: summaryCopy.detail,
     risk: summaryCopy.risk,
@@ -1575,6 +1579,39 @@ function FleetRestartReadinessPanel({
           )}
         </div>
       </div>
+
+      {commandDelivery.problemNodes.length > 0 && (
+        <div className="mt-4 rounded-xl border border-yellow-300/20 bg-yellow-500/[0.04] p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-yellow-100">Command Delivery Issues</h3>
+              <p className="mt-1 text-xs leading-5 text-yellow-100/60">
+                Nodes below need fresh Rust heartbeat and operator reporting before restart commands are reliable.
+              </p>
+            </div>
+            <StatusPill status={commandDelivery.risk} />
+          </div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+            {commandDelivery.problemNodes.map((node) => (
+              <div key={node.id} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <Link href={`/dashboard/nodes/${node.id}`} className="min-w-0 truncate font-medium text-white hover:text-purple-300">
+                    {node.name}
+                  </Link>
+                  <span className="shrink-0 rounded-md border border-yellow-200/20 px-2 py-0.5 text-yellow-100/80">
+                    {node.issue_label}
+                  </span>
+                </div>
+                <p className="mt-2 leading-5 text-yellow-100/60">
+                  Heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'missing'} ·
+                  operator {node.operator_reporting ? 'reported' : 'pending'} · health {node.health_status}
+                </p>
+                <p className="mt-1 leading-5 text-yellow-100/50">{node.recommended_action}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className={`mt-4 rounded-xl border p-4 ${drainActivityHealthClass(commandOutcome.risk)}`}>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">

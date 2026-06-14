@@ -32,7 +32,8 @@
  *     backend-authored recommended_action plus drain_activity buckets.
  *     Provides data.summary.restart_readiness.command_delivery_health for
  *     Services Command Delivery health from Rust heartbeat freshness and
- *     backend operator_reporting.
+ *     backend operator_reporting. problem_nodes is a capped node-level triage
+ *     list for command delivery blockers.
  *     Provides data.summary.restart_readiness.drain_activity_health_counts
  *     for the Services page top-level Drain Risk card.
  *     drain_activity_health_counts.summary is backend-authored display copy
@@ -103,7 +104,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.31 - Documented command delivery health
+ * Last Modified: v1.1.32 - Documented command delivery issue nodes
+ * Previous: v1.1.31 - Documented command delivery health
  * Previous: v1.1.30 - Documented latest restart command context
  * Previous: v1.1.29 - Documented 24h restart command reliability
  * Previous: v1.1.28 - Documented restart outcome audit summary
@@ -199,7 +201,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.command_delivery_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level restart command delivery readiness from Rust heartbeat freshness and backend operator_reporting for the Services Command Delivery card',
+      purpose: 'Fleet-level restart command delivery readiness plus capped problem_nodes triage list from Rust heartbeat freshness and backend operator_reporting for the Services Command Delivery card',
     },
     {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',
