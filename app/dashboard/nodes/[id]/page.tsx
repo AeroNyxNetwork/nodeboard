@@ -15,12 +15,32 @@
  * Main Functionality:
  *   1. Node header with inline name editing and delete action
  *   2. NodeSettings — visibility / region / VPN / password config
- *   3. VPN Health panel from /vpn/overview/ for live heartbeat diagnostics
- *   4. Recent VPN Events for node-scoped health/session/command triage
- *   5. Wallet ban policies and VPN command history
- *   6. Stats grid — uptime / sessions / traffic
- *   7. Hardware info + node details
- *   8. Recent sessions table
+ *   3. Service Readiness panel from /vpn/overview/ operator_status
+ *   4. VPN Health panel from /vpn/overview/ for live heartbeat diagnostics
+ *   5. Recent VPN Events for node-scoped health/session/command triage
+ *   6. Wallet ban policies and VPN command history
+ *   7. Stats grid — uptime / sessions / traffic
+ *   8. Hardware info + node details
+ *   9. Recent sessions table
+ *
+ * Backend APIs and file paths used by this page:
+ *   - GET /api/privacy_network/nodes/{id}/
+ *     /root/aeronyx/privacy_network/api/nodes.py
+ *   - PATCH /api/privacy_network/nodes/{id}/
+ *     /root/aeronyx/privacy_network/api/nodes.py
+ *   - GET /api/privacy_network/vpn/overview/
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   - POST /api/privacy_network/nodes/{id}/commands/
+ *     /root/aeronyx/privacy_network/api/vpn_commands.py
+ *
+ * Rust service readiness source:
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
+ *
+ * Data contract:
+ *   Rust heartbeat reports system_stats.operator_status.
+ *   Django persists Node.hardware_info["operator_status"] and exposes it as:
+ *     data.nodes[].system.operator_status
  *
  * Dependencies:
  *   - hooks/useNodes.ts (useNodeDetail, useNodeStats, useNodeSessions,
@@ -38,7 +58,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.5.0 - Focused nodeboard on VPN operations UI
+ * Last Modified: v1.6.0 - Added node-level service readiness view
+ * Previous: v1.5.0 - Focused nodeboard on VPN operations UI
  * Previous: v1.4.0 - Added NodeSettings panel
  * ============================================
  */
@@ -64,8 +85,11 @@ import {
 } from '@/hooks/useNodes';
 import {
   NodeCommand,
+  NodeOperatorStatus,
   NodeStatus,
   NodeWalletBan,
+  OperatorRisk,
+  OperatorServiceStatus,
   VpnEvent,
   VpnEventSeverity,
   VpnHealthStatus,
@@ -1392,6 +1416,222 @@ function MaintenanceDrainPanel({
   );
 }
 
+// ============================================
+// Service Readiness Panel
+// ============================================
+
+const OPERATOR_STATUS_CLASS: Record<string, string> = {
+  ok: 'border-emerald-500/25 bg-emerald-500/15 text-emerald-300',
+  ready: 'border-emerald-500/25 bg-emerald-500/15 text-emerald-300',
+  healthy: 'border-emerald-500/25 bg-emerald-500/15 text-emerald-300',
+  attention: 'border-yellow-500/25 bg-yellow-500/15 text-yellow-300',
+  warning: 'border-yellow-500/25 bg-yellow-500/15 text-yellow-300',
+  degraded: 'border-yellow-500/25 bg-yellow-500/15 text-yellow-300',
+  planned: 'border-sky-500/25 bg-sky-500/15 text-sky-300',
+  info: 'border-sky-500/25 bg-sky-500/15 text-sky-300',
+  disabled: 'border-white/10 bg-white/5 text-gray-400',
+  pending: 'border-white/10 bg-white/5 text-gray-300',
+  failed: 'border-red-500/25 bg-red-500/15 text-red-300',
+  critical: 'border-red-500/25 bg-red-500/15 text-red-300',
+};
+
+function operatorStatusClass(status: string | null | undefined) {
+  return OPERATOR_STATUS_CLASS[status || 'pending'] || OPERATOR_STATUS_CLASS.pending;
+}
+
+function OperatorStatusBadge({ status }: { status: string | null | undefined }) {
+  const value = status || 'pending';
+  return (
+    <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${operatorStatusClass(value)}`}>
+      {value.replace(/_/g, ' ')}
+    </span>
+  );
+}
+
+function operatorMetricValue(metrics: Record<string, unknown>, key: string): string | null {
+  const value = metrics[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return value.toLocaleString();
+  if (typeof value === 'boolean') return value ? 'yes' : 'no';
+  if (typeof value === 'string' && value.trim()) return value.length > 32 ? `${value.slice(0, 29)}...` : value;
+  return null;
+}
+
+function operatorMetricChips(service: OperatorServiceStatus): string[] {
+  const keys = [
+    'active_sessions',
+    'active_wallet_devices',
+    'configured_mtu',
+    'running_mtu',
+    'mode',
+    'api_listen_addr',
+    'remote_enabled',
+    'supernode_enabled',
+    'failed_checks',
+  ];
+
+  return keys
+    .map((key) => {
+      const value = operatorMetricValue(service.metrics, key);
+      return value ? `${key.replace(/_/g, ' ')}: ${value}` : null;
+    })
+    .filter((item): item is string => Boolean(item))
+    .slice(0, 5);
+}
+
+function operatorStatusTotals(status: NodeOperatorStatus) {
+  return {
+    enabled: status.services.filter((service) => service.enabled).length,
+    total: status.services.length,
+    attention: status.services.filter((service) => (
+      ['attention', 'warning', 'degraded', 'failed', 'critical'].includes(service.status)
+    )).length,
+  };
+}
+
+function ServiceRiskCard({ risk }: { risk: OperatorRisk }) {
+  return (
+    <div className="rounded-lg border border-yellow-500/15 bg-yellow-500/[0.05] p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-yellow-100">{risk.message}</p>
+          <p className="mt-1 text-xs text-yellow-100/70">{risk.remediation}</p>
+        </div>
+        <OperatorStatusBadge status={risk.severity} />
+      </div>
+    </div>
+  );
+}
+
+function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNode: boolean }) {
+  const { overview, isLoading, isError, refetch } = useVpnOverview();
+  const health = overview?.nodes.find((item) => item.id === nodeId) ?? null;
+  const operatorStatus = health?.system.operator_status ?? null;
+  const totals = operatorStatus ? operatorStatusTotals(operatorStatus) : null;
+
+  if (!isVpnNode) {
+    return (
+      <Card variant="outline" padding="md" className="mb-6">
+        <h3 className="font-semibold text-white">AeroNyx Service Readiness</h3>
+        <p className="mt-2 text-sm text-gray-500">
+          Privacy Protocol mode is disabled for this node. Enable it in Node Settings before service readiness is reported.
+        </p>
+      </Card>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <Card variant="default" padding="md" className="mb-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-4 w-48 rounded bg-white/10" />
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {[...Array(5)].map((_, index) => (
+              <div key={index} className="h-28 rounded-xl bg-white/5" />
+            ))}
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  if (isError || !health || !operatorStatus) {
+    return (
+      <Card variant="outline" padding="md" className="mb-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="font-semibold text-white">AeroNyx Service Readiness</h3>
+            <p className="mt-1 text-sm text-yellow-300">
+              Waiting for system_stats.operator_status from the signed Rust heartbeat.
+            </p>
+            <p className="mt-2 text-xs leading-5 text-gray-500">
+              Backend contract: GET /api/privacy_network/vpn/overview/ reads
+              /root/aeronyx/privacy_network/api/vpn_observability.py, which exposes
+              Node.hardware_info["operator_status"] written by heartbeat_service.py.
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card variant="default" padding="md" className="mb-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <h3 className="font-semibold text-white">AeroNyx Service Readiness</h3>
+            <OperatorStatusBadge status={operatorStatus.status} />
+          </div>
+          <p className="mt-2 text-sm text-gray-500">
+            Node-level service/config telemetry from signed Rust heartbeat operator_status.
+          </p>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-right text-xs text-gray-500">
+          <div>
+            <p className="text-gray-600">Enabled</p>
+            <p className="mt-1 text-gray-200">{totals?.enabled ?? 0}/{totals?.total ?? 0}</p>
+          </div>
+          <div>
+            <p className="text-gray-600">Attention</p>
+            <p className="mt-1 text-gray-200">{totals?.attention ?? 0}</p>
+          </div>
+          <div>
+            <p className="text-gray-600">Reported</p>
+            <p className="mt-1 text-gray-200">
+              {operatorStatus.last_reported_at ? formatRelativeTime(operatorStatus.last_reported_at) : 'pending'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {operatorStatus.services.map((service) => (
+          <div key={service.key} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-white">{service.label}</p>
+                <p className="mt-1 text-xs text-gray-600">{service.enabled ? 'enabled' : 'not enabled'}</p>
+              </div>
+              <OperatorStatusBadge status={service.status} />
+            </div>
+            <p className="mt-3 line-clamp-2 text-sm leading-6 text-gray-400">{service.summary}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {operatorMetricChips(service).map((chip) => (
+                <span key={chip} className="max-w-full truncate rounded-md border border-white/10 bg-black/20 px-2 py-1 text-xs text-gray-500">
+                  {chip}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {operatorStatus.risks.length > 0 && (
+        <div className="mt-5 border-t border-white/5 pt-4">
+          <h4 className="text-sm font-semibold text-white">Service Risks</h4>
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            {operatorStatus.risks.map((risk, index) => (
+              <ServiceRiskCard key={`${risk.code}-${index}`} risk={risk} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-5 rounded-xl border border-white/5 bg-black/20 p-3">
+        <p className="text-xs text-gray-500">
+          Source: {operatorStatus.source || 'rust heartbeat'} · Backend:
+          /root/aeronyx/privacy_network/api/vpn_observability.py · Rust:
+          crates/aeronyx-server/src/api/vpn_health.rs
+        </p>
+        <p className="mt-2 text-xs leading-5 text-gray-600">{operatorStatus.privacy_boundary}</p>
+      </div>
+    </Card>
+  );
+}
+
 function VpnHealthPanel({
   nodeId,
   isVpnNode,
@@ -2464,7 +2704,13 @@ export default function NodeDetailPage() {
         onToast={showToast}
       />
 
-      {/* 3. VPN Health Panel */}
+      {/* 3. AeroNyx Service Readiness */}
+      <ServiceReadinessPanel
+        nodeId={nodeId}
+        isVpnNode={node.is_vpn_node}
+      />
+
+      {/* 4. VPN Health Panel */}
       <VpnHealthPanel
         nodeId={nodeId}
         isVpnNode={node.is_vpn_node}
@@ -2474,16 +2720,16 @@ export default function NodeDetailPage() {
         onToast={showToast}
       />
 
-      {/* 4. Recent VPN Events */}
+      {/* 5. Recent VPN Events */}
       <NodeVpnEventsPanel nodeId={nodeId} isVpnNode={node.is_vpn_node} />
 
-      {/* 5. Wallet Ban Policies */}
+      {/* 6. Wallet Ban Policies */}
       <WalletBanPolicyPanel nodeId={nodeId} isVpnNode={node.is_vpn_node} onToast={showToast} />
 
-      {/* 6. Stats Grid */}
+      {/* 7. Stats Grid */}
       <StatsGrid nodeId={nodeId} />
 
-      {/* 7. Hardware Info + Node Details */}
+      {/* 8. Hardware Info + Node Details */}
       <div className="grid lg:grid-cols-3 gap-6 mb-6">
         <Card variant="default" padding="md" className="lg:col-span-1">
           <h3 className="font-semibold text-white mb-4">Hardware Info</h3>
