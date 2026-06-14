@@ -336,7 +336,7 @@ interface RestartReadinessNode {
 }
 
 type RestartActionQueueKey = 'stale' | 'retry' | 'capability' | 'cutover' | 'critical' | 'warning' | 'ready' | 'current';
-type RestartQueueStatusFilter = 'all' | 'attention' | 'stale' | 'retry' | 'blocked' | 'ready' | 'current';
+type RestartQueueStatusFilter = 'all' | 'attention' | 'capability' | 'stale' | 'retry' | 'blocked' | 'ready' | 'current';
 
 interface RestartQueueFilters {
   region: string;
@@ -390,6 +390,7 @@ interface SessionCleanupRolloutNode {
 const restartQueueStatusFilters: Array<{ value: RestartQueueStatusFilter; label: string }> = [
   { value: 'all', label: 'All statuses' },
   { value: 'attention', label: 'Needs action' },
+  { value: 'capability', label: 'Rust capability' },
   { value: 'stale', label: 'Stale command' },
   { value: 'retry', label: 'Retry needed' },
   { value: 'blocked', label: 'Blocked' },
@@ -1784,6 +1785,7 @@ function filterRestartQueueItems(
     if (filters.version !== 'all' && item.version !== filters.version) return false;
     if (filters.status === 'stale') return restartCommandIsStale(item.activeRestartCommand);
     if (filters.status === 'retry') return restartCommandNeedsRetry(item.latestRestartCommand);
+    if (filters.status === 'capability') return item.source === 'backend_runtime_capability';
     if (filters.status === 'blocked') {
       return item.source === 'backend_blocked_node'
         || item.source === 'backend_cutover_guard'
@@ -2943,7 +2945,9 @@ function FleetRestartReadinessPanel({
           <div>
             <h3 className="text-sm font-semibold text-white">Restart Action Queue</h3>
             <p className="mt-1 text-xs leading-5 text-gray-500">
-              Prioritized from data.summary.restart_readiness.blocked_nodes and
+              Prioritized from data.summary.restart_readiness.blocked_nodes,
+              cutover_guard_counts.actionable_problem_nodes,
+              runtime_capability_health.problem_nodes, and
               data.nodes[].system.restart_readiness.
             </p>
             <p className="mt-1 text-xs text-gray-600">
