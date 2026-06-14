@@ -23,7 +23,8 @@
  *   - data.nodes[].system.restart_readiness.active_restart_command
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors NodeCommand restart_service pending/sent/executing state so the
- *     fleet view does not offer duplicate restarts.
+ *     fleet view does not offer duplicate restarts. The Action Queue renders
+ *     this as a compact command timeline using id/status/created_at only.
  *   - data.nodes[].system.restart_readiness.drain_eta
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates active ClientSession timing for maintenance drain visibility.
@@ -75,7 +76,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.18 - Add queue filters and stable impact ordering
+ * Last Modified: v1.1.19 - Show restart command timeline in action queue
+ * Previous: v1.1.18 - Add queue filters and stable impact ordering
  * Previous: v1.1.17 - Add prioritized restart action queue
  * Previous: v1.1.16 - Show backend drain risk next step
  * Previous: v1.1.15 - Use backend-authored fleet drain risk copy
@@ -222,6 +224,7 @@ interface RestartActionQueueItem {
   regionLabel: string;
   version: string;
   healthStatus: string;
+  activeRestartCommand: VpnRestartCommandState | null;
   activeSessions: number;
   maintenanceMode: boolean;
   canEnableMaintenance: boolean;
@@ -774,6 +777,7 @@ function buildBlockedRestartQueueItem(
     regionLabel: readinessNode?.regionLabel ?? 'unknown region',
     version: readinessNode?.version ?? 'unknown version',
     healthStatus: readinessNode?.healthStatus ?? 'blocked',
+    activeRestartCommand: readinessNode?.activeRestartCommand ?? null,
     activeSessions: node.active_sessions,
     maintenanceMode: node.maintenance_mode,
     canEnableMaintenance: !node.maintenance_mode && node.blocker_codes.includes('maintenance_required'),
@@ -803,6 +807,7 @@ function buildReadyRestartQueueItem(node: RestartReadinessNode): RestartActionQu
     regionLabel: node.regionLabel,
     version: node.version,
     healthStatus: node.healthStatus,
+    activeRestartCommand: node.activeRestartCommand,
     activeSessions: node.activeSessions,
     maintenanceMode: node.maintenanceMode,
     canEnableMaintenance: false,
@@ -853,6 +858,27 @@ function filterRestartQueueItems(
     if (filters.status === 'attention') return item.source === 'backend_blocked_node' || item.canQueueRestart;
     return true;
   });
+}
+
+function restartCommandStageIndex(command: VpnRestartCommandState | null) {
+  if (!command) return -1;
+  if (command.status === 'pending') return 0;
+  if (command.status === 'sent') return 1;
+  if (command.status === 'executing') return 2;
+  return 0;
+}
+
+function restartCommandStatusClass(command: VpnRestartCommandState | null) {
+  if (!command) return 'border-white/10 bg-white/[0.03] text-gray-400';
+  if (command.status === 'executing') return 'border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-100';
+  if (command.status === 'sent') return 'border-sky-300/25 bg-sky-300/[0.08] text-sky-100';
+  return 'border-yellow-300/25 bg-yellow-300/[0.08] text-yellow-100';
+}
+
+function restartCommandTimelineLabel(command: VpnRestartCommandState | null) {
+  if (!command) return 'No active restart command';
+  const createdAt = command.created_at ? ` · queued ${formatRelativeTime(command.created_at)}` : '';
+  return `Restart command ${command.status}${createdAt}`;
 }
 
 function restartQueueFilterOptions(nodes: RestartReadinessNode[]) {
@@ -1312,6 +1338,7 @@ function FleetRestartReadinessPanel({
                 ) : queue.items.map((item) => {
                   const isEnablingMaintenance = enablingMaintenanceNodeId === item.id;
                   const isRestarting = restartingNodeId === item.id;
+                  const commandStageIndex = restartCommandStageIndex(item.activeRestartCommand);
 
                   return (
                     <div
@@ -1333,6 +1360,35 @@ function FleetRestartReadinessPanel({
                       <p className="mt-2 line-clamp-2 leading-5 opacity-45">
                         {item.meta.join(' · ')}
                       </p>
+                      {item.activeRestartCommand && (
+                        <div className={`mt-3 rounded-lg border px-3 py-2 ${restartCommandStatusClass(item.activeRestartCommand)}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium">
+                              {restartCommandTimelineLabel(item.activeRestartCommand)}
+                            </span>
+                            <Link
+                              href={`/dashboard/nodes/${item.id}?command_action=restart_service#vpn-commands`}
+                              className="shrink-0 text-sky-200 hover:text-sky-100"
+                            >
+                              Open
+                            </Link>
+                          </div>
+                          <div className="mt-2 grid grid-cols-3 gap-1">
+                            {['Queued', 'Sent', 'Executing'].map((stage, index) => (
+                              <div
+                                key={stage}
+                                className={`rounded-md px-2 py-1 text-center text-[11px] ${
+                                  index <= commandStageIndex
+                                    ? 'bg-white/15 text-white'
+                                    : 'bg-black/20 opacity-50'
+                                }`}
+                              >
+                                {stage}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       <div className="mt-3 flex flex-wrap gap-2">
                         <Link
                           href={item.actionHref}
