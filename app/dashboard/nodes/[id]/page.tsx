@@ -38,6 +38,8 @@
  *     Exposes data.nodes[].system.session_cleanup for drain ETA context.
  *     Exposes data.nodes[].system.restart_readiness for backend-authoritative
  *     controlled-restart gating.
+ *     Exposes data.nodes[].system.restart_readiness.drain_eta for active
+ *     ClientSession aggregate timing used by the Maintenance Drain panel.
  *   - GET /api/privacy_network/nodes/{id}/sessions/?status=active
  *     /root/aeronyx/privacy_network/api/sessions.py
  *     /root/aeronyx/privacy_network/serializers.py
@@ -72,7 +74,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.2 - Backend restart_readiness gate for restart actions
+ * Last Modified: v1.6.3 - Node detail consumes backend restart drain ETA
+ * Previous: v1.6.2 - Backend restart_readiness gate for restart actions
  * Previous: v1.6.1 - Guarded restart actions with maintenance drain readiness
  * Previous: v1.5.0 - Focused nodeboard on VPN operations UI
  * Previous: v1.4.0 - Added NodeSettings panel
@@ -111,6 +114,7 @@ import {
   VpnHealthStatus,
   VpnNodeHealth,
   VpnNodeMetrics,
+  VpnRestartDrainEta,
   VpnRestartReadiness,
   VpnServerCandidate,
 } from '@/types';
@@ -1339,6 +1343,38 @@ function restartReadinessSourceLabel(readiness: VpnRestartReadiness | null | und
   return readiness.source || 'backend restart gate';
 }
 
+function restartDrainEtaLabel(eta: VpnRestartDrainEta | null | undefined) {
+  if (!eta) return 'ETA pending';
+  if (eta.status === 'no_active_sessions') return 'Drained';
+  if (eta.status === 'cleanup_policy_pending') return 'Policy pending';
+  if (eta.status === 'activity_pending') return 'Activity pending';
+  if (eta.status === 'cleanup_due') return 'Cleanup due';
+  if (eta.status === 'waiting_for_idle_cleanup') return 'Waiting for idle cleanup';
+  return eta.status.replace(/_/g, ' ');
+}
+
+function restartDrainEtaClass(eta: VpnRestartDrainEta | null | undefined) {
+  if (!eta) return 'border-white/10 bg-white/[0.03] text-gray-300';
+  if (eta.status === 'no_active_sessions') return 'border-emerald-500/25 bg-emerald-500/[0.06] text-emerald-200';
+  if (eta.status === 'cleanup_due') return 'border-sky-500/25 bg-sky-500/[0.06] text-sky-200';
+  return 'border-yellow-500/25 bg-yellow-500/[0.06] text-yellow-200';
+}
+
+function restartDrainEtaTiming(eta: VpnRestartDrainEta | null | undefined) {
+  if (!eta) return 'waiting for backend aggregate';
+  if (eta.status === 'no_active_sessions') return 'no active tunnels';
+  if (eta.estimated_seconds_remaining !== null && eta.estimated_seconds_remaining <= 0) {
+    return 'cleanup window reached';
+  }
+  if (eta.estimated_seconds_remaining !== null) {
+    return `about ${formatDuration(eta.estimated_seconds_remaining)} remaining`;
+  }
+  if (eta.estimated_cleanup_at) {
+    return `cleanup ${formatRelativeTime(eta.estimated_cleanup_at)}`;
+  }
+  return 'estimate unavailable';
+}
+
 function restartReadinessLabel(blockers: string[], restartCommandActive: boolean) {
   if (restartCommandActive) return 'Restart queued';
   if (blockers.length === 0) return 'Ready to restart';
@@ -1415,10 +1451,12 @@ function MaintenanceDrainPanel({
   const missedKeepalives = activeSessions.reduce((total, session) => total + (session.keepalive_missed ?? 0), 0);
   const cleanupTimeoutSeconds = health.system.session_cleanup?.client_liveness_timeout_seconds ?? null;
   const restartReadiness = health.system.restart_readiness ?? null;
+  const backendDrainEta = restartReadiness?.drain_eta ?? null;
   const policySyncStatus = health.system.policy_sync?.status || 'unknown';
   const recoveryStatus = health.system.runtime_recovery?.status || 'unknown';
   const maintenanceReady = maintenanceMode && policySyncStatus === 'synced';
-  const drainReady = activeTunnels === 0;
+  const drainReady = backendDrainEta?.status === 'no_active_sessions' || activeTunnels === 0;
+  const drainDisplaySessions = backendDrainEta?.active_sessions ?? activeTunnels;
   const restartBlockers = restartReadinessBlockers({
     health,
     maintenanceMode,
@@ -1489,11 +1527,25 @@ function MaintenanceDrainPanel({
           <div className="flex items-start justify-between gap-2">
             <div>
               <p className="text-[11px] uppercase text-gray-600">2. Drain</p>
-              <p className="mt-1 text-sm font-semibold text-white">{activeTunnels} active tunnel{activeTunnels === 1 ? '' : 's'}</p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {drainDisplaySessions} active tunnel{drainDisplaySessions === 1 ? '' : 's'}
+              </p>
             </div>
             <span className={`text-xs ${drainReady ? 'text-emerald-300' : 'text-yellow-300'}`}>
               {drainStepStatus(drainReady, 'wait')}
             </span>
+          </div>
+          <div className={`mt-3 rounded-lg border px-3 py-2 ${restartDrainEtaClass(backendDrainEta)}`}>
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+              <p className="text-xs font-semibold">{restartDrainEtaLabel(backendDrainEta)}</p>
+              <p className="text-[11px] opacity-75">{restartDrainEtaTiming(backendDrainEta)}</p>
+            </div>
+            <p className="mt-1 text-[11px] leading-5 opacity-75">
+              {backendDrainEta?.next_step || restartReadiness?.next_step || 'Waiting for backend restart drain status.'}
+            </p>
+            {backendDrainEta?.privacy_boundary && (
+              <p className="mt-1 text-[10px] leading-4 opacity-50">{backendDrainEta.privacy_boundary}</p>
+            )}
           </div>
           <a
             href={sessionsHref}
@@ -1506,12 +1558,20 @@ function MaintenanceDrainPanel({
               Session poll: {activeSessionsLoading ? 'loading' : `${listedActiveTunnels} listed`}
               {listedActiveTunnels !== activeTunnels ? ` / ${activeTunnels} reported` : ''}
             </p>
-            <p>Oldest active: {oldestStartedAt ? formatRelativeTime(oldestStartedAt) : 'none'}</p>
-            <p>Latest activity: {newestActivityAt ? formatRelativeTime(newestActivityAt) : 'none'}</p>
+            <p>
+              Oldest active: {backendDrainEta?.oldest_started_at
+                ? formatRelativeTime(backendDrainEta.oldest_started_at)
+                : oldestStartedAt ? formatRelativeTime(oldestStartedAt) : 'none'}
+            </p>
+            <p>
+              Latest activity: {backendDrainEta?.latest_activity_at
+                ? formatRelativeTime(backendDrainEta.latest_activity_at)
+                : newestActivityAt ? formatRelativeTime(newestActivityAt) : 'none'}
+            </p>
             <p>Listed traffic: {formatBytes(listedTrafficBytes, 1)}</p>
             <p>
-              Stale client cleanup: {cleanupTimeoutSeconds
-                ? formatDuration(cleanupTimeoutSeconds)
+              Stale client cleanup: {backendDrainEta?.cleanup_timeout_seconds || cleanupTimeoutSeconds
+                ? formatDuration(backendDrainEta?.cleanup_timeout_seconds || cleanupTimeoutSeconds || 0)
                 : 'pending Rust rollout'}
             </p>
             {missedKeepalives > 0 && <p>Missed keepalives: {missedKeepalives}</p>}
