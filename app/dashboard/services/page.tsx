@@ -137,7 +137,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.45 - Explain staged DNS rollout impact
+ * Last Modified: v1.1.46 - Surface drain activity health in rollout gates
+ * Previous: v1.1.45 - Explain staged DNS rollout impact
  * Previous: v1.1.44 - Add DNS gateway gate to rollout cards
  * Previous: v1.1.43 - Show rollout restart gates
  * Previous: v1.1.42 - Add visual drain composition for restart gating
@@ -879,6 +880,18 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
   );
 }
 
+function rolloutDrainGateDetail(node: RuntimeRolloutNode) {
+  if (node.activeSessions === 0) return 'no active sessions';
+  const health = node.drainEta?.activity_health;
+  if (health) {
+    const latestActivity = node.drainEta?.latest_activity_at
+      ? ` · ${formatRelativeTime(node.drainEta.latest_activity_at)}`
+      : '';
+    return `${health.label}: ${health.detail}${latestActivity}`;
+  }
+  return `${node.activeSessions.toLocaleString()} active session${node.activeSessions === 1 ? '' : 's'}`;
+}
+
 function RolloutGateStrip({ node }: { node: RuntimeRolloutNode }) {
   const serviceManagerReady = Boolean(node.serviceManager?.restart_supported);
   const policySynced = node.policySync?.status === 'synced';
@@ -893,9 +906,7 @@ function RolloutGateStrip({ node }: { node: RuntimeRolloutNode }) {
     {
       label: 'Drain',
       status: node.activeSessions === 0 ? 'ready' : 'blocked',
-      detail: node.activeSessions === 0
-        ? 'no active sessions'
-        : `${node.activeSessions.toLocaleString()} active session${node.activeSessions === 1 ? '' : 's'}`,
+      detail: rolloutDrainGateDetail(node),
     },
     {
       label: 'Policy Sync',
