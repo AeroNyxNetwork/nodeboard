@@ -12,6 +12,12 @@
  * Backend APIs used on this page:
  *   - GET /api/privacy_network/vpn/overview/
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   - GET /api/privacy_network/vpn/servers/
+ *     /root/aeronyx/privacy_network/api/vpn_servers.py
+ *     Provides client placement capacity summary used by Services to show
+ *     available nodes, remaining capped slots, unlimited-capacity nodes, and
+ *     region/tier placement health from the same backend failover policy used
+ *     by VPN clients.
  *   - PATCH /api/privacy_network/nodes/{id}/
  *     /root/aeronyx/privacy_network/api/nodes.py
  *     Used only for operator-approved maintenance_mode changes from the
@@ -126,7 +132,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.35 - Show fleet policy enforcement blocks
+ * Last Modified: v1.1.36 - Show client placement capacity
+ * Previous: v1.1.35 - Show fleet policy enforcement blocks
  * Previous: v1.1.34 - Show fleet policy sync health
  * Previous: v1.1.33 - Show maintenance exit placement context
  * Previous: v1.1.32 - Source maintenance exit from action plan
@@ -167,7 +174,7 @@
 
 import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useCancelNodeCommand, useRunNodeCommand, useUpdateNode, useVpnOverview } from '@/hooks/useNodes';
+import { useCancelNodeCommand, useRunNodeCommand, useUpdateNode, useVpnOverview, useVpnServers } from '@/hooks/useNodes';
 import { formatDuration, formatRelativeTime } from '@/lib/api';
 import { POLLING_INTERVALS } from '@/lib/constants';
 import {
@@ -180,6 +187,7 @@ import {
   VpnRestartDrainEta,
   VpnRestartReadiness,
   VpnRestartReadinessSummary,
+  VpnServerPlacementSummary,
   VpnSessionCleanupStatus,
 } from '@/types';
 
@@ -694,6 +702,22 @@ function formatRefreshInterval(milliseconds: number) {
 function formatDataUpdatedAt(dataUpdatedAt: number) {
   if (!dataUpdatedAt) return 'waiting for first API sync';
   return `last API sync ${formatRelativeTime(new Date(dataUpdatedAt).toISOString())}`;
+}
+
+function formatPlacementCapacity(capacity: number, unlimitedNodes: number) {
+  if (unlimitedNodes > 0 && capacity > 0) return `${capacity.toLocaleString()} slots + ${unlimitedNodes.toLocaleString()} unlimited`;
+  if (unlimitedNodes > 0) return `${unlimitedNodes.toLocaleString()} unlimited`;
+  return `${capacity.toLocaleString()} slots`;
+}
+
+function formatPlacementReason(reason: string | null | undefined) {
+  if (!reason) return 'clear';
+  return reason.replaceAll('_', ' ');
+}
+
+function topPlacementReason(reasons: Record<string, number>) {
+  const [reason, count] = Object.entries(reasons).sort((a, b) => b[1] - a[1])[0] || [];
+  return reason ? `${formatPlacementReason(reason)} ${count.toLocaleString()}` : 'clear';
 }
 
 function formatOptionalPercent(value: number | null | undefined) {
@@ -1450,6 +1474,139 @@ function ServiceCard({ service }: { service: ServiceView }) {
         ))}
       </div>
       <p className="mt-4 text-xs leading-5 text-gray-500">{service.detail}</p>
+    </section>
+  );
+}
+
+function PlacementCapacityPanel({
+  summary,
+  available,
+  total,
+  isLoading,
+}: {
+  summary: VpnServerPlacementSummary | null;
+  available: number;
+  total: number;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+        <div className="animate-pulse space-y-3">
+          <div className="h-4 w-48 rounded bg-white/10" />
+          <div className="grid gap-3 md:grid-cols-3">
+            {[...Array(3)].map((_, index) => (
+              <div key={index} className="h-20 rounded-xl bg-white/5" />
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (!summary && total === 0) return null;
+
+  const unavailable = Math.max(0, total - available);
+  const regions = summary?.by_region.slice(0, 4) ?? [];
+  const tiers = summary?.by_tier.slice(0, 3) ?? [];
+  const status = available > 0 ? 'ok' : total > 0 ? 'attention' : 'pending';
+
+  return (
+    <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Client Placement Capacity</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-400">
+            Commercial capacity from the same backend failover policy used by VPN clients. Unavailable nodes hide addresses from clients before placement.
+          </p>
+        </div>
+        <StatusPill status={status} />
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Available Nodes</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{available.toLocaleString()} / {total.toLocaleString()}</p>
+          <p className="mt-1 text-xs text-gray-500">{unavailable.toLocaleString()} unavailable</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Capacity Remaining</p>
+          <p className="mt-2 text-2xl font-semibold text-white">
+            {summary ? formatPlacementCapacity(summary.available_capacity_remaining, summary.unlimited_capacity_nodes) : 'pending'}
+          </p>
+          <p className="mt-1 text-xs text-gray-500">capped slots + unlimited nodes</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Top Blocker</p>
+          <p className="mt-2 text-2xl font-semibold text-white">
+            {summary ? topPlacementReason(summary.unavailable_reasons) : 'pending'}
+          </p>
+          <p className="mt-1 text-xs text-gray-500">from backend placement policy</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Updated</p>
+          <p className="mt-2 text-2xl font-semibold text-white">
+            {summary?.generated_at ? formatRelativeTime(summary.generated_at) : 'pending'}
+          </p>
+          <p className="mt-1 text-xs text-gray-500">GET /api/privacy_network/vpn/servers/</p>
+        </div>
+      </div>
+
+      {summary && (
+        <div className="mt-4 grid gap-3 lg:grid-cols-[1.3fr_1fr]">
+          <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-white">Region Capacity</h3>
+              <Link href="/dashboard/nodes" className="text-xs text-purple-300 hover:text-purple-200">
+                Manage nodes
+              </Link>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              {regions.map((region) => (
+                <div key={region.key} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate font-medium text-gray-200">
+                      {region.flag ? `${region.flag} ` : ''}{region.label}
+                    </span>
+                    <span className="text-emerald-300">{region.available}/{region.total}</span>
+                  </div>
+                  <p className="mt-1 text-gray-500">
+                    {formatPlacementCapacity(region.capacity_remaining, region.unlimited_capacity_nodes)}
+                  </p>
+                  <p className="mt-1 text-gray-600">
+                    {region.unavailable > 0 ? topPlacementReason(region.unavailable_reasons) : 'all candidates clear'}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+            <h3 className="text-sm font-semibold text-white">Tier Capacity</h3>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+              {tiers.map((tier) => (
+                <div key={tier.key} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate font-medium text-gray-200">{tier.tier || tier.label}</span>
+                    <span className="text-emerald-300">{tier.available}/{tier.total}</span>
+                  </div>
+                  <p className="mt-1 text-gray-500">
+                    {formatPlacementCapacity(tier.capacity_remaining, tier.unlimited_capacity_nodes)}
+                  </p>
+                  <p className="mt-1 text-gray-600">
+                    {tier.average_load === null ? 'load pending' : `${tier.average_load}% avg load`}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-4 text-xs leading-5 text-gray-600">
+        Backend contract: GET /api/privacy_network/vpn/servers/ from
+        /root/aeronyx/privacy_network/api/vpn_servers.py. {summary?.privacy_note ?? 'Placement summary is owner-scoped operational metadata only.'}
+      </p>
     </section>
   );
 }
@@ -2527,6 +2684,13 @@ export default function NodeServicesPage() {
     dataUpdatedAt,
     refetch,
   } = useVpnOverview({ refetchIntervalMs: refreshIntervalMs });
+  const {
+    summary: placementSummary,
+    total: placementTotal,
+    available: placementAvailable,
+    isLoading: isPlacementLoading,
+    refetch: refetchPlacement,
+  } = useVpnServers();
   const updateNode = useUpdateNode();
   const runCommand = useRunNodeCommand();
   const cancelCommand = useCancelNodeCommand();
@@ -2538,6 +2702,7 @@ export default function NodeServicesPage() {
 
   const handleRefresh = () => {
     void refetch();
+    void refetchPlacement();
   };
 
   const handleEnableMaintenance = async (nodeId: string, nodeName: string) => {
@@ -2750,6 +2915,13 @@ export default function NodeServicesPage() {
           <StatusPill status={operatorStatuses.length > 0 ? 'ok' : 'pending'} />
         </div>
       </div>
+
+      <PlacementCapacityPanel
+        summary={placementSummary}
+        available={placementAvailable}
+        total={placementTotal}
+        isLoading={isPlacementLoading}
+      />
 
       <FleetRestartReadinessPanel
         nodes={restartReadinessNodes}

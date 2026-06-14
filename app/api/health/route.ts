@@ -94,6 +94,12 @@
  *     command delivery, drain ETA, and restart command lifecycle metadata.
  *     operator_action_plan.recommended_actions is backend-ordered
  *     machine-readable UI action metadata for node detail controls.
+ *   - GET /api/privacy_network/vpn/servers/
+ *     /root/aeronyx/privacy_network/api/vpn_servers.py
+ *     Provides Services Client Placement Capacity from the same owner-scoped
+ *     backend placement policy used by VPN clients: available candidates,
+ *     unavailable reasons, remaining capped slots, unlimited-capacity nodes,
+ *     and region/tier capacity groups.
  *   - data.nodes[].system.restart_readiness.drain_eta
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates active ClientSession timing for restart drain visibility.
@@ -131,7 +137,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.42 - Documented fleet policy enforcement health
+ * Last Modified: v1.1.43 - Documented services placement capacity
+ * Previous: v1.1.42 - Documented fleet policy enforcement health
  * Previous: v1.1.41 - Documented fleet policy sync health
  * Previous: v1.1.40 - Documented capacity policy PATCH fields
  * Previous: v1.1.39 - Documented maintenance placement context
@@ -289,6 +296,11 @@ const healthPayload = {
       endpoint: 'data.summary.restart_readiness.maintenance_exit_candidates',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Fleet-level current/drained maintenance nodes sourced from operator_action_plan.recommended_actions key=end_maintenance, including public_ip/region_code/city/version placement context for Services capacity recovery before PATCH maintenance_mode=false',
+    },
+    {
+      endpoint: 'GET /api/privacy_network/vpn/servers/',
+      file: '/root/aeronyx/privacy_network/api/vpn_servers.py',
+      purpose: 'Owner-scoped client placement capacity summary for Services: available candidates, unavailable reasons, remaining capped slots, unlimited-capacity nodes, and region/tier placement groups',
     },
     {
       endpoint: 'GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=',
