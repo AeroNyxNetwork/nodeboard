@@ -391,6 +391,13 @@ export interface VpnRestartReadinessBlocker {
   message: string;
 }
 
+export interface VpnRestartCommandState {
+  id: string;
+  status: 'pending' | 'sent' | 'executing' | string;
+  created_at: string | null;
+  source: 'node_command_restart_service_queue' | string;
+}
+
 /**
  * Backend-authoritative controlled restart gate.
  *
@@ -398,6 +405,9 @@ export interface VpnRestartReadinessBlocker {
  *   GET /api/privacy_network/vpn/overview/
  * Backend file:
  *   /root/aeronyx/privacy_network/api/vpn_observability.py
+ * Command source:
+ *   /root/aeronyx/privacy_network/models.py (NodeCommand)
+ *   /root/aeronyx/privacy_network/services/command_service.py
  * Nodeboard consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/dashboard/nodes/[id]/page.tsx
@@ -408,7 +418,8 @@ export interface VpnRestartReadinessBlocker {
  *
  * Privacy boundary: aggregate restart readiness only. No client public IPs,
  * destinations, DNS contents, packet payloads, domains, URLs, browsing
- * history, voucher secrets, or wallet-level traffic.
+ * history, voucher secrets, or wallet-level traffic. active_restart_command is
+ * command lifecycle metadata only and never contains command payload secrets.
  */
 export interface VpnRestartReadiness {
   status: 'ready' | 'blocked' | 'pending' | 'current' | string;
@@ -420,6 +431,7 @@ export interface VpnRestartReadiness {
   operator_reporting: boolean;
   restart_required: boolean;
   cleanup_reported: boolean;
+  active_restart_command?: VpnRestartCommandState | null;
   source: string;
   privacy_boundary: string;
 }

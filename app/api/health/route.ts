@@ -34,6 +34,9 @@
  *     /root/aeronyx/privacy_network/api/nodes.py
  *     Used by /dashboard/services to enable maintenance_mode from the restart
  *     readiness gate before a controlled Rust restart.
+ *   - data.nodes[].system.restart_readiness.active_restart_command
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Mirrors NodeCommand restart_service pending/sent/executing state.
  *   - GET /api/privacy_network/nodes/{id}/sessions/
  *     /root/aeronyx/privacy_network/api/sessions.py
  *     /root/aeronyx/privacy_network/serializers.py
@@ -54,7 +57,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.6 - Documented restart gate maintenance action
+ * Last Modified: v1.1.7 - Documented active restart command gate
+ * Previous: v1.1.6 - Documented restart gate maintenance action
  * Previous: v1.1.5 - Documented sessions deep-link contract
  * Previous: v1.1.1 - Production health route
  * ============================================
@@ -96,6 +100,11 @@ const healthPayload = {
       endpoint: 'data.nodes[].system.restart_readiness',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Backend-authoritative controlled restart gate for node detail and services fleet views',
+    },
+    {
+      endpoint: 'data.nodes[].system.restart_readiness.active_restart_command',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Active restart_service command state from NodeCommand to prevent duplicate fleet restarts',
     },
     {
       endpoint: 'data.summary.restart_readiness',

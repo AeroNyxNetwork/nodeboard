@@ -20,6 +20,10 @@
  *     /root/aeronyx/privacy_network/api/vpn_commands.py
  *     /root/aeronyx/privacy_network/services/command_service.py
  *     Queues restart_service only after the restart readiness gate is ready.
+ *   - data.nodes[].system.restart_readiness.active_restart_command
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Mirrors NodeCommand restart_service pending/sent/executing state so the
+ *     fleet view does not offer duplicate restarts.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -43,7 +47,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.5 - Added restart gate command action
+ * Last Modified: v1.1.6 - Show active restart command state
+ * Previous: v1.1.5 - Added restart gate command action
  * Previous: v1.1.4 - Added restart gate maintenance action
  * Previous: v1.1.3 - Added fleet restart readiness decision panel
  * Previous: v1.1.2 - Added live refresh state for drain and rollout monitoring
@@ -63,6 +68,7 @@ import {
   OperatorServiceStatus,
   RuntimeRolloutStatus,
   VpnNodeHealth,
+  VpnRestartCommandState,
   VpnRestartReadiness,
   VpnRestartReadinessSummary,
   VpnSessionCleanupStatus,
@@ -147,6 +153,7 @@ interface RestartReadinessNode {
   cleanupReported: boolean;
   status: 'ready' | 'blocked' | 'pending' | 'current';
   canRestart: boolean;
+  activeRestartCommand: VpnRestartCommandState | null;
   nextStep: string;
   blockers: string[];
   source: string;
@@ -415,6 +422,7 @@ function collectRestartReadinessNodes(nodes: VpnNodeHealth[]): RestartReadinessN
           cleanupReported: backendReadiness.cleanup_reported,
           status: normalizeBackendStatus(backendReadiness.status),
           canRestart: backendReadiness.can_restart,
+          activeRestartCommand: backendReadiness.active_restart_command ?? null,
           nextStep: backendReadiness.next_step,
           blockers: backendReadiness.blockers.map((blocker) => blocker.message),
           source: backendReadiness.source,
@@ -464,6 +472,7 @@ function collectRestartReadinessNodes(nodes: VpnNodeHealth[]): RestartReadinessN
               ? 'blocked'
               : 'pending',
         canRestart: readyForRestart,
+        activeRestartCommand: null,
         nextStep,
         blockers: needsRolloutAttention ? blockers : [],
         source: 'nodeboard_fallback_restart_gate',
@@ -863,7 +872,14 @@ function FleetRestartReadinessPanel({
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusPill status={node.status} />
-                {node.canRestart && (
+                {node.activeRestartCommand ? (
+                  <Link
+                    href={`/dashboard/nodes/${node.id}?command_action=restart_service#vpn-commands`}
+                    className="inline-flex items-center justify-center rounded-lg border border-sky-500/20 px-3 py-1.5 text-xs font-medium text-sky-100 transition hover:border-sky-400/40 hover:bg-sky-500/10"
+                  >
+                    Restart {node.activeRestartCommand.status}
+                  </Link>
+                ) : node.canRestart ? (
                   <button
                     type="button"
                     onClick={() => onQueueRestart(node.id, node.name)}
@@ -872,7 +888,7 @@ function FleetRestartReadinessPanel({
                   >
                     {restartingNodeId === node.id ? 'Queueing...' : 'Queue restart'}
                   </button>
-                )}
+                ) : null}
                 {!node.maintenanceMode && node.status !== 'current' && (
                   <button
                     type="button"
@@ -905,6 +921,7 @@ function FleetRestartReadinessPanel({
               Heartbeat {node.lastHeartbeat ? formatRelativeTime(node.lastHeartbeat) : 'pending'} ·
               cleanup policy {node.cleanupReported ? 'reported' : 'pending'} ·
               rollout {node.restartRequired ? 'restart required' : node.operatorReporting ? 'current signal' : 'operator pending'} ·
+              {node.activeRestartCommand ? ` restart ${node.activeRestartCommand.status} ·` : ''}
               source {node.source}.
             </p>
             {node.blockers.length > 0 && (
