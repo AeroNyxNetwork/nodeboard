@@ -137,7 +137,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.42 - Add visual drain composition for restart gating
+ * Last Modified: v1.1.43 - Show rollout restart gates
+ * Previous: v1.1.42 - Add visual drain composition for restart gating
  * Previous: v1.1.41 - Show runtime rollout drain ETA
  * Previous: v1.1.40 - Show Rust service manager active state
  * Previous: v1.1.39 - Explain placement blockers with failed health checks
@@ -265,10 +266,12 @@ interface RuntimeRolloutNode {
   name: string;
   publicIp: string | null;
   activeSessions: number;
+  maintenanceMode: boolean;
   healthStatus: string;
   lastHeartbeat: string | null;
   rollout: RuntimeRolloutStatus;
   serviceManager: VpnServiceManagerStatus | null;
+  policySync: VpnNodeHealth['system']['policy_sync'] | null;
   drainEta: VpnRestartDrainEta | null;
 }
 
@@ -583,10 +586,12 @@ function collectRuntimeRolloutNodes(nodes: VpnNodeHealth[]): RuntimeRolloutNode[
       name: node.name,
       publicIp: node.public_ip,
       activeSessions: node.active_sessions,
+      maintenanceMode: node.maintenance_mode,
       healthStatus: node.health_status,
       lastHeartbeat: node.last_heartbeat,
       rollout,
       serviceManager: node.system.service_manager ?? null,
+      policySync: node.system.policy_sync ?? null,
       drainEta: node.system.restart_readiness?.drain_eta ?? null,
     });
     return items;
@@ -866,6 +871,49 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
         {eta.latest_activity_at ? ` · latest activity ${formatRelativeTime(eta.latest_activity_at)}` : ''}
         {typeof eta.estimated_seconds_remaining === 'number' ? ` · cleanup in ${formatDuration(Math.max(0, eta.estimated_seconds_remaining))}` : ''}
       </p>
+    </div>
+  );
+}
+
+function RolloutGateStrip({ node }: { node: RuntimeRolloutNode }) {
+  const serviceManagerReady = Boolean(node.serviceManager?.restart_supported);
+  const policySynced = node.policySync?.status === 'synced';
+  const gates = [
+    {
+      label: 'Maintenance',
+      status: node.maintenanceMode ? 'ready' : 'blocked',
+      detail: node.maintenanceMode ? 'new handshakes blocked' : 'enable before restart',
+    },
+    {
+      label: 'Drain',
+      status: node.activeSessions === 0 ? 'ready' : 'blocked',
+      detail: node.activeSessions === 0
+        ? 'no active sessions'
+        : `${node.activeSessions.toLocaleString()} active session${node.activeSessions === 1 ? '' : 's'}`,
+    },
+    {
+      label: 'Policy Sync',
+      status: policySynced ? 'ready' : node.policySync ? 'pending' : 'unknown',
+      detail: node.policySync?.message ?? 'waiting for backend policy snapshot',
+    },
+    {
+      label: 'Service Manager',
+      status: serviceManagerReady ? 'ready' : 'pending',
+      detail: node.serviceManager?.detail ?? 'systemd status pending',
+    },
+  ];
+
+  return (
+    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      {gates.map((gate) => (
+        <div key={gate.label} className="rounded-lg border border-yellow-100/10 bg-black/20 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium text-yellow-100/65">{gate.label}</p>
+            <StatusPill status={gate.status} />
+          </div>
+          <p className="mt-2 line-clamp-2 text-[11px] leading-5 text-yellow-100/45">{gate.detail}</p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -2662,6 +2710,7 @@ function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
                 {node.serviceManager.detail}
               </p>
             )}
+            <RolloutGateStrip node={node} />
             {node.drainEta && (
               <div className="mt-3 rounded-lg border border-yellow-200/10 bg-yellow-200/[0.04] p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
