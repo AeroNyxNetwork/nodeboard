@@ -86,6 +86,10 @@
  *     Lists current/drained nodes still in maintenance mode so Services can
  *     recover commercial client placement capacity with PATCH
  *     /api/privacy_network/nodes/{id}/ maintenance_mode=false.
+ *     Candidate selection is sourced from
+ *     data.nodes[].system.restart_readiness.operator_action_plan.recommended_actions
+ *     key=end_maintenance so Services and node detail share one backend
+ *     action policy.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -109,7 +113,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.31 - Show maintenance exit candidates
+ * Last Modified: v1.1.32 - Source maintenance exit from action plan
+ * Previous: v1.1.31 - Show maintenance exit candidates
  * Previous: v1.1.30 - Show command delivery issue nodes
  * Previous: v1.1.29 - Show command delivery health
  * Previous: v1.1.28 - Show latest restart command activity context

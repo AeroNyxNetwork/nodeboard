@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.4 - Documented maintenance exit candidates as action-plan sourced.
  *   v1.5.3 - Added fleet maintenance exit candidate summary types.
  *   v1.5.2 - Added backend recommended operator actions under
  *     restart_readiness.operator_action_plan for node detail controls.
@@ -37,7 +38,8 @@
  *     ""         → clear password
  *     "xyz"      → set new password
  *
- * Last Modified: v1.5.3 - Added maintenance exit candidate types
+ * Last Modified: v1.5.4 - Documented action-sourced maintenance exits
+ * Previous: v1.5.3 - Added maintenance exit candidate types
  * Previous: v1.5.2 - Added recommended operator action types
  * Previous: v1.5.1 - Removed public discovery types
  * Previous: v1.1.0 - Added window.phantom type declaration
@@ -638,6 +640,8 @@ export interface VpnRestartReadinessBlockedNode {
  *   data.summary.restart_readiness.maintenance_exit_candidates lists nodes
  *   that are current, drained, and still in maintenance mode so Services can
  *   restore commercial client placement capacity.
+ *   Candidates are sourced from node-level
+ *   operator_action_plan.recommended_actions key=end_maintenance.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts
