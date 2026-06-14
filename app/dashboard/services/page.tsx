@@ -89,6 +89,7 @@
  *     upgrade_gate.checklist and checklist_summary are backend-authored
  *     upgrade preflight copy and counts. primary_action is the backend-owned
  *     operator intent for the Restart Action Queue button.
+ *     upgrade_blocker_counts is backend-authored fleet blocker aggregation.
  *   - data.summary.restart_readiness.policy_sync_health
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates data.nodes[].system.policy_sync so Services can verify
@@ -1403,6 +1404,7 @@ function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
       rolloutReporting: 0,
       upgradeSafe: 0,
       upgradeBlocked: 0,
+      blockerSummary: '',
       problemNodes: [],
       label: 'Pending',
       detail: 'waiting for backend runtime capability summary',
@@ -1417,6 +1419,11 @@ function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
     next_step: 'Review Rust operator_status and session_cleanup reporting before cutover work.',
     count: capability.gap_nodes,
   };
+  const blockerSummary = Object.entries(capability.upgrade_blocker_counts ?? {})
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, 3)
+    .map(([key, count]) => `${key.replaceAll('_', ' ')} ${count.toLocaleString()}`)
+    .join(' · ');
 
   return {
     count: summaryCopy.count ?? capability.gap_nodes,
@@ -1428,6 +1435,7 @@ function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
     rolloutReporting: capability.rollout_reporting_nodes,
     upgradeSafe: capability.upgrade_safe_nodes ?? 0,
     upgradeBlocked: capability.upgrade_blocked_nodes ?? 0,
+    blockerSummary,
     problemNodes: capability.problem_nodes ?? [],
     label: summaryCopy.label,
     detail: summaryCopy.detail,
@@ -2582,6 +2590,11 @@ function FleetRestartReadinessPanel({
             <p className="mt-1 text-xs leading-5 opacity-75">
               Upgrade safe {runtimeCapability.upgradeSafe.toLocaleString()} ·
               blocked {runtimeCapability.upgradeBlocked.toLocaleString()}
+            </p>
+          )}
+          {runtimeCapability.blockerSummary && (
+            <p className="mt-1 text-xs leading-5 opacity-75">
+              Blocked by {runtimeCapability.blockerSummary}
             </p>
           )}
           {runtimeCapability.next_step && (
