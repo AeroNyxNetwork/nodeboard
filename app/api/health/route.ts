@@ -67,6 +67,9 @@
  *     latest_restart_command.can_cancel / cancel_reason mirror NodeCommand
  *     mark_cancelled eligibility so Services and node detail do not guess
  *     whether an active restart command can be cancelled.
+ *     data.nodes[].last_seen_seconds plus
+ *     data.nodes[].system.restart_readiness.operator_reporting power node
+ *     detail Command Delivery readiness before restart actions.
  *   - data.nodes[].system.restart_readiness.drain_eta
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates active ClientSession timing for restart drain visibility.
@@ -104,7 +107,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.32 - Documented command delivery issue nodes
+ * Last Modified: v1.1.33 - Documented node detail command delivery readiness
+ * Previous: v1.1.32 - Documented command delivery issue nodes
  * Previous: v1.1.31 - Documented command delivery health
  * Previous: v1.1.30 - Documented latest restart command context
  * Previous: v1.1.29 - Documented 24h restart command reliability
@@ -172,6 +176,11 @@ const healthPayload = {
       endpoint: 'data.nodes[].system.restart_readiness',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Backend-authoritative controlled restart gate for node detail and services fleet views',
+    },
+    {
+      endpoint: 'data.nodes[].last_seen_seconds + data.nodes[].system.restart_readiness.operator_reporting',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Node detail command delivery readiness from Rust heartbeat freshness and backend operator reporting before restart actions',
     },
     {
       endpoint: 'data.nodes[].system.restart_readiness.active_restart_command',

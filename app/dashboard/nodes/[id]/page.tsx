@@ -2,7 +2,7 @@
  * ============================================
  * AeroNyx Node Detail Page
  * ============================================
- * File Path: src/app/dashboard/nodes/[id]/page.tsx
+ * File Path: app/dashboard/nodes/[id]/page.tsx
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
@@ -38,6 +38,10 @@
  *     Exposes data.nodes[].system.session_cleanup for drain ETA context.
  *     Exposes data.nodes[].system.restart_readiness for backend-authoritative
  *     controlled-restart gating.
+ *     Exposes data.nodes[].last_seen_seconds and
+ *     data.nodes[].system.restart_readiness.operator_reporting for node-level
+ *     command delivery readiness in the Maintenance Drain panel. This mirrors
+ *     Services command_delivery_health from vpn_observability.py.
  *     Exposes data.nodes[].system.restart_readiness.active_restart_command
  *     and latest_restart_command for restart command SLA/outcome visibility
  *     without command params, result, or error_message payloads.
@@ -95,7 +99,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.11 - Explain backend restart cancel eligibility
+ * Last Modified: v1.6.12 - Show node command delivery readiness
+ * Previous: v1.6.11 - Explain backend restart cancel eligibility
  * Previous: v1.6.10 - Use backend cancel eligibility in restart card
  * Previous: v1.6.9 - Make command deep-link filters URL authoritative
  * Previous: v1.6.8 - Show restart command SLA in node detail
@@ -195,6 +200,9 @@ const VPN_HEALTH_CONFIG: Record<VpnHealthStatus, {
     dotColor: 'bg-red-400',
   },
 };
+
+const COMMAND_DELIVERY_FRESH_SECONDS = 120;
+const COMMAND_DELIVERY_DEGRADED_SECONDS = 300;
 
 const VPN_EVENT_SEVERITY_CONFIG: Record<VpnEventSeverity, {
   label: string;
@@ -1526,6 +1534,56 @@ function drainActivityHealthClass(risk: string | undefined) {
   return 'border-sky-300/25 bg-sky-300/[0.08] text-sky-100';
 }
 
+function nodeCommandDelivery(health: VpnNodeHealth, readiness: VpnRestartReadiness | null | undefined) {
+  const age = health.last_seen_seconds;
+  const operatorReporting = Boolean(readiness?.operator_reporting);
+
+  if (typeof age !== 'number') {
+    return {
+      label: 'Heartbeat missing',
+      status: 'blocked',
+      risk: 'critical',
+      detail: 'Rust heartbeat has not reached the backend.',
+      nextStep: 'Confirm the node is running and can reach the backend heartbeat API.',
+    };
+  }
+  if (age > COMMAND_DELIVERY_DEGRADED_SECONDS) {
+    return {
+      label: 'Heartbeat offline',
+      status: 'blocked',
+      risk: 'critical',
+      detail: `Last heartbeat ${formatDuration(age)} ago.`,
+      nextStep: 'Check the Rust node process and backend heartbeat path before queueing commands.',
+    };
+  }
+  if (age > COMMAND_DELIVERY_FRESH_SECONDS) {
+    return {
+      label: 'Heartbeat delayed',
+      status: 'degraded',
+      risk: 'warning',
+      detail: `Last heartbeat ${formatDuration(age)} ago.`,
+      nextStep: 'Wait for a fresh heartbeat or inspect Rust heartbeat latency before restart work.',
+    };
+  }
+  if (!operatorReporting) {
+    return {
+      label: 'Operator reporting pending',
+      status: 'degraded',
+      risk: 'warning',
+      detail: 'Heartbeat is fresh, but operator_status is not reported.',
+      nextStep: 'Confirm Rust reports system_stats.operator_status before relying on command delivery.',
+    };
+  }
+
+  return {
+    label: 'Command-ready',
+    status: 'ready',
+    risk: 'healthy',
+    detail: `Fresh heartbeat ${formatDuration(age)} ago with operator reporting.`,
+    nextStep: 'Restart commands can be delivered through the current heartbeat path.',
+  };
+}
+
 function restartReadinessLabel(blockers: string[], restartCommandActive: boolean) {
   if (restartCommandActive) return 'Restart queued';
   if (blockers.length === 0) return 'Ready to restart';
@@ -1606,6 +1664,7 @@ function MaintenanceDrainPanel({
   const missedKeepalives = activeSessions.reduce((total, session) => total + (session.keepalive_missed ?? 0), 0);
   const cleanupTimeoutSeconds = health.system.session_cleanup?.client_liveness_timeout_seconds ?? null;
   const restartReadiness = health.system.restart_readiness ?? null;
+  const commandDelivery = nodeCommandDelivery(health, restartReadiness);
   const backendDrainEta = restartReadiness?.drain_eta ?? null;
   const policySyncStatus = health.system.policy_sync?.status || 'unknown';
   const recoveryStatus = health.system.runtime_recovery?.status || 'unknown';
@@ -1649,6 +1708,23 @@ function MaintenanceDrainPanel({
         <span className={`inline-flex self-start rounded-full border px-2.5 py-1 text-xs ${restartReadinessClass(restartBlockers, restartCommandActive)}`}>
           {restartReadinessLabel(restartBlockers, restartCommandActive)}
         </span>
+      </div>
+
+      <div className={`mb-4 rounded-lg border px-3 py-2.5 ${drainActivityHealthClass(commandDelivery.risk)}`}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold">Command Delivery</p>
+            <p className="mt-1 text-[11px] leading-5 opacity-75">{commandDelivery.detail}</p>
+          </div>
+          <span className="inline-flex self-start rounded-md border border-white/10 px-2 py-0.5 text-[11px]">
+            {commandDelivery.label}
+          </span>
+        </div>
+        <p className="mt-1 text-[11px] leading-5 opacity-75">{commandDelivery.nextStep}</p>
+        <p className="mt-1 text-[10px] leading-4 opacity-45">
+          Source: GET /api/privacy_network/vpn/overview/ -&gt; data.nodes[].last_seen_seconds +
+          data.nodes[].system.restart_readiness.operator_reporting
+        </p>
       </div>
 
       {restartBlockers.length > 0 && (
