@@ -452,6 +452,7 @@ export interface VpnRestartReadinessSummary {
   current: number;
   can_restart: number;
   sessions_blocking_restart: number;
+  blocker_counts: Record<string, number>;
   blocked_nodes: VpnRestartReadinessBlockedNode[];
   source: string;
   privacy_boundary: string;

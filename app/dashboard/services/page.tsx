@@ -713,6 +713,7 @@ function FleetRestartReadinessPanel({
   const pendingCount = summary?.pending ?? attentionNodes.filter((node) => node.status === 'pending').length;
   const totalActiveSessions = summary?.sessions_blocking_restart
     ?? attentionNodes.reduce((sum, node) => sum + node.activeSessions, 0);
+  const blockerCounts = Object.entries(summary?.blocker_counts ?? {});
 
   return (
     <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
@@ -761,6 +762,18 @@ function FleetRestartReadinessPanel({
             </div>
             <StatusPill status="blocked" />
           </div>
+          {blockerCounts.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {blockerCounts.map(([code, count]) => (
+                <span
+                  key={code}
+                  className="rounded-md border border-yellow-300/10 bg-black/20 px-2 py-1 text-xs text-yellow-100/65"
+                >
+                  {code.replaceAll('_', ' ')}: {count.toLocaleString()}
+                </span>
+              ))}
+            </div>
+          )}
 
           <div className="mt-3 grid gap-2">
             {summary.blocked_nodes.map((node) => (
