@@ -95,11 +95,16 @@ Health checks:
 
 ```bash
 systemctl is-active nodeboard
+curl -s http://127.0.0.1:3000/api/health
 curl -I http://127.0.0.1:3000/dashboard/services
 curl -I http://127.0.0.1:3000/dashboard/nodes/test-node-id
 curl -s https://api.aeronyx.network/api/privacy_network/vpn/overview/ \
   -H "Authorization: Bearer <operator-api-key>"
 ```
+
+`/api/health` is served by `app/api/health/route.ts` and returns deployment
+metadata only: nodeboard version, API base URL, backend source files, Rust
+producer files, and the privacy boundary. It does not query node or user data.
 
 The API call should expose `data.nodes[].system.operator_status` for upgraded
 Rust nodes and `runtime_rollout` for nodes running the rollout-status build.
