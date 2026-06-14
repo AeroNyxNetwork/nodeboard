@@ -20,11 +20,14 @@
  * Data Contract:
  *   Rust reports service readiness under:
  *     heartbeat.system_stats.operator_status
+ *   Rust reports maintenance drain cleanup policy under:
+ *     heartbeat.system_stats.vpn_health.session_cleanup
  *   Django stores it in:
  *     Node.hardware_info["operator_status"]
  *   Django exposes it to nodeboard as:
  *     GET /api/privacy_network/vpn/overview/
  *       data.nodes[].system.operator_status
+ *       data.nodes[].system.session_cleanup
  *
  * Product Requirement:
  *   Treat this as a commercial node readiness console, not a VPN-only page.
@@ -32,7 +35,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.0 - Production operator readiness view
+ * Last Modified: v1.1.1 - Added fleet session-cleanup rollout visibility
+ * Previous: v1.1.0 - Production operator readiness view
  * ============================================
  */
 
@@ -41,13 +45,14 @@
 import React, { useMemo } from 'react';
 import Link from 'next/link';
 import { useVpnOverview } from '@/hooks/useNodes';
-import { formatRelativeTime } from '@/lib/api';
+import { formatDuration, formatRelativeTime } from '@/lib/api';
 import {
   NodeOperatorStatus,
   OperatorRisk,
   OperatorServiceStatus,
   RuntimeRolloutStatus,
   VpnNodeHealth,
+  VpnSessionCleanupStatus,
 } from '@/types';
 
 type ServiceKey =
@@ -102,6 +107,18 @@ interface RuntimeRolloutNode {
   healthStatus: string;
   lastHeartbeat: string | null;
   rollout: RuntimeRolloutStatus;
+}
+
+interface SessionCleanupRolloutNode {
+  id: string;
+  name: string;
+  publicIp: string | null;
+  activeSessions: number;
+  healthStatus: string;
+  lastHeartbeat: string | null;
+  cleanup: VpnSessionCleanupStatus | null;
+  operatorReporting: boolean;
+  restartRequired: boolean;
 }
 
 const serviceMeta: Record<ServiceKey, { label: string; eyebrow: string }> = {
@@ -326,6 +343,25 @@ function collectRuntimeRolloutNodes(nodes: VpnNodeHealth[]): RuntimeRolloutNode[
     });
     return items;
   }, []);
+}
+
+function collectSessionCleanupRolloutNodes(nodes: VpnNodeHealth[]): SessionCleanupRolloutNode[] {
+  return nodes
+    .filter((node) => node.is_vpn_node)
+    .map((node) => {
+      const operatorStatus = nodeOperatorStatus(node);
+      return {
+        id: node.id,
+        name: node.name,
+        publicIp: node.public_ip,
+        activeSessions: node.active_sessions,
+        healthStatus: node.health_status,
+        lastHeartbeat: node.last_heartbeat,
+        cleanup: node.system?.session_cleanup ?? null,
+        operatorReporting: Boolean(operatorStatus),
+        restartRequired: Boolean(operatorStatus?.runtime_rollout?.restart_required),
+      };
+    });
 }
 
 function latestReportTime(statuses: NodeOperatorStatus[]) {
@@ -577,6 +613,96 @@ function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
   );
 }
 
+function SessionCleanupRolloutPanel({ nodes }: { nodes: SessionCleanupRolloutNode[] }) {
+  if (nodes.length === 0) return null;
+
+  const readyCount = nodes.filter((node) => node.cleanup).length;
+  const pendingCount = nodes.length - readyCount;
+
+  return (
+    <section className="mb-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.05] p-5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-emerald-100">Session Cleanup Rollout</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-emerald-100/70">
+            Fleet view of the Rust drain-cleanup policy used by Maintenance Drain. Nodes reporting this field
+            can explain how stale client tunnels are expired before a controlled restart.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <StatusPill status={readyCount > 0 ? 'ok' : 'pending'} />
+          {pendingCount > 0 && <StatusPill status="info" />}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {nodes.map((node) => {
+          const timeoutSeconds = node.cleanup?.client_liveness_timeout_seconds ?? null;
+          const pendingReason = node.restartRequired
+            ? 'restart after drain'
+            : node.operatorReporting
+              ? 'await next Rust heartbeat'
+              : 'operator rollout pending';
+
+          return (
+            <div
+              key={node.id}
+              className={`rounded-xl border p-4 ${
+                node.cleanup
+                  ? 'border-emerald-300/10 bg-black/20'
+                  : 'border-sky-300/10 bg-sky-500/[0.04]'
+              }`}
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
+                    {node.name}
+                  </Link>
+                  <p className="mt-1 truncate text-xs text-emerald-100/50">
+                    {node.publicIp ?? 'no public IP'} · {node.cleanup?.source ?? pendingReason}
+                  </p>
+                </div>
+                <StatusPill status={node.cleanup ? 'ok' : 'pending'} />
+              </div>
+
+              <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-emerald-100/60">
+                <div>
+                  <p className="text-emerald-100/35">Cleanup Window</p>
+                  <p className="mt-1 text-emerald-100">
+                    {timeoutSeconds ? formatDuration(timeoutSeconds) : 'pending'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-emerald-100/35">Active Sessions</p>
+                  <p className="mt-1 text-emerald-100">{node.activeSessions.toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-emerald-100/35">Next Step</p>
+                  <p className="mt-1 text-emerald-100">
+                    {node.cleanup ? 'monitor drain' : pendingReason}
+                  </p>
+                </div>
+              </div>
+
+              <p className="mt-3 text-xs leading-5 text-emerald-100/50">
+                Heartbeat {node.lastHeartbeat ? formatRelativeTime(node.lastHeartbeat) : 'pending'} ·
+                privacy boundary: cleanup policy metadata only, no payloads, DNS contents, destinations, or wallet-level traffic.
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="mt-4 text-xs leading-5 text-emerald-100/45">
+        Backend contract: GET /api/privacy_network/vpn/overview/ exposes data.nodes[].system.session_cleanup from
+        /root/aeronyx/privacy_network/api/vpn_observability.py. Rust source:
+        /root/open/AeroNyx/crates/aeronyx-server/src/services/session.rs and
+        /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
+      </p>
+    </section>
+  );
+}
+
 function PendingOperatorRolloutPanel({ nodes }: { nodes: PendingOperatorNode[] }) {
   if (nodes.length === 0) return null;
 
@@ -714,6 +840,7 @@ export default function NodeServicesPage() {
   const risks = useMemo(() => collectRisks(nodes), [nodes]);
   const pendingOperatorNodes = useMemo(() => collectPendingOperatorNodes(nodes), [nodes]);
   const runtimeRolloutNodes = useMemo(() => collectRuntimeRolloutNodes(nodes), [nodes]);
+  const sessionCleanupRolloutNodes = useMemo(() => collectSessionCleanupRolloutNodes(nodes), [nodes]);
   const latestReportedAt = useMemo(() => latestReportTime(operatorStatuses), [operatorStatuses]);
 
   if (isLoading) {
@@ -775,6 +902,7 @@ export default function NodeServicesPage() {
         </div>
       </div>
 
+      <SessionCleanupRolloutPanel nodes={sessionCleanupRolloutNodes} />
       <PendingOperatorRolloutPanel nodes={pendingOperatorNodes} />
       <RuntimeRolloutPanel nodes={runtimeRolloutNodes} />
 
