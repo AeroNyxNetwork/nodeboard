@@ -107,6 +107,8 @@
  *     Aggregates data.nodes[].system.restart_readiness.drain_eta.cutover_guard
  *     so Services can show fleet-level safe/blocked Rust cutover state without
  *     parsing backend English copy.
+ *     problem_nodes powers the Cutover Blockers action queue so operators can
+ *     open active sessions or node detail before any Rust replacement.
  *   - data.summary.restart_readiness.command_lifecycle_counts
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Powers the Command SLA card from backend-authored active/stale/retry
@@ -320,7 +322,7 @@ interface RestartReadinessNode {
   source: string;
 }
 
-type RestartActionQueueKey = 'stale' | 'retry' | 'critical' | 'warning' | 'ready' | 'current';
+type RestartActionQueueKey = 'stale' | 'retry' | 'cutover' | 'critical' | 'warning' | 'ready' | 'current';
 type RestartQueueStatusFilter = 'all' | 'attention' | 'stale' | 'retry' | 'blocked' | 'ready' | 'current';
 
 interface RestartQueueFilters {
@@ -348,7 +350,7 @@ interface RestartActionQueueItem {
   canCancelRestartCommand: boolean;
   actionHref: string;
   actionLabel: string;
-  source: 'backend_blocked_node' | 'backend_readiness_node';
+  source: 'backend_blocked_node' | 'backend_cutover_guard' | 'backend_readiness_node';
 }
 
 interface RestartActionQueue {
@@ -1492,6 +1494,47 @@ function buildBlockedRestartQueueItem(
   };
 }
 
+function buildCutoverGuardQueueItem(
+  node: NonNullable<NonNullable<VpnRestartReadinessSummary['cutover_guard_counts']>['problem_nodes']>[number],
+  readinessNode: RestartReadinessNode | undefined,
+): RestartActionQueueItem {
+  const forcedImpact = node.user_impact_if_forced.replaceAll('_', ' ');
+  const meta = [
+    `${node.active_sessions.toLocaleString()} active`,
+    `${node.recent_client_rx_sessions.toLocaleString()} recent client RX`,
+    `${node.stale_client_rx_sessions.toLocaleString()} stale client RX`,
+    `${node.never_client_rx_sessions.toLocaleString()} never RX`,
+    `impact ${forcedImpact}`,
+    readinessNode?.regionLabel ?? 'unknown region',
+    readinessNode?.version ? `v${readinessNode.version}` : null,
+    node.maintenance_mode ? 'maintenance on' : 'maintenance off',
+  ].filter((item): item is string => Boolean(item));
+
+  return {
+    id: node.id,
+    name: node.name,
+    status: node.label,
+    detail: node.next_step || node.detail,
+    meta,
+    risk: node.risk,
+    regionLabel: readinessNode?.regionLabel ?? 'unknown region',
+    version: readinessNode?.version ?? 'unknown version',
+    healthStatus: readinessNode?.healthStatus ?? node.health_status,
+    activeRestartCommand: readinessNode?.activeRestartCommand ?? null,
+    latestRestartCommand: readinessNode?.latestRestartCommand ?? null,
+    activeSessions: node.active_sessions,
+    maintenanceMode: node.maintenance_mode,
+    canEnableMaintenance: !node.maintenance_mode,
+    canQueueRestart: false,
+    canCancelRestartCommand: restartCommandCanCancel(readinessNode?.activeRestartCommand ?? null),
+    actionHref: node.active_sessions > 0
+      ? `/dashboard/sessions?node=${encodeURIComponent(node.id)}&status=active&quality=all`
+      : `/dashboard/nodes/${node.id}`,
+    actionLabel: node.active_sessions > 0 ? 'Open sessions' : 'Open node',
+    source: 'backend_cutover_guard',
+  };
+}
+
 function buildReadyRestartQueueItem(node: RestartReadinessNode): RestartActionQueueItem {
   return {
     id: node.id,
@@ -1592,11 +1635,12 @@ function filterRestartQueueItems(
     if (filters.version !== 'all' && item.version !== filters.version) return false;
     if (filters.status === 'stale') return restartCommandIsStale(item.activeRestartCommand);
     if (filters.status === 'retry') return restartCommandNeedsRetry(item.latestRestartCommand);
-    if (filters.status === 'blocked') return item.source === 'backend_blocked_node';
+    if (filters.status === 'blocked') return item.source === 'backend_blocked_node' || item.source === 'backend_cutover_guard';
     if (filters.status === 'ready') return item.canQueueRestart;
     if (filters.status === 'current') return item.status === 'current';
     if (filters.status === 'attention') {
       return item.source === 'backend_blocked_node'
+        || item.source === 'backend_cutover_guard'
         || item.canQueueRestart
         || restartCommandIsStale(item.activeRestartCommand)
         || restartCommandNeedsRetry(item.latestRestartCommand)
@@ -1685,6 +1729,9 @@ function buildRestartActionQueues(
   const blockedItems = (summary?.blocked_nodes ?? [])
     .filter((node) => filteredNodeIds.has(node.id))
     .map((node) => buildBlockedRestartQueueItem(node, readinessById.get(node.id)));
+  const cutoverGuardItems = (summary?.cutover_guard_counts?.problem_nodes ?? [])
+    .filter((node) => filteredNodeIds.has(node.id))
+    .map((node) => buildCutoverGuardQueueItem(node, readinessById.get(node.id)));
   const staleCommandItems = nodes
     .filter((node) => restartCommandIsStale(node.activeRestartCommand))
     .map(buildStaleCommandQueueItem);
@@ -1711,12 +1758,14 @@ function buildRestartActionQueues(
     ))
     .map(buildReadyRestartQueueItem);
   const filteredBlockedItems = filterRestartQueueItems(blockedItems, filters);
+  const filteredCutoverGuardItems = filterRestartQueueItems(cutoverGuardItems, filters);
   const filteredStaleCommandItems = filterRestartQueueItems(staleCommandItems, filters);
   const filteredCommandClosureItems = filterRestartQueueItems(commandClosureItems, filters);
   const filteredReadyItems = filterRestartQueueItems(readyItems, filters);
   const filteredCurrentItems = filterRestartQueueItems(currentItems, filters);
+  const unsafeCutoverNodeIds = new Set(filteredCutoverGuardItems.map((item) => item.id));
   const filteredDrainBlockedItems = filteredBlockedItems.filter(
-    (item) => !restartCommandIsStale(item.activeRestartCommand),
+    (item) => !restartCommandIsStale(item.activeRestartCommand) && !unsafeCutoverNodeIds.has(item.id),
   );
   const criticalItems = sortRestartQueueItems(
     filteredDrainBlockedItems.filter((item) => item.risk === 'critical'),
@@ -1741,6 +1790,16 @@ function buildRestartActionQueues(
       status: filteredCommandClosureItems.length > 0 ? 'critical' : 'healthy',
       emptyState: 'No failed restart command outcome.',
       items: sortRestartQueueItems(filteredCommandClosureItems),
+    },
+    {
+      key: 'cutover',
+      label: 'Cutover Blockers',
+      description: 'Backend cutover_guard says replacing or restarting Rust may disconnect client traffic.',
+      status: filteredCutoverGuardItems.length > 0
+        ? (filteredCutoverGuardItems.some((item) => item.risk === 'critical') ? 'critical' : 'warning')
+        : 'healthy',
+      emptyState: 'No unsafe Rust cutover node.',
+      items: sortRestartQueueItems(filteredCutoverGuardItems),
     },
     {
       key: 'critical',
