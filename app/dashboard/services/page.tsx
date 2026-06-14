@@ -540,6 +540,11 @@ function formatDrainEta(eta: VpnRestartDrainEta | null) {
   return `${formatDuration(eta.estimated_seconds_remaining)} if idle`;
 }
 
+function formatDrainStatus(status: string | undefined) {
+  if (!status) return null;
+  return status.replaceAll('_', ' ');
+}
+
 function restartBlockerCopy(code: string) {
   const copy: Record<string, { label: string; remediation: string }> = {
     maintenance_required: {
@@ -873,6 +878,7 @@ function FleetRestartReadinessPanel({
             {summary.blocked_nodes.map((node) => {
               const canEnableMaintenance = !node.maintenance_mode && node.blocker_codes.includes('maintenance_required');
               const isEnablingMaintenance = enablingMaintenanceNodeId === node.id;
+              const drainStatus = formatDrainStatus(node.drain_status);
 
               return (
               <div
@@ -884,11 +890,20 @@ function FleetRestartReadinessPanel({
                 </Link>
                 <span>{node.active_sessions.toLocaleString()} active</span>
                 <span>{node.maintenance_mode ? 'maintenance on' : 'maintenance off'}</span>
-                <span className="min-w-0">
-                  {node.next_step}
+                <span className="min-w-0 leading-5">
+                  <span className="block">{node.next_step}</span>
                   {node.blocker_codes.length > 0 && (
-                    <span className="ml-2 text-yellow-100/35">
+                    <span className="text-yellow-100/35">
                       {node.blocker_codes.join(', ')}
+                    </span>
+                  )}
+                  {drainStatus && (
+                    <span className="block text-yellow-100/40">
+                      drain {drainStatus}
+                      {node.active_restart_command_status
+                        ? ` · restart ${node.active_restart_command_status}`
+                        : ''}
+                      {node.drain_next_step ? ` · ${node.drain_next_step}` : ''}
                     </span>
                   )}
                 </span>

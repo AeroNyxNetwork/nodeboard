@@ -473,6 +473,9 @@ export interface VpnRestartReadinessBlockedNode {
   maintenance_mode: boolean;
   next_step: string;
   blocker_codes: string[];
+  drain_status?: string;
+  drain_next_step?: string;
+  active_restart_command_status?: string;
 }
 
 /**

@@ -26,7 +26,7 @@
  *     Provides data.nodes[].system.restart_readiness for controlled restart
  *     gate decisions shared by node detail and services fleet views.
  *     Provides data.summary.restart_readiness for owner-scoped fleet restart
- *     readiness monitoring.
+ *     readiness monitoring, including blocked node drain/command status.
  *   - GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Supports /dashboard/sessions?node={id}&status=active&quality=all deep links.
@@ -61,7 +61,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.9 - Documented restart drain status
+ * Last Modified: v1.1.10 - Documented blocked node drain status
+ * Previous: v1.1.9 - Documented restart drain status
  * Previous: v1.1.8 - Documented restart drain ETA
  * Previous: v1.1.7 - Documented active restart command gate
  * Previous: v1.1.6 - Documented restart gate maintenance action
@@ -120,7 +121,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Owner-scoped fleet restart readiness counts and blocked-node summary',
+      purpose: 'Owner-scoped fleet restart readiness counts, blocked-node summary, drain status, and command status',
     },
     {
       endpoint: 'GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=',
