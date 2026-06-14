@@ -40,6 +40,9 @@
  *     controlled-restart gating.
  *     Exposes data.nodes[].system.restart_readiness.drain_eta for active
  *     ClientSession aggregate timing used by the Maintenance Drain panel.
+ *     drain_eta also carries node-level active-session activity buckets:
+ *     recent_activity_sessions / idle_activity_sessions /
+ *     activity_pending_sessions / keepalive aggregate totals.
  *     cleanup_policy_pending means Rust has not reported
  *     heartbeat.system_stats.vpn_health.session_cleanup yet.
  *   - GET /api/privacy_network/nodes/{id}/sessions/?status=active
@@ -76,7 +79,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.4 - Explain cleanup rollout pending in node detail
+ * Last Modified: v1.6.5 - Show aggregate drain activity buckets
+ * Previous: v1.6.4 - Explain cleanup rollout pending in node detail
  * Previous: v1.6.3 - Node detail consumes backend restart drain ETA
  * Previous: v1.6.2 - Backend restart_readiness gate for restart actions
  * Previous: v1.6.1 - Guarded restart actions with maintenance drain readiness
@@ -1391,6 +1395,47 @@ function cleanupRolloutPendingCopy(eta: VpnRestartDrainEta | null | undefined) {
   };
 }
 
+function drainActivityBucketRows(eta: VpnRestartDrainEta | null | undefined) {
+  if (!eta) return [];
+  const hasActivityBuckets = [
+    eta.recent_activity_sessions,
+    eta.idle_activity_sessions,
+    eta.activity_pending_sessions,
+    eta.keepalive_missed_total,
+    eta.keepalive_pending_total,
+  ].some((value) => typeof value === 'number');
+
+  if (!hasActivityBuckets) return [];
+
+  return [
+    {
+      label: `Recent ${formatDuration(eta.activity_window_seconds || 180)}`,
+      value: eta.recent_activity_sessions ?? 0,
+      tone: 'text-emerald-200',
+    },
+    {
+      label: 'Idle or stale',
+      value: eta.idle_activity_sessions ?? 0,
+      tone: 'text-yellow-100',
+    },
+    {
+      label: 'No activity stamp',
+      value: eta.activity_pending_sessions ?? 0,
+      tone: 'text-gray-300',
+    },
+    {
+      label: 'Missed keepalives',
+      value: eta.keepalive_missed_total ?? 0,
+      tone: 'text-yellow-100',
+    },
+    {
+      label: 'Pending keepalives',
+      value: eta.keepalive_pending_total ?? 0,
+      tone: 'text-sky-100',
+    },
+  ];
+}
+
 function restartReadinessLabel(blockers: string[], restartCommandActive: boolean) {
   if (restartCommandActive) return 'Restart queued';
   if (blockers.length === 0) return 'Ready to restart';
@@ -1474,6 +1519,7 @@ function MaintenanceDrainPanel({
   const drainReady = backendDrainEta?.status === 'no_active_sessions' || activeTunnels === 0;
   const drainDisplaySessions = backendDrainEta?.active_sessions ?? activeTunnels;
   const cleanupRolloutPending = cleanupRolloutPendingCopy(backendDrainEta);
+  const drainActivityBuckets = drainActivityBucketRows(backendDrainEta);
   const restartBlockers = restartReadinessBlockers({
     health,
     maintenanceMode,
@@ -1564,6 +1610,19 @@ function MaintenanceDrainPanel({
               <p className="mt-1 text-[10px] leading-4 opacity-50">{backendDrainEta.privacy_boundary}</p>
             )}
           </div>
+          {drainActivityBuckets.length > 0 && (
+            <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+              <p className="text-[11px] font-medium text-gray-300">Aggregate drain activity</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                {drainActivityBuckets.map((bucket) => (
+                  <div key={bucket.label} className="rounded-md bg-white/[0.03] px-2 py-1.5">
+                    <p className={`text-sm font-semibold ${bucket.tone}`}>{bucket.value.toLocaleString()}</p>
+                    <p className="mt-0.5 text-[10px] leading-4 text-gray-500">{bucket.label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {cleanupRolloutPending && (
             <div className="mt-3 rounded-lg border border-yellow-400/20 bg-yellow-400/[0.06] px-3 py-2">
               <p className="text-xs font-semibold text-yellow-100">{cleanupRolloutPending.title}</p>

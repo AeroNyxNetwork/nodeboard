@@ -415,6 +415,12 @@ export interface VpnRestartDrainEta {
     | string;
   next_step: string;
   active_sessions: number;
+  recent_activity_sessions?: number;
+  idle_activity_sessions?: number;
+  activity_pending_sessions?: number;
+  activity_window_seconds?: number;
+  keepalive_missed_total?: number;
+  keepalive_pending_total?: number;
   oldest_started_at: string | null;
   latest_activity_at: string | null;
   cleanup_timeout_seconds: number | null;
@@ -436,6 +442,9 @@ export interface VpnRestartDrainEta {
  *   /root/aeronyx/privacy_network/services/command_service.py
  * Drain ETA source:
  *   /root/aeronyx/privacy_network/models.py (ClientSession aggregate timing)
+ *   data.nodes[].system.restart_readiness.drain_eta activity bucket fields
+ *   are node-level counts only: recent_activity_sessions,
+ *   idle_activity_sessions, activity_pending_sessions, keepalive totals.
  * Nodeboard consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/dashboard/nodes/[id]/page.tsx
