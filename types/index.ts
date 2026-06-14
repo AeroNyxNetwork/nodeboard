@@ -387,7 +387,14 @@ export interface VpnSessionCleanupStatus {
 }
 
 export interface VpnRestartReadinessBlocker {
-  code: 'maintenance_required' | 'active_sessions' | string;
+  // Backend source: /root/aeronyx/privacy_network/api/vpn_observability.py
+  // _restart_readiness() emits these owner-scoped operational blocker codes.
+  code:
+    | 'maintenance_required'
+    | 'active_sessions'
+    | 'cleanup_policy_pending'
+    | 'restart_command_active'
+    | string;
   message: string;
 }
 
