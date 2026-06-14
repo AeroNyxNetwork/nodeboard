@@ -50,6 +50,9 @@
  *     Blockers in the Restart Action Queue; problem_nodes remains full safety
  *     accounting. actionable_reason/blocker_codes are backend-authored
  *     operator diagnostics, not React-derived policy.
+ *     Provides data.summary.restart_readiness.runtime_capability_health for
+ *     the Services Rust Capability card and Rust Capability Gaps panel. The
+ *     backend owns the operator_status/session_cleanup capability decision.
  *     Provides data.summary.restart_readiness.command_lifecycle_counts for
  *     Services page Command SLA card, backend-authored stale/retry copy, and
  *     cancelable_active/non_cancelable_active active command counts.
@@ -275,6 +278,11 @@ const healthPayload = {
       endpoint: 'data.summary.restart_readiness.command_delivery_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Fleet-level restart command delivery readiness plus capped problem_nodes triage list from Rust heartbeat freshness and backend operator_reporting for the Services Command Delivery card',
+    },
+    {
+      endpoint: 'data.summary.restart_readiness.runtime_capability_health',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Fleet-level Rust commercial runtime capability summary for operator_status/session_cleanup reporting, including capped problem_nodes for the Services Rust Capability card and Rust Capability Gaps panel',
     },
     {
       endpoint: 'data.summary.restart_readiness.policy_sync_health',

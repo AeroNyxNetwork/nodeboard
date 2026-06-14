@@ -739,6 +739,12 @@ export interface VpnRestartReadinessBlockedNode {
  *   heartbeat freshness plus backend operator_reporting for the Services
  *   Command Delivery card. problem_nodes is a capped privacy-safe triage list
  *   for nodes that cannot receive restart commands promptly.
+ * Runtime capability source:
+ *   data.summary.restart_readiness.runtime_capability_health aggregates
+ *   backend restart_readiness.operator_reporting and cleanup_reported from
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py so Services can
+ *   show stale Rust binaries that do not report operator_status or
+ *   session_cleanup before commercial cutover work.
  * Policy sync source:
  *   data.summary.restart_readiness.policy_sync_health aggregates
  *   data.nodes[].system.policy_sync from
@@ -903,6 +909,43 @@ export interface VpnRestartReadinessSummary {
     }>;
     fresh_seconds: number;
     degraded_seconds: number;
+    summary?: {
+      status?: string;
+      risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+      label: string;
+      detail: string;
+      next_step?: string;
+      count: number;
+    };
+    source: string;
+    privacy_boundary: string;
+  };
+  runtime_capability_health?: {
+    total_nodes: number;
+    capable_nodes: number;
+    gap_nodes: number;
+    operator_reporting_nodes: number;
+    cleanup_reporting_nodes: number;
+    rollout_reporting_nodes: number;
+    critical_nodes: number;
+    warning_nodes: number;
+    problem_nodes?: Array<{
+      id: string;
+      name: string;
+      health_status: string;
+      last_seen_seconds: number | null;
+      maintenance_mode: boolean;
+      active_sessions: number;
+      operator_reporting: boolean;
+      cleanup_reported: boolean;
+      rollout_reporting: boolean;
+      restart_required: boolean;
+      missing_capabilities: string[];
+      issue_code: string;
+      issue_label: string;
+      risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+      recommended_action: string;
+    }>;
     summary?: {
       status?: string;
       risk: 'healthy' | 'info' | 'warning' | 'critical' | string;

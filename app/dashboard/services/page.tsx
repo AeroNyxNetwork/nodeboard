@@ -1377,6 +1377,46 @@ function fleetCommandDelivery(summary: VpnRestartReadinessSummary | null) {
   };
 }
 
+function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
+  const capability = summary?.runtime_capability_health ?? null;
+  if (!capability) {
+    return {
+      count: 0,
+      capable: 0,
+      gaps: 0,
+      total: 0,
+      operatorReporting: 0,
+      cleanupReporting: 0,
+      problemNodes: [],
+      label: 'Pending',
+      detail: 'waiting for backend runtime capability summary',
+      risk: 'info',
+      next_step: 'Waiting for data.summary.restart_readiness.runtime_capability_health.',
+    };
+  }
+  const summaryCopy = capability.summary ?? {
+    label: capability.gap_nodes > 0 ? 'Capability gaps' : 'Capable',
+    detail: `${capability.capable_nodes.toLocaleString()} of ${capability.total_nodes.toLocaleString()} node(s) report commercial runtime telemetry`,
+    risk: capability.gap_nodes > 0 ? 'warning' : 'healthy',
+    next_step: 'Review Rust operator_status and session_cleanup reporting before cutover work.',
+    count: capability.gap_nodes,
+  };
+
+  return {
+    count: summaryCopy.count ?? capability.gap_nodes,
+    capable: capability.capable_nodes,
+    gaps: capability.gap_nodes,
+    total: capability.total_nodes,
+    operatorReporting: capability.operator_reporting_nodes,
+    cleanupReporting: capability.cleanup_reporting_nodes,
+    problemNodes: capability.problem_nodes ?? [],
+    label: summaryCopy.label,
+    detail: summaryCopy.detail,
+    risk: summaryCopy.risk,
+    next_step: summaryCopy.next_step,
+  };
+}
+
 function fleetCommandOutcome(summary: VpnRestartReadinessSummary | null) {
   const counts = summary?.command_lifecycle_counts ?? null;
   if (!counts) {
@@ -2334,6 +2374,7 @@ function FleetRestartReadinessPanel({
   const cutoverGuard = fleetCutoverGuard(summary);
   const commandLifecycle = fleetCommandLifecycle(summary);
   const commandDelivery = fleetCommandDelivery(summary);
+  const runtimeCapability = fleetRuntimeCapability(summary);
   const commandOutcome = fleetCommandOutcome(summary);
   const commandCounts = summary?.command_lifecycle_counts ?? null;
   const commandHistory = commandCounts?.history_24h ?? null;
@@ -2423,6 +2464,18 @@ function FleetRestartReadinessPanel({
             <p className="mt-2 text-xs leading-5 opacity-80">
               Attention {commandDelivery.attention.toLocaleString()} · Ready {commandDelivery.ready.toLocaleString()}
             </p>
+          )}
+        </div>
+        <div className={`rounded-xl border p-4 ${drainActivityHealthClass(runtimeCapability.risk)}`}>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Rust Capability</p>
+          <p className="mt-2 text-2xl font-semibold">{runtimeCapability.gaps.toLocaleString()} gaps</p>
+          <p className="mt-1 text-xs opacity-70">{runtimeCapability.label} · {runtimeCapability.detail}</p>
+          <p className="mt-2 text-xs leading-5 opacity-80">
+            Operator {runtimeCapability.operatorReporting.toLocaleString()} / {runtimeCapability.total.toLocaleString()} ·
+            Cleanup {runtimeCapability.cleanupReporting.toLocaleString()} / {runtimeCapability.total.toLocaleString()}
+          </p>
+          {runtimeCapability.next_step && (
+            <p className="mt-2 text-xs leading-5 opacity-80">{runtimeCapability.next_step}</p>
           )}
         </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(commandLifecycle.risk)}`}>
@@ -2550,6 +2603,51 @@ function FleetRestartReadinessPanel({
           </p>
         </div>
       ) : null}
+
+      {runtimeCapability.problemNodes.length > 0 && (
+        <div className="mt-4 rounded-xl border border-yellow-300/20 bg-yellow-500/[0.04] p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-yellow-100">Rust Capability Gaps</h3>
+              <p className="mt-1 text-xs leading-5 text-yellow-100/60">
+                Nodes below have fresh backend records but do not report the runtime telemetry needed for commercial restart, drain, and cutover operations.
+              </p>
+            </div>
+            <StatusPill status={runtimeCapability.risk} />
+          </div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+            {runtimeCapability.problemNodes.map((node) => (
+              <div key={node.id} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <Link href={`/dashboard/nodes/${node.id}`} className="min-w-0 truncate font-medium text-white hover:text-purple-300">
+                    {node.name}
+                  </Link>
+                  <span className={`shrink-0 rounded-md border px-2 py-0.5 ${statusClass(node.risk)}`}>
+                    {node.issue_label}
+                  </span>
+                </div>
+                <p className="mt-2 leading-5 text-yellow-100/60">
+                  Missing {node.missing_capabilities.map((item) => item.replaceAll('_', ' ')).join(', ')} ·
+                  active {node.active_sessions.toLocaleString()} · {node.maintenance_mode ? 'maintenance on' : 'maintenance off'}
+                </p>
+                <p className="mt-1 leading-5 text-yellow-100/50">
+                  Operator {node.operator_reporting ? 'reported' : 'missing'} ·
+                  cleanup {node.cleanup_reported ? 'reported' : 'missing'} ·
+                  heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
+                </p>
+                <p className="mt-1 leading-5 text-yellow-100/50">{node.recommended_action}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs leading-5 text-yellow-100/45">
+            Backend contract: GET /api/privacy_network/vpn/overview/ exposes
+            data.summary.restart_readiness.runtime_capability_health from /root/aeronyx/privacy_network/api/vpn_observability.py.
+            Rust source: /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs,
+            /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs, and
+            /root/open/AeroNyx/crates/aeronyx-server/src/services/session.rs.
+          </p>
+        </div>
+      )}
 
       {commandDelivery.problemNodes.length > 0 && (
         <div className="mt-4 rounded-xl border border-yellow-300/20 bg-yellow-500/[0.04] p-4">
