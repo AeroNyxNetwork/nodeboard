@@ -46,7 +46,9 @@
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors latest restart_service lifecycle metadata for completed,
  *     failed, cancelled, or timeout command outcome closure without command
- *     params, result, or error_message payloads.
+ *     params, result, or error_message payloads. Includes age_seconds,
+ *     stale_after_seconds, is_stale, and stale_reason for backend-authored
+ *     command SLA inspection.
  *   - data.nodes[].system.restart_readiness.drain_eta
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates active ClientSession timing for restart drain visibility.
@@ -78,7 +80,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.21 - Documented latest restart command outcome
+ * Last Modified: v1.1.22 - Documented restart command SLA fields
+ * Previous: v1.1.21 - Documented latest restart command outcome
  * Previous: v1.1.20 - Documented backend drain risk next step
  * Previous: v1.1.19 - Documented backend-authored drain risk copy
  * Previous: v1.1.18 - Documented fleet drain risk summary
@@ -144,7 +147,7 @@ const healthPayload = {
     {
       endpoint: 'data.nodes[].system.restart_readiness.latest_restart_command',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Latest restart_service lifecycle metadata for Services Retry Needed, Current, and Manual Check command outcome closure',
+      purpose: 'Latest restart_service lifecycle metadata and age/stale SLA fields for Services Retry Needed, Stale Command, Current, and Manual Check outcome closure',
     },
     {
       endpoint: 'data.nodes[].system.restart_readiness.drain_eta',

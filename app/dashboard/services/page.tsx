@@ -29,6 +29,8 @@
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Exposes terminal restart_service lifecycle metadata for command outcome
  *     closure without returning params, result, or error_message payloads.
+ *     Also includes age_seconds/stale_after_seconds/is_stale so operators can
+ *     identify restart commands stuck beyond the backend SLA.
  *   - data.nodes[].system.restart_readiness.drain_eta
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates active ClientSession timing for maintenance drain visibility.
@@ -80,7 +82,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.20 - Close restart command outcomes
+ * Last Modified: v1.1.21 - Show stale restart command SLA
+ * Previous: v1.1.20 - Close restart command outcomes
  * Previous: v1.1.19 - Show restart command timeline in action queue
  * Previous: v1.1.18 - Add queue filters and stable impact ordering
  * Previous: v1.1.17 - Add prioritized restart action queue
@@ -211,8 +214,8 @@ interface RestartReadinessNode {
   source: string;
 }
 
-type RestartActionQueueKey = 'retry' | 'critical' | 'warning' | 'ready' | 'current';
-type RestartQueueStatusFilter = 'all' | 'attention' | 'retry' | 'blocked' | 'ready' | 'current';
+type RestartActionQueueKey = 'stale' | 'retry' | 'critical' | 'warning' | 'ready' | 'current';
+type RestartQueueStatusFilter = 'all' | 'attention' | 'stale' | 'retry' | 'blocked' | 'ready' | 'current';
 
 interface RestartQueueFilters {
   region: string;
@@ -265,6 +268,7 @@ interface SessionCleanupRolloutNode {
 const restartQueueStatusFilters: Array<{ value: RestartQueueStatusFilter; label: string }> = [
   { value: 'all', label: 'All statuses' },
   { value: 'attention', label: 'Needs action' },
+  { value: 'stale', label: 'Stale command' },
   { value: 'retry', label: 'Retry needed' },
   { value: 'blocked', label: 'Blocked' },
   { value: 'ready', label: 'Ready' },
@@ -849,6 +853,19 @@ function buildCommandClosureQueueItem(node: RestartReadinessNode): RestartAction
   };
 }
 
+function buildStaleCommandQueueItem(node: RestartReadinessNode): RestartActionQueueItem {
+  return {
+    ...buildReadyRestartQueueItem(node),
+    status: 'stale command',
+    detail: node.activeRestartCommand?.stale_reason
+      || 'Active restart_service command exceeded the backend SLA. Inspect command delivery before retrying.',
+    risk: 'critical',
+    canQueueRestart: false,
+    actionHref: `/dashboard/nodes/${node.id}?command_action=restart_service#vpn-commands`,
+    actionLabel: 'Inspect command',
+  };
+}
+
 function restartQueueSortScore(item: RestartActionQueueItem) {
   const riskScore = item.risk === 'critical' ? 0 : item.risk === 'warning' ? 1 : item.risk === 'healthy' ? 2 : 3;
   const maintenanceScore = item.maintenanceMode ? 1 : 0;
@@ -883,6 +900,7 @@ function filterRestartQueueItems(
   return items.filter((item) => {
     if (filters.region !== 'all' && item.regionLabel !== filters.region) return false;
     if (filters.version !== 'all' && item.version !== filters.version) return false;
+    if (filters.status === 'stale') return restartCommandIsStale(item.activeRestartCommand);
     if (filters.status === 'retry') return restartCommandNeedsRetry(item.latestRestartCommand);
     if (filters.status === 'blocked') return item.source === 'backend_blocked_node';
     if (filters.status === 'ready') return item.canQueueRestart;
@@ -890,6 +908,7 @@ function filterRestartQueueItems(
     if (filters.status === 'attention') {
       return item.source === 'backend_blocked_node'
         || item.canQueueRestart
+        || restartCommandIsStale(item.activeRestartCommand)
         || restartCommandNeedsRetry(item.latestRestartCommand)
         || restartCommandManualCheck(item.latestRestartCommand);
     }
@@ -908,6 +927,7 @@ function restartCommandStageIndex(command: VpnRestartCommandState | null) {
 
 function restartCommandStatusClass(command: VpnRestartCommandState | null) {
   if (!command) return 'border-white/10 bg-white/[0.03] text-gray-400';
+  if (command.is_stale) return 'border-red-300/25 bg-red-300/[0.08] text-red-100';
   if (command.status === 'failed' || command.status === 'timeout') return 'border-red-300/25 bg-red-300/[0.08] text-red-100';
   if (command.status === 'cancelled') return 'border-yellow-300/25 bg-yellow-300/[0.08] text-yellow-100';
   if (command.status === 'completed') return 'border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-100';
@@ -920,7 +940,8 @@ function restartCommandTimelineLabel(command: VpnRestartCommandState | null) {
   if (!command) return 'No active restart command';
   const timestamp = command.completed_at ?? command.acked_at ?? command.sent_at ?? command.created_at;
   const timestampLabel = timestamp ? ` · ${formatRelativeTime(timestamp)}` : '';
-  return `${command.is_terminal ? 'Last restart command' : 'Restart command'} ${command.status}${timestampLabel}`;
+  const staleLabel = command.is_stale ? ' · stale' : '';
+  return `${command.is_terminal ? 'Last restart command' : 'Restart command'} ${command.status}${timestampLabel}${staleLabel}`;
 }
 
 function restartCommandStageLabels(command: VpnRestartCommandState | null) {
@@ -933,9 +954,18 @@ function restartCommandNeedsRetry(command: VpnRestartCommandState | null) {
   return Boolean(command.can_retry) || command.status === 'failed' || command.status === 'timeout';
 }
 
+function restartCommandIsStale(command: VpnRestartCommandState | null) {
+  return Boolean(command?.is_stale);
+}
+
 function restartCommandManualCheck(command: VpnRestartCommandState | null) {
   if (!command) return false;
   return command.status === 'cancelled' || command.status === 'timeout';
+}
+
+function restartCommandSlaLabel(command: VpnRestartCommandState | null) {
+  if (!command?.age_seconds || !command.stale_after_seconds) return null;
+  return `${formatDuration(command.age_seconds)} elapsed / ${formatDuration(command.stale_after_seconds)} SLA`;
 }
 
 function restartQueueFilterOptions(nodes: RestartReadinessNode[]) {
@@ -954,9 +984,13 @@ function buildRestartActionQueues(
   const blockedItems = (summary?.blocked_nodes ?? [])
     .filter((node) => filteredNodeIds.has(node.id))
     .map((node) => buildBlockedRestartQueueItem(node, readinessById.get(node.id)));
+  const staleCommandItems = nodes
+    .filter((node) => restartCommandIsStale(node.activeRestartCommand))
+    .map(buildStaleCommandQueueItem);
   const readyItems = nodes
     .filter((node) => (
       node.status === 'ready'
+      && !restartCommandIsStale(node.activeRestartCommand)
       && !restartCommandNeedsRetry(node.latestRestartCommand)
       && !restartCommandManualCheck(node.latestRestartCommand)
     ))
@@ -970,22 +1004,35 @@ function buildRestartActionQueues(
   const currentItems = nodes
     .filter((node) => (
       node.status === 'current'
+      && !restartCommandIsStale(node.activeRestartCommand)
       && !restartCommandNeedsRetry(node.latestRestartCommand)
       && !restartCommandManualCheck(node.latestRestartCommand)
     ))
     .map(buildReadyRestartQueueItem);
   const filteredBlockedItems = filterRestartQueueItems(blockedItems, filters);
+  const filteredStaleCommandItems = filterRestartQueueItems(staleCommandItems, filters);
   const filteredCommandClosureItems = filterRestartQueueItems(commandClosureItems, filters);
   const filteredReadyItems = filterRestartQueueItems(readyItems, filters);
   const filteredCurrentItems = filterRestartQueueItems(currentItems, filters);
+  const filteredDrainBlockedItems = filteredBlockedItems.filter(
+    (item) => !restartCommandIsStale(item.activeRestartCommand),
+  );
   const criticalItems = sortRestartQueueItems(
-    filteredBlockedItems.filter((item) => item.risk === 'critical'),
+    filteredDrainBlockedItems.filter((item) => item.risk === 'critical'),
   );
   const warningItems = sortRestartQueueItems(
-    filteredBlockedItems.filter((item) => item.risk !== 'critical'),
+    filteredDrainBlockedItems.filter((item) => item.risk !== 'critical'),
   );
 
   return [
+    {
+      key: 'stale',
+      label: 'Stale Command',
+      description: 'Active restart command exceeded backend SLA and needs inspection.',
+      status: filteredStaleCommandItems.length > 0 ? 'critical' : 'healthy',
+      emptyState: 'No stale active restart command.',
+      items: sortRestartQueueItems(filteredStaleCommandItems),
+    },
     {
       key: 'retry',
       label: 'Retry Needed',
@@ -1393,7 +1440,7 @@ function FleetRestartReadinessPanel({
           </div>
         )}
 
-        <div className="mt-4 grid gap-3 xl:grid-cols-5">
+        <div className="mt-4 grid gap-3 xl:grid-cols-3 2xl:grid-cols-6">
           {actionQueues.map((queue) => (
             <div
               key={queue.key}
@@ -1421,6 +1468,7 @@ function FleetRestartReadinessPanel({
                   const visibleCommand = item.activeRestartCommand ?? item.latestRestartCommand;
                   const commandStageIndex = restartCommandStageIndex(visibleCommand);
                   const commandStageLabels = restartCommandStageLabels(visibleCommand);
+                  const commandSlaLabel = restartCommandSlaLabel(visibleCommand);
 
                   return (
                     <div
@@ -1469,6 +1517,12 @@ function FleetRestartReadinessPanel({
                               </div>
                             ))}
                           </div>
+                          {commandSlaLabel && (
+                            <p className="mt-2 text-[11px] opacity-75">
+                              {commandSlaLabel}
+                              {visibleCommand.stale_reason ? ` · ${visibleCommand.stale_reason}` : ''}
+                            </p>
+                          )}
                         </div>
                       )}
                       <div className="mt-3 flex flex-wrap gap-2">

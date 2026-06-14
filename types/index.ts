@@ -416,6 +416,10 @@ export interface VpnRestartCommandState {
   completed_at?: string | null;
   is_terminal?: boolean;
   can_retry?: boolean;
+  age_seconds?: number | null;
+  stale_after_seconds?: number | null;
+  is_stale?: boolean;
+  stale_reason?: string;
   source: 'node_command_restart_service_queue' | string;
 }
 
@@ -485,8 +489,9 @@ export interface VpnRestartDrainEta {
  * history, voucher secrets, or wallet-level traffic. active_restart_command is
  * command lifecycle metadata only and never contains command payload secrets.
  * latest_restart_command extends the same privacy boundary to terminal
- * outcomes for fleet restart closure; drain_eta is node-level aggregate
- * timing only.
+ * outcomes for fleet restart closure. age_seconds/stale_after_seconds/is_stale
+ * are backend-authored SLA metadata from vpn_observability.py only; drain_eta
+ * is node-level aggregate timing only.
  */
 export interface VpnRestartReadiness {
   status: 'ready' | 'blocked' | 'pending' | 'current' | string;
