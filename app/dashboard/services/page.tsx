@@ -65,6 +65,11 @@
  *     Aggregates data.nodes[].system.policy_sync so Services can verify
  *     max_sessions and bandwidth_limit_mbps changes have reached Rust
  *     node_policy before operators trust commercial capacity limits.
+ *   - data.summary.restart_readiness.policy_enforcement_health
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Aggregates data.nodes[].system.policy_enforcement so Services can show
+ *     whether maintenance, max_sessions, or bandwidth policy is actively
+ *     blocking handshakes or packets in Rust node_policy.
  *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
@@ -121,7 +126,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.34 - Show fleet policy sync health
+ * Last Modified: v1.1.35 - Show fleet policy enforcement blocks
+ * Previous: v1.1.34 - Show fleet policy sync health
  * Previous: v1.1.33 - Show maintenance exit placement context
  * Previous: v1.1.32 - Source maintenance exit from action plan
  * Previous: v1.1.31 - Show maintenance exit candidates
@@ -1525,6 +1531,7 @@ function FleetRestartReadinessPanel({
   const commandCounts = summary?.command_lifecycle_counts ?? null;
   const commandHistory = commandCounts?.history_24h ?? null;
   const policySyncHealth = summary?.policy_sync_health ?? null;
+  const policyEnforcementHealth = summary?.policy_enforcement_health ?? null;
   const maintenanceExitCandidates = summary?.maintenance_exit_candidates ?? [];
   const maintenanceExitCandidateCount = summary?.maintenance_exit_candidate_count ?? maintenanceExitCandidates.length;
   const commandCancelability = {
@@ -1618,7 +1625,63 @@ function FleetRestartReadinessPanel({
             Synced {(policySyncHealth?.synced_nodes ?? 0).toLocaleString()} / {(policySyncHealth?.total_nodes ?? 0).toLocaleString()}
           </p>
         </div>
+        <div className={`rounded-xl border p-4 ${drainActivityHealthClass(policyEnforcementHealth?.risk ?? 'info')}`}>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Policy Blocks</p>
+          <p className="mt-2 text-2xl font-semibold">
+            {(policyEnforcementHealth?.total_blocks ?? 0).toLocaleString()}
+          </p>
+          <p className="mt-1 text-xs opacity-70">
+            {policyEnforcementHealth?.label ?? 'Pending'} · {policyEnforcementHealth?.detail ?? 'waiting for backend policy enforcement summary'}
+          </p>
+          <p className="mt-2 text-xs leading-5 opacity-80">
+            Max sessions {(policyEnforcementHealth?.max_sessions_rejections ?? 0).toLocaleString()} ·
+            bandwidth {(policyEnforcementHealth?.bandwidth_drops ?? 0).toLocaleString()}
+          </p>
+        </div>
       </div>
+
+      {policyEnforcementHealth?.problem_nodes?.length ? (
+        <div className="mt-4 rounded-xl border border-yellow-300/20 bg-yellow-500/[0.04] p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-yellow-100">Policy Blocks</h3>
+              <p className="mt-1 text-xs leading-5 text-yellow-100/60">
+                Rust node_policy is actively blocking handshakes or packets. Confirm whether this is expected protection or a commercial capacity shortage.
+              </p>
+            </div>
+            <StatusPill status={policyEnforcementHealth.risk} />
+          </div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+            {policyEnforcementHealth.problem_nodes.map((node) => (
+              <div key={node.id} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <Link href={`/dashboard/nodes/${node.id}`} className="min-w-0 truncate font-medium text-white hover:text-purple-300">
+                    {node.name}
+                  </Link>
+                  <span className={`shrink-0 rounded-md border px-2 py-0.5 ${statusClass(node.severity)}`}>
+                    {node.severity}
+                  </span>
+                </div>
+                <p className="mt-2 leading-5 text-yellow-100/60">
+                  Total {node.total_blocks.toLocaleString()} · maintenance {node.maintenance_rejections.toLocaleString()} ·
+                  max sessions {node.max_sessions_rejections.toLocaleString()} · bandwidth {node.bandwidth_drops.toLocaleString()}
+                </p>
+                <p className="mt-1 leading-5 text-yellow-100/50">
+                  Last reason {node.last_rejection_reason ?? 'policy_enforced'} ·
+                  heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
+                </p>
+                <p className="mt-1 leading-5 text-yellow-100/50">{node.next_step}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs leading-5 text-yellow-100/45">
+            Backend contract: GET /api/privacy_network/vpn/overview/ exposes
+            data.summary.restart_readiness.policy_enforcement_health from /root/aeronyx/privacy_network/api/vpn_observability.py.
+            Rust source: /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs and
+            /root/open/AeroNyx/crates/aeronyx-server/src/handlers/packet.rs.
+          </p>
+        </div>
+      ) : null}
 
       {policySyncHealth?.problem_nodes?.length ? (
         <div className="mt-4 rounded-xl border border-yellow-300/20 bg-yellow-500/[0.04] p-4">

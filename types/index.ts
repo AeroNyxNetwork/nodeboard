@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.8 - Added fleet policy enforcement health summary types.
  *   v1.5.7 - Added fleet policy sync health summary types.
  *   v1.5.6 - Documented commercial capacity PATCH policy fields.
  *   v1.5.5 - Added maintenance exit placement context fields.
@@ -47,7 +48,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.7 - Added fleet policy sync health summary
+ * Last Modified: v1.5.8 - Added fleet policy enforcement health summary
+ * Previous: v1.5.7 - Added fleet policy sync health summary
  * Previous: v1.5.6 - Documented commercial capacity policy fields
  * Previous: v1.5.5 - Added maintenance exit placement context
  * Previous: v1.5.4 - Documented action-sourced maintenance exits
@@ -662,6 +664,11 @@ export interface VpnRestartReadinessBlockedNode {
  *   /root/aeronyx/privacy_network/api/vpn_observability.py so Services can
  *   show whether max_sessions / bandwidth_limit_mbps policy changes have
  *   reached Rust node_policy before operators trust commercial capacity.
+ * Policy enforcement source:
+ *   data.summary.restart_readiness.policy_enforcement_health aggregates
+ *   data.nodes[].system.policy_enforcement from
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py so Services can
+ *   show whether Rust node_policy is actively blocking handshakes or packets.
  * Maintenance recovery source:
  *   data.summary.restart_readiness.maintenance_exit_candidates lists nodes
  *   that are current, drained, and still in maintenance mode so Services can
@@ -726,6 +733,35 @@ export interface VpnRestartReadinessSummary {
       next_step: string;
     }>;
     source: 'nodes.system.policy_sync' | string;
+    privacy_boundary: string;
+  };
+  policy_enforcement_health?: {
+    maintenance_rejections: number;
+    max_sessions_rejections: number;
+    bandwidth_drops: number;
+    total_blocks: number;
+    problem_node_count: number;
+    critical_nodes: number;
+    warning_nodes: number;
+    label: string;
+    risk: 'healthy' | 'warning' | 'critical' | 'info' | string;
+    detail: string;
+    next_step: string;
+    problem_nodes?: Array<{
+      id: string;
+      name: string;
+      health_status: string;
+      last_seen_seconds: number | null;
+      maintenance_rejections: number;
+      max_sessions_rejections: number;
+      bandwidth_drops: number;
+      total_blocks: number;
+      last_rejection_reason: string | null;
+      last_rejection_at: number | null;
+      severity: 'warning' | 'critical' | string;
+      next_step: string;
+    }>;
+    source: 'nodes.system.policy_enforcement' | string;
     privacy_boundary: string;
   };
   command_delivery_health?: {
