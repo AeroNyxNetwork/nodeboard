@@ -16,6 +16,7 @@
  *   - Runtime env: /etc/nodeboard/nodeboard.env
  *   - Deployment helper: deploy/bin/deploy-nodeboard.sh
  *   - Dashboard service page: app/dashboard/services/page.tsx
+ *   - Dashboard sessions page: app/dashboard/sessions/page.tsx
  *   - Node detail page: app/dashboard/nodes/[id]/page.tsx
  *
  * Backend API and File Paths:
@@ -26,6 +27,9 @@
  *     gate decisions shared by node detail and services fleet views.
  *     Provides data.summary.restart_readiness for owner-scoped fleet restart
  *     readiness monitoring.
+ *   - GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Supports /dashboard/sessions?node={id}&status=active&quality=all deep links.
  *   - GET /api/privacy_network/nodes/{id}/sessions/
  *     /root/aeronyx/privacy_network/api/sessions.py
  *     /root/aeronyx/privacy_network/serializers.py
@@ -46,7 +50,7 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.4 - Documented restart_readiness summary contract
+ * Last Modified: v1.1.5 - Documented sessions deep-link contract
  * Previous: v1.1.1 - Production health route
  * ============================================
  */
@@ -65,6 +69,7 @@ const healthPayload = {
   api_base_url: API_BASE_URL,
   frontend_paths: [
     'app/dashboard/services/page.tsx',
+    'app/dashboard/sessions/page.tsx',
     'app/dashboard/nodes/[id]/page.tsx',
     'lib/api.ts',
     'lib/constants.ts',
@@ -91,6 +96,11 @@ const healthPayload = {
       endpoint: 'data.summary.restart_readiness',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Owner-scoped fleet restart readiness counts and blocked-node summary',
+    },
+    {
+      endpoint: 'GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Global VPN session list used by /dashboard/sessions deep links from blocked restart nodes',
     },
     {
       endpoint: 'GET /api/privacy_network/nodes/{id}/sessions/',

@@ -12,8 +12,21 @@
  *   - Frontend API client: lib/api.ts
  *   - React Query hooks: hooks/useNodes.ts (useVpnOverview/useVpnSessions)
  *   - Shared types: types/index.ts (VpnOverview/VpnSession)
- *   - Backend API: /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   - Backend API:
+ *       GET /api/privacy_network/vpn/sessions/
+ *       /root/aeronyx/privacy_network/api/vpn_observability.py
  *   - Implementation notes: docs/vpn-observability-mvp.md
+ *
+ * Deep Link Contract:
+ *   - Services page blocked-node link:
+ *       /dashboard/sessions?node={node_id}&status=active&quality=all
+ *   - Nodeboard query params:
+ *       node    -> backend node_id
+ *       status  -> backend status
+ *       quality -> backend quality_status
+ *   - Backend files:
+ *       /root/aeronyx/privacy_network/api/vpn_observability.py
+ *       /root/aeronyx/privacy_network/serializers.py
  *
  * Implementation Notes:
  *   - Session quality is classified by the backend from Rust-reported
@@ -22,7 +35,8 @@
  *   - The UI intentionally shows operational metadata only. It must not display
  *     traffic destinations, DNS queries, packet payloads, or browsing history.
  *
- * Last Modified: v1.1.0 - VPN observability MVP
+ * Last Modified: v1.1.1 - Documented sessions deep-link contract
+ * Previous: v1.1.0 - VPN observability MVP
  * ============================================
  */
 
@@ -655,6 +669,9 @@ export default function SessionsPage() {
   const [banningSessionId, setBanningSessionId] = useState<string | null>(null);
   const [operationNotice, setOperationNotice] = useState<OperationNotice | null>(null);
 
+  // Keep URL filters shareable with Services blocked-node links while mapping
+  // node/status/quality to the backend node_id/status/quality_status filters in
+  // lib/api.ts -> api.getVpnSessions() -> /api/privacy_network/vpn/sessions/.
   useEffect(() => {
     const params = new URLSearchParams();
     if (statusFilter !== 'active') params.set('status', statusFilter);
