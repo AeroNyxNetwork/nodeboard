@@ -30,6 +30,9 @@
  *   - data.summary.restart_readiness.blocker_counts
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Drives the fleet restart blocker playbook shown in this page.
+ *   - data.summary.restart_readiness.blocked_nodes[].recommended_action
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Provides the backend-authored next operator action for each blocked node.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -53,7 +56,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.8 - Added restart blocker playbook copy
+ * Last Modified: v1.1.9 - Show backend recommended blocker action
+ * Previous: v1.1.8 - Added restart blocker playbook copy
  * Previous: v1.1.7 - Show restart drain ETA
  * Previous: v1.1.6 - Show active restart command state
  * Previous: v1.1.5 - Added restart gate command action
@@ -879,6 +883,7 @@ function FleetRestartReadinessPanel({
               const canEnableMaintenance = !node.maintenance_mode && node.blocker_codes.includes('maintenance_required');
               const isEnablingMaintenance = enablingMaintenanceNodeId === node.id;
               const drainStatus = formatDrainStatus(node.drain_status);
+              const recommendedAction = node.recommended_action ?? null;
 
               return (
               <div
@@ -906,14 +911,27 @@ function FleetRestartReadinessPanel({
                       {node.drain_next_step ? ` · ${node.drain_next_step}` : ''}
                     </span>
                   )}
+                  {recommendedAction?.detail && (
+                    <span className="block text-yellow-100/50">
+                      next action: {recommendedAction.detail}
+                    </span>
+                  )}
                 </span>
                 <div className="flex flex-wrap items-center gap-2">
                   <Link
                     href={`/dashboard/sessions?node=${encodeURIComponent(node.id)}&status=active&quality=all`}
                     className="font-medium text-sky-300 hover:text-sky-200"
                   >
-                    Open sessions
+                    {recommendedAction?.intent === 'sessions' ? recommendedAction.label : 'Open sessions'}
                   </Link>
+                  {recommendedAction?.intent === 'node_commands' && (
+                    <Link
+                      href={`/dashboard/nodes/${node.id}?command_action=restart_service#vpn-commands`}
+                      className="font-medium text-sky-300 hover:text-sky-200"
+                    >
+                      {recommendedAction.label}
+                    </Link>
+                  )}
                   {canEnableMaintenance && (
                     <button
                       type="button"
@@ -921,7 +939,11 @@ function FleetRestartReadinessPanel({
                       disabled={Boolean(enablingMaintenanceNodeId)}
                       className="rounded-md border border-yellow-300/20 px-2 py-1 font-medium text-yellow-100 transition hover:border-yellow-200/40 hover:bg-yellow-300/10 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {isEnablingMaintenance ? 'Enabling...' : 'Enable maintenance'}
+                      {isEnablingMaintenance
+                        ? 'Enabling...'
+                        : recommendedAction?.intent === 'node_policy'
+                          ? recommendedAction.label
+                          : 'Enable maintenance'}
                     </button>
                   )}
                 </div>

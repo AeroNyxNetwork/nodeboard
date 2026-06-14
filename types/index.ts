@@ -476,6 +476,12 @@ export interface VpnRestartReadinessBlockedNode {
   drain_status?: string;
   drain_next_step?: string;
   active_restart_command_status?: string;
+  recommended_action?: {
+    key: string;
+    label: string;
+    intent: 'node_policy' | 'sessions' | 'node_commands' | 'node_detail' | string;
+    detail: string;
+  };
 }
 
 /**
