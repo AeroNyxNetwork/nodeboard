@@ -41,6 +41,10 @@
  *     Exposes data.nodes[].system.restart_readiness.operator_action_plan as
  *     a backend-authored node detail preflight summary built from restart
  *     gate, command delivery, drain ETA, and restart command lifecycle state.
+ *     The contextual actions under that plan reuse these existing backend
+ *     APIs: PATCH /api/privacy_network/nodes/{id}/, GET
+ *     /api/privacy_network/vpn/sessions/?node_id=&status=, and POST
+ *     /api/privacy_network/nodes/{id}/commands/run/.
  *     Exposes data.nodes[].last_seen_seconds and
  *     data.nodes[].system.restart_readiness.operator_reporting for node-level
  *     command delivery readiness in the Maintenance Drain panel. Backend
@@ -103,7 +107,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.14 - Show backend operator action plan
+ * Last Modified: v1.6.15 - Add operator action contextual controls
+ * Previous: v1.6.14 - Show backend operator action plan
  * Previous: v1.6.13 - Use backend node command delivery policy
  * Previous: v1.6.12 - Show node command delivery readiness
  * Previous: v1.6.11 - Explain backend restart cancel eligibility
@@ -1684,6 +1689,7 @@ function MaintenanceDrainPanel({
   isCommandPending,
   cancellingCommandId,
   onToggleMaintenance,
+  onRunDiagnostic,
   onRestartService,
   onCancelRestartCommand,
 }: {
@@ -1696,6 +1702,7 @@ function MaintenanceDrainPanel({
   isCommandPending: boolean;
   cancellingCommandId: string | null;
   onToggleMaintenance: () => Promise<void>;
+  onRunDiagnostic: (action: 'system_info' | 'collect_logs') => Promise<void>;
   onRestartService: () => Promise<void>;
   onCancelRestartCommand: (command: VpnRestartCommandState) => Promise<void>;
 }) {
@@ -1795,6 +1802,47 @@ function MaintenanceDrainPanel({
               ))}
             </div>
           )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              variant={maintenanceMode ? 'secondary' : 'danger'}
+              size="sm"
+              disabled={isPolicySaving}
+              isLoading={isPolicySaving}
+              onClick={onToggleMaintenance}
+            >
+              {maintenanceMode ? 'End Maintenance' : 'Start Maintenance'}
+            </Button>
+            <a
+              href={sessionsHref}
+              className="inline-flex items-center justify-center rounded-lg border border-sky-400/20 bg-sky-400/[0.08] px-3 py-1.5 text-xs font-medium text-sky-200 hover:bg-sky-400/[0.12] transition-colors"
+            >
+              Active Sessions
+            </a>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={isCommandPending}
+              onClick={() => onRunDiagnostic('system_info')}
+            >
+              System Info
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={isCommandPending}
+              onClick={() => onRunDiagnostic('collect_logs')}
+            >
+              Collect Logs
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={isCommandPending || !restartReady}
+              onClick={onRestartService}
+            >
+              Restart VPN
+            </Button>
+          </div>
           <p className="mt-2 text-[10px] leading-4 text-gray-600">
             Source: GET /api/privacy_network/vpn/overview/ -&gt; data.nodes[].system.restart_readiness.operator_action_plan
           </p>
@@ -2733,6 +2781,7 @@ function VpnHealthPanel({
         isCommandPending={runCommand.isPending}
         cancellingCommandId={cancellingCommandId}
         onToggleMaintenance={handleMaintenanceToggle}
+        onRunDiagnostic={handleRunCommand}
         onRestartService={handleRestartService}
         onCancelRestartCommand={handleCancelRestartCommand}
       />
