@@ -40,8 +40,9 @@
  *     controlled-restart gating.
  *     Exposes data.nodes[].last_seen_seconds and
  *     data.nodes[].system.restart_readiness.operator_reporting for node-level
- *     command delivery readiness in the Maintenance Drain panel. This mirrors
- *     Services command_delivery_health from vpn_observability.py.
+ *     command delivery readiness in the Maintenance Drain panel. Backend
+ *     data.nodes[].system.restart_readiness.command_delivery is preferred so
+ *     node detail shares the same policy as Services command_delivery_health.
  *     Exposes data.nodes[].system.restart_readiness.active_restart_command
  *     and latest_restart_command for restart command SLA/outcome visibility
  *     without command params, result, or error_message payloads.
@@ -99,7 +100,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.12 - Show node command delivery readiness
+ * Last Modified: v1.6.13 - Use backend node command delivery policy
+ * Previous: v1.6.12 - Show node command delivery readiness
  * Previous: v1.6.11 - Explain backend restart cancel eligibility
  * Previous: v1.6.10 - Use backend cancel eligibility in restart card
  * Previous: v1.6.9 - Make command deep-link filters URL authoritative
@@ -1535,6 +1537,18 @@ function drainActivityHealthClass(risk: string | undefined) {
 }
 
 function nodeCommandDelivery(health: VpnNodeHealth, readiness: VpnRestartReadiness | null | undefined) {
+  if (readiness?.command_delivery) {
+    return {
+      label: readiness.command_delivery.label,
+      status: readiness.command_delivery.status,
+      risk: readiness.command_delivery.risk,
+      detail: readiness.command_delivery.detail,
+      nextStep: readiness.command_delivery.next_step,
+      source: 'data.nodes[].system.restart_readiness.command_delivery',
+      privacyBoundary: readiness.command_delivery.privacy_boundary,
+    };
+  }
+
   const age = health.last_seen_seconds;
   const operatorReporting = Boolean(readiness?.operator_reporting);
 
@@ -1545,6 +1559,8 @@ function nodeCommandDelivery(health: VpnNodeHealth, readiness: VpnRestartReadine
       risk: 'critical',
       detail: 'Rust heartbeat has not reached the backend.',
       nextStep: 'Confirm the node is running and can reach the backend heartbeat API.',
+      source: 'data.nodes[].last_seen_seconds + data.nodes[].system.restart_readiness.operator_reporting',
+      privacyBoundary: '',
     };
   }
   if (age > COMMAND_DELIVERY_DEGRADED_SECONDS) {
@@ -1554,6 +1570,8 @@ function nodeCommandDelivery(health: VpnNodeHealth, readiness: VpnRestartReadine
       risk: 'critical',
       detail: `Last heartbeat ${formatDuration(age)} ago.`,
       nextStep: 'Check the Rust node process and backend heartbeat path before queueing commands.',
+      source: 'data.nodes[].last_seen_seconds + data.nodes[].system.restart_readiness.operator_reporting',
+      privacyBoundary: '',
     };
   }
   if (age > COMMAND_DELIVERY_FRESH_SECONDS) {
@@ -1563,6 +1581,8 @@ function nodeCommandDelivery(health: VpnNodeHealth, readiness: VpnRestartReadine
       risk: 'warning',
       detail: `Last heartbeat ${formatDuration(age)} ago.`,
       nextStep: 'Wait for a fresh heartbeat or inspect Rust heartbeat latency before restart work.',
+      source: 'data.nodes[].last_seen_seconds + data.nodes[].system.restart_readiness.operator_reporting',
+      privacyBoundary: '',
     };
   }
   if (!operatorReporting) {
@@ -1572,6 +1592,8 @@ function nodeCommandDelivery(health: VpnNodeHealth, readiness: VpnRestartReadine
       risk: 'warning',
       detail: 'Heartbeat is fresh, but operator_status is not reported.',
       nextStep: 'Confirm Rust reports system_stats.operator_status before relying on command delivery.',
+      source: 'data.nodes[].last_seen_seconds + data.nodes[].system.restart_readiness.operator_reporting',
+      privacyBoundary: '',
     };
   }
 
@@ -1581,6 +1603,8 @@ function nodeCommandDelivery(health: VpnNodeHealth, readiness: VpnRestartReadine
     risk: 'healthy',
     detail: `Fresh heartbeat ${formatDuration(age)} ago with operator reporting.`,
     nextStep: 'Restart commands can be delivered through the current heartbeat path.',
+    source: 'data.nodes[].last_seen_seconds + data.nodes[].system.restart_readiness.operator_reporting',
+    privacyBoundary: '',
   };
 }
 
@@ -1722,9 +1746,11 @@ function MaintenanceDrainPanel({
         </div>
         <p className="mt-1 text-[11px] leading-5 opacity-75">{commandDelivery.nextStep}</p>
         <p className="mt-1 text-[10px] leading-4 opacity-45">
-          Source: GET /api/privacy_network/vpn/overview/ -&gt; data.nodes[].last_seen_seconds +
-          data.nodes[].system.restart_readiness.operator_reporting
+          Source: GET /api/privacy_network/vpn/overview/ -&gt; {commandDelivery.source}
         </p>
+        {commandDelivery.privacyBoundary && (
+          <p className="mt-1 text-[10px] leading-4 opacity-45">{commandDelivery.privacyBoundary}</p>
+        )}
       </div>
 
       {restartBlockers.length > 0 && (

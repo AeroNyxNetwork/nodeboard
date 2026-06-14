@@ -493,7 +493,9 @@ export interface VpnRestartDrainEta {
  * latest_restart_command extends the same privacy boundary to terminal
  * outcomes for fleet restart closure. age_seconds/stale_after_seconds/is_stale
  * are backend-authored SLA metadata from vpn_observability.py only; drain_eta
- * is node-level aggregate timing only.
+ * is node-level aggregate timing only. command_delivery is backend-authored
+ * node-level restart command delivery readiness from heartbeat freshness plus
+ * operator_reporting.
  */
 export interface VpnRestartReadiness {
   status: 'ready' | 'blocked' | 'pending' | 'current' | string;
@@ -505,6 +507,19 @@ export interface VpnRestartReadiness {
   operator_reporting: boolean;
   restart_required: boolean;
   cleanup_reported: boolean;
+  command_delivery?: {
+    status: string;
+    risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+    label: string;
+    detail: string;
+    next_step: string;
+    last_seen_seconds: number | null;
+    operator_reporting: boolean;
+    fresh_seconds: number;
+    degraded_seconds: number;
+    source: string;
+    privacy_boundary: string;
+  };
   active_restart_command?: VpnRestartCommandState | null;
   latest_restart_command?: VpnRestartCommandState | null;
   drain_eta?: VpnRestartDrainEta | null;

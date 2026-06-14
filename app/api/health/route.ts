@@ -70,6 +70,8 @@
  *     data.nodes[].last_seen_seconds plus
  *     data.nodes[].system.restart_readiness.operator_reporting power node
  *     detail Command Delivery readiness before restart actions.
+ *     data.nodes[].system.restart_readiness.command_delivery is preferred
+ *     because it is backend-authored and shares policy with Services.
  *   - data.nodes[].system.restart_readiness.drain_eta
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates active ClientSession timing for restart drain visibility.
@@ -107,7 +109,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.33 - Documented node detail command delivery readiness
+ * Last Modified: v1.1.34 - Documented backend node command delivery policy
+ * Previous: v1.1.33 - Documented node detail command delivery readiness
  * Previous: v1.1.32 - Documented command delivery issue nodes
  * Previous: v1.1.31 - Documented command delivery health
  * Previous: v1.1.30 - Documented latest restart command context
@@ -181,6 +184,11 @@ const healthPayload = {
       endpoint: 'data.nodes[].last_seen_seconds + data.nodes[].system.restart_readiness.operator_reporting',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Node detail command delivery readiness from Rust heartbeat freshness and backend operator reporting before restart actions',
+    },
+    {
+      endpoint: 'data.nodes[].system.restart_readiness.command_delivery',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Backend-authored node detail command delivery readiness policy shared with Services command_delivery_health',
     },
     {
       endpoint: 'data.nodes[].system.restart_readiness.active_restart_command',
