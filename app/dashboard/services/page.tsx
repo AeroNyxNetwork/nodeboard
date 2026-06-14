@@ -137,7 +137,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.43 - Show rollout restart gates
+ * Last Modified: v1.1.44 - Add DNS gateway gate to rollout cards
+ * Previous: v1.1.43 - Show rollout restart gates
  * Previous: v1.1.42 - Add visual drain composition for restart gating
  * Previous: v1.1.41 - Show runtime rollout drain ETA
  * Previous: v1.1.40 - Show Rust service manager active state
@@ -272,6 +273,7 @@ interface RuntimeRolloutNode {
   rollout: RuntimeRolloutStatus;
   serviceManager: VpnServiceManagerStatus | null;
   policySync: VpnNodeHealth['system']['policy_sync'] | null;
+  dnsChecks: VpnNodeHealth['checks'];
   drainEta: VpnRestartDrainEta | null;
 }
 
@@ -592,6 +594,7 @@ function collectRuntimeRolloutNodes(nodes: VpnNodeHealth[]): RuntimeRolloutNode[
       rollout,
       serviceManager: node.system.service_manager ?? null,
       policySync: node.system.policy_sync ?? null,
+      dnsChecks: node.checks.filter((check) => check.name === 'dns_stub' || check.name === 'dns_query'),
       drainEta: node.system.restart_readiness?.drain_eta ?? null,
     });
     return items;
@@ -878,6 +881,8 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
 function RolloutGateStrip({ node }: { node: RuntimeRolloutNode }) {
   const serviceManagerReady = Boolean(node.serviceManager?.restart_supported);
   const policySynced = node.policySync?.status === 'synced';
+  const failedDnsCheck = node.dnsChecks.find((check) => !check.ok);
+  const dnsChecksReady = node.dnsChecks.length > 0 && !failedDnsCheck;
   const gates = [
     {
       label: 'Maintenance',
@@ -897,6 +902,15 @@ function RolloutGateStrip({ node }: { node: RuntimeRolloutNode }) {
       detail: node.policySync?.message ?? 'waiting for backend policy snapshot',
     },
     {
+      label: 'DNS Gateway',
+      status: dnsChecksReady ? 'ready' : failedDnsCheck ? 'blocked' : 'unknown',
+      detail: failedDnsCheck
+        ? `${failedDnsCheck.name.replaceAll('_', ' ')}: ${failedDnsCheck.detail}`
+        : dnsChecksReady
+          ? 'gateway resolver responding'
+          : 'waiting for Rust DNS health checks',
+    },
+    {
       label: 'Service Manager',
       status: serviceManagerReady ? 'ready' : 'pending',
       detail: node.serviceManager?.detail ?? 'systemd status pending',
@@ -904,7 +918,7 @@ function RolloutGateStrip({ node }: { node: RuntimeRolloutNode }) {
   ];
 
   return (
-    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
       {gates.map((gate) => (
         <div key={gate.label} className="rounded-lg border border-yellow-100/10 bg-black/20 p-3">
           <div className="flex items-center justify-between gap-2">
