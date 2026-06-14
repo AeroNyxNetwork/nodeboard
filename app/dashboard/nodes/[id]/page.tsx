@@ -30,6 +30,9 @@
  *     /root/aeronyx/privacy_network/api/nodes.py
  *   - GET /api/privacy_network/vpn/overview/
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   - GET /api/privacy_network/nodes/{id}/sessions/?status=active
+ *     /root/aeronyx/privacy_network/api/sessions.py
+ *     /root/aeronyx/privacy_network/serializers.py
  *   - POST /api/privacy_network/nodes/{id}/commands/
  *     /root/aeronyx/privacy_network/api/vpn_commands.py
  *
@@ -86,6 +89,7 @@ import {
 import {
   NodeCommand,
   NodeOperatorStatus,
+  Session,
   NodeStatus,
   NodeWalletBan,
   OperatorRisk,
@@ -1275,6 +1279,35 @@ function drainStepStatus(isReady: boolean, attentionLabel: string, readyLabel = 
   return isReady ? readyLabel : attentionLabel;
 }
 
+function sessionActivityAt(session: Session) {
+  return session.updated_at || session.last_tx_at || session.last_rx_at || session.started_at;
+}
+
+function newestSessionActivity(sessions: Session[]) {
+  return sessions.reduce<string | null>((latest, session) => {
+    const activityAt = sessionActivityAt(session);
+    if (!activityAt) return latest;
+    if (!latest) return activityAt;
+    return new Date(activityAt).getTime() > new Date(latest).getTime() ? activityAt : latest;
+  }, null);
+}
+
+function oldestSessionStartedAt(sessions: Session[]) {
+  return sessions.reduce<string | null>((oldest, session) => {
+    if (!session.started_at) return oldest;
+    if (!oldest) return session.started_at;
+    return new Date(session.started_at).getTime() < new Date(oldest).getTime()
+      ? session.started_at
+      : oldest;
+  }, null);
+}
+
+function sumSessionBytes(sessions: Session[]) {
+  return sessions.reduce((total, session) => (
+    total + (session.total_bytes ?? session.bytes_in + session.bytes_out)
+  ), 0);
+}
+
 function MaintenanceDrainPanel({
   nodeId,
   health,
@@ -1296,7 +1329,18 @@ function MaintenanceDrainPanel({
   onToggleMaintenance: () => Promise<void>;
   onRestartService: () => Promise<void>;
 }) {
+  const { sessions: activeSessions, isLoading: activeSessionsLoading } = useNodeSessions(nodeId, {
+    status: 'active',
+    limit: 100,
+    refetchIntervalMs: maintenanceMode ? 30000 : 60000,
+    refetchOnMount: true,
+  });
   const activeTunnels = health.active_sessions;
+  const listedActiveTunnels = activeSessions.length;
+  const listedTrafficBytes = sumSessionBytes(activeSessions);
+  const oldestStartedAt = oldestSessionStartedAt(activeSessions);
+  const newestActivityAt = newestSessionActivity(activeSessions);
+  const missedKeepalives = activeSessions.reduce((total, session) => total + (session.keepalive_missed ?? 0), 0);
   const policySyncStatus = health.system.policy_sync?.status || 'unknown';
   const recoveryStatus = health.system.runtime_recovery?.status || 'unknown';
   const maintenanceReady = maintenanceMode && policySyncStatus === 'synced';
@@ -1311,7 +1355,7 @@ function MaintenanceDrainPanel({
         <div>
           <h4 className="text-sm font-semibold text-white">Maintenance Drain</h4>
           <p className="text-xs text-gray-500 mt-1">
-            Controlled restart path for commercial VPN traffic.
+            Controlled restart path for commercial AeroNyx Privacy Protocol traffic.
           </p>
         </div>
         <span className={`inline-flex self-start rounded-full border px-2.5 py-1 text-xs ${
@@ -1366,6 +1410,16 @@ function MaintenanceDrainPanel({
           >
             Open active sessions
           </a>
+          <div className="mt-3 space-y-1 text-[11px] text-gray-500">
+            <p>
+              Session poll: {activeSessionsLoading ? 'loading' : `${listedActiveTunnels} listed`}
+              {listedActiveTunnels !== activeTunnels ? ` / ${activeTunnels} reported` : ''}
+            </p>
+            <p>Oldest active: {oldestStartedAt ? formatRelativeTime(oldestStartedAt) : 'none'}</p>
+            <p>Latest activity: {newestActivityAt ? formatRelativeTime(newestActivityAt) : 'none'}</p>
+            <p>Listed traffic: {formatBytes(listedTrafficBytes, 1)}</p>
+            {missedKeepalives > 0 && <p>Missed keepalives: {missedKeepalives}</p>}
+          </div>
         </div>
 
         <div className={`rounded-lg border px-3 py-3 ${drainStepClass(restartReady, restartCommandActive || !restartSupported)}`}>
@@ -1390,6 +1444,11 @@ function MaintenanceDrainPanel({
           >
             Restart VPN
           </Button>
+          {!drainReady && (
+            <p className="mt-2 text-[11px] text-yellow-200">
+              Restart unlocks after active tunnels reach 0.
+            </p>
+          )}
         </div>
 
         <div className={`rounded-lg border px-3 py-3 ${drainStepClass(verificationReady, recoveryStatus === 'sessions_interrupted')}`}>

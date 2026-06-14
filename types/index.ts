@@ -280,15 +280,30 @@ export type SessionStatus = 'active' | 'completed' | 'error';
 
 export interface Session {
   id: string;
+  node_name?: string;
   session_id: string;
   client_wallet: string;
+  virtual_ip?: string | null;
   bytes_in: number;
   bytes_out: number;
+  total_bytes: number;
   total_bytes_mb: number;
   started_at: string;
   ended_at: string | null;
   duration_seconds: number;
+  last_rx_at?: string | null;
+  last_tx_at?: string | null;
+  rtt_ms?: number | null;
+  packet_loss?: number | null;
+  packets_rx?: number;
+  packets_tx?: number;
+  keepalive_probes_sent?: number;
+  keepalive_acks?: number;
+  keepalive_missed?: number;
+  keepalive_pending?: number;
   status: SessionStatus;
+  last_error?: string;
+  updated_at?: string;
 }
 
 export interface SessionListResponse {

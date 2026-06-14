@@ -258,6 +258,8 @@ export function useNodeStats(nodeId: string, options: UseNodeStatsOptions = {}):
 interface UseNodeSessionsOptions {
   status?: 'active' | 'completed' | 'error';
   limit?: number;
+  refetchIntervalMs?: number;
+  refetchOnMount?: boolean;
 }
 
 interface UseNodeSessionsResult {
@@ -273,18 +275,33 @@ export function useNodeSessions(
   options: UseNodeSessionsOptions = {}
 ): UseNodeSessionsResult {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const { refetchIntervalMs, refetchOnMount, ...requestOptions } = options;
 
   const query = useQuery({
     queryKey: nodeKeys.sessions(nodeId, options),
     queryFn: async () => {
-      const res = await api.getNodeSessions(nodeId, options);
+      const res = await api.getNodeSessions(nodeId, requestOptions);
       return res.data;
     },
     enabled: isAuthenticated && !!nodeId,
-    staleTime: Infinity,
+    // Node Detail uses this hook in two modes:
+    // - Recent Sessions: static audit table, no polling.
+    // - Maintenance Drain: active-session guardrail for restart, polling on.
+    //
+    // Backend contract:
+    //   GET /api/privacy_network/nodes/{node_id}/sessions/
+    //   /root/aeronyx/privacy_network/api/sessions.py
+    //   /root/aeronyx/privacy_network/serializers.py
+    //
+    // Privacy boundary:
+    //   This returns tunnel/session operational metadata only. It does not
+    //   expose client public IPs, DNS contents, destinations, packet payloads,
+    //   domains, URLs, browsing history, or voucher secrets.
+    staleTime: refetchIntervalMs ? 0 : Infinity,
     gcTime: 10 * 60 * 1000,
+    refetchInterval: refetchIntervalMs,
     refetchOnWindowFocus: false,
-    refetchOnMount: false,
+    refetchOnMount: refetchOnMount ?? Boolean(refetchIntervalMs),
   });
 
   return {
