@@ -147,7 +147,7 @@ const healthPayload = {
     {
       endpoint: 'data.nodes[].system.restart_readiness.latest_restart_command',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Latest restart_service lifecycle metadata and age/stale SLA fields for Services Retry Needed, Stale Command, Current, and Manual Check outcome closure',
+      purpose: 'Latest restart_service lifecycle metadata and explicit age_seconds/stale_after_seconds/is_stale/stale_reason SLA fields for Services Retry Needed, Stale Command, Current, and Manual Check outcome closure',
     },
     {
       endpoint: 'data.nodes[].system.restart_readiness.drain_eta',
