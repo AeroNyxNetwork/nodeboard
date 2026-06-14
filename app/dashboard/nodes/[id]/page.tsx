@@ -45,6 +45,9 @@
  *     APIs: PATCH /api/privacy_network/nodes/{id}/, GET
  *     /api/privacy_network/vpn/sessions/?node_id=&status=, and POST
  *     /api/privacy_network/nodes/{id}/commands/run/.
+ *     operator_action_plan.recommended_actions is backend-ordered so the UI
+ *     can highlight the current safest operation without duplicating workflow
+ *     rules in React.
  *     Exposes data.nodes[].last_seen_seconds and
  *     data.nodes[].system.restart_readiness.operator_reporting for node-level
  *     command delivery readiness in the Maintenance Drain panel. Backend
@@ -107,7 +110,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.15 - Add operator action contextual controls
+ * Last Modified: v1.6.16 - Render backend recommended operator actions
+ * Previous: v1.6.15 - Add operator action contextual controls
  * Previous: v1.6.14 - Show backend operator action plan
  * Previous: v1.6.13 - Use backend node command delivery policy
  * Previous: v1.6.12 - Show node command delivery readiness
@@ -214,6 +218,10 @@ const VPN_HEALTH_CONFIG: Record<VpnHealthStatus, {
 
 const COMMAND_DELIVERY_FRESH_SECONDS = 120;
 const COMMAND_DELIVERY_DEGRADED_SECONDS = 300;
+
+type OperatorPlanAction = NonNullable<
+  NonNullable<VpnRestartReadiness['operator_action_plan']>['recommended_actions']
+>[number];
 
 const VPN_EVENT_SEVERITY_CONFIG: Record<VpnEventSeverity, {
   label: string;
@@ -1751,6 +1759,145 @@ function MaintenanceDrainPanel({
   const restartReady = restartBlockers.length === 0;
   const verificationReady = recoveryStatus === 'stable' && policySyncStatus === 'synced';
   const sessionsHref = `/dashboard/sessions?node=${encodeURIComponent(nodeId)}&status=active&quality=all`;
+  const commandHistoryHref = '#vpn-commands';
+  const fallbackPlanActions: OperatorPlanAction[] = [
+    {
+      key: maintenanceMode ? 'end_maintenance' : 'start_maintenance',
+      label: maintenanceMode ? 'End Maintenance' : 'Start Maintenance',
+      intent: 'node_policy',
+      priority: 1,
+      enabled: true,
+      detail: 'Fallback maintenance control while backend action hints load.',
+    },
+    {
+      key: 'open_active_sessions',
+      label: 'Active Sessions',
+      intent: 'sessions',
+      priority: 2,
+      enabled: true,
+      detail: 'Open active session list.',
+    },
+    {
+      key: 'system_info',
+      label: 'System Info',
+      intent: 'node_commands',
+      priority: 5,
+      enabled: true,
+      detail: 'Collect system diagnostics.',
+    },
+    {
+      key: 'collect_logs',
+      label: 'Collect Logs',
+      intent: 'node_commands',
+      priority: 6,
+      enabled: true,
+      detail: 'Collect recent service logs.',
+    },
+    {
+      key: 'restart_service',
+      label: 'Restart VPN',
+      intent: 'node_commands',
+      priority: 7,
+      enabled: restartReady,
+      detail: 'Queue restart_service after gate checks pass.',
+    },
+  ];
+  const planActions = operatorActionPlan?.recommended_actions?.length
+    ? operatorActionPlan.recommended_actions
+    : fallbackPlanActions;
+
+  const renderPlanAction = (action: OperatorPlanAction) => {
+    const disabled = !action.enabled;
+    if (action.key === 'start_maintenance' || action.key === 'end_maintenance') {
+      return (
+        <Button
+          key={action.key}
+          variant={maintenanceMode ? 'secondary' : 'danger'}
+          size="sm"
+          title={action.detail}
+          disabled={disabled || isPolicySaving}
+          isLoading={isPolicySaving}
+          onClick={onToggleMaintenance}
+        >
+          {action.label}
+        </Button>
+      );
+    }
+    if (action.key === 'open_active_sessions') {
+      return (
+        <a
+          key={action.key}
+          href={sessionsHref}
+          title={action.detail}
+          aria-disabled={disabled}
+          className={`inline-flex items-center justify-center rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+            disabled
+              ? 'border-white/10 bg-white/[0.03] text-gray-600 pointer-events-none'
+              : 'border-sky-400/20 bg-sky-400/[0.08] text-sky-200 hover:bg-sky-400/[0.12]'
+          }`}
+        >
+          {action.label}
+        </a>
+      );
+    }
+    if (action.key === 'open_commands') {
+      return (
+        <a
+          key={action.key}
+          href={commandHistoryHref}
+          title={action.detail}
+          className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-white/[0.08] transition-colors"
+        >
+          {action.label}
+        </a>
+      );
+    }
+    if (action.key === 'system_info' || action.key === 'collect_logs') {
+      const diagnosticAction = action.key === 'system_info' ? 'system_info' : 'collect_logs';
+      return (
+        <Button
+          key={action.key}
+          variant="secondary"
+          size="sm"
+          title={action.detail}
+          disabled={disabled || isCommandPending}
+          onClick={() => onRunDiagnostic(diagnosticAction)}
+        >
+          {action.label}
+        </Button>
+      );
+    }
+    if (action.key === 'restart_service') {
+      return (
+        <Button
+          key={action.key}
+          variant="danger"
+          size="sm"
+          title={action.detail}
+          disabled={disabled || isCommandPending || !restartReady}
+          onClick={onRestartService}
+        >
+          {action.label}
+        </Button>
+      );
+    }
+    if (action.key === 'cancel_restart' && cancellableRestartCommand) {
+      return (
+        <Button
+          key={action.key}
+          variant="secondary"
+          size="sm"
+          title={action.detail}
+          disabled={disabled || isCancellingRestartCommand}
+          isLoading={isCancellingRestartCommand}
+          onClick={() => onCancelRestartCommand(cancellableRestartCommand)}
+        >
+          {action.label}
+        </Button>
+      );
+    }
+    return null;
+  };
 
   return (
     <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.02] p-4">
@@ -1803,45 +1950,7 @@ function MaintenanceDrainPanel({
             </div>
           )}
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button
-              variant={maintenanceMode ? 'secondary' : 'danger'}
-              size="sm"
-              disabled={isPolicySaving}
-              isLoading={isPolicySaving}
-              onClick={onToggleMaintenance}
-            >
-              {maintenanceMode ? 'End Maintenance' : 'Start Maintenance'}
-            </Button>
-            <a
-              href={sessionsHref}
-              className="inline-flex items-center justify-center rounded-lg border border-sky-400/20 bg-sky-400/[0.08] px-3 py-1.5 text-xs font-medium text-sky-200 hover:bg-sky-400/[0.12] transition-colors"
-            >
-              Active Sessions
-            </a>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={isCommandPending}
-              onClick={() => onRunDiagnostic('system_info')}
-            >
-              System Info
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={isCommandPending}
-              onClick={() => onRunDiagnostic('collect_logs')}
-            >
-              Collect Logs
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              disabled={isCommandPending || !restartReady}
-              onClick={onRestartService}
-            >
-              Restart VPN
-            </Button>
+            {planActions.map(renderPlanAction)}
           </div>
           <p className="mt-2 text-[10px] leading-4 text-gray-600">
             Source: GET /api/privacy_network/vpn/overview/ -&gt; data.nodes[].system.restart_readiness.operator_action_plan

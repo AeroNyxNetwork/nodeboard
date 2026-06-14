@@ -6,6 +6,8 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.2 - Added backend recommended operator actions under
+ *     restart_readiness.operator_action_plan for node detail controls.
  *   v1.5.1 - Removed public discovery response types from nodeboard.
  *   v1.2.0 - Added node visibility / region / VPN types.
  *   v1.1.0 - Added window.phantom type declaration for newer Phantom versions.
@@ -34,7 +36,8 @@
  *     ""         → clear password
  *     "xyz"      → set new password
  *
- * Last Modified: v1.5.1 - Removed public discovery types
+ * Last Modified: v1.5.2 - Added recommended operator action types
+ * Previous: v1.5.1 - Removed public discovery types
  * Previous: v1.1.0 - Added window.phantom type declaration
  * ============================================
  */
@@ -482,6 +485,9 @@ export interface VpnRestartDrainEta {
  *   data.nodes[].system.restart_readiness.operator_action_plan is a
  *   backend-authored node detail preflight summary built from restart gate,
  *   command delivery, drain ETA, and restart command lifecycle metadata.
+ *   recommended_actions is a machine-readable action list ordered by backend
+ *   priority so node detail can render state-specific controls without
+ *   duplicating operator workflow rules in React.
  * Nodeboard consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/dashboard/nodes/[id]/page.tsx
@@ -538,6 +544,23 @@ export interface VpnRestartReadiness {
       key: string;
       label: string;
       status: string;
+      detail: string;
+    }>;
+    recommended_actions?: Array<{
+      key:
+        | 'start_maintenance'
+        | 'end_maintenance'
+        | 'open_active_sessions'
+        | 'system_info'
+        | 'collect_logs'
+        | 'restart_service'
+        | 'cancel_restart'
+        | 'open_commands'
+        | string;
+      label: string;
+      intent: 'node_policy' | 'sessions' | 'node_commands' | 'node_detail' | string;
+      priority: number;
+      enabled: boolean;
       detail: string;
     }>;
     source: string;

@@ -75,6 +75,8 @@
  *     data.nodes[].system.restart_readiness.operator_action_plan powers the
  *     node detail Operator Action Plan preflight summary from restart gate,
  *     command delivery, drain ETA, and restart command lifecycle metadata.
+ *     operator_action_plan.recommended_actions is backend-ordered
+ *     machine-readable UI action metadata for node detail controls.
  *   - data.nodes[].system.restart_readiness.drain_eta
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates active ClientSession timing for restart drain visibility.
@@ -112,7 +114,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.35 - Documented node operator action plan
+ * Last Modified: v1.1.36 - Documented recommended operator actions
+ * Previous: v1.1.35 - Documented node operator action plan
  * Previous: v1.1.34 - Documented backend node command delivery policy
  * Previous: v1.1.33 - Documented node detail command delivery readiness
  * Previous: v1.1.32 - Documented command delivery issue nodes
@@ -198,6 +201,11 @@ const healthPayload = {
       endpoint: 'data.nodes[].system.restart_readiness.operator_action_plan',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Backend-authored node detail operator preflight summary from restart gate, command delivery, drain ETA, and restart command lifecycle metadata',
+    },
+    {
+      endpoint: 'data.nodes[].system.restart_readiness.operator_action_plan.recommended_actions',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Backend-ordered machine-readable node detail action list for maintenance, sessions, diagnostics, cancellation, and restart controls',
     },
     {
       endpoint: 'data.nodes[].system.restart_readiness.active_restart_command',
