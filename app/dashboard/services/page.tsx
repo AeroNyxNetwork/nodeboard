@@ -132,7 +132,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.37 - Refresh placement capacity after maintenance changes
+ * Last Modified: v1.1.38 - Show placement blocker node triage
+ * Previous: v1.1.37 - Refresh placement capacity after maintenance changes
  * Previous: v1.1.36 - Show client placement capacity
  * Previous: v1.1.35 - Show fleet policy enforcement blocks
  * Previous: v1.1.34 - Show fleet policy sync health
@@ -188,6 +189,7 @@ import {
   VpnRestartDrainEta,
   VpnRestartReadiness,
   VpnRestartReadinessSummary,
+  VpnServerCandidate,
   VpnServerPlacementSummary,
   VpnSessionCleanupStatus,
 } from '@/types';
@@ -719,6 +721,28 @@ function formatPlacementReason(reason: string | null | undefined) {
 function topPlacementReason(reasons: Record<string, number>) {
   const [reason, count] = Object.entries(reasons).sort((a, b) => b[1] - a[1])[0] || [];
   return reason ? `${formatPlacementReason(reason)} ${count.toLocaleString()}` : 'clear';
+}
+
+function placementBlockerAction(reason: string | null) {
+  const copy: Record<string, string> = {
+    maintenance_mode: 'End maintenance after active sessions drain and restart work is complete.',
+    max_sessions_reached: 'Raise max_sessions or wait for sessions to complete.',
+    vpn_health_degraded: 'Open node health and inspect Rust VPN checks before returning to placement.',
+    vpn_health_failed: 'Inspect Rust VPN health before exposing the node to clients.',
+    low_24h_availability: 'Review heartbeat availability before using this node for failover.',
+    overloaded: 'Reduce load or increase capacity before routing new sessions.',
+    heartbeat_stale: 'Restore fresh Rust heartbeats before exposing this node to clients.',
+  };
+
+  return copy[reason || ''] ?? 'Open node detail and review backend placement policy inputs.';
+}
+
+function placementSessionCopy(server: VpnServerCandidate) {
+  const sessions = server.current_sessions.toLocaleString();
+  if (server.max_sessions > 0) {
+    return `${sessions}/${server.max_sessions.toLocaleString()} sessions`;
+  }
+  return `${sessions} sessions, unlimited cap`;
 }
 
 function formatOptionalPercent(value: number | null | undefined) {
@@ -1481,11 +1505,13 @@ function ServiceCard({ service }: { service: ServiceView }) {
 
 function PlacementCapacityPanel({
   summary,
+  servers,
   available,
   total,
   isLoading,
 }: {
   summary: VpnServerPlacementSummary | null;
+  servers: VpnServerCandidate[];
   available: number;
   total: number;
   isLoading: boolean;
@@ -1510,6 +1536,14 @@ function PlacementCapacityPanel({
   const unavailable = Math.max(0, total - available);
   const regions = summary?.by_region.slice(0, 4) ?? [];
   const tiers = summary?.by_tier.slice(0, 3) ?? [];
+  const blockedServers = servers
+    .filter((server) => !server.available)
+    .sort((a, b) => {
+      const reasonCompare = (a.unavailable_reason || '').localeCompare(b.unavailable_reason || '');
+      if (reasonCompare !== 0) return reasonCompare;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, 4);
   const status = available > 0 ? 'ok' : total > 0 ? 'attention' : 'pending';
 
   return (
@@ -1600,6 +1634,55 @@ function PlacementCapacityPanel({
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {blockedServers.length > 0 && (
+        <div className="mt-4 rounded-xl border border-yellow-300/15 bg-yellow-300/[0.04] p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-yellow-100">Placement Blockers</h3>
+              <p className="mt-1 text-xs leading-5 text-yellow-100/60">
+                Nodes hidden from client placement by backend policy. Address is intentionally null while blocked.
+              </p>
+            </div>
+            <Link href="/dashboard/nodes" className="text-xs text-yellow-100/80 hover:text-yellow-100">
+              Manage nodes
+            </Link>
+          </div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-2">
+            {blockedServers.map((server) => (
+              <Link
+                key={server.id}
+                href={`/dashboard/nodes/${server.id}`}
+                className="rounded-lg border border-yellow-200/10 bg-black/20 p-3 transition hover:border-yellow-200/25 hover:bg-yellow-200/[0.04]"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-white">{server.name}</p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {server.city || server.region_code || server.country_name || 'unknown region'} · {placementSessionCopy(server)}
+                    </p>
+                  </div>
+                  <StatusPill status={server.health_status} />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500">
+                  <span className="rounded-md border border-white/10 px-2 py-1">
+                    {formatPlacementReason(server.unavailable_reason)}
+                  </span>
+                  <span className="rounded-md border border-white/10 px-2 py-1">
+                    load {server.load === null ? 'pending' : `${server.load}%`}
+                  </span>
+                  <span className="rounded-md border border-white/10 px-2 py-1">
+                    rank {server.failover_rank ?? 'pending'}
+                  </span>
+                </div>
+                <p className="mt-3 text-xs leading-5 text-yellow-100/65">
+                  {placementBlockerAction(server.unavailable_reason)}
+                </p>
+              </Link>
+            ))}
           </div>
         </div>
       )}
@@ -2686,6 +2769,7 @@ export default function NodeServicesPage() {
     refetch,
   } = useVpnOverview({ refetchIntervalMs: refreshIntervalMs });
   const {
+    servers: placementServers,
     summary: placementSummary,
     total: placementTotal,
     available: placementAvailable,
@@ -2923,6 +3007,7 @@ export default function NodeServicesPage() {
 
       <PlacementCapacityPanel
         summary={placementSummary}
+        servers={placementServers}
         available={placementAvailable}
         total={placementTotal}
         isLoading={isPlacementLoading}
