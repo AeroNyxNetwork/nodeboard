@@ -28,6 +28,8 @@
  *     Provides data.summary.restart_readiness for owner-scoped fleet restart
  *     readiness monitoring, including blocked node drain/command status and
  *     backend-authored recommended_action plus drain_activity buckets.
+ *     Provides data.summary.restart_readiness.drain_activity_health_counts
+ *     for the Services page top-level Drain Risk card.
  *   - GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Supports /dashboard/sessions?node={id}&status=active&quality=all deep links.
@@ -69,7 +71,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.17 - Documented backend drain activity health
+ * Last Modified: v1.1.18 - Documented fleet drain risk summary
+ * Previous: v1.1.17 - Documented backend drain activity health
  * Previous: v1.1.16 - Documented keepalive issue session counts
  * Previous: v1.1.15 - Documented blocked node drain activity contract
  * Previous: v1.1.14 - Documented drain activity bucket contract
@@ -142,6 +145,11 @@ const healthPayload = {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Fleet blocked-node node-level activity buckets, keepalive issue session counts, and backend activity_health mirrored from restart_readiness.drain_eta for services triage',
+    },
+    {
+      endpoint: 'data.summary.restart_readiness.drain_activity_health_counts',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Fleet-level blocked-node activity_health risk/status counts used by the Services Drain Risk card',
     },
     {
       endpoint: 'GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=',

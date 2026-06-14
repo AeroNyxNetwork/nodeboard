@@ -42,6 +42,9 @@
  *     Includes keepalive_missed_sessions / keepalive_pending_sessions so large
  *     counters can be interpreted as affected-session counts.
  *     Includes activity_health from backend commercial triage rules.
+ *   - data.summary.restart_readiness.drain_activity_health_counts
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Powers the top-level Drain Risk card in the restart readiness panel.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -65,7 +68,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.13 - Show backend drain activity health badge
+ * Last Modified: v1.1.14 - Show fleet drain risk summary
+ * Previous: v1.1.13 - Show backend drain activity health badge
  * Previous: v1.1.12 - Show keepalive issue session counts
  * Previous: v1.1.11 - Show blocked node drain activity summary
  * Previous: v1.1.10 - Show cleanup rollout blocker action
@@ -585,6 +589,44 @@ function drainActivityHealthClass(risk: string | undefined) {
   return 'border-sky-300/25 bg-sky-300/[0.08] text-sky-100';
 }
 
+function fleetDrainRisk(summary: VpnRestartReadinessSummary | null) {
+  const counts = summary?.drain_activity_health_counts ?? null;
+  if (!counts) {
+    return {
+      label: 'Pending',
+      detail: 'waiting for backend summary',
+      count: 0,
+      risk: 'info',
+    };
+  }
+  const critical = counts.critical_nodes ?? 0;
+  const warning = counts.warning_nodes ?? 0;
+  const issueCount = critical + warning;
+
+  if (critical > 0) {
+    return {
+      label: 'Critical',
+      detail: `${critical.toLocaleString()} critical · ${warning.toLocaleString()} warning`,
+      count: issueCount,
+      risk: 'critical',
+    };
+  }
+  if (warning > 0) {
+    return {
+      label: 'Warning',
+      detail: `${warning.toLocaleString()} warning`,
+      count: issueCount,
+      risk: 'warning',
+    };
+  }
+  return {
+    label: 'Clear',
+    detail: 'no critical drain activity',
+    count: 0,
+    risk: 'healthy',
+  };
+}
+
 function restartBlockerCopy(code: string) {
   const copy: Record<string, { label: string; remediation: string }> = {
     maintenance_required: {
@@ -843,6 +885,7 @@ function FleetRestartReadinessPanel({
   const totalActiveSessions = summary?.sessions_blocking_restart
     ?? attentionNodes.reduce((sum, node) => sum + node.activeSessions, 0);
   const blockerCounts = Object.entries(summary?.blocker_counts ?? {});
+  const drainRisk = fleetDrainRisk(summary);
 
   return (
     <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
@@ -861,7 +904,7 @@ function FleetRestartReadinessPanel({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
           <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Ready Now</p>
           <p className="mt-2 text-2xl font-semibold text-white">{readyCount.toLocaleString()}</p>
@@ -877,6 +920,11 @@ function FleetRestartReadinessPanel({
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
           <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Sessions Blocking</p>
           <p className="mt-2 text-2xl font-semibold text-white">{totalActiveSessions.toLocaleString()}</p>
+        </div>
+        <div className={`rounded-xl border p-4 ${drainActivityHealthClass(drainRisk.risk)}`}>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Drain Risk</p>
+          <p className="mt-2 text-2xl font-semibold">{drainRisk.count.toLocaleString()}</p>
+          <p className="mt-1 text-xs opacity-70">{drainRisk.label} · {drainRisk.detail}</p>
         </div>
       </div>
 

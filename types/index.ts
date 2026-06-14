@@ -529,6 +529,9 @@ export interface VpnRestartReadinessBlockedNode {
  * Blocked node activity source:
  *   data.summary.restart_readiness.blocked_nodes[].drain_activity
  *   mirrors data.nodes[].system.restart_readiness.drain_eta aggregate buckets.
+ * Summary activity source:
+ *   data.summary.restart_readiness.drain_activity_health_counts
+ *   aggregates backend-authored activity_health status/risk by blocked node.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts
@@ -542,6 +545,13 @@ export interface VpnRestartReadinessSummary {
   can_restart: number;
   sessions_blocking_restart: number;
   blocker_counts: Record<string, number>;
+  drain_activity_health_counts?: {
+    status_counts: Record<string, number>;
+    risk_counts: Record<string, number>;
+    critical_nodes: number;
+    warning_nodes: number;
+    source: 'blocked_nodes.drain_activity.activity_health' | string;
+  };
   blocked_nodes: VpnRestartReadinessBlockedNode[];
   source: string;
   privacy_boundary: string;
