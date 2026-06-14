@@ -66,6 +66,15 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    label: 'Services',
+    href: '/dashboard/services',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7a3 3 0 013-3h10a3 3 0 013 3v2a3 3 0 01-3 3H7a3 3 0 01-3-3V7zM4 17a3 3 0 013-3h10a3 3 0 013 3v0a3 3 0 01-3 3H7a3 3 0 01-3-3v0zM8 8h.01M8 17h.01" />
+      </svg>
+    ),
+  },
+  {
     label: 'Nodes',
     href: '/dashboard/nodes',
     icon: (

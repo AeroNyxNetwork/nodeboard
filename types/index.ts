@@ -365,6 +365,48 @@ export interface VpnServiceManagerStatus {
   detail: string;
 }
 
+export type OperatorServiceKey =
+  | 'privacy_protocol'
+  | 'memchain'
+  | 'chat_relay'
+  | 'sovereign_data_layer'
+  | 'supernode'
+  | string;
+
+export type OperatorRiskSeverity = 'critical' | 'warning' | 'info' | string;
+
+export interface OperatorServiceStatus {
+  key: OperatorServiceKey;
+  label: string;
+  enabled: boolean;
+  status: 'ok' | 'ready' | 'planned' | 'disabled' | 'degraded' | 'failed' | string;
+  summary: string;
+  metrics: Record<string, unknown>;
+}
+
+export interface OperatorRisk {
+  severity: OperatorRiskSeverity;
+  code: string;
+  message: string;
+  remediation: string;
+}
+
+/**
+ * Rust heartbeat source:
+ * /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ * /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
+ *
+ * Backend stores this under heartbeat system_stats.operator_status. The field
+ * is optional until the Django API exposes it in node health snapshots.
+ */
+export interface NodeOperatorStatus {
+  status: 'ok' | 'attention' | 'critical' | 'failed' | string;
+  generated_at: number;
+  services: OperatorServiceStatus[];
+  risks: OperatorRisk[];
+  privacy_boundary: string;
+}
+
 export interface VpnNodeHealth {
   id: string;
   name: string;
@@ -407,6 +449,7 @@ export interface VpnNodeHealth {
     policy_sync?: VpnPolicySync;
     policy_enforcement?: VpnPolicyEnforcement;
     runtime_recovery?: VpnRuntimeRecovery;
+    operator_status?: NodeOperatorStatus | null;
   };
   checks: VpnHealthCheck[];
 }
