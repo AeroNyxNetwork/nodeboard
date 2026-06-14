@@ -24,6 +24,9 @@
  *     /root/aeronyx/privacy_network/api/vpn_commands.py
  *     Cancels only active restart_service queue entries from fleet triage
  *     before Rust reaches a terminal command state.
+ *     data.nodes[].system.restart_readiness.active_restart_command.can_cancel
+ *     and cancel_reason are provided by vpn_observability.py from backend
+ *     NodeCommand.mark_cancelled rules; the UI does not infer cancel policy.
  *   - data.nodes[].system.restart_readiness.active_restart_command
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors NodeCommand restart_service pending/sent/executing state so the
@@ -90,7 +93,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.23 - Cancel active restart commands from fleet triage
+ * Last Modified: v1.1.24 - Explain backend cancel eligibility in fleet triage
+ * Previous: v1.1.23 - Cancel active restart commands from fleet triage
  * Previous: v1.1.22 - Show fleet command SLA summary
  * Previous: v1.1.21 - Show stale restart command SLA
  * Previous: v1.1.20 - Close restart command outcomes
@@ -1032,6 +1036,11 @@ function restartCommandCanCancel(command: VpnRestartCommandState | null) {
   return command.status === 'pending' || command.status === 'sent';
 }
 
+function restartCommandCancelReason(command: VpnRestartCommandState | null) {
+  if (!command) return '';
+  return command.cancel_reason || 'Backend cancel policy allows cancellation only while a command is pending or sent.';
+}
+
 function restartCommandSlaLabel(command: VpnRestartCommandState | null) {
   if (!command?.age_seconds || !command.stale_after_seconds) return null;
   return `${formatDuration(command.age_seconds)} elapsed / ${formatDuration(command.stale_after_seconds)} SLA`;
@@ -1550,6 +1559,9 @@ function FleetRestartReadinessPanel({
                   const visibleCommand = item.activeRestartCommand ?? item.latestRestartCommand;
                   const cancellableRestartCommand = item.canCancelRestartCommand ? item.activeRestartCommand : null;
                   const isCancellingCommand = cancellableRestartCommand?.id === cancellingCommandId;
+                  const cancelUnavailableReason = item.activeRestartCommand && !cancellableRestartCommand
+                    ? restartCommandCancelReason(item.activeRestartCommand)
+                    : '';
                   const commandStageIndex = restartCommandStageIndex(visibleCommand);
                   const commandStageLabels = restartCommandStageLabels(visibleCommand);
                   const commandSlaLabel = restartCommandSlaLabel(visibleCommand);
@@ -1605,6 +1617,11 @@ function FleetRestartReadinessPanel({
                             <p className="mt-2 text-[11px] opacity-75">
                               {commandSlaLabel}
                               {visibleCommand.stale_reason ? ` · ${visibleCommand.stale_reason}` : ''}
+                            </p>
+                          )}
+                          {cancelUnavailableReason && (
+                            <p className="mt-2 text-[11px] leading-5 opacity-70">
+                              Cancel unavailable: {cancelUnavailableReason}
                             </p>
                           )}
                         </div>

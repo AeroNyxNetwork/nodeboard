@@ -53,8 +53,9 @@
  *     params, result, or error_message payloads. Includes age_seconds,
  *     stale_after_seconds, is_stale, and stale_reason for backend-authored
  *     command SLA inspection.
- *     active_restart_command.can_cancel and latest_restart_command.can_cancel
- *     mirror NodeCommand.mark_cancelled eligibility so Services does not guess
+ *     active_restart_command.can_cancel / cancel_reason and
+ *     latest_restart_command.can_cancel / cancel_reason mirror NodeCommand
+ *     mark_cancelled eligibility so Services and node detail do not guess
  *     whether an active restart command can be cancelled.
  *   - data.nodes[].system.restart_readiness.drain_eta
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
@@ -93,7 +94,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.25 - Documented backend cancel eligibility flag
+ * Last Modified: v1.1.26 - Documented backend cancel reason flag
+ * Previous: v1.1.25 - Documented backend cancel eligibility flag
  * Previous: v1.1.24 - Documented command timeline deep-link contract
  * Previous: v1.1.23 - Documented fleet command lifecycle summary
  * Previous: v1.1.22 - Documented restart command SLA fields
@@ -166,9 +168,9 @@ const healthPayload = {
       purpose: 'Latest restart_service lifecycle metadata and explicit age_seconds/stale_after_seconds/is_stale/stale_reason SLA fields for Services Retry Needed, Stale Command, Current, and Manual Check outcome closure',
     },
     {
-      endpoint: 'data.nodes[].system.restart_readiness.*_restart_command.can_cancel',
+      endpoint: 'data.nodes[].system.restart_readiness.*_restart_command.can_cancel|cancel_reason',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Backend-authoritative restart command cancellation eligibility mirrored from NodeCommand.mark_cancelled for Services fleet controls',
+      purpose: 'Backend-authoritative restart command cancellation eligibility and explanation mirrored from NodeCommand.mark_cancelled for Services and node detail controls',
     },
     {
       endpoint: 'data.nodes[].system.restart_readiness.drain_eta',

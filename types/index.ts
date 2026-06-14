@@ -417,6 +417,7 @@ export interface VpnRestartCommandState {
   is_terminal?: boolean;
   can_retry?: boolean;
   can_cancel?: boolean;
+  cancel_reason?: string;
   age_seconds?: number | null;
   stale_after_seconds?: number | null;
   is_stale?: boolean;

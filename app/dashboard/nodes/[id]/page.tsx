@@ -43,7 +43,8 @@
  *     without command params, result, or error_message payloads.
  *     active_restart_command.can_cancel mirrors backend NodeCommand
  *     mark_cancelled eligibility so the Maintenance Drain card only offers
- *     cancellation while the backend accepts it.
+ *     cancellation while the backend accepts it. cancel_reason explains why
+ *     an active restart command is not cancellable.
  *     Exposes data.nodes[].system.restart_readiness.drain_eta for active
  *     ClientSession aggregate timing used by the Maintenance Drain panel.
  *     drain_eta also carries node-level active-session activity buckets:
@@ -94,7 +95,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.10 - Use backend cancel eligibility in restart card
+ * Last Modified: v1.6.11 - Explain backend restart cancel eligibility
+ * Previous: v1.6.10 - Use backend cancel eligibility in restart card
  * Previous: v1.6.9 - Make command deep-link filters URL authoritative
  * Previous: v1.6.8 - Show restart command SLA in node detail
  * Previous: v1.6.7 - Show backend drain activity health
@@ -1448,6 +1450,11 @@ function restartCommandCanCancel(command: VpnRestartCommandState | null | undefi
   return command.status === 'pending' || command.status === 'sent';
 }
 
+function restartCommandCancelReason(command: VpnRestartCommandState | null | undefined) {
+  if (!command) return '';
+  return command.cancel_reason || 'Backend cancel policy allows cancellation only while a command is pending or sent.';
+}
+
 function cleanupRolloutPendingCopy(eta: VpnRestartDrainEta | null | undefined) {
   if (eta?.status !== 'cleanup_policy_pending') return null;
   return {
@@ -1613,6 +1620,9 @@ function MaintenanceDrainPanel({
   const visibleRestartCommand = activeRestartCommand ?? latestRestartCommand;
   const cancellableRestartCommand = restartCommandCanCancel(activeRestartCommand) ? activeRestartCommand : null;
   const isCancellingRestartCommand = cancellableRestartCommand?.id === cancellingCommandId;
+  const cancelUnavailableReason = activeRestartCommand && !cancellableRestartCommand
+    ? restartCommandCancelReason(activeRestartCommand)
+    : '';
   const restartCommandStage = restartCommandStageIndex(visibleRestartCommand);
   const restartCommandStages = restartCommandStageLabels(visibleRestartCommand);
   const restartCommandSla = restartCommandSlaDetail(visibleRestartCommand);
@@ -1845,6 +1855,11 @@ function MaintenanceDrainPanel({
                 <p className="mt-2 text-[11px] opacity-75">
                   {restartCommandSla}
                   {visibleRestartCommand.stale_reason ? ` · ${visibleRestartCommand.stale_reason}` : ''}
+                </p>
+              )}
+              {cancelUnavailableReason && (
+                <p className="mt-2 text-[11px] leading-5 opacity-70">
+                  Cancel unavailable: {cancelUnavailableReason}
                 </p>
               )}
               <p className="mt-1 text-[10px] leading-4 opacity-45">
