@@ -787,11 +787,6 @@ function formatDrainStatus(status: string | undefined) {
   return status.replaceAll('_', ' ');
 }
 
-function clampDrainPercent(value: number, total: number) {
-  if (total <= 0 || value <= 0) return 0;
-  return Math.max(5, Math.min(100, (value / total) * 100));
-}
-
 function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; tone?: 'yellow' | 'neutral' }) {
   const activeSessions = Math.max(0, eta.active_sessions ?? 0);
   const recentSessions = Math.max(0, eta.recent_activity_sessions ?? 0);
@@ -804,7 +799,6 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
     eta.keepalive_missed_sessions ?? 0,
     eta.keepalive_pending_sessions ?? 0,
   );
-  const total = Math.max(activeSessions, recentSessions + idleSessions + pendingSessions, 1);
   const textClass = tone === 'yellow' ? 'text-yellow-100' : 'text-gray-200';
   const mutedClass = tone === 'yellow' ? 'text-yellow-100/45' : 'text-gray-500';
   const chipClass = tone === 'yellow'
@@ -846,7 +840,7 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
               <div
                 key={segment.key}
                 className={`${segment.className} h-full`}
-                style={{ width: `${clampDrainPercent(segment.value, total)}%` }}
+                style={{ flexBasis: 0, flexGrow: segment.value, minWidth: '6px' }}
                 title={`${segment.label}: ${segment.value.toLocaleString()}`}
               />
             ))}
@@ -870,7 +864,7 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
       <p className={`text-[11px] leading-5 ${mutedClass}`}>
         Window {formatDuration(eta.activity_window_seconds || 180)}
         {eta.latest_activity_at ? ` · latest activity ${formatRelativeTime(eta.latest_activity_at)}` : ''}
-        {eta.estimated_seconds_remaining !== null ? ` · cleanup in ${formatDuration(Math.max(0, eta.estimated_seconds_remaining))}` : ''}
+        {typeof eta.estimated_seconds_remaining === 'number' ? ` · cleanup in ${formatDuration(Math.max(0, eta.estimated_seconds_remaining))}` : ''}
       </p>
     </div>
   );
