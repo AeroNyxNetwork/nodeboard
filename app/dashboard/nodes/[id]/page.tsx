@@ -55,6 +55,11 @@
  *     /root/aeronyx/privacy_network/serializers.py
  *   - POST /api/privacy_network/nodes/{id}/commands/
  *     /root/aeronyx/privacy_network/api/vpn_commands.py
+ *   - GET /api/privacy_network/nodes/{id}/commands/?status=&action=&limit=
+ *     /root/aeronyx/privacy_network/api/vpn_commands.py
+ *     The Recent VPN Commands panel uses command_status / command_action URL
+ *     params as the source of truth so fleet-level service links can deep-link
+ *     directly into a filtered node command timeline.
  *   - Rust client-liveness cleanup feeding session drain:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/session.rs
  *     /root/open/AeroNyx/crates/aeronyx-server/src/handlers/packet.rs
@@ -84,7 +89,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.8 - Show restart command SLA in node detail
+ * Last Modified: v1.6.9 - Make command deep-link filters URL authoritative
+ * Previous: v1.6.8 - Show restart command SLA in node detail
  * Previous: v1.6.7 - Show backend drain activity health
  * Previous: v1.6.6 - Show keepalive issue session counts
  * Previous: v1.6.5 - Show aggregate drain activity buckets
@@ -2159,24 +2165,24 @@ function VpnHealthPanel({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [commandStatusFilter, setCommandStatusFilter] = useState(() => (
-    initialCommandStatusFilter(searchParams.get('command_status'))
-  ));
-  const [commandActionFilter, setCommandActionFilter] = useState(() => (
-    initialCommandActionFilter(searchParams.get('command_action'))
-  ));
-
-  useEffect(() => {
+  const commandStatusFilter = initialCommandStatusFilter(searchParams.get('command_status'));
+  const commandActionFilter = initialCommandActionFilter(searchParams.get('command_action'));
+  const commandFilterActive = commandStatusFilter !== 'all' || commandActionFilter !== 'all';
+  const commandFilterSummary = [
+    commandStatusFilter !== 'all' ? `Status: ${commandStatusFilter}` : '',
+    commandActionFilter !== 'all' ? `Action: ${commandLabel({ action: commandActionFilter } as NodeCommand)}` : '',
+  ].filter(Boolean).join(' · ');
+  const applyCommandFilters = useCallback((nextStatus: string, nextAction: string) => {
     const params = new URLSearchParams(searchParams.toString());
-    if (commandStatusFilter === 'all') {
+    if (nextStatus === 'all') {
       params.delete('command_status');
     } else {
-      params.set('command_status', commandStatusFilter);
+      params.set('command_status', nextStatus);
     }
-    if (commandActionFilter === 'all') {
+    if (nextAction === 'all') {
       params.delete('command_action');
     } else {
-      params.set('command_action', commandActionFilter);
+      params.set('command_action', nextAction);
     }
 
     const query = params.toString();
@@ -2185,7 +2191,7 @@ function VpnHealthPanel({
 
     const hash = typeof window !== 'undefined' ? window.location.hash : '';
     router.replace(`${pathname}${query ? `?${query}` : ''}${hash}`, { scroll: false });
-  }, [commandActionFilter, commandStatusFilter, pathname, router, searchParams]);
+  }, [pathname, router, searchParams]);
 
   const {
     commands,
@@ -2564,7 +2570,7 @@ function VpnHealthPanel({
             <span className="text-[11px] uppercase text-gray-600">Status</span>
             <select
               value={commandStatusFilter}
-              onChange={(event) => setCommandStatusFilter(event.target.value)}
+              onChange={(event) => applyCommandFilters(event.target.value, commandActionFilter)}
               className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-purple-500/50"
             >
               {COMMAND_STATUS_FILTERS.map((status) => (
@@ -2578,7 +2584,7 @@ function VpnHealthPanel({
             <span className="text-[11px] uppercase text-gray-600">Action</span>
             <select
               value={commandActionFilter}
-              onChange={(event) => setCommandActionFilter(event.target.value)}
+              onChange={(event) => applyCommandFilters(commandStatusFilter, event.target.value)}
               className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-purple-500/50"
             >
               {COMMAND_ACTION_FILTERS.map((action) => (
@@ -2592,6 +2598,22 @@ function VpnHealthPanel({
             {commandsLoading ? 'loading command history' : 'filtered by CMS command history'}
           </div>
         </div>
+
+        {commandFilterActive && (
+          <div className="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border border-purple-500/20 bg-purple-500/[0.06] px-3 py-2.5">
+            <div>
+              <p className="text-xs font-medium text-purple-200">Command history filter active</p>
+              <p className="mt-0.5 text-xs text-gray-500">{commandFilterSummary}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => applyCommandFilters('all', 'all')}
+            >
+              Clear filters
+            </Button>
+          </div>
+        )}
 
         {vpnCommands.length === 0 ? (
           <p className="text-sm text-gray-500">No VPN operation commands have been queued yet.</p>
