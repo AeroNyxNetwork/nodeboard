@@ -503,6 +503,28 @@ export interface VpnRestartCutoverGuard {
   privacy_boundary?: string;
 }
 
+export interface VpnRestartCutoverProblemNode {
+  id: string;
+  name: string;
+  health_status: string;
+  last_seen_seconds: number | null;
+  maintenance_mode: boolean;
+  active_sessions: number;
+  status: VpnRestartCutoverGuard['status'];
+  risk: VpnRestartCutoverGuard['risk'];
+  label: string;
+  detail: string;
+  next_step: string;
+  safe_to_cutover: boolean;
+  actionable?: boolean;
+  actionable_reason?: string;
+  user_impact_if_forced: string;
+  recent_client_rx_sessions: number;
+  stale_client_rx_sessions: number;
+  never_client_rx_sessions: number;
+  source: 'restart_readiness.drain_eta.cutover_guard' | string;
+}
+
 export interface VpnRestartDrainEta {
   status:
     | 'no_active_sessions'
@@ -742,9 +764,10 @@ export interface VpnRestartReadinessBlockedNode {
  *   /root/aeronyx/privacy_network/api/vpn_observability.py so Services can
  *   show whether Rust replacement/restart is commercially safe across the
  *   fleet without parsing backend English copy.
- *   problem_nodes supplies active session, client RX, and forced-impact
- *   metadata; Services filters it to maintenance/rollout nodes before showing
- *   Cutover Blockers action queue rows.
+ *   actionable_problem_nodes is backend-authored queue input for Services
+ *   Cutover Blockers. problem_nodes remains the full safety-accounting list,
+ *   including healthy current nodes that are simply serving client traffic.
+ *   actionable/actionable_reason explain why a node became operator work.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts
@@ -762,30 +785,14 @@ export interface VpnRestartReadinessSummary {
     total_nodes: number;
     safe_nodes: number;
     blocked_nodes: number;
+    actionable_blocked_nodes?: number;
     critical_nodes: number;
     warning_nodes: number;
     status_counts: Record<string, number>;
     risk_counts: Record<string, number>;
     forced_impact_counts: Record<string, number>;
-    problem_nodes?: Array<{
-      id: string;
-      name: string;
-      health_status: string;
-      last_seen_seconds: number | null;
-      maintenance_mode: boolean;
-      active_sessions: number;
-      status: VpnRestartCutoverGuard['status'];
-      risk: VpnRestartCutoverGuard['risk'];
-      label: string;
-      detail: string;
-      next_step: string;
-      safe_to_cutover: boolean;
-      user_impact_if_forced: string;
-      recent_client_rx_sessions: number;
-      stale_client_rx_sessions: number;
-      never_client_rx_sessions: number;
-      source: 'restart_readiness.drain_eta.cutover_guard' | string;
-    }>;
+    problem_nodes?: VpnRestartCutoverProblemNode[];
+    actionable_problem_nodes?: VpnRestartCutoverProblemNode[];
     summary?: {
       label: string;
       risk: 'healthy' | 'info' | 'warning' | 'critical' | string;

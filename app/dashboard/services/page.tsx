@@ -107,10 +107,9 @@
  *     Aggregates data.nodes[].system.restart_readiness.drain_eta.cutover_guard
  *     so Services can show fleet-level safe/blocked Rust cutover state without
  *     parsing backend English copy.
- *     problem_nodes powers the Cutover Blockers action queue after Services
- *     filters out healthy current nodes that are simply serving normal client
- *     traffic. Operators then open active sessions or node detail before any
- *     Rust replacement.
+ *     actionable_problem_nodes is backend-authored input for the Cutover
+ *     Blockers action queue. problem_nodes remains the full safety accounting
+ *     list for the Cutover Safety card.
  *   - data.summary.restart_readiness.command_lifecycle_counts
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Powers the Command SLA card from backend-authored active/stale/retry
@@ -221,6 +220,7 @@ import {
   RuntimeRolloutStatus,
   VpnNodeHealth,
   VpnRestartCommandState,
+  VpnRestartCutoverProblemNode,
   VpnRestartDrainEta,
   VpnRestartReadiness,
   VpnRestartReadinessSummary,
@@ -1497,7 +1497,7 @@ function buildBlockedRestartQueueItem(
 }
 
 function buildCutoverGuardQueueItem(
-  node: NonNullable<NonNullable<VpnRestartReadinessSummary['cutover_guard_counts']>['problem_nodes']>[number],
+  node: VpnRestartCutoverProblemNode,
   readinessNode: RestartReadinessNode | undefined,
 ): RestartActionQueueItem {
   const forcedImpact = node.user_impact_if_forced.replaceAll('_', ' ');
@@ -1741,9 +1741,11 @@ function buildRestartActionQueues(
   const blockedItems = (summary?.blocked_nodes ?? [])
     .filter((node) => filteredNodeIds.has(node.id))
     .map((node) => buildBlockedRestartQueueItem(node, readinessById.get(node.id)));
-  const cutoverGuardItems = (summary?.cutover_guard_counts?.problem_nodes ?? [])
+  const backendCutoverNodes = summary?.cutover_guard_counts?.actionable_problem_nodes
+    ?? (summary?.cutover_guard_counts?.problem_nodes ?? [])
+      .filter((node) => isActionableCutoverBlocker(readinessById.get(node.id)));
+  const cutoverGuardItems = backendCutoverNodes
     .filter((node) => filteredNodeIds.has(node.id))
-    .filter((node) => isActionableCutoverBlocker(readinessById.get(node.id)))
     .map((node) => buildCutoverGuardQueueItem(node, readinessById.get(node.id)));
   const staleCommandItems = nodes
     .filter((node) => restartCommandIsStale(node.activeRestartCommand))
