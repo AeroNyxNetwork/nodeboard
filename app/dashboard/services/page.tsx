@@ -1028,8 +1028,8 @@ function restartCommandManualCheck(command: VpnRestartCommandState | null) {
 
 function restartCommandCanCancel(command: VpnRestartCommandState | null) {
   if (!command) return false;
-  if (command.is_terminal) return false;
-  return !['completed', 'failed', 'cancelled', 'timeout'].includes(command.status);
+  if (typeof command.can_cancel === 'boolean') return command.can_cancel;
+  return command.status === 'pending' || command.status === 'sent';
 }
 
 function restartCommandSlaLabel(command: VpnRestartCommandState | null) {
