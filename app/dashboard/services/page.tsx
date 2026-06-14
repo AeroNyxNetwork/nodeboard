@@ -42,7 +42,13 @@ import React, { useMemo } from 'react';
 import Link from 'next/link';
 import { useVpnOverview } from '@/hooks/useNodes';
 import { formatRelativeTime } from '@/lib/api';
-import { NodeOperatorStatus, OperatorRisk, OperatorServiceStatus, VpnNodeHealth } from '@/types';
+import {
+  NodeOperatorStatus,
+  OperatorRisk,
+  OperatorServiceStatus,
+  RuntimeRolloutStatus,
+  VpnNodeHealth,
+} from '@/types';
 
 type ServiceKey =
   | 'privacy_protocol'
@@ -69,6 +75,7 @@ interface FleetSummary {
   reportingNodes: number;
   healthyPrivacyNodes: number;
   attentionNodes: number;
+  rolloutRestartRequired: number;
   enabledServices: number;
   totalServiceSlots: number;
 }
@@ -85,6 +92,16 @@ interface PendingOperatorNode {
   healthStatus: string;
   lastHeartbeat: string | null;
   version: string;
+}
+
+interface RuntimeRolloutNode {
+  id: string;
+  name: string;
+  publicIp: string | null;
+  activeSessions: number;
+  healthStatus: string;
+  lastHeartbeat: string | null;
+  rollout: RuntimeRolloutStatus;
 }
 
 const serviceMeta: Record<ServiceKey, { label: string; eyebrow: string }> = {
@@ -211,6 +228,7 @@ function buildFleetSummary(nodes: VpnNodeHealth[], statuses: NodeOperatorStatus[
       const status = nodeOperatorStatus(node)?.status ?? node.health_status;
       return ['attention', 'degraded', 'failed', 'critical', 'offline', 'overloaded'].includes(status);
     }).length,
+    rolloutRestartRequired: statuses.filter((status) => status.runtime_rollout?.restart_required).length,
     enabledServices: serviceSlots.filter((service) => service.enabled).length,
     totalServiceSlots: serviceSlots.length,
   };
@@ -292,6 +310,24 @@ function collectPendingOperatorNodes(nodes: VpnNodeHealth[]): PendingOperatorNod
     }));
 }
 
+function collectRuntimeRolloutNodes(nodes: VpnNodeHealth[]): RuntimeRolloutNode[] {
+  return nodes.reduce<RuntimeRolloutNode[]>((items, node) => {
+    const rollout = nodeOperatorStatus(node)?.runtime_rollout;
+    if (!rollout?.restart_required) return items;
+
+    items.push({
+      id: node.id,
+      name: node.name,
+      publicIp: node.public_ip,
+      activeSessions: node.active_sessions,
+      healthStatus: node.health_status,
+      lastHeartbeat: node.last_heartbeat,
+      rollout,
+    });
+    return items;
+  }, []);
+}
+
 function latestReportTime(statuses: NodeOperatorStatus[]) {
   const values = statuses
     .map((status) => status.last_reported_at)
@@ -367,7 +403,7 @@ function FleetSummaryGrid({
   latestReportedAt: string | null;
 }) {
   return (
-    <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
       <SummaryTile
         label="Reporting Nodes"
         value={`${summary.reportingNodes}/${summary.totalNodes}`}
@@ -391,6 +427,12 @@ function FleetSummaryGrid({
         value={summary.attentionNodes.toLocaleString()}
         detail="Nodes reporting degraded, failed, or attention status."
         status={summary.attentionNodes > 0 ? 'attention' : 'ok'}
+      />
+      <SummaryTile
+        label="Rollout Restarts"
+        value={summary.rolloutRestartRequired.toLocaleString()}
+        detail="Rust processes running a replaced binary and waiting for controlled restart."
+        status={summary.rolloutRestartRequired > 0 ? 'warning' : 'ok'}
       />
     </div>
   );
@@ -445,6 +487,11 @@ function NodeReadinessRow({ node }: { node: VpnNodeHealth }) {
   const operatorStatus = nodeOperatorStatus(node);
   const services = operatorStatus?.services ?? [];
   const serviceByKey = (key: ServiceKey) => services.find((service) => service.key === key);
+  const rolloutStatus = operatorStatus?.runtime_rollout?.restart_required
+    ? 'warning'
+    : operatorStatus
+      ? 'ok'
+      : 'pending';
 
   return (
     <tr className="border-t border-white/5">
@@ -463,10 +510,70 @@ function NodeReadinessRow({ node }: { node: VpnNodeHealth }) {
       <td className="px-4 py-4"><StatusPill status={serviceByKey('chat_relay')?.status ?? 'pending'} /></td>
       <td className="px-4 py-4"><StatusPill status={serviceByKey('sovereign_data_layer')?.status ?? 'pending'} /></td>
       <td className="px-4 py-4"><StatusPill status={operatorStatus?.status ?? 'pending'} /></td>
+      <td className="px-4 py-4"><StatusPill status={rolloutStatus} /></td>
       <td className="px-4 py-4 text-sm text-gray-400">
         {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : 'pending'}
       </td>
     </tr>
+  );
+}
+
+function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
+  if (nodes.length === 0) return null;
+
+  return (
+    <section className="mb-6 rounded-2xl border border-yellow-500/20 bg-yellow-500/[0.07] p-5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-yellow-100">Controlled Restart Required</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-yellow-100/70">
+            These Rust nodes are running an executable that was replaced on disk. Drain active sessions,
+            keep maintenance mode on, then restart the node so the staged binary takes effect.
+          </p>
+        </div>
+        <StatusPill status="warning" />
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {nodes.map((node) => (
+          <div key={node.id} className="rounded-xl border border-yellow-300/10 bg-black/20 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <p className="font-medium text-white">{node.name}</p>
+                <p className="mt-1 truncate text-xs text-yellow-100/50">
+                  {node.publicIp ?? 'no public IP'} · {node.rollout.executable_path ?? 'executable path pending'}
+                </p>
+              </div>
+              <StatusPill status={node.healthStatus} />
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-yellow-100/60">
+              <div>
+                <p className="text-yellow-100/35">Active Sessions</p>
+                <p className="mt-1 text-yellow-100">{node.activeSessions.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-yellow-100/35">Heartbeat</p>
+                <p className="mt-1 text-yellow-100">
+                  {node.lastHeartbeat ? formatRelativeTime(node.lastHeartbeat) : 'pending'}
+                </p>
+              </div>
+              <div>
+                <p className="text-yellow-100/35">Next Step</p>
+                <p className="mt-1 text-yellow-100">
+                  {node.activeSessions > 0 ? 'drain first' : 'restart node'}
+                </p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs leading-5 text-yellow-100/55">{node.rollout.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-4 text-xs leading-5 text-yellow-100/45">
+        Rust source: /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs reads /proc/self/exe.
+        Backend path: /root/aeronyx/privacy_network/services/heartbeat_service.py stores the operator_status snapshot.
+      </p>
+    </section>
   );
 }
 
@@ -576,6 +683,13 @@ function NodeDetailCard({ node }: { node: VpnNodeHealth }) {
         <span className="rounded-md border border-white/10 px-2 py-1">
           source {operatorStatus?.source ?? node.system?.source ?? 'pending'}
         </span>
+        <span className={`rounded-md border px-2 py-1 ${
+          operatorStatus?.runtime_rollout?.restart_required
+            ? 'border-yellow-500/25 text-yellow-300'
+            : 'border-white/10 text-gray-500'
+        }`}>
+          rollout {operatorStatus?.runtime_rollout?.restart_required ? 'restart required' : operatorStatus ? 'current' : 'pending'}
+        </span>
         {operatorStatus?.last_reported_at && (
           <span className="rounded-md border border-white/10 px-2 py-1">
             operator {formatRelativeTime(operatorStatus.last_reported_at)}
@@ -599,6 +713,7 @@ export default function NodeServicesPage() {
   const services = useMemo(() => buildServiceViews(nodes, operatorStatuses), [nodes, operatorStatuses]);
   const risks = useMemo(() => collectRisks(nodes), [nodes]);
   const pendingOperatorNodes = useMemo(() => collectPendingOperatorNodes(nodes), [nodes]);
+  const runtimeRolloutNodes = useMemo(() => collectRuntimeRolloutNodes(nodes), [nodes]);
   const latestReportedAt = useMemo(() => latestReportTime(operatorStatuses), [operatorStatuses]);
 
   if (isLoading) {
@@ -661,6 +776,7 @@ export default function NodeServicesPage() {
       </div>
 
       <PendingOperatorRolloutPanel nodes={pendingOperatorNodes} />
+      <RuntimeRolloutPanel nodes={runtimeRolloutNodes} />
 
       {risks.length > 0 && (
         <div className="mb-6 rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-5">
@@ -689,7 +805,7 @@ export default function NodeServicesPage() {
           </p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[960px] text-left">
+          <table className="w-full min-w-[1080px] text-left">
             <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.12em] text-gray-500">
               <tr>
                 <th className="px-4 py-3 font-medium">Node</th>
@@ -698,6 +814,7 @@ export default function NodeServicesPage() {
                 <th className="px-4 py-3 font-medium">ChatRelay</th>
                 <th className="px-4 py-3 font-medium">Data Layer</th>
                 <th className="px-4 py-3 font-medium">Operator</th>
+                <th className="px-4 py-3 font-medium">Rollout</th>
                 <th className="px-4 py-3 font-medium">Heartbeat</th>
               </tr>
             </thead>
@@ -706,7 +823,7 @@ export default function NodeServicesPage() {
                 nodes.map((node) => <NodeReadinessRow key={node.id} node={node} />)
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
                     No nodes are reporting yet.
                   </td>
                 </tr>

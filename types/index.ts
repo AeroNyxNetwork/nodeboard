@@ -391,6 +391,15 @@ export interface OperatorRisk {
   remediation: string;
 }
 
+export interface RuntimeRolloutStatus {
+  executable_path?: string | null;
+  executable_replaced: boolean;
+  restart_required: boolean;
+  detail: string;
+  source: string;
+  privacy_boundary: string;
+}
+
 /**
  * Rust heartbeat source:
  * /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -411,6 +420,7 @@ export interface OperatorRisk {
 export interface NodeOperatorStatus {
   status: 'ok' | 'attention' | 'critical' | 'failed' | string;
   generated_at: number;
+  runtime_rollout?: RuntimeRolloutStatus;
   last_reported_at?: string;
   source?: string;
   services: OperatorServiceStatus[];

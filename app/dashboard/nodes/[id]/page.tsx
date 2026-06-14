@@ -1506,6 +1506,7 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
   const { overview, isLoading, isError, refetch } = useVpnOverview();
   const health = overview?.nodes.find((item) => item.id === nodeId) ?? null;
   const operatorStatus = health?.system.operator_status ?? null;
+  const runtimeRollout = operatorStatus?.runtime_rollout ?? null;
   const totals = operatorStatus ? operatorStatusTotals(operatorStatus) : null;
 
   if (!isVpnNode) {
@@ -1612,6 +1613,61 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
           </div>
         </div>
       </div>
+
+      {runtimeRollout && (
+        <div className={`mt-5 rounded-xl border p-4 ${
+          runtimeRollout.restart_required
+            ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
+            : 'border-emerald-500/15 bg-emerald-500/[0.04]'
+        }`}>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h4 className="text-sm font-semibold text-white">Runtime Rollout</h4>
+              <p className="mt-1 text-xs text-gray-500">
+                Binary replacement signal from /proc/self/exe, reported by the Rust operator-status heartbeat.
+              </p>
+            </div>
+            <OperatorStatusBadge status={runtimeRollout.restart_required ? 'warning' : 'ok'} />
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+              <p className="text-[11px] uppercase text-gray-600">Restart Required</p>
+              <p className={`mt-1 text-sm font-semibold ${runtimeRollout.restart_required ? 'text-yellow-200' : 'text-white'}`}>
+                {runtimeRollout.restart_required ? 'yes' : 'no'}
+              </p>
+            </div>
+            <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+              <p className="text-[11px] uppercase text-gray-600">Executable</p>
+              <p className="mt-1 truncate text-xs font-mono text-gray-300">
+                {runtimeRollout.executable_path || 'pending'}
+              </p>
+            </div>
+            <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+              <p className="text-[11px] uppercase text-gray-600">Active Sessions</p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {(health?.active_sessions ?? 0).toLocaleString()}
+              </p>
+            </div>
+            <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+              <p className="text-[11px] uppercase text-gray-600">Next Step</p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {runtimeRollout.restart_required
+                  ? (health && health.active_sessions > 0 ? 'drain first' : 'restart node')
+                  : 'no rollout action'}
+              </p>
+            </div>
+          </div>
+
+          <p className={`mt-3 text-xs leading-5 ${runtimeRollout.restart_required ? 'text-yellow-100/70' : 'text-gray-500'}`}>
+            {runtimeRollout.detail}
+          </p>
+          <p className="mt-2 text-xs leading-5 text-gray-600">
+            Rust file: /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs ·
+            Backend file: /root/aeronyx/privacy_network/services/heartbeat_service.py.
+          </p>
+        </div>
+      )}
 
       <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {operatorStatus.services.map((service) => (
