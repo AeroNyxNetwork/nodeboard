@@ -132,7 +132,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.36 - Show client placement capacity
+ * Last Modified: v1.1.37 - Refresh placement capacity after maintenance changes
+ * Previous: v1.1.36 - Show client placement capacity
  * Previous: v1.1.35 - Show fleet policy enforcement blocks
  * Previous: v1.1.34 - Show fleet policy sync health
  * Previous: v1.1.33 - Show maintenance exit placement context
@@ -2700,9 +2701,13 @@ export default function NodeServicesPage() {
   const [cancellingCommandId, setCancellingCommandId] = useState<string | null>(null);
   const [operationNotice, setOperationNotice] = useState<OperationNotice | null>(null);
 
+  const refreshOperationalSnapshots = async () => {
+    await refetch();
+    await refetchPlacement();
+  };
+
   const handleRefresh = () => {
-    void refetch();
-    void refetchPlacement();
+    void refreshOperationalSnapshots();
   };
 
   const handleEnableMaintenance = async (nodeId: string, nodeName: string) => {
@@ -2720,9 +2725,9 @@ export default function NodeServicesPage() {
       });
       setOperationNotice({
         type: 'success',
-        message: `${nodeName} maintenance mode enabled. Restart readiness will update after the next backend overview sync.`,
+        message: `${nodeName} maintenance mode enabled. Restart readiness and client placement capacity were refreshed from backend snapshots.`,
       });
-      await refetch();
+      await refreshOperationalSnapshots();
     } catch (error) {
       setOperationNotice({
         type: 'error',
@@ -2748,9 +2753,9 @@ export default function NodeServicesPage() {
       });
       setOperationNotice({
         type: 'success',
-        message: `${nodeName} maintenance mode ended. Client placement eligibility will update after the next backend overview sync.`,
+        message: `${nodeName} maintenance mode ended. Restart readiness and client placement capacity were refreshed from backend snapshots.`,
       });
-      await refetch();
+      await refreshOperationalSnapshots();
     } catch (error) {
       setOperationNotice({
         type: 'error',
