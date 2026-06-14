@@ -134,7 +134,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.39 - Explain placement blockers with failed health checks
+ * Last Modified: v1.1.40 - Show Rust service manager active state
+ * Previous: v1.1.39 - Explain placement blockers with failed health checks
  * Previous: v1.1.38 - Show placement blocker node triage
  * Previous: v1.1.37 - Refresh placement capacity after maintenance changes
  * Previous: v1.1.36 - Show client placement capacity
@@ -192,6 +193,7 @@ import {
   VpnRestartDrainEta,
   VpnRestartReadiness,
   VpnRestartReadinessSummary,
+  VpnServiceManagerStatus,
   VpnServerCandidate,
   VpnServerPlacementSummary,
   VpnSessionCleanupStatus,
@@ -261,6 +263,7 @@ interface RuntimeRolloutNode {
   healthStatus: string;
   lastHeartbeat: string | null;
   rollout: RuntimeRolloutStatus;
+  serviceManager: VpnServiceManagerStatus | null;
 }
 
 interface RestartReadinessNode {
@@ -577,6 +580,7 @@ function collectRuntimeRolloutNodes(nodes: VpnNodeHealth[]): RuntimeRolloutNode[
       healthStatus: node.health_status,
       lastHeartbeat: node.last_heartbeat,
       rollout,
+      serviceManager: node.system.service_manager ?? null,
     });
     return items;
   }, []);
@@ -2531,7 +2535,7 @@ function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
               </div>
               <StatusPill status={node.healthStatus} />
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-yellow-100/60">
+            <div className="mt-4 grid gap-2 text-xs text-yellow-100/60 sm:grid-cols-2 xl:grid-cols-4">
               <div>
                 <p className="text-yellow-100/35">Active Sessions</p>
                 <p className="mt-1 text-yellow-100">{node.activeSessions.toLocaleString()}</p>
@@ -2548,15 +2552,29 @@ function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
                   {node.activeSessions > 0 ? 'drain first' : 'restart node'}
                 </p>
               </div>
+              <div>
+                <p className="text-yellow-100/35">Systemd State</p>
+                <p className="mt-1 text-yellow-100">
+                  {node.serviceManager
+                    ? `${node.serviceManager.active_state ?? 'unknown'} / ${node.serviceManager.load_state}`
+                    : 'pending'}
+                </p>
+              </div>
             </div>
             <p className="mt-3 text-xs leading-5 text-yellow-100/55">{node.rollout.detail}</p>
+            {node.serviceManager && (
+              <p className="mt-2 text-xs leading-5 text-yellow-100/50">
+                {node.serviceManager.detail}
+              </p>
+            )}
           </div>
         ))}
       </div>
 
       <p className="mt-4 text-xs leading-5 text-yellow-100/45">
         Rust source: /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs reads /proc/self/exe.
-        Backend path: /root/aeronyx/privacy_network/services/heartbeat_service.py stores the operator_status snapshot.
+        Backend path: /root/aeronyx/privacy_network/api/vpn_observability.py exposes
+        data.nodes[].system.service_manager from the Rust heartbeat snapshot.
       </p>
     </section>
   );

@@ -401,10 +401,27 @@ export interface VpnRuntimeRecovery {
   privacy_boundary?: string;
 }
 
+/**
+ * Rust service manager metadata exposed through:
+ *   GET /api/privacy_network/vpn/overview/
+ *
+ * Backend file:
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py
+ * Rust source:
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ * Frontend consumer:
+ *   /root/open/nodeboard/app/dashboard/services/page.tsx
+ *
+ * This is process manager metadata only. It does not include destinations, DNS
+ * contents, packet payloads, domains, URLs, browsing history, voucher secrets,
+ * client public IPs, or wallet-level traffic.
+ */
 export interface VpnServiceManagerStatus {
   manager: 'systemd' | string;
   service_name: string;
   load_state: string;
+  active_state?: string;
+  unit_file_state?: string;
   restart_supported: boolean;
   detail: string;
 }
