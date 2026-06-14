@@ -532,6 +532,7 @@ export interface VpnRestartReadinessBlockedNode {
  * Summary activity source:
  *   data.summary.restart_readiness.drain_activity_health_counts
  *   aggregates backend-authored activity_health status/risk by blocked node.
+ *   summary is backend-authored copy for the Services Drain Risk card.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts
@@ -550,6 +551,12 @@ export interface VpnRestartReadinessSummary {
     risk_counts: Record<string, number>;
     critical_nodes: number;
     warning_nodes: number;
+    summary?: {
+      risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+      label: string;
+      detail: string;
+      count: number;
+    };
     source: 'blocked_nodes.drain_activity.activity_health' | string;
   };
   blocked_nodes: VpnRestartReadinessBlockedNode[];

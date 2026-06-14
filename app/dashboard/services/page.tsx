@@ -45,6 +45,8 @@
  *   - data.summary.restart_readiness.drain_activity_health_counts
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Powers the top-level Drain Risk card in the restart readiness panel.
+ *     summary is backend-authored copy so nodeboard does not reimplement
+ *     fleet drain risk business rules.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -68,7 +70,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.14 - Show fleet drain risk summary
+ * Last Modified: v1.1.15 - Use backend-authored fleet drain risk copy
+ * Previous: v1.1.14 - Show fleet drain risk summary
  * Previous: v1.1.13 - Show backend drain activity health badge
  * Previous: v1.1.12 - Show keepalive issue session counts
  * Previous: v1.1.11 - Show blocked node drain activity summary
@@ -598,6 +601,9 @@ function fleetDrainRisk(summary: VpnRestartReadinessSummary | null) {
       count: 0,
       risk: 'info',
     };
+  }
+  if (counts.summary) {
+    return counts.summary;
   }
   const critical = counts.critical_nodes ?? 0;
   const warning = counts.warning_nodes ?? 0;
