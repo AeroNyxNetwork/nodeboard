@@ -490,6 +490,9 @@ export interface VpnRestartDrainEta {
   active_sessions: number;
   recent_activity_sessions?: number;
   idle_activity_sessions?: number;
+  recent_client_rx_sessions?: number;
+  stale_client_rx_sessions?: number;
+  never_client_rx_sessions?: number;
   activity_pending_sessions?: number;
   activity_window_seconds?: number;
   keepalive_missed_sessions?: number;
@@ -499,6 +502,8 @@ export interface VpnRestartDrainEta {
   activity_health?: VpnDrainActivityHealth | null;
   oldest_started_at: string | null;
   latest_activity_at: string | null;
+  latest_client_rx_at?: string | null;
+  latest_server_tx_at?: string | null;
   cleanup_timeout_seconds: number | null;
   estimated_cleanup_at: string | null;
   estimated_seconds_remaining: number | null;
@@ -522,6 +527,10 @@ export interface VpnRestartDrainEta {
  *   are node-level counts only: recent_activity_sessions,
  *   idle_activity_sessions, activity_pending_sessions, keepalive issue
  *   session counts, and keepalive totals.
+ *   recent_client_rx_sessions / stale_client_rx_sessions /
+ *   never_client_rx_sessions split client-originated tunnel packets from
+ *   server-side last_tx/update activity so old Rust runtimes do not look
+ *   healthy merely because the server is still transmitting keepalives.
  *   activity_health is backend-authored commercial triage status so React
  *   views do not duplicate restart/drain risk rules.
  * Operator action plan source:
@@ -629,6 +638,9 @@ export interface VpnRestartReadinessBlockedNode {
     active_sessions: number;
     recent_activity_sessions: number;
     idle_activity_sessions: number;
+    recent_client_rx_sessions?: number;
+    stale_client_rx_sessions?: number;
+    never_client_rx_sessions?: number;
     activity_pending_sessions: number;
     activity_window_seconds: number;
     keepalive_missed_sessions: number;
@@ -657,6 +669,9 @@ export interface VpnRestartReadinessBlockedNode {
  * Blocked node activity source:
  *   data.summary.restart_readiness.blocked_nodes[].drain_activity
  *   mirrors data.nodes[].system.restart_readiness.drain_eta aggregate buckets.
+ *   recent_client_rx_sessions / stale_client_rx_sessions /
+ *   never_client_rx_sessions separate client-originated RX from server-side
+ *   TX/update activity for stale-session rollout triage.
  * Summary activity source:
  *   data.summary.restart_readiness.drain_activity_health_counts
  *   aggregates backend-authored activity_health status/risk by blocked node.

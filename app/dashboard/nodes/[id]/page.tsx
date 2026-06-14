@@ -68,6 +68,9 @@
  *     The AeroNyx Service Readiness fallback also uses drain_eta when older
  *     Rust runtimes have not reported operator_status yet, so operators still
  *     see active-session blockers and cleanup rollout state before restart.
+ *     recent_client_rx_sessions / stale_client_rx_sessions /
+ *     never_client_rx_sessions distinguish client-originated tunnel packets
+ *     from server-side last_tx/update activity during staged Rust rollouts.
  *     drain_eta also carries node-level active-session activity buckets:
  *     recent_activity_sessions / idle_activity_sessions /
  *     activity_pending_sessions / keepalive issue session counts /
@@ -1533,11 +1536,13 @@ function legacyRuntimeDrainCopy(health: VpnNodeHealth | null | undefined) {
     title,
     detail,
     nextStep,
-    recent: eta?.recent_activity_sessions ?? null,
-    idle: eta?.idle_activity_sessions ?? null,
+    recentClientRx: eta?.recent_client_rx_sessions ?? eta?.recent_activity_sessions ?? null,
+    staleClientRx: eta?.stale_client_rx_sessions ?? eta?.idle_activity_sessions ?? null,
+    neverClientRx: eta?.never_client_rx_sessions ?? null,
     keepaliveIssue: Math.max(eta?.keepalive_missed_sessions ?? 0, eta?.keepalive_pending_sessions ?? 0),
     oldestStartedAt: eta?.oldest_started_at ?? null,
     latestActivityAt: eta?.latest_activity_at ?? null,
+    latestClientRxAt: eta?.latest_client_rx_at ?? null,
     source: 'GET /api/privacy_network/vpn/overview/ -> data.nodes[].system.restart_readiness',
   };
 }
@@ -1545,6 +1550,9 @@ function legacyRuntimeDrainCopy(health: VpnNodeHealth | null | undefined) {
 function drainActivityBucketRows(eta: VpnRestartDrainEta | null | undefined) {
   if (!eta) return [];
   const hasActivityBuckets = [
+    eta.recent_client_rx_sessions,
+    eta.stale_client_rx_sessions,
+    eta.never_client_rx_sessions,
     eta.recent_activity_sessions,
     eta.idle_activity_sessions,
     eta.activity_pending_sessions,
@@ -1556,9 +1564,27 @@ function drainActivityBucketRows(eta: VpnRestartDrainEta | null | undefined) {
 
   return [
     {
-      label: `Recent ${formatDuration(eta.activity_window_seconds || 180)}`,
-      value: eta.recent_activity_sessions ?? 0,
+      label: `Client RX recent ${formatDuration(eta.activity_window_seconds || 180)}`,
+      value: eta.recent_client_rx_sessions ?? eta.recent_activity_sessions ?? 0,
       tone: 'text-emerald-200',
+    },
+    {
+      label: 'Client RX stale',
+      value: Math.max(
+        0,
+        (eta.stale_client_rx_sessions ?? eta.idle_activity_sessions ?? 0) - (eta.never_client_rx_sessions ?? 0),
+      ),
+      tone: 'text-yellow-100',
+    },
+    {
+      label: 'Never client RX',
+      value: eta.never_client_rx_sessions ?? 0,
+      tone: 'text-red-100',
+    },
+    {
+      label: `Runtime activity ${formatDuration(eta.activity_window_seconds || 180)}`,
+      value: eta.recent_activity_sessions ?? 0,
+      tone: 'text-sky-100',
     },
     {
       label: 'Idle or stale',
@@ -2144,10 +2170,13 @@ function MaintenanceDrainPanel({
                 : oldestStartedAt ? formatRelativeTime(oldestStartedAt) : 'none'}
             </p>
             <p>
-              Latest activity: {backendDrainEta?.latest_activity_at
-                ? formatRelativeTime(backendDrainEta.latest_activity_at)
+              Latest client RX: {backendDrainEta?.latest_client_rx_at
+                ? formatRelativeTime(backendDrainEta.latest_client_rx_at)
                 : newestActivityAt ? formatRelativeTime(newestActivityAt) : 'none'}
             </p>
+            {backendDrainEta?.latest_server_tx_at && (
+              <p>Latest server TX: {formatRelativeTime(backendDrainEta.latest_server_tx_at)}</p>
+            )}
             <p>Listed traffic: {formatBytes(listedTrafficBytes, 1)}</p>
             <p>
               Stale client cleanup: {backendDrainEta?.cleanup_timeout_seconds || cleanupTimeoutSeconds
@@ -2436,19 +2465,31 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-4">
                   <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
-                    <p className="text-[10px] uppercase text-yellow-100/35">Recent</p>
-                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.recent ?? 'pending'}</p>
+                    <p className="text-[10px] uppercase text-yellow-100/35">Client RX Recent</p>
+                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.recentClientRx ?? 'pending'}</p>
                   </div>
                   <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
-                    <p className="text-[10px] uppercase text-yellow-100/35">Idle</p>
-                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.idle ?? 'pending'}</p>
+                    <p className="text-[10px] uppercase text-yellow-100/35">Client RX Stale</p>
+                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.staleClientRx ?? 'pending'}</p>
+                  </div>
+                  <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
+                    <p className="text-[10px] uppercase text-yellow-100/35">Never RX</p>
+                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.neverClientRx ?? 'pending'}</p>
                   </div>
                   <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
                     <p className="text-[10px] uppercase text-yellow-100/35">Keepalive Issue</p>
                     <p className="mt-1 text-xs text-yellow-100">{legacyDrain.keepaliveIssue.toLocaleString()}</p>
                   </div>
+                </div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
-                    <p className="text-[10px] uppercase text-yellow-100/35">Latest Activity</p>
+                    <p className="text-[10px] uppercase text-yellow-100/35">Latest Client RX</p>
+                    <p className="mt-1 text-xs text-yellow-100">
+                      {legacyDrain.latestClientRxAt ? formatRelativeTime(legacyDrain.latestClientRxAt) : 'pending'}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
+                    <p className="text-[10px] uppercase text-yellow-100/35">Runtime Activity</p>
                     <p className="mt-1 text-xs text-yellow-100">
                       {legacyDrain.latestActivityAt ? formatRelativeTime(legacyDrain.latestActivityAt) : 'pending'}
                     </p>

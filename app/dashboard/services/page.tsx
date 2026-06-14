@@ -90,6 +90,9 @@
  *     exposing client IPs, wallets, destinations, DNS, payloads, or browsing.
  *     Includes keepalive_missed_sessions / keepalive_pending_sessions so large
  *     counters can be interpreted as affected-session counts.
+ *     Includes recent_client_rx_sessions / stale_client_rx_sessions /
+ *     never_client_rx_sessions so old Rust runtimes that keep server-side TX
+ *     timestamps moving do not look like they still have fresh client traffic.
  *     Includes activity_health from backend commercial triage rules.
  *   - data.summary.restart_readiness.drain_activity_health_counts
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
@@ -808,6 +811,12 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
   const activeSessions = Math.max(0, eta.active_sessions ?? 0);
   const recentSessions = Math.max(0, eta.recent_activity_sessions ?? 0);
   const idleSessions = Math.max(0, eta.idle_activity_sessions ?? 0);
+  const recentClientRxSessions = Math.max(0, eta.recent_client_rx_sessions ?? recentSessions);
+  const neverClientRxSessions = Math.max(0, eta.never_client_rx_sessions ?? 0);
+  const staleClientRxSessions = Math.max(
+    0,
+    (eta.stale_client_rx_sessions ?? activeSessions - recentClientRxSessions) - neverClientRxSessions,
+  );
   const pendingSessions = Math.max(
     0,
     eta.activity_pending_sessions ?? activeSessions - recentSessions - idleSessions,
@@ -823,22 +832,22 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
     : 'border-white/10 bg-white/[0.03] text-gray-400';
   const segments = [
     {
-      key: 'recent',
-      label: 'recent traffic',
-      value: recentSessions,
+      key: 'client-rx',
+      label: 'client RX recent',
+      value: recentClientRxSessions,
       className: 'bg-emerald-300/80',
     },
     {
-      key: 'idle',
-      label: 'idle',
-      value: idleSessions,
-      className: 'bg-sky-300/75',
+      key: 'client-stale',
+      label: 'client RX stale',
+      value: staleClientRxSessions,
+      className: 'bg-yellow-300/75',
     },
     {
-      key: 'pending',
-      label: 'activity pending',
-      value: pendingSessions,
-      className: 'bg-zinc-400/70',
+      key: 'never-rx',
+      label: 'never RX',
+      value: neverClientRxSessions,
+      className: 'bg-red-300/70',
     },
   ].filter((segment) => segment.value > 0);
 
@@ -866,10 +875,13 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
       </div>
       <div className="flex flex-wrap gap-2 text-[11px]">
         <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
-          {recentSessions.toLocaleString()} recent
+          {recentClientRxSessions.toLocaleString()} client RX recent
         </span>
         <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
-          {idleSessions.toLocaleString()} idle
+          {staleClientRxSessions.toLocaleString()} client RX stale
+        </span>
+        <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
+          {neverClientRxSessions.toLocaleString()} never RX
         </span>
         <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
           {pendingSessions.toLocaleString()} pending
@@ -884,7 +896,12 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
         )}
         {eta.latest_activity_at && (
           <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
-            latest {formatRelativeTime(eta.latest_activity_at)}
+            runtime latest {formatRelativeTime(eta.latest_activity_at)}
+          </span>
+        )}
+        {eta.latest_client_rx_at && (
+          <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
+            client RX {formatRelativeTime(eta.latest_client_rx_at)}
           </span>
         )}
       </div>
@@ -1048,9 +1065,16 @@ function formatBlockedDrainActivity(node: VpnRestartReadinessSummary['blocked_no
     activity.keepalive_missed_sessions ?? 0,
     activity.keepalive_pending_sessions ?? 0,
   );
+  const clientRecent = activity.recent_client_rx_sessions ?? activity.recent_activity_sessions ?? 0;
+  const clientNever = activity.never_client_rx_sessions ?? 0;
+  const clientStale = Math.max(
+    0,
+    (activity.stale_client_rx_sessions ?? activity.idle_activity_sessions ?? 0) - clientNever,
+  );
   return [
-    `${activity.recent_activity_sessions.toLocaleString()} recent/${windowLabel}`,
-    `${activity.idle_activity_sessions.toLocaleString()} idle`,
+    `${clientRecent.toLocaleString()} client RX recent/${windowLabel}`,
+    `${clientStale.toLocaleString()} client RX stale`,
+    `${clientNever.toLocaleString()} never RX`,
     `${keepaliveIssueSessions.toLocaleString()} keepalive issue session${keepaliveIssueSessions === 1 ? '' : 's'}`,
     `${activity.keepalive_missed_total.toLocaleString()} missed total`,
   ].join(' · ');
