@@ -43,6 +43,9 @@
  *     Aggregates active ClientSession timing for restart drain visibility.
  *     Includes status, next_step, and timing fields used by node detail and
  *     services fleet restart UX.
+ *     cleanup_policy_pending is rendered in node detail as Rust cleanup
+ *     rollout pending until heartbeat.system_stats.vpn_health.session_cleanup
+ *     is reported.
  *   - GET /api/privacy_network/nodes/{id}/sessions/
  *     /root/aeronyx/privacy_network/api/sessions.py
  *     /root/aeronyx/privacy_network/serializers.py
@@ -63,7 +66,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.12 - Documented node detail restart drain ETA usage
+ * Last Modified: v1.1.13 - Documented cleanup rollout pending node detail UX
+ * Previous: v1.1.12 - Documented node detail restart drain ETA usage
  * Previous: v1.1.11 - Documented blocked node recommended action
  * Previous: v1.1.10 - Documented blocked node drain status
  * Previous: v1.1.9 - Documented restart drain status
@@ -120,7 +124,7 @@ const healthPayload = {
     {
       endpoint: 'data.nodes[].system.restart_readiness.drain_eta',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Node-level active ClientSession timing aggregate, status, and next step used by node detail and services maintenance drain ETA',
+      purpose: 'Node-level active ClientSession timing aggregate, status, next step, and cleanup rollout pending signal used by node detail and services maintenance drain ETA',
     },
     {
       endpoint: 'data.summary.restart_readiness',

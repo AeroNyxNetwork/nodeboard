@@ -40,6 +40,8 @@
  *     controlled-restart gating.
  *     Exposes data.nodes[].system.restart_readiness.drain_eta for active
  *     ClientSession aggregate timing used by the Maintenance Drain panel.
+ *     cleanup_policy_pending means Rust has not reported
+ *     heartbeat.system_stats.vpn_health.session_cleanup yet.
  *   - GET /api/privacy_network/nodes/{id}/sessions/?status=active
  *     /root/aeronyx/privacy_network/api/sessions.py
  *     /root/aeronyx/privacy_network/serializers.py
@@ -74,7 +76,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.3 - Node detail consumes backend restart drain ETA
+ * Last Modified: v1.6.4 - Explain cleanup rollout pending in node detail
+ * Previous: v1.6.3 - Node detail consumes backend restart drain ETA
  * Previous: v1.6.2 - Backend restart_readiness gate for restart actions
  * Previous: v1.6.1 - Guarded restart actions with maintenance drain readiness
  * Previous: v1.5.0 - Focused nodeboard on VPN operations UI
@@ -1375,6 +1378,19 @@ function restartDrainEtaTiming(eta: VpnRestartDrainEta | null | undefined) {
   return 'estimate unavailable';
 }
 
+function cleanupRolloutPendingCopy(eta: VpnRestartDrainEta | null | undefined) {
+  if (eta?.status !== 'cleanup_policy_pending') return null;
+  return {
+    title: 'Rust cleanup rollout pending',
+    detail: (
+      'This Rust process has not reported system_stats.vpn_health.session_cleanup, '
+      + 'so nodeboard cannot trust stale-session drain ETA yet.'
+    ),
+    nextStep: 'Keep maintenance on, confirm the staged Rust binary reports cleanup policy, then re-check this gate.',
+    source: 'GET /api/privacy_network/vpn/overview/ -> data.nodes[].system.restart_readiness.drain_eta',
+  };
+}
+
 function restartReadinessLabel(blockers: string[], restartCommandActive: boolean) {
   if (restartCommandActive) return 'Restart queued';
   if (blockers.length === 0) return 'Ready to restart';
@@ -1457,6 +1473,7 @@ function MaintenanceDrainPanel({
   const maintenanceReady = maintenanceMode && policySyncStatus === 'synced';
   const drainReady = backendDrainEta?.status === 'no_active_sessions' || activeTunnels === 0;
   const drainDisplaySessions = backendDrainEta?.active_sessions ?? activeTunnels;
+  const cleanupRolloutPending = cleanupRolloutPendingCopy(backendDrainEta);
   const restartBlockers = restartReadinessBlockers({
     health,
     maintenanceMode,
@@ -1547,6 +1564,20 @@ function MaintenanceDrainPanel({
               <p className="mt-1 text-[10px] leading-4 opacity-50">{backendDrainEta.privacy_boundary}</p>
             )}
           </div>
+          {cleanupRolloutPending && (
+            <div className="mt-3 rounded-lg border border-yellow-400/20 bg-yellow-400/[0.06] px-3 py-2">
+              <p className="text-xs font-semibold text-yellow-100">{cleanupRolloutPending.title}</p>
+              <p className="mt-1 text-[11px] leading-5 text-yellow-100/70">
+                {cleanupRolloutPending.detail}
+              </p>
+              <p className="mt-1 text-[11px] leading-5 text-yellow-100/55">
+                {cleanupRolloutPending.nextStep}
+              </p>
+              <p className="mt-1 break-words text-[10px] leading-4 text-yellow-100/35">
+                {cleanupRolloutPending.source}
+              </p>
+            </div>
+          )}
           <a
             href={sessionsHref}
             className="mt-3 inline-flex text-xs font-medium text-sky-300 hover:text-sky-200"
