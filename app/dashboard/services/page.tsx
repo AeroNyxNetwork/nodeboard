@@ -14,6 +14,9 @@
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Provides data.nodes[].checks from Rust /api/vpn/health so Services can
  *     explain placement blockers such as dns_stub and dns_query failures.
+ *     Provides data.nodes[].system.service_manager.active_state/load_state
+ *     from Rust /api/vpn/health so rollout gates can distinguish systemd
+ *     loaded-but-inactive nodes from active service-managed nodes.
  *     Provides data.nodes[].system.restart_readiness.drain_eta so Runtime
  *     Rollout can explain active-session drain status before controlled Rust
  *     restarts.
@@ -930,6 +933,14 @@ function rolloutCleanupPolicyGate(node: RuntimeRolloutNode) {
   };
 }
 
+function serviceManagerGateDetail(manager: RuntimeRolloutNode['serviceManager']) {
+  if (!manager) return 'systemd status pending';
+  const states = [manager.active_state, manager.load_state, manager.unit_file_state]
+    .filter((state): state is string => Boolean(state));
+  const stateLabel = states.length > 0 ? states.join(' · ') : manager.detail;
+  return `${manager.manager} ${manager.service_name}: ${stateLabel}`;
+}
+
 function RolloutGateStrip({ node }: { node: RuntimeRolloutNode }) {
   const serviceManagerReady = Boolean(node.serviceManager?.restart_supported);
   const policySynced = node.policySync?.status === 'synced';
@@ -969,7 +980,7 @@ function RolloutGateStrip({ node }: { node: RuntimeRolloutNode }) {
     {
       label: 'Service Manager',
       status: serviceManagerReady ? 'ready' : 'pending',
-      detail: node.serviceManager?.detail ?? 'systemd status pending',
+      detail: serviceManagerGateDetail(node.serviceManager),
     },
   ];
 

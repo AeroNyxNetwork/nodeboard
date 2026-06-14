@@ -36,6 +36,9 @@
  *   - GET /api/privacy_network/vpn/overview/
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Exposes data.nodes[].system.session_cleanup for drain ETA context.
+ *     Exposes data.nodes[].system.service_manager.active_state/load_state
+ *     from Rust /api/vpn/health so the VPN Health panel shows whether the
+ *     node is actively managed by systemd after a controlled restart.
  *     Exposes data.nodes[].system.restart_readiness for backend-authoritative
  *     controlled-restart gating.
  *     Exposes data.nodes[].system.restart_readiness.operator_action_plan as
@@ -637,6 +640,21 @@ function tunnelMtuDetail(health: VpnNodeHealth) {
   if (typeof configured === 'number') return 'configured only';
   if (typeof running === 'number') return 'runtime only';
   return 'reported by health check';
+}
+
+function formatServiceManagerName(health: VpnNodeHealth) {
+  const manager = health.system.service_manager;
+  if (!manager) return 'pending';
+  return manager.manager || 'service';
+}
+
+function serviceManagerRuntimeDetail(health: VpnNodeHealth) {
+  const manager = health.system.service_manager;
+  if (!manager) return 'waiting for Rust health';
+  const states = [manager.active_state, manager.load_state, manager.unit_file_state]
+    .filter((state): state is string => Boolean(state));
+  if (states.length > 0) return states.join(' · ');
+  return manager.restart_supported ? 'restart supported' : manager.detail;
 }
 
 function policyCount(value: number | null | undefined) {
@@ -2832,7 +2850,7 @@ function VpnHealthPanel({
 
       <NodePlacementStrip server={placement} isLoading={placementLoading} />
 
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mt-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 mt-5">
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
           <p className="text-xs text-gray-500">Active Tunnels</p>
           <p className="text-lg font-semibold text-white mt-1">{health.active_sessions}</p>
@@ -2866,6 +2884,11 @@ function VpnHealthPanel({
           <p className="text-xs text-gray-500">Tunnel MTU</p>
           <p className="text-lg font-semibold text-white mt-1">{formatTunnelMtu(health)}</p>
           <p className="text-xs text-gray-600">{tunnelMtuDetail(health)}</p>
+        </div>
+        <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
+          <p className="text-xs text-gray-500">Service Manager</p>
+          <p className="text-lg font-semibold text-white mt-1 truncate">{formatServiceManagerName(health)}</p>
+          <p className="text-xs text-gray-600 truncate">{serviceManagerRuntimeDetail(health)}</p>
         </div>
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
           <p className="text-xs text-gray-500">Last Heartbeat</p>
