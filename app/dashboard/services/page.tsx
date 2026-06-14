@@ -137,7 +137,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.47 - Show cleanup policy rollout gate
+ * Last Modified: v1.1.48 - Show long-tail drain session age
+ * Previous: v1.1.47 - Show cleanup policy rollout gate
  * Previous: v1.1.46 - Surface drain activity health in rollout gates
  * Previous: v1.1.45 - Explain staged DNS rollout impact
  * Previous: v1.1.44 - Add DNS gateway gate to rollout cards
@@ -874,6 +875,7 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
       </div>
       <p className={`text-[11px] leading-5 ${mutedClass}`}>
         Window {formatDuration(eta.activity_window_seconds || 180)}
+        {eta.oldest_started_at ? ` · oldest active ${formatRelativeTime(eta.oldest_started_at)}` : ''}
         {eta.latest_activity_at ? ` · latest activity ${formatRelativeTime(eta.latest_activity_at)}` : ''}
         {typeof eta.estimated_seconds_remaining === 'number' ? ` · cleanup in ${formatDuration(Math.max(0, eta.estimated_seconds_remaining))}` : ''}
       </p>
@@ -885,10 +887,13 @@ function rolloutDrainGateDetail(node: RuntimeRolloutNode) {
   if (node.activeSessions === 0) return 'no active sessions';
   const health = node.drainEta?.activity_health;
   if (health) {
+    const oldestActive = node.drainEta?.oldest_started_at
+      ? ` · oldest ${formatRelativeTime(node.drainEta.oldest_started_at)}`
+      : '';
     const latestActivity = node.drainEta?.latest_activity_at
       ? ` · ${formatRelativeTime(node.drainEta.latest_activity_at)}`
       : '';
-    return `${health.label}: ${health.detail}${latestActivity}`;
+    return `${health.label}: ${health.detail}${oldestActive}${latestActivity}`;
   }
   return `${node.activeSessions.toLocaleString()} active session${node.activeSessions === 1 ? '' : 's'}`;
 }
