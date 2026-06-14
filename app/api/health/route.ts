@@ -32,6 +32,8 @@
  *     for the Services page top-level Drain Risk card.
  *     drain_activity_health_counts.summary is backend-authored display copy
  *     and next_step.
+ *     Provides data.summary.restart_readiness.command_lifecycle_counts for
+ *     Services page Command SLA card and backend-authored stale/retry copy.
  *   - GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Supports /dashboard/sessions?node={id}&status=active&quality=all deep links.
@@ -80,7 +82,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.22 - Documented restart command SLA fields
+ * Last Modified: v1.1.23 - Documented fleet command lifecycle summary
+ * Previous: v1.1.22 - Documented restart command SLA fields
  * Previous: v1.1.21 - Documented latest restart command outcome
  * Previous: v1.1.20 - Documented backend drain risk next step
  * Previous: v1.1.19 - Documented backend-authored drain risk copy
@@ -168,6 +171,11 @@ const healthPayload = {
       endpoint: 'data.summary.restart_readiness.drain_activity_health_counts',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Fleet-level blocked-node activity_health risk/status counts plus backend-authored summary copy and next_step used by the Services Drain Risk card',
+    },
+    {
+      endpoint: 'data.summary.restart_readiness.command_lifecycle_counts',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Fleet-level restart_service active/stale/retry/terminal lifecycle counts plus backend-authored summary copy for the Services Command SLA card',
     },
     {
       endpoint: 'GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=',

@@ -556,6 +556,10 @@ export interface VpnRestartReadinessBlockedNode {
  *   aggregates backend-authored activity_health status/risk by blocked node.
  *   summary is backend-authored copy and next_step for the Services Drain
  *   Risk card.
+ * Command lifecycle source:
+ *   data.summary.restart_readiness.command_lifecycle_counts aggregates
+ *   active/stale/retry/terminal restart_service lifecycle metadata for the
+ *   Services Command SLA card.
  * Frontend consumers:
  *   /root/open/nodeboard/app/dashboard/services/page.tsx
  *   /root/open/nodeboard/app/api/health/route.ts
@@ -583,6 +587,26 @@ export interface VpnRestartReadinessSummary {
       count: number;
     };
     source: 'blocked_nodes.drain_activity.activity_health' | string;
+  };
+  command_lifecycle_counts?: {
+    active: number;
+    stale: number;
+    retry_needed: number;
+    terminal: number;
+    completed: number;
+    failed: number;
+    cancelled: number;
+    timeout: number;
+    summary?: {
+      status?: string;
+      risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+      label: string;
+      detail: string;
+      next_step?: string;
+      count: number;
+    };
+    source: 'nodes.system.restart_readiness.restart_command_metadata' | string;
+    privacy_boundary: string;
   };
   blocked_nodes: VpnRestartReadinessBlockedNode[];
   source: string;

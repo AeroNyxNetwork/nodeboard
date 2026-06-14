@@ -59,6 +59,10 @@
  *     Powers the top-level Drain Risk card in the restart readiness panel.
  *     summary is backend-authored copy and next_step so nodeboard does not
  *     reimplement fleet drain risk business rules.
+ *   - data.summary.restart_readiness.command_lifecycle_counts
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Powers the Command SLA card from backend-authored active/stale/retry
+ *     restart_service lifecycle counts.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -82,7 +86,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.21 - Show stale restart command SLA
+ * Last Modified: v1.1.22 - Show fleet command SLA summary
+ * Previous: v1.1.21 - Show stale restart command SLA
  * Previous: v1.1.20 - Close restart command outcomes
  * Previous: v1.1.19 - Show restart command timeline in action queue
  * Previous: v1.1.18 - Add queue filters and stable impact ordering
@@ -721,6 +726,56 @@ function fleetDrainRisk(summary: VpnRestartReadinessSummary | null) {
   };
 }
 
+function fleetCommandLifecycle(summary: VpnRestartReadinessSummary | null) {
+  const counts = summary?.command_lifecycle_counts ?? null;
+  if (!counts) {
+    return {
+      label: 'Pending',
+      detail: 'waiting for backend command lifecycle summary',
+      count: 0,
+      risk: 'info',
+      next_step: 'Waiting for data.summary.restart_readiness.command_lifecycle_counts.',
+    };
+  }
+  if (counts.summary) {
+    return counts.summary;
+  }
+  if (counts.stale > 0) {
+    return {
+      label: 'Stale',
+      detail: `${counts.stale.toLocaleString()} stale restart command(s)`,
+      count: counts.stale,
+      risk: 'critical',
+      next_step: 'Open Stale Command queue items.',
+    };
+  }
+  if (counts.retry_needed > 0) {
+    return {
+      label: 'Retry',
+      detail: `${counts.retry_needed.toLocaleString()} restart command(s) need review`,
+      count: counts.retry_needed,
+      risk: 'warning',
+      next_step: 'Open Retry Needed queue items.',
+    };
+  }
+  if (counts.active > 0) {
+    return {
+      label: 'Active',
+      detail: `${counts.active.toLocaleString()} restart command(s) in progress`,
+      count: counts.active,
+      risk: 'info',
+      next_step: 'Monitor command timelines.',
+    };
+  }
+  return {
+    label: 'Clear',
+    detail: 'no restart command SLA issue',
+    count: 0,
+    risk: 'healthy',
+    next_step: 'No command action required.',
+  };
+}
+
 function restartBlockerCopy(code: string) {
   const copy: Record<string, { label: string; remediation: string }> = {
     maintenance_required: {
@@ -1312,6 +1367,7 @@ function FleetRestartReadinessPanel({
     ?? attentionNodes.reduce((sum, node) => sum + node.activeSessions, 0);
   const blockerCounts = Object.entries(summary?.blocker_counts ?? {});
   const drainRisk = fleetDrainRisk(summary);
+  const commandLifecycle = fleetCommandLifecycle(summary);
   const filterOptions = useMemo(() => restartQueueFilterOptions(nodes), [nodes]);
   const actionQueues = useMemo(
     () => buildRestartActionQueues(summary, nodes, queueFilters),
@@ -1338,7 +1394,7 @@ function FleetRestartReadinessPanel({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
           <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Ready Now</p>
           <p className="mt-2 text-2xl font-semibold text-white">{readyCount.toLocaleString()}</p>
@@ -1361,6 +1417,14 @@ function FleetRestartReadinessPanel({
           <p className="mt-1 text-xs opacity-70">{drainRisk.label} · {drainRisk.detail}</p>
           {drainRisk.next_step && (
             <p className="mt-2 text-xs leading-5 opacity-80">{drainRisk.next_step}</p>
+          )}
+        </div>
+        <div className={`rounded-xl border p-4 ${drainActivityHealthClass(commandLifecycle.risk)}`}>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Command SLA</p>
+          <p className="mt-2 text-2xl font-semibold">{commandLifecycle.count.toLocaleString()}</p>
+          <p className="mt-1 text-xs opacity-70">{commandLifecycle.label} · {commandLifecycle.detail}</p>
+          {commandLifecycle.next_step && (
+            <p className="mt-2 text-xs leading-5 opacity-80">{commandLifecycle.next_step}</p>
           )}
         </div>
       </div>
