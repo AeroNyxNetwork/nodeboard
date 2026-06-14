@@ -137,7 +137,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.49 - Add drain age chips
+ * Last Modified: v1.1.50 - Link rollout blockers to active sessions
+ * Previous: v1.1.49 - Add drain age chips
  * Previous: v1.1.48 - Show long-tail drain session age
  * Previous: v1.1.47 - Show cleanup policy rollout gate
  * Previous: v1.1.46 - Surface drain activity health in rollout gates
@@ -1016,6 +1017,14 @@ function RolloutImpactCallout({ node }: { node: RuntimeRolloutNode }) {
         {nextStep}
         {failedDnsCheck ? ` Current DNS blocker: ${failedDnsCheck.name.replaceAll('_', ' ')}.` : ''}
       </p>
+      {node.activeSessions > 0 && (
+        <Link
+          href={`/dashboard/sessions?node=${node.id}&status=active&quality=all`}
+          className="mt-3 inline-flex items-center justify-center rounded-lg border border-yellow-100/15 px-3 py-1.5 text-xs font-medium text-yellow-100 transition hover:border-yellow-100/30 hover:bg-yellow-100/[0.06]"
+        >
+          Open active sessions
+        </Link>
+      )}
     </div>
   );
 }
