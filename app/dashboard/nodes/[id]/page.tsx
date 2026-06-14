@@ -41,6 +41,9 @@
  *     Exposes data.nodes[].system.restart_readiness.active_restart_command
  *     and latest_restart_command for restart command SLA/outcome visibility
  *     without command params, result, or error_message payloads.
+ *     active_restart_command.can_cancel mirrors backend NodeCommand
+ *     mark_cancelled eligibility so the Maintenance Drain card only offers
+ *     cancellation while the backend accepts it.
  *     Exposes data.nodes[].system.restart_readiness.drain_eta for active
  *     ClientSession aggregate timing used by the Maintenance Drain panel.
  *     drain_eta also carries node-level active-session activity buckets:
@@ -54,6 +57,8 @@
  *     /root/aeronyx/privacy_network/api/sessions.py
  *     /root/aeronyx/privacy_network/serializers.py
  *   - POST /api/privacy_network/nodes/{id}/commands/run/
+ *     /root/aeronyx/privacy_network/api/vpn_commands.py
+ *   - POST /api/privacy_network/nodes/{id}/commands/{cmd_id}/cancel/
  *     /root/aeronyx/privacy_network/api/vpn_commands.py
  *   - GET /api/privacy_network/nodes/{id}/commands/?status=&action=&limit=
  *     /root/aeronyx/privacy_network/api/vpn_commands.py
@@ -89,7 +94,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.9 - Make command deep-link filters URL authoritative
+ * Last Modified: v1.6.10 - Use backend cancel eligibility in restart card
+ * Previous: v1.6.9 - Make command deep-link filters URL authoritative
  * Previous: v1.6.8 - Show restart command SLA in node detail
  * Previous: v1.6.7 - Show backend drain activity health
  * Previous: v1.6.6 - Show keepalive issue session counts
@@ -1436,6 +1442,12 @@ function restartCommandSlaDetail(command: VpnRestartCommandState | null | undefi
   return `${formatDuration(command.age_seconds)} elapsed / ${formatDuration(command.stale_after_seconds)} SLA`;
 }
 
+function restartCommandCanCancel(command: VpnRestartCommandState | null | undefined) {
+  if (!command) return false;
+  if (typeof command.can_cancel === 'boolean') return command.can_cancel;
+  return command.status === 'pending' || command.status === 'sent';
+}
+
 function cleanupRolloutPendingCopy(eta: VpnRestartDrainEta | null | undefined) {
   if (eta?.status !== 'cleanup_policy_pending') return null;
   return {
@@ -1556,8 +1568,10 @@ function MaintenanceDrainPanel({
   restartCommandActive,
   isPolicySaving,
   isCommandPending,
+  cancellingCommandId,
   onToggleMaintenance,
   onRestartService,
+  onCancelRestartCommand,
 }: {
   nodeId: string;
   health: VpnNodeHealth;
@@ -1566,8 +1580,10 @@ function MaintenanceDrainPanel({
   restartCommandActive: boolean;
   isPolicySaving: boolean;
   isCommandPending: boolean;
+  cancellingCommandId: string | null;
   onToggleMaintenance: () => Promise<void>;
   onRestartService: () => Promise<void>;
+  onCancelRestartCommand: (command: VpnRestartCommandState) => Promise<void>;
 }) {
   const { sessions: activeSessions, isLoading: activeSessionsLoading } = useNodeSessions(nodeId, {
     status: 'active',
@@ -1595,6 +1611,8 @@ function MaintenanceDrainPanel({
   const activeRestartCommand = restartReadiness?.active_restart_command ?? null;
   const latestRestartCommand = restartReadiness?.latest_restart_command ?? null;
   const visibleRestartCommand = activeRestartCommand ?? latestRestartCommand;
+  const cancellableRestartCommand = restartCommandCanCancel(activeRestartCommand) ? activeRestartCommand : null;
+  const isCancellingRestartCommand = cancellableRestartCommand?.id === cancellingCommandId;
   const restartCommandStage = restartCommandStageIndex(visibleRestartCommand);
   const restartCommandStages = restartCommandStageLabels(visibleRestartCommand);
   const restartCommandSla = restartCommandSlaDetail(visibleRestartCommand);
@@ -1789,12 +1807,25 @@ function MaintenanceDrainPanel({
                 <p className="text-xs font-semibold">
                   {restartCommandSummary(visibleRestartCommand)}
                 </p>
-                <a
-                  href="#vpn-commands"
-                  className="shrink-0 text-xs font-medium text-sky-200 hover:text-sky-100"
-                >
-                  Open
-                </a>
+                <div className="flex shrink-0 items-center gap-2">
+                  <a
+                    href="#vpn-commands"
+                    className="text-xs font-medium text-sky-200 hover:text-sky-100"
+                  >
+                    Open
+                  </a>
+                  {cancellableRestartCommand && (
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      disabled={Boolean(cancellingCommandId)}
+                      isLoading={isCancellingRestartCommand}
+                      onClick={() => onCancelRestartCommand(cancellableRestartCommand)}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                </div>
               </div>
               <div className="mt-2 grid grid-cols-3 gap-1">
                 {restartCommandStages.map((stage, index) => (
@@ -2310,6 +2341,22 @@ function VpnHealthPanel({
     }
   };
 
+  const handleCancelRestartCommand = async (command: VpnRestartCommandState) => {
+    if (!restartCommandCanCancel(command)) return;
+    if (!window.confirm('Cancel the active restart_service command? Commands already executing on the node cannot be interrupted.')) return;
+
+    setCancellingCommandId(command.id);
+    try {
+      await cancelCommand.mutateAsync({ nodeId, commandId: command.id });
+      onToast('Restart command cancellation requested');
+      await refetch();
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Failed to cancel restart command', 'error');
+    } finally {
+      setCancellingCommandId(null);
+    }
+  };
+
   if (!isVpnNode) {
     return (
       <Card variant="outline" padding="md" className="mb-6">
@@ -2499,8 +2546,10 @@ function VpnHealthPanel({
         restartCommandActive={restartCommandActive}
         isPolicySaving={isPolicySaving}
         isCommandPending={runCommand.isPending}
+        cancellingCommandId={cancellingCommandId}
         onToggleMaintenance={handleMaintenanceToggle}
         onRestartService={handleRestartService}
+        onCancelRestartCommand={handleCancelRestartCommand}
       />
 
       <div className="mt-5 grid md:grid-cols-2 gap-3">
