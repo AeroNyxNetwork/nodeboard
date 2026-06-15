@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.11 - Added node policy block current-impact fields.
  *   v1.5.10 - Documented node heartbeat source quality.
  *   v1.5.9 - Added policy enforcement telemetry source quality fields.
  *   v1.5.8 - Added fleet policy enforcement health summary types.
@@ -50,7 +51,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.10 - Documented node heartbeat source quality
+ * Last Modified: v1.5.11 - Added node policy block current-impact fields
+ * Previous: v1.5.10 - Documented node heartbeat source quality
  * Previous: v1.5.9 - Added policy enforcement telemetry source quality
  * Previous: v1.5.8 - Added fleet policy enforcement health summary
  * Previous: v1.5.7 - Added fleet policy sync health summary
@@ -389,6 +391,21 @@ export interface VpnPolicyEnforcement {
   bandwidth_window_bytes?: number;
   last_rejection_reason: string | null;
   last_rejection_at: number | null;
+  /**
+   * Backend-authored current-impact classification from:
+   *   GET /api/privacy_network/vpn/overview/
+   *
+   * Backend file:
+   *   /root/aeronyx/privacy_network/api/vpn_observability.py
+   *
+   * Rust counters are cumulative for the current process. These fields let
+   * node detail separate active commercial blocking from historical audit
+   * counters without reimplementing freshness rules in React.
+   */
+  last_rejection_age_seconds?: number | null;
+  recent_block_active?: boolean;
+  recent_block_window_seconds?: number;
+  impact_status?: 'clear' | 'active' | 'historical' | string;
 }
 
 export interface VpnPolicySnapshot {

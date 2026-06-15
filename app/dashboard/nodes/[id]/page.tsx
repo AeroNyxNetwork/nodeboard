@@ -85,7 +85,9 @@
  *     stale audit counters with live enforcement impact.
  *     data.nodes[].system.policy_enforcement includes Rust node_policy
  *     aggregate bandwidth_drop_bytes / bandwidth_limit_bytes_per_second /
- *     bandwidth_window_bytes for commercial limiter diagnostics.
+ *     bandwidth_window_bytes for commercial limiter diagnostics, plus
+ *     backend-authored recent_block_active / impact_status so the page can
+ *     distinguish active commercial blocking from historical process counters.
  *   - GET /api/privacy_network/vpn/servers/
  *     /root/aeronyx/privacy_network/api/vpn_servers.py
  *     Exposes per-node placement eligibility, capacity_remaining,
@@ -135,7 +137,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.18 - Show node telemetry source quality
+ * Last Modified: v1.6.19 - Show node policy block current impact
+ * Previous: v1.6.18 - Show node telemetry source quality
  * Previous: v1.6.17 - Add commercial readiness panel
  * Previous: v1.6.16 - Render backend recommended operator actions
  * Previous: v1.6.15 - Add operator action contextual controls
@@ -761,6 +764,33 @@ function telemetrySourceDetail(source: string | null | undefined, lastSeenSecond
   return 'Heartbeat telemetry is missing; verify backend ingestion before changing commercial placement.';
 }
 
+function policyImpactLabel(status: string | null | undefined) {
+  if (status === 'active') return 'active impact';
+  if (status === 'historical') return 'historical';
+  if (status === 'clear') return 'clear';
+  return 'pending';
+}
+
+function policyImpactClass(status: string | null | undefined) {
+  if (status === 'active') return 'border-yellow-500/25 bg-yellow-500/10 text-yellow-300';
+  if (status === 'historical') return 'border-sky-500/25 bg-sky-500/10 text-sky-300';
+  if (status === 'clear') return 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300';
+  return 'border-gray-500/25 bg-gray-500/10 text-gray-300';
+}
+
+function policyImpactDetail(status: string | null | undefined, ageSeconds: number | null | undefined, windowSeconds: number | null | undefined) {
+  const windowLabel = formatDuration(windowSeconds ?? 3600);
+  if (status === 'active') {
+    return `Latest policy block is within ${windowLabel}; treat capacity or placement impact as current.`;
+  }
+  if (status === 'historical') {
+    const age = typeof ageSeconds === 'number' ? `${formatDuration(ageSeconds)} ago` : 'outside the recent window';
+    return `Last block was ${age}; counters remain for audit but are not current placement impact.`;
+  }
+  if (status === 'clear') return 'No Rust node_policy block has been reported for this node.';
+  return 'Waiting for backend policy impact classification.';
+}
+
 /**
  * Commercial client-placement decision view.
  *
@@ -807,13 +837,15 @@ function CommercialReadinessPanel({
   const drops = policyCount(enforcement?.bandwidth_drops);
   const droppedBytes = policyCount(enforcement?.bandwidth_drop_bytes);
   const maxSessionRejects = policyCount(enforcement?.max_sessions_rejections);
+  const policyImpactStatus = enforcement?.impact_status || 'clear';
+  const activePolicyImpact = policyImpactStatus === 'active';
   const remaining = server?.capacity_remaining ?? (
     health.max_sessions > 0 ? Math.max(0, health.max_sessions - health.active_sessions) : null
   );
   const syncStatus = policySync?.status || 'unknown';
   const runtimeMismatch = (policySync?.mismatched_fields?.length ?? 0) > 0;
   const placementBlocked = !server || !server.available;
-  const needsAttention = runtimeMismatch || drops > 0 || maxSessionRejects > 0;
+  const needsAttention = runtimeMismatch || activePolicyImpact;
   const status = placementBlocked ? 'blocked' : needsAttention ? 'attention' : 'ready';
   const statusLabel = status === 'ready' ? 'ready for clients' : status === 'attention' ? 'watch policy' : 'not advertised';
   const placementReason = server?.unavailable_reason ?? (!server ? 'not_in_candidate_list' : null);
@@ -841,6 +873,9 @@ function CommercialReadinessPanel({
             <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${telemetrySourceClass(telemetrySource)}`}>
               {telemetrySourceLabel(telemetrySource)}
             </span>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${policyImpactClass(policyImpactStatus)}`}>
+              {policyImpactLabel(policyImpactStatus)}
+            </span>
           </div>
           <p className="mt-1 text-xs leading-5 text-gray-500">
             {server?.available
@@ -849,6 +884,9 @@ function CommercialReadinessPanel({
           </p>
           <p className="mt-1 text-xs leading-5 text-gray-600">
             Policy telemetry: {telemetrySourceDetail(telemetrySource, health.last_seen_seconds)}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-gray-600">
+            Policy impact: {policyImpactDetail(policyImpactStatus, enforcement?.last_rejection_age_seconds, enforcement?.recent_block_window_seconds)}
           </p>
         </div>
         <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-400 lg:max-w-md">
@@ -878,7 +916,7 @@ function CommercialReadinessPanel({
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
           <p className="text-[11px] uppercase text-gray-600">Bandwidth Policy</p>
-          <p className={`mt-1 text-base font-semibold ${drops > 0 || nearBandwidthCap ? 'text-yellow-200' : 'text-white'}`}>
+          <p className={`mt-1 text-base font-semibold ${activePolicyImpact || nearBandwidthCap ? 'text-yellow-200' : 'text-white'}`}>
             {formatBandwidthLimit(health.bandwidth_limit_mbps)}
           </p>
           <p className="mt-0.5 text-[11px] text-gray-600">
@@ -896,7 +934,7 @@ function CommercialReadinessPanel({
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
           <p className="text-[11px] uppercase text-gray-600">Runtime Blocks</p>
-          <p className={`mt-1 text-base font-semibold ${drops + maxSessionRejects > 0 ? 'text-yellow-200' : 'text-white'}`}>
+          <p className={`mt-1 text-base font-semibold ${activePolicyImpact ? 'text-yellow-200' : drops + maxSessionRejects > 0 ? 'text-sky-200' : 'text-white'}`}>
             {drops + maxSessionRejects}
           </p>
           <p className="mt-0.5 text-[11px] text-gray-600">
@@ -1373,6 +1411,8 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
       : 'border-gray-500/25 bg-gray-500/10 text-gray-300';
   const mismatched = policySync?.mismatched_fields?.map((field) => field.replace(/_/g, ' ')).join(', ') || '';
   const telemetrySource = health.system.source || 'missing';
+  const impactStatus = enforcement?.impact_status || (total > 0 ? 'historical' : 'clear');
+  const activeImpact = impactStatus === 'active';
 
   return (
     <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.02] p-4">
@@ -1387,7 +1427,10 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
           <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${telemetrySourceClass(telemetrySource)}`}>
             {telemetrySourceLabel(telemetrySource)}
           </span>
-          <span className={total > 0 ? 'text-sm font-semibold text-yellow-300' : 'text-sm font-semibold text-emerald-300'}>
+          <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${policyImpactClass(impactStatus)}`}>
+            {policyImpactLabel(impactStatus)}
+          </span>
+          <span className={activeImpact ? 'text-sm font-semibold text-yellow-300' : total > 0 ? 'text-sm font-semibold text-sky-300' : 'text-sm font-semibold text-emerald-300'}>
             {total} blocked
           </span>
         </div>
@@ -1415,6 +1458,13 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
         <p className="mt-1 opacity-80">{telemetrySourceDetail(telemetrySource, health.last_seen_seconds)}</p>
       </div>
 
+      <div className={`mb-3 rounded-lg border px-3 py-2 text-xs ${policyImpactClass(impactStatus)}`}>
+        <p className="font-semibold uppercase">Policy Impact: {policyImpactLabel(impactStatus)}</p>
+        <p className="mt-1 opacity-80">
+          {policyImpactDetail(impactStatus, enforcement?.last_rejection_age_seconds, enforcement?.recent_block_window_seconds)}
+        </p>
+      </div>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
           <p className="text-[11px] uppercase text-gray-600">Maintenance</p>
@@ -1426,7 +1476,7 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
           <p className="text-[11px] uppercase text-gray-600">Bandwidth Drops</p>
-          <p className="text-base font-semibold text-white mt-1">{bandwidth}</p>
+          <p className={`text-base font-semibold mt-1 ${activeImpact && bandwidth > 0 ? 'text-yellow-200' : bandwidth > 0 ? 'text-sky-200' : 'text-white'}`}>{bandwidth}</p>
           <p className="text-[11px] text-gray-600 mt-0.5">{formatBytes(bandwidthDropBytes)} rejected</p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2 min-w-0">
