@@ -3247,6 +3247,7 @@ function ServiceRiskCard({ risk }: { risk: OperatorRisk }) {
 }
 
 function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNode: boolean }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const { overview, isLoading, isError, refetch } = useVpnOverview();
   const health = overview?.nodes.find((item) => item.id === nodeId) ?? null;
   const operatorStatus = health?.system.operator_status ?? null;
@@ -3256,9 +3257,9 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
   if (!isVpnNode) {
     return (
       <Card variant="outline" padding="md" className="mb-6">
-        <h3 className="font-semibold text-white">AeroNyx Service Readiness</h3>
+        <h3 className="font-semibold text-white">{t('nodeDetail.service.title')}</h3>
         <p className="mt-2 text-sm text-gray-500">
-          Privacy Protocol mode is disabled for this node. Enable it in Node Settings before service readiness is reported.
+          {t('nodeDetail.service.disabled')}
         </p>
       </Card>
     );
@@ -3287,31 +3288,29 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
       <Card variant="outline" padding="md" className="mb-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h3 className="font-semibold text-white">AeroNyx Service Readiness</h3>
+            <h3 className="font-semibold text-white">{t('nodeDetail.service.title')}</h3>
             <p className="mt-1 text-sm text-yellow-300">
               {hasHeartbeatWithoutOperatorStatus
-                ? 'Signed heartbeat is live, but this Rust process is not reporting system_stats.operator_status yet.'
-                : 'Waiting for system_stats.operator_status from the signed Rust heartbeat.'}
+                ? t('nodeDetail.service.operatorMissingLive')
+                : t('nodeDetail.service.operatorWaiting')}
             </p>
             <p className="mt-2 text-xs leading-5 text-gray-500">
-              Backend contract: GET /api/privacy_network/vpn/overview/ reads
-              /root/aeronyx/privacy_network/api/vpn_observability.py, which exposes
-              Node.hardware_info["operator_status"] written by heartbeat_service.py.
+              {t('nodeDetail.service.backendContract')}
             </p>
             {health && (
               <div className="mt-3 grid gap-2 sm:grid-cols-3">
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                  <p className="text-[11px] uppercase text-gray-600">Privacy Health</p>
+                  <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.service.privacyHealth')}</p>
                   <p className="mt-1 text-xs text-gray-300">{health.health_status}</p>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                  <p className="text-[11px] uppercase text-gray-600">Active Sessions</p>
-                  <p className="mt-1 text-xs text-gray-300">{health.active_sessions.toLocaleString()}</p>
+                  <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.stats.activeSessions')}</p>
+                  <p className="mt-1 text-xs text-gray-300">{formatNumber(health.active_sessions)}</p>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                  <p className="text-[11px] uppercase text-gray-600">Upgrade Path</p>
+                  <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.service.upgradePath')}</p>
                   <p className="mt-1 text-xs text-gray-300">
-                    {health.active_sessions > 0 ? 'drain before restart' : 'restart Rust node'}
+                    {health.active_sessions > 0 ? t('nodeDetail.service.drainBeforeRestart') : t('nodeDetail.service.restartRustNode')}
                   </p>
                 </div>
               </div>
@@ -3324,74 +3323,73 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
                     <p className="mt-1 text-xs leading-5 text-yellow-100/70">{legacyDrain.detail}</p>
                   </div>
                   <span className="inline-flex w-fit rounded-full border border-yellow-500/25 bg-yellow-500/10 px-2.5 py-1 text-xs font-medium text-yellow-200">
-                    legacy runtime
+                    {t('nodeDetail.service.legacyRuntime')}
                   </span>
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-4">
                   <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
-                    <p className="text-[10px] uppercase text-yellow-100/35">Client RX Recent</p>
-                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.recentClientRx ?? 'pending'}</p>
+                    <p className="text-[10px] uppercase text-yellow-100/35">{t('nodeDetail.service.clientRxRecent')}</p>
+                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.recentClientRx ?? t('common.status.pending')}</p>
                   </div>
                   <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
-                    <p className="text-[10px] uppercase text-yellow-100/35">Client RX Stale</p>
-                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.staleClientRx ?? 'pending'}</p>
+                    <p className="text-[10px] uppercase text-yellow-100/35">{t('nodeDetail.service.clientRxStale')}</p>
+                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.staleClientRx ?? t('common.status.pending')}</p>
                   </div>
                   <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
-                    <p className="text-[10px] uppercase text-yellow-100/35">Never RX</p>
-                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.neverClientRx ?? 'pending'}</p>
+                    <p className="text-[10px] uppercase text-yellow-100/35">{t('nodeDetail.service.neverRx')}</p>
+                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.neverClientRx ?? t('common.status.pending')}</p>
                   </div>
                   <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
-                    <p className="text-[10px] uppercase text-yellow-100/35">Keepalive Issue</p>
-                    <p className="mt-1 text-xs text-yellow-100">{legacyDrain.keepaliveIssue.toLocaleString()}</p>
+                    <p className="text-[10px] uppercase text-yellow-100/35">{t('nodeDetail.service.keepaliveIssue')}</p>
+                    <p className="mt-1 text-xs text-yellow-100">{formatNumber(legacyDrain.keepaliveIssue)}</p>
                   </div>
                 </div>
                 <div className="mt-2 grid gap-2 sm:grid-cols-4">
                   <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
-                    <p className="text-[10px] uppercase text-yellow-100/35">Cutover Status</p>
+                    <p className="text-[10px] uppercase text-yellow-100/35">{t('nodeDetail.service.cutoverStatus')}</p>
                     <p className="mt-1 text-xs text-yellow-100">
-                      {legacyDrain.cutoverStatus ? legacyDrain.cutoverStatus.replaceAll('_', ' ') : 'pending'}
+                      {legacyDrain.cutoverStatus ? legacyDrain.cutoverStatus.replaceAll('_', ' ') : t('common.status.pending')}
                     </p>
                   </div>
                   <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
-                    <p className="text-[10px] uppercase text-yellow-100/35">Safe Cutover</p>
+                    <p className="text-[10px] uppercase text-yellow-100/35">{t('nodeDetail.commercial.safeNow')}</p>
                     <p className="mt-1 text-xs text-yellow-100">
-                      {legacyDrain.safeToCutover === null ? 'pending' : legacyDrain.safeToCutover ? 'yes' : 'no'}
+                      {legacyDrain.safeToCutover === null ? t('common.status.pending') : legacyDrain.safeToCutover ? t('settings.policyEditor.yes') : t('settings.policyEditor.no')}
                     </p>
                   </div>
                   <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
-                    <p className="text-[10px] uppercase text-yellow-100/35">Latest Client RX</p>
+                    <p className="text-[10px] uppercase text-yellow-100/35">{t('nodeDetail.service.latestClientRxLabel')}</p>
                     <p className="mt-1 text-xs text-yellow-100">
-                      {legacyDrain.latestClientRxAt ? formatRelativeTime(legacyDrain.latestClientRxAt) : 'pending'}
+                      {legacyDrain.latestClientRxAt ? i18nRelativeTime(legacyDrain.latestClientRxAt) : t('common.status.pending')}
                     </p>
                   </div>
                   <div className="rounded-md border border-yellow-100/10 bg-black/20 px-2 py-1.5">
-                    <p className="text-[10px] uppercase text-yellow-100/35">Runtime Activity</p>
+                    <p className="text-[10px] uppercase text-yellow-100/35">{t('nodeDetail.service.runtimeActivity')}</p>
                     <p className="mt-1 text-xs text-yellow-100">
-                      {legacyDrain.latestActivityAt ? formatRelativeTime(legacyDrain.latestActivityAt) : 'pending'}
+                      {legacyDrain.latestActivityAt ? i18nRelativeTime(legacyDrain.latestActivityAt) : t('common.status.pending')}
                     </p>
                   </div>
                 </div>
                 {legacyDrain.forcedImpact && (
                   <p className="mt-2 text-xs leading-5 text-yellow-100/50">
-                    Forced restart impact: {legacyDrain.forcedImpact.replaceAll('_', ' ')}.
+                    {t('nodeDetail.service.forcedRestartImpact', { impact: legacyDrain.forcedImpact.replaceAll('_', ' ') })}
                   </p>
                 )}
                 <p className="mt-3 text-xs leading-5 text-yellow-100/60">{legacyDrain.nextStep}</p>
                 {legacyDrain.oldestStartedAt && (
                   <p className="mt-1 text-[11px] text-yellow-100/40">
-                    Oldest active session started {formatRelativeTime(legacyDrain.oldestStartedAt)}.
+                    {t('nodeDetail.service.oldestStarted', { time: i18nRelativeTime(legacyDrain.oldestStartedAt) })}
                   </p>
                 )}
-                <p className="mt-2 text-[10px] leading-4 text-yellow-100/35">Source: {legacyDrain.source}</p>
+                <p className="mt-2 text-[10px] leading-4 text-yellow-100/35">{t('nodeDetail.maintenance.sourceValue', { source: legacyDrain.source })}</p>
               </div>
             )}
             <p className="mt-3 text-xs leading-5 text-gray-600">
-              Rust producer files: /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
-              and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
+              {t('nodeDetail.service.rustProducerFiles')}
             </p>
           </div>
           <Button variant="secondary" size="sm" onClick={() => refetch()}>
-            Retry
+            {t('common.retry')}
           </Button>
         </div>
       </Card>
@@ -3403,26 +3401,26 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-3">
-            <h3 className="font-semibold text-white">AeroNyx Service Readiness</h3>
+            <h3 className="font-semibold text-white">{t('nodeDetail.service.title')}</h3>
             <OperatorStatusBadge status={operatorStatus.status} />
           </div>
           <p className="mt-2 text-sm text-gray-500">
-            Node-level service/config telemetry from signed Rust heartbeat operator_status.
+            {t('nodeDetail.service.description')}
           </p>
         </div>
         <div className="grid grid-cols-3 gap-2 text-right text-xs text-gray-500">
           <div>
-            <p className="text-gray-600">Enabled</p>
+            <p className="text-gray-600">{t('nodeDetail.service.enabled')}</p>
             <p className="mt-1 text-gray-200">{totals?.enabled ?? 0}/{totals?.total ?? 0}</p>
           </div>
           <div>
-            <p className="text-gray-600">Attention</p>
+            <p className="text-gray-600">{t('nodeDetail.service.attention')}</p>
             <p className="mt-1 text-gray-200">{totals?.attention ?? 0}</p>
           </div>
           <div>
-            <p className="text-gray-600">Reported</p>
+            <p className="text-gray-600">{t('nodeDetail.service.reported')}</p>
             <p className="mt-1 text-gray-200">
-              {operatorStatus.last_reported_at ? formatRelativeTime(operatorStatus.last_reported_at) : 'pending'}
+              {operatorStatus.last_reported_at ? i18nRelativeTime(operatorStatus.last_reported_at) : t('common.status.pending')}
             </p>
           </div>
         </div>
@@ -3436,9 +3434,9 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
         }`}>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h4 className="text-sm font-semibold text-white">Runtime Rollout</h4>
+              <h4 className="text-sm font-semibold text-white">{t('nodeDetail.service.runtimeRollout')}</h4>
               <p className="mt-1 text-xs text-gray-500">
-                Binary replacement signal from /proc/self/exe, reported by the Rust operator-status heartbeat.
+                {t('nodeDetail.service.runtimeRolloutDescription')}
               </p>
             </div>
             <OperatorStatusBadge status={runtimeRollout.restart_required ? 'warning' : 'ok'} />
@@ -3446,29 +3444,29 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
-              <p className="text-[11px] uppercase text-gray-600">Restart Required</p>
+              <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.service.restartRequired')}</p>
               <p className={`mt-1 text-sm font-semibold ${runtimeRollout.restart_required ? 'text-yellow-200' : 'text-white'}`}>
-                {runtimeRollout.restart_required ? 'yes' : 'no'}
+                {runtimeRollout.restart_required ? t('settings.policyEditor.yes') : t('settings.policyEditor.no')}
               </p>
             </div>
             <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
-              <p className="text-[11px] uppercase text-gray-600">Executable</p>
+              <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.service.executable')}</p>
               <p className="mt-1 truncate text-xs font-mono text-gray-300">
-                {runtimeRollout.executable_path || 'pending'}
+                {runtimeRollout.executable_path || t('common.status.pending')}
               </p>
             </div>
             <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
-              <p className="text-[11px] uppercase text-gray-600">Active Sessions</p>
+              <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.stats.activeSessions')}</p>
               <p className="mt-1 text-sm font-semibold text-white">
-                {(health?.active_sessions ?? 0).toLocaleString()}
+                {formatNumber(health?.active_sessions ?? 0)}
               </p>
             </div>
             <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
-              <p className="text-[11px] uppercase text-gray-600">Next Step</p>
+              <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.commercial.nextStep')}</p>
               <p className="mt-1 text-sm font-semibold text-white">
                 {runtimeRollout.restart_required
-                  ? (health && health.active_sessions > 0 ? 'drain first' : 'restart node')
-                  : 'no rollout action'}
+                  ? (health && health.active_sessions > 0 ? t('services.rollout.drainFirst') : t('services.rollout.restartNode'))
+                  : t('nodeDetail.service.noRolloutAction')}
               </p>
             </div>
           </div>
@@ -3477,8 +3475,7 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
             {runtimeRollout.detail}
           </p>
           <p className="mt-2 text-xs leading-5 text-gray-600">
-            Rust file: /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs ·
-            Backend file: /root/aeronyx/privacy_network/services/heartbeat_service.py.
+            {t('nodeDetail.service.runtimeRolloutSources')}
           </p>
         </div>
       )}
@@ -3489,7 +3486,7 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-white">{service.label}</p>
-                <p className="mt-1 text-xs text-gray-600">{service.enabled ? 'enabled' : 'not enabled'}</p>
+                <p className="mt-1 text-xs text-gray-600">{service.enabled ? t('nodeDetail.service.enabled') : t('nodeDetail.service.notEnabled')}</p>
               </div>
               <OperatorStatusBadge status={service.status} />
             </div>
@@ -3543,7 +3540,7 @@ function VpnHealthPanel({
   onToggleMaintenance: () => Promise<void>;
   onToast: (message: string, variant?: 'success' | 'error') => void;
 }) {
-  const { t } = useI18n();
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const { overview, isLoading, isError, refetch } = useVpnOverview();
   const { servers, isLoading: placementLoading } = useVpnServers();
   const pathname = usePathname();
@@ -3715,9 +3712,9 @@ function VpnHealthPanel({
       <Card variant="outline" padding="md" className="mb-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h3 className="font-semibold text-white">VPN Health</h3>
+            <h3 className="font-semibold text-white">{t('nodeDetail.health.title')}</h3>
             <p className="text-sm text-gray-500 mt-1">
-              VPN mode is disabled for this node. Enable it in Node Settings to expose tunnel diagnostics.
+              {t('nodeDetail.health.disabled')}
             </p>
           </div>
         </div>
@@ -3745,13 +3742,13 @@ function VpnHealthPanel({
       <Card variant="outline" padding="md" className="mb-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h3 className="font-semibold text-white">VPN Health</h3>
+            <h3 className="font-semibold text-white">{t('nodeDetail.health.title')}</h3>
             <p className="text-sm text-yellow-300 mt-1">
-              Live VPN health is not available yet. The node may not have reported a signed heartbeat.
+              {t('nodeDetail.health.unavailable')}
             </p>
           </div>
           <Button variant="secondary" size="sm" onClick={() => refetch()}>
-            Retry
+            {t('common.retry')}
           </Button>
         </div>
       </Card>
@@ -3779,18 +3776,22 @@ function VpnHealthPanel({
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-5">
         <div className="min-w-0">
           <div className="flex items-center gap-3 flex-wrap mb-2">
-            <h3 className="font-semibold text-white">VPN Health</h3>
+            <h3 className="font-semibold text-white">{t('nodeDetail.health.title')}</h3>
             <VpnHealthBadge status={health.health_status} />
-            <span className="text-xs text-gray-500">{health.health_score}/100 score</span>
+            <span className="text-xs text-gray-500">{t('nodeDetail.health.score', { value: health.health_score })}</span>
           </div>
           <p className="text-sm text-gray-500">
-            Live tunnel diagnostics from {health.system.source === 'cache' ? 'heartbeat cache' : 'sample fallback'}.
-            {health.system.vpn_health_checked_at ? ` VPN checks ran ${formatRelativeTime(new Date(health.system.vpn_health_checked_at * 1000).toISOString())}.` : ''}
+            {t('nodeDetail.health.description', {
+              source: health.system.source === 'cache' ? t('nodeDetail.health.heartbeatCache') : t('nodeDetail.health.sampleFallback'),
+            })}
+            {health.system.vpn_health_checked_at
+              ? ` ${t('nodeDetail.health.checksRan', { time: i18nRelativeTime(new Date(health.system.vpn_health_checked_at * 1000).toISOString()) })}`
+              : ''}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" size="sm" onClick={() => refetch()}>
-            Refresh
+            {t('common.refreshNow')}
           </Button>
           <Button
             variant="secondary"
@@ -3798,7 +3799,7 @@ function VpnHealthPanel({
             disabled={runCommand.isPending}
             onClick={() => handleRunCommand('system_info')}
           >
-            System Info
+            {t('nodeDetail.commands.systemInfo')}
           </Button>
           <Button
             variant="secondary"
@@ -3806,7 +3807,7 @@ function VpnHealthPanel({
             disabled={runCommand.isPending}
             onClick={() => handleRunCommand('collect_logs')}
           >
-            Collect Logs
+            {t('nodeDetail.commands.collectLogs')}
           </Button>
           <Button
             variant="secondary"
@@ -3814,7 +3815,7 @@ function VpnHealthPanel({
             disabled={runCommand.isPending}
             onClick={() => handleRunCommand('refresh_config')}
           >
-            Refresh Config
+            {t('nodeDetail.health.refreshConfig')}
           </Button>
           <Button
             variant={maintenanceMode ? 'secondary' : 'danger'}
@@ -3851,50 +3852,50 @@ function VpnHealthPanel({
 
       <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 mt-5">
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-          <p className="text-xs text-gray-500">Active Tunnels</p>
-          <p className="text-lg font-semibold text-white mt-1">{health.active_sessions}</p>
-          <p className="text-xs text-gray-600">{health.total_sessions} total</p>
+          <p className="text-xs text-gray-500">{t('nodeDetail.health.activeTunnels')}</p>
+          <p className="text-lg font-semibold text-white mt-1">{formatNumber(health.active_sessions)}</p>
+          <p className="text-xs text-gray-600">{t('nodeDetail.stats.total', { count: formatNumber(health.total_sessions) })}</p>
         </div>
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-          <p className="text-xs text-gray-500">24h Availability</p>
+          <p className="text-xs text-gray-500">{t('nodeDetail.health.availability24h')}</p>
           <p className="text-lg font-semibold text-white mt-1">
             {formatAvailability(health.availability_24h?.percent)}
           </p>
           <p className="text-xs text-gray-600">
-            {health.availability_24h?.sample_count ?? 0} samples
+            {t('nodeDetail.bandwidth.samples', { count: formatNumber(health.availability_24h?.sample_count ?? 0) })}
             {health.availability_24h?.last_gap_seconds
-              ? ` · gap ${formatDuration(health.availability_24h.last_gap_seconds)}`
+              ? ` · ${t('nodeDetail.health.gap', { value: formatDuration(health.availability_24h.last_gap_seconds) })}`
               : ''}
           </p>
         </div>
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
           <p className="text-xs text-gray-500">CPU</p>
           <p className="text-lg font-semibold text-white mt-1">
-            {health.system.cpu_usage === null ? 'pending' : `${health.system.cpu_usage}%`}
+            {health.system.cpu_usage === null ? t('common.status.pending') : `${health.system.cpu_usage}%`}
           </p>
-          <p className="text-xs text-gray-600">{health.system.cpu_count || 'pending'} cores</p>
+          <p className="text-xs text-gray-600">{t('nodeDetail.health.cores', { count: health.system.cpu_count || t('common.status.pending') })}</p>
         </div>
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-          <p className="text-xs text-gray-500">Memory</p>
+          <p className="text-xs text-gray-500">{t('nodeDetail.hardware.memory')}</p>
           <p className="text-lg font-semibold text-white mt-1">{formatMemoryUsage(health)}</p>
-          <p className="text-xs text-gray-600">reported by node</p>
+          <p className="text-xs text-gray-600">{t('nodeDetail.health.reportedByNode')}</p>
         </div>
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-          <p className="text-xs text-gray-500">Tunnel MTU</p>
+          <p className="text-xs text-gray-500">{t('nodeDetail.health.tunnelMtu')}</p>
           <p className="text-lg font-semibold text-white mt-1">{formatTunnelMtu(health)}</p>
           <p className="text-xs text-gray-600">{tunnelMtuDetail(health)}</p>
         </div>
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-          <p className="text-xs text-gray-500">Service Manager</p>
+          <p className="text-xs text-gray-500">{t('nodeDetail.health.serviceManager')}</p>
           <p className="text-lg font-semibold text-white mt-1 truncate">{formatServiceManagerName(health)}</p>
           <p className="text-xs text-gray-600 truncate">{serviceManagerRuntimeDetail(health)}</p>
         </div>
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-          <p className="text-xs text-gray-500">Last Heartbeat</p>
+          <p className="text-xs text-gray-500">{t('nodeDetail.health.lastHeartbeat')}</p>
           <p className="text-lg font-semibold text-white mt-1">
-            {health.last_heartbeat ? formatRelativeTime(health.last_heartbeat) : 'never'}
+            {health.last_heartbeat ? i18nRelativeTime(health.last_heartbeat) : t('nodeDetail.health.never')}
           </p>
-          <p className="text-xs text-gray-600">{health.last_seen_seconds ?? 'pending'}s age</p>
+          <p className="text-xs text-gray-600">{t('nodeDetail.health.ageSeconds', { value: health.last_seen_seconds ?? t('common.status.pending') })}</p>
         </div>
       </div>
 
@@ -3929,13 +3930,13 @@ function VpnHealthPanel({
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm font-medium text-white">{formatHealthCheckName(check.name)}</span>
               <span className={check.ok ? 'text-xs text-emerald-300' : 'text-xs text-yellow-300'}>
-                {check.ok ? 'ok' : 'attention'}
+                {check.ok ? t('common.status.ok') : t('common.status.attention')}
               </span>
             </div>
             <p className="text-xs text-gray-500 mt-1">{check.detail}</p>
             {!check.ok && (
               <div className="mt-2 rounded-lg border border-yellow-500/20 bg-yellow-500/[0.05] px-2 py-1.5">
-                <p className="text-[11px] uppercase tracking-wide text-yellow-300">Runbook</p>
+                <p className="text-[11px] uppercase tracking-wide text-yellow-300">{t('nodeDetail.health.runbook')}</p>
                 <p className="text-xs text-gray-400 mt-1">{healthCheckRunbook(check.name)}</p>
               </div>
             )}
@@ -3946,7 +3947,7 @@ function VpnHealthPanel({
       {failedChecks.length > 0 && (
         <div className="mt-4 rounded-xl bg-yellow-500/[0.06] border border-yellow-500/20 px-4 py-3">
           <p className="text-sm text-yellow-200">
-            {failedChecks.length} health check{failedChecks.length === 1 ? '' : 's'} need attention.
+            {t('nodeDetail.health.failedChecks', { count: formatNumber(failedChecks.length) })}
           </p>
         </div>
       )}
@@ -3954,34 +3955,34 @@ function VpnHealthPanel({
       <div id="vpn-commands" className="mt-5 border-t border-white/5 pt-4 scroll-mt-6">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-3">
           <div>
-            <h4 className="text-sm font-semibold text-white">Recent VPN Commands</h4>
+            <h4 className="text-sm font-semibold text-white">{t('nodeDetail.commands.title')}</h4>
             <p className="text-xs text-gray-500 mt-1">
-              Diagnostics, policy acknowledgements, restarts, session kicks, and wallet policy commands for this node.
+              {t('nodeDetail.commands.description')}
             </p>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
             <div className="rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1.5">
-              <p className="text-gray-600">Total</p>
-              <p className="mt-0.5 font-semibold text-white">{commandStats?.total ?? 0}</p>
+              <p className="text-gray-600">{t('nodeDetail.commands.total')}</p>
+              <p className="mt-0.5 font-semibold text-white">{formatNumber(commandStats?.total ?? 0)}</p>
             </div>
             <div className="rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1.5">
-              <p className="text-gray-600">Active</p>
-              <p className="mt-0.5 font-semibold text-yellow-300">{activeCommandCount}</p>
+              <p className="text-gray-600">{t('common.status.active')}</p>
+              <p className="mt-0.5 font-semibold text-yellow-300">{formatNumber(activeCommandCount)}</p>
             </div>
             <div className="rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1.5">
-              <p className="text-gray-600">Failed</p>
-              <p className="mt-0.5 font-semibold text-red-300">{failedCommandCount}</p>
+              <p className="text-gray-600">{t('nodeDetail.commands.failed')}</p>
+              <p className="mt-0.5 font-semibold text-red-300">{formatNumber(failedCommandCount)}</p>
             </div>
             <div className="rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1.5">
-              <p className="text-gray-600">Shown</p>
-              <p className="mt-0.5 font-semibold text-gray-200">{vpnCommands.length}</p>
+              <p className="text-gray-600">{t('nodeDetail.commands.shown')}</p>
+              <p className="mt-0.5 font-semibold text-gray-200">{formatNumber(vpnCommands.length)}</p>
             </div>
           </div>
         </div>
 
         <div className="mb-3 grid sm:grid-cols-[180px_220px_1fr] gap-2">
           <label className="block">
-            <span className="text-[11px] uppercase text-gray-600">Status</span>
+            <span className="text-[11px] uppercase text-gray-600">{t('events.table.status')}</span>
             <select
               value={commandStatusFilter}
               onChange={(event) => applyCommandFilters(event.target.value, commandActionFilter)}
@@ -3995,7 +3996,7 @@ function VpnHealthPanel({
             </select>
           </label>
           <label className="block">
-            <span className="text-[11px] uppercase text-gray-600">Action</span>
+            <span className="text-[11px] uppercase text-gray-600">{t('nodeDetail.commands.action')}</span>
             <select
               value={commandActionFilter}
               onChange={(event) => applyCommandFilters(commandStatusFilter, event.target.value)}
@@ -4003,20 +4004,20 @@ function VpnHealthPanel({
             >
               {COMMAND_ACTION_FILTERS.map((action) => (
                 <option key={action} value={action} className="bg-[#111118]">
-                  {action === 'all' ? 'all' : commandLabel({ action } as NodeCommand)}
+                  {action === 'all' ? t('common.status.all') : commandLabel({ action } as NodeCommand)}
                 </option>
               ))}
             </select>
           </label>
           <div className="flex items-end text-xs text-gray-600">
-            {commandsLoading ? 'loading command history' : 'filtered by CMS command history'}
+            {commandsLoading ? t('nodeDetail.commands.loadingHistory') : t('nodeDetail.commands.filteredByHistory')}
           </div>
         </div>
 
         {commandFilterActive && (
           <div className="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border border-purple-500/20 bg-purple-500/[0.06] px-3 py-2.5">
             <div>
-              <p className="text-xs font-medium text-purple-200">Command history filter active</p>
+              <p className="text-xs font-medium text-purple-200">{t('nodeDetail.commands.filterActive')}</p>
               <p className="mt-0.5 text-xs text-gray-500">{commandFilterSummary}</p>
             </div>
             <Button
@@ -4024,13 +4025,13 @@ function VpnHealthPanel({
               size="sm"
               onClick={() => applyCommandFilters('all', 'all')}
             >
-              Clear filters
+              {t('nodes.clearSearch')}
             </Button>
           </div>
         )}
 
         {vpnCommands.length === 0 ? (
-          <p className="text-sm text-gray-500">No VPN operation commands have been queued yet.</p>
+          <p className="text-sm text-gray-500">{t('nodeDetail.commands.empty')}</p>
         ) : (
           <div className="space-y-2">
             {vpnCommands.map((command) => (
@@ -4039,10 +4040,10 @@ function VpnHealthPanel({
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-white">{commandLabel(command)}</p>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      Queued {formatRelativeTime(command.created_at)}
+                      {t('nodeDetail.commands.queuedAt', { time: i18nRelativeTime(command.created_at) })}
                     </p>
                     <p className="text-xs text-gray-600 mt-0.5">
-                      Issued by {commandActorLabel(command)} · {commandSourceLabel(command)}
+                      {t('nodeDetail.commands.issuedBy', { actor: commandActorLabel(command), source: commandSourceLabel(command) })}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -4245,6 +4246,7 @@ function NodeVpnEventsPanel({
   nodeId: string;
   isVpnNode: boolean;
 }) {
+  const { t, formatNumber } = useI18n();
   const { events, isLoading, isError, refetch } = useVpnEvents({
     days: 7,
     nodeId,
@@ -4261,19 +4263,23 @@ function NodeVpnEventsPanel({
     <Card variant="default" padding="md" className="mb-6">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h3 className="font-semibold text-white">Recent VPN Events</h3>
+          <h3 className="font-semibold text-white">{t('nodeDetail.events.title')}</h3>
           <p className="mt-1 text-sm text-gray-500">
-            Node-scoped health, session, command, and policy events from the last 7 days.
+            {t('nodeDetail.events.description')}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {summary ? (
             <span className="text-xs text-gray-500">
-              {summary.open} open · {summary.critical} critical · {summary.warning} warning
+              {t('nodeDetail.events.summary', {
+                open: formatNumber(summary.open),
+                critical: formatNumber(summary.critical),
+                warning: formatNumber(summary.warning),
+              })}
             </span>
           ) : null}
           <Button variant="secondary" size="sm" onClick={() => refetch()}>
-            Refresh
+            {t('common.refreshNow')}
           </Button>
         </div>
       </div>
@@ -4286,10 +4292,10 @@ function NodeVpnEventsPanel({
         </div>
       ) : isError ? (
         <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/[0.06] px-4 py-3">
-          <p className="text-sm text-yellow-200">Recent VPN events are temporarily unavailable.</p>
+          <p className="text-sm text-yellow-200">{t('nodeDetail.events.unavailable')}</p>
         </div>
       ) : recentEvents.length === 0 ? (
-        <p className="text-sm text-emerald-300">No VPN events recorded for this node in the last 7 days.</p>
+        <p className="text-sm text-emerald-300">{t('nodeDetail.events.empty')}</p>
       ) : (
         <div className="space-y-3">
           {recentEvents.map((event) => (
