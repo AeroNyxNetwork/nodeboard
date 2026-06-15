@@ -57,7 +57,6 @@ import {
   VpnEvent,
   VpnPolicySync,
 } from '@/types';
-import { formatRelativeTime } from '@/lib/api';
 import Card, { EmptyState, LoadingCard } from '@/components/common/Card';
 import Button from '@/components/common/Button';
 import LanguageSelector from '@/components/common/LanguageSelector';
@@ -178,8 +177,12 @@ function auditChanges(event: VpnEvent) {
     }));
 }
 
-function formatRuntimeTime(value: string | null | undefined) {
-  return value ? formatRelativeTime(value) : 'pending';
+function formatRuntimeTime(
+  value: string | null | undefined,
+  relativeTime: (value: string | number | Date | null | undefined) => string,
+  pendingLabel: string
+) {
+  return value ? relativeTime(value) : pendingLabel;
 }
 
 function runtimeStatusClass(status: string | null | undefined) {
@@ -187,6 +190,12 @@ function runtimeStatusClass(status: string | null | undefined) {
   if (status === 'degraded') return 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300';
   if (status === 'error') return 'border-red-500/30 bg-red-500/10 text-red-300';
   return 'border-white/10 bg-white/5 text-gray-300';
+}
+
+function policySyncStatusLabel(t: (key: string) => string, status: string) {
+  const key = `settings.policySync.status.${status}`;
+  const translated = t(key);
+  return translated === key ? status : translated;
 }
 
 function RuntimeValue({
@@ -224,6 +233,7 @@ function LanguageSettingsPanel() {
 }
 
 function ControlPlaneRuntimePanel() {
+  const { t } = useI18n();
   const { health, isLoading, isError, error, refetch } = useNodeboardHealth();
 
   if (isLoading) {
@@ -246,13 +256,13 @@ function ControlPlaneRuntimePanel() {
       <Card variant="outline" padding="md">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-white">Control Plane Runtime</h2>
+            <h2 className="text-base font-semibold text-white">{t('settings.runtime.title')}</h2>
             <p className="mt-1 text-sm text-red-300">
-              {error?.message || 'Nodeboard runtime health is unavailable.'}
+              {error?.message || t('settings.runtime.unavailable')}
             </p>
           </div>
           <Button variant="secondary" onClick={() => refetch()}>
-            Retry
+            {t('common.retry')}
           </Button>
         </div>
       </Card>
@@ -269,8 +279,10 @@ function ControlPlaneRuntimeContent({
   health: NodeboardHealthResponse;
   onRefresh: () => void;
 }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const runtime = health.runtime;
   const privacyBoundary = health.privacy_boundary.slice(0, 4).join(' - ');
+  const pendingLabel = t('common.status.pending');
 
   return (
     <Card variant="default" padding="none">
@@ -278,17 +290,20 @@ function ControlPlaneRuntimeContent({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-semibold text-white">Control Plane Runtime</h2>
+              <h2 className="text-base font-semibold text-white">{t('settings.runtime.title')}</h2>
               <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${runtimeStatusClass(health.status)}`}>
-                {health.status}
+                {t(`common.status.${health.status}`)}
               </span>
             </div>
             <p className="mt-1 text-sm text-gray-500">
-              Nodeboard {health.version} - generated {formatRuntimeTime(health.generated_at)}
+              {t('settings.runtime.generated', {
+                version: health.version,
+                time: formatRuntimeTime(health.generated_at, i18nRelativeTime, pendingLabel),
+              })}
             </p>
           </div>
           <Button variant="secondary" onClick={onRefresh}>
-            Refresh
+            {t('common.refreshNow')}
           </Button>
         </div>
       </div>
@@ -296,23 +311,26 @@ function ControlPlaneRuntimeContent({
       <div className="p-5 space-y-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <RuntimeValue label="Git SHA" value={runtime.git_sha} mono />
-          <RuntimeValue label="Deployed" value={formatRuntimeTime(runtime.deployed_at)} />
+          <RuntimeValue label={t('settings.runtime.deployed')} value={formatRuntimeTime(runtime.deployed_at, i18nRelativeTime, pendingLabel)} />
           <RuntimeValue label="API Base" value={health.api_base_url} mono />
-          <RuntimeValue label="Port" value={runtime.port} mono />
+          <RuntimeValue label={t('settings.runtime.port')} value={runtime.port} mono />
         </div>
 
         <div className="grid gap-3 lg:grid-cols-3">
-          <RuntimeValue label="Source Dir" value={runtime.source_dir} mono />
-          <RuntimeValue label="Env File" value={runtime.env_file} mono />
+          <RuntimeValue label={t('settings.runtime.sourceDir')} value={runtime.source_dir} mono />
+          <RuntimeValue label={t('settings.runtime.envFile')} value={runtime.env_file} mono />
           <RuntimeValue
-            label="Contracts"
-            value={`${health.backend_contracts.length} backend / ${health.rust_producers.length} rust`}
+            label={t('settings.runtime.contracts')}
+            value={t('settings.runtime.contractCount', {
+              backend: formatNumber(health.backend_contracts.length),
+              rust: formatNumber(health.rust_producers.length),
+            })}
           />
         </div>
 
         <div className="grid gap-3 lg:grid-cols-2">
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-xs font-medium uppercase text-gray-600">Backend Contract</p>
+            <p className="text-xs font-medium uppercase text-gray-600">{t('settings.runtime.backendContract')}</p>
             <div className="mt-3 space-y-2">
               {health.backend_contracts.slice(0, 3).map((contract) => (
                 <div key={`${contract.endpoint}-${contract.file}`} className="min-w-0">
@@ -324,7 +342,7 @@ function ControlPlaneRuntimeContent({
           </div>
 
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-xs font-medium uppercase text-gray-600">Rust Producers</p>
+            <p className="text-xs font-medium uppercase text-gray-600">{t('settings.runtime.rustProducers')}</p>
             <div className="mt-3 space-y-2">
               {health.rust_producers.slice(0, 2).map((producer) => (
                 <div key={producer.file} className="min-w-0">
@@ -374,6 +392,7 @@ function policyChanged(node: Node | null, form: NodeSettingsForm) {
 }
 
 function PolicyAuditPanel({ nodeId }: { nodeId: string }) {
+  const { t, formatRelativeTime: i18nRelativeTime } = useI18n();
   const { events, isLoading, isError, error, refetch } = useVpnEvents({
     days: 30,
     type: 'node_policy_changed',
@@ -386,11 +405,11 @@ function PolicyAuditPanel({ nodeId }: { nodeId: string }) {
     <Card variant="default" padding="none">
       <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-white">Recent Settings Audit</h2>
-          <p className="text-xs text-gray-500 mt-1">Last 30 days for the selected node</p>
+          <h2 className="text-base font-semibold text-white">{t('settings.audit.title')}</h2>
+          <p className="text-xs text-gray-500 mt-1">{t('settings.audit.subtitle')}</p>
         </div>
         <Button variant="secondary" onClick={() => refetch()}>
-          Refresh
+          {t('common.refreshNow')}
         </Button>
       </div>
 
@@ -404,13 +423,13 @@ function PolicyAuditPanel({ nodeId }: { nodeId: string }) {
 
         {!isLoading && isError && (
           <div className="p-5 text-sm text-red-300">
-            {error?.message || 'Unable to load policy audit events.'}
+            {error?.message || t('settings.audit.unavailable')}
           </div>
         )}
 
         {!isLoading && !isError && items.length === 0 && (
           <div className="p-5 text-sm text-gray-500">
-            No policy changes recorded for this node yet.
+            {t('settings.audit.empty')}
           </div>
         )}
 
@@ -423,7 +442,7 @@ function PolicyAuditPanel({ nodeId }: { nodeId: string }) {
                 <div>
                   <p className="text-sm font-medium text-white">{event.message}</p>
                   <p className="text-xs text-gray-500 mt-1">
-                    {event.created_at ? formatRelativeTime(event.created_at) : 'time pending'} - {actor}
+                    {event.created_at ? i18nRelativeTime(event.created_at) : t('settings.audit.timePending')} - {actor}
                   </p>
                 </div>
                 <span className="inline-flex w-fit px-2 py-1 rounded-full border border-white/10 bg-white/5 text-xs text-gray-400">
@@ -453,6 +472,7 @@ function PolicyAuditPanel({ nodeId }: { nodeId: string }) {
 }
 
 function StatusBadge({ node }: { node: Node }) {
+  const { t } = useI18n();
   const styles = {
     online: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
     offline: 'bg-gray-500/15 text-gray-300 border-gray-500/30',
@@ -460,12 +480,13 @@ function StatusBadge({ node }: { node: Node }) {
   };
   return (
     <span className={`inline-flex px-2 py-1 rounded-full border text-xs font-medium ${styles[node.status]}`}>
-      {node.status}
+      {t(`common.status.${node.status}`)}
     </span>
   );
 }
 
 function PolicySyncBadge({ sync, compact = false }: { sync?: VpnPolicySync; compact?: boolean }) {
+  const { t } = useI18n();
   const status = sync?.status || 'unknown';
   const styles = status === 'synced'
     ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
@@ -477,7 +498,7 @@ function PolicySyncBadge({ sync, compact = false }: { sync?: VpnPolicySync; comp
   if (compact) {
     return (
       <span className={`px-2 py-1 rounded-full border text-xs ${styles}`}>
-        sync {status}
+        {t('settings.policySync.compact', { status: policySyncStatusLabel(t, status) })}
       </span>
     );
   }
@@ -486,16 +507,16 @@ function PolicySyncBadge({ sync, compact = false }: { sync?: VpnPolicySync; comp
     <section className={`rounded-lg border px-4 py-3 ${styles}`}>
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
         <div>
-          <h3 className="text-sm font-medium text-white">Policy Sync</h3>
+          <h3 className="text-sm font-medium text-white">{t('settings.policySync.title')}</h3>
           <p className="text-xs mt-1 opacity-80">
-            {sync?.message || 'Waiting for Rust node policy snapshot in heartbeat.'}
+            {sync?.message || t('settings.policySync.waiting')}
           </p>
         </div>
-        <div className="text-sm font-semibold uppercase">{status}</div>
+        <div className="text-sm font-semibold uppercase">{policySyncStatusLabel(t, status)}</div>
       </div>
       <div className="mt-2 flex flex-wrap gap-2 text-xs opacity-80">
-        <span>heartbeat {sync?.heartbeat_age_seconds ?? 'pending'}s</span>
-        {pending ? <span>pending {pending}</span> : null}
+        <span>{t('settings.policySync.heartbeat', { value: sync?.heartbeat_age_seconds ?? t('common.status.pending') })}</span>
+        {pending ? <span>{t('settings.policySync.pendingFields', { fields: pending })}</span> : null}
       </div>
     </section>
   );
@@ -508,6 +529,7 @@ function PolicySaveFollowUpPanel({
   followUp: PolicySaveFollowUp;
   sync?: VpnPolicySync;
 }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const syncStatus = sync?.status || 'unknown';
   const statusClass = syncStatus === 'synced'
     ? 'border-emerald-500/25 bg-emerald-500/[0.06] text-emerald-300'
@@ -524,18 +546,20 @@ function PolicySaveFollowUpPanel({
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-semibold text-white">Policy Verification</h2>
+            <h2 className="text-base font-semibold text-white">{t('settings.policyVerification.title')}</h2>
             <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs ${statusClass}`}>
-              {isFleet ? `${followUp.nodeCount} nodes saved` : `sync ${syncStatus}`}
+              {isFleet
+                ? t('settings.policyVerification.nodesSaved', { count: formatNumber(followUp.nodeCount) })
+                : t('settings.policySync.compact', { status: policySyncStatusLabel(t, syncStatus) })}
             </span>
           </div>
           <p className="mt-2 text-sm text-gray-400">
             {isFleet
-              ? `Fleet policy was saved for ${followUp.nodeCount} nodes. Check each node's Policy Sync and command history as heartbeats arrive.`
-              : `${followUp.nodeName} policy was saved. Confirm the Rust node acknowledges it on the next heartbeat.`}
+              ? t('settings.policyVerification.fleetSaved', { count: formatNumber(followUp.nodeCount) })
+              : t('settings.policyVerification.nodeSaved', { name: followUp.nodeName })}
           </p>
           <p className="mt-1 text-xs text-gray-600">
-            Saved {formatRelativeTime(followUp.savedAt)}
+            {t('settings.policyVerification.savedAt', { time: i18nRelativeTime(followUp.savedAt) })}
           </p>
         </div>
 
@@ -546,13 +570,13 @@ function PolicySaveFollowUpPanel({
                 href={`/dashboard/nodes/${followUp.nodeId}`}
                 className="inline-flex items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-300 hover:bg-emerald-500/15"
               >
-                Node Detail
+                {t('settings.policyVerification.nodeDetail')}
               </Link>
               <Link
                 href={`/dashboard/nodes/${followUp.nodeId}?command_action=apply_policy#vpn-commands`}
                 className="inline-flex items-center justify-center rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-sm font-medium text-purple-300 hover:bg-purple-500/15"
               >
-                Commands
+                {t('settings.policyVerification.commands')}
               </Link>
             </>
           ) : (
@@ -560,30 +584,30 @@ function PolicySaveFollowUpPanel({
               href="/dashboard/nodes"
               className="inline-flex items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-300 hover:bg-emerald-500/15"
             >
-              Nodes
+              {t('nav.nodes')}
             </Link>
           )}
           <Link
             href={eventsHref}
             className="inline-flex items-center justify-center rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-sm font-medium text-sky-300 hover:bg-sky-500/15"
           >
-            Events
+            {t('nav.events')}
           </Link>
         </div>
       </div>
 
       <div className="mt-4 grid md:grid-cols-3 gap-3 text-xs">
         <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-          <p className="text-gray-600 uppercase">Expected</p>
-          <p className="mt-1 text-gray-300">`apply_policy` command appears in node command history.</p>
+          <p className="text-gray-600 uppercase">{t('settings.policyVerification.expected')}</p>
+          <p className="mt-1 text-gray-300">{t('settings.policyVerification.expectedDetail')}</p>
         </div>
         <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-          <p className="text-gray-600 uppercase">Confirm</p>
-          <p className="mt-1 text-gray-300">Policy Sync changes from pending or unknown to synced.</p>
+          <p className="text-gray-600 uppercase">{t('settings.policyVerification.confirm')}</p>
+          <p className="mt-1 text-gray-300">{t('settings.policyVerification.confirmDetail')}</p>
         </div>
         <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-          <p className="text-gray-600 uppercase">Privacy</p>
-          <p className="mt-1 text-gray-300">Only policy metadata is shown; no traffic destinations or packet contents.</p>
+          <p className="text-gray-600 uppercase">{t('settings.policyVerification.privacy')}</p>
+          <p className="mt-1 text-gray-300">{t('settings.policyVerification.privacyDetail')}</p>
         </div>
       </div>
     </Card>
@@ -610,10 +634,11 @@ function NodeList({
   onSelect: (nodeId: string) => void;
   policySyncByNodeId: Record<string, VpnPolicySync | undefined>;
 }) {
+  const { t } = useI18n();
   return (
     <Card variant="default" padding="none">
       <div className="px-5 py-4 border-b border-white/5">
-        <h2 className="text-base font-semibold text-white">Nodes</h2>
+        <h2 className="text-base font-semibold text-white">{t('nav.nodes')}</h2>
       </div>
       <div className="divide-y divide-white/5">
         {nodes.map((node) => {
@@ -629,7 +654,7 @@ function NodeList({
                 <div className="min-w-0">
                   <p className="font-medium text-white truncate">{node.name}</p>
                   <p className="text-xs text-gray-500 mt-1">
-                    {node.region_code || node.auto_region || 'unknown'} {node.public_ip || 'no ip'}
+                    {node.region_code || node.auto_region || t('common.status.unknown')} {node.public_ip || t('settings.nodeList.noIp')}
                   </p>
                 </div>
                 <StatusBadge node={node} />
@@ -640,7 +665,7 @@ function NodeList({
                 </span>
                 {node.maintenance_mode && (
                   <span className="px-2 py-1 rounded-full bg-yellow-500/15 text-yellow-300 border border-yellow-500/30">
-                    maintenance
+                    {t('settings.policyEditor.maintenanceMode')}
                   </span>
                 )}
                 <PolicySyncBadge sync={policySyncByNodeId[node.id]} compact />
@@ -668,6 +693,7 @@ function PolicyEditor({
   saving: boolean;
   policySync?: VpnPolicySync;
 }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const changed = policyChanged(node, form);
   return (
     <Card variant="default" padding="none">
@@ -675,11 +701,13 @@ function PolicyEditor({
         <div>
           <h2 className="text-base font-semibold text-white">{node.name}</h2>
           <p className="text-xs text-gray-500 mt-1">
-            {node.last_heartbeat ? `Last heartbeat ${formatRelativeTime(node.last_heartbeat)}` : 'No heartbeat yet'}
+            {node.last_heartbeat
+              ? t('settings.policyEditor.lastHeartbeat', { time: i18nRelativeTime(node.last_heartbeat) })
+              : t('settings.policyEditor.noHeartbeat')}
           </p>
         </div>
         <Button variant="primary" onClick={onSave} disabled={!changed || saving} isLoading={saving}>
-          Save Settings
+          {t('settings.policyEditor.saveSettings')}
         </Button>
       </div>
 
@@ -687,10 +715,10 @@ function PolicyEditor({
         <PolicySyncBadge sync={policySync} />
 
         <section>
-          <h3 className="text-sm font-medium text-white mb-3">Placement & Access</h3>
+          <h3 className="text-sm font-medium text-white mb-3">{t('settings.policyEditor.placementAccess')}</h3>
           <div className="grid md:grid-cols-2 gap-4">
             <label className="block">
-              <span className="text-xs text-gray-500">Region Code</span>
+              <span className="text-xs text-gray-500">{t('settings.policyEditor.regionCode')}</span>
               <input
                 type="text"
                 value={form.region_code}
@@ -701,36 +729,36 @@ function PolicyEditor({
             </label>
 
             <label className="block">
-              <span className="text-xs text-gray-500">City</span>
+              <span className="text-xs text-gray-500">{t('nodeSettings.region.city')}</span>
               <input
                 type="text"
                 value={form.city}
                 onChange={(event) => onForm({ ...form, city: event.target.value.slice(0, 100) })}
-                placeholder="Tokyo"
+                placeholder={t('nodeSettings.region.cityPlaceholder')}
                 className="mt-1 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-purple-500/50"
               />
             </label>
 
             <label className="block">
-              <span className="text-xs text-gray-500">Visibility</span>
+              <span className="text-xs text-gray-500">{t('nodeSettings.visibility.title')}</span>
               <select
                 value={form.visibility}
                 onChange={(event) => onForm({ ...form, visibility: event.target.value as NodeVisibility })}
                 className="mt-1 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
               >
-                <option value="private" className="bg-[#111118]">private</option>
-                <option value="public" className="bg-[#111118]">public</option>
-                <option value="unlisted" className="bg-[#111118]">unlisted</option>
+                <option value="private" className="bg-[#111118]">{t('nodeSettings.visibility.private.label')}</option>
+                <option value="public" className="bg-[#111118]">{t('nodeSettings.visibility.public.label')}</option>
+                <option value="unlisted" className="bg-[#111118]">{t('nodeSettings.visibility.unlisted.label')}</option>
                 {form.visibility === 'password_protected' && (
-                  <option value="password_protected" className="bg-[#111118]">password protected</option>
+                  <option value="password_protected" className="bg-[#111118]">{t('nodeSettings.visibility.password_protected.label')}</option>
                 )}
               </select>
             </label>
 
             <section className="flex items-center justify-between gap-4 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3">
               <div>
-                <h4 className="text-sm font-medium text-white">VPN Exit Pool</h4>
-                <p className="text-xs text-gray-500 mt-1">Controls whether this node is advertised as a VPN candidate.</p>
+                <h4 className="text-sm font-medium text-white">{t('settings.policyEditor.aeronyxExitPool')}</h4>
+                <p className="text-xs text-gray-500 mt-1">{t('settings.policyEditor.aeronyxExitDescription')}</p>
               </div>
               <button
                 type="button"
@@ -747,7 +775,7 @@ function PolicyEditor({
 
         <section className="grid md:grid-cols-2 gap-4">
           <label className="block">
-            <span className="text-xs text-gray-500">Node Tier</span>
+            <span className="text-xs text-gray-500">{t('settings.policyEditor.nodeTier')}</span>
             <select
               value={form.node_tier}
               onChange={(event) => onForm({ ...form, node_tier: event.target.value as NodeTier })}
@@ -759,7 +787,7 @@ function PolicyEditor({
           </label>
 
           <label className="block">
-            <span className="text-xs text-gray-500">Heartbeat Interval</span>
+            <span className="text-xs text-gray-500">{t('settings.policyEditor.heartbeatInterval')}</span>
             <input
               type="number"
               min={10}
@@ -776,7 +804,7 @@ function PolicyEditor({
 
         <section className="grid md:grid-cols-2 gap-4">
           <label className="block">
-            <span className="text-xs text-gray-500">Max Sessions</span>
+            <span className="text-xs text-gray-500">{t('settings.policyEditor.maxSessions')}</span>
             <input
               type="number"
               min={0}
@@ -791,7 +819,7 @@ function PolicyEditor({
           </label>
 
           <label className="block">
-            <span className="text-xs text-gray-500">Bandwidth Mbps</span>
+            <span className="text-xs text-gray-500">{t('settings.policyEditor.bandwidthMbps')}</span>
             <input
               type="number"
               min={0}
@@ -808,8 +836,8 @@ function PolicyEditor({
 
         <section className="flex items-center justify-between gap-4 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3">
           <div>
-            <h3 className="text-sm font-medium text-white">Maintenance Mode</h3>
-            <p className="text-xs text-gray-500 mt-1">Policy is sent to the Rust node on heartbeat.</p>
+            <h3 className="text-sm font-medium text-white">{t('settings.policyEditor.maintenanceMode')}</h3>
+            <p className="text-xs text-gray-500 mt-1">{t('settings.policyEditor.maintenanceDescription')}</p>
           </div>
           <button
             type="button"
@@ -824,20 +852,20 @@ function PolicyEditor({
 
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-xs text-gray-500">Active Sessions</p>
-            <p className="text-lg text-white mt-1">{node.current_sessions}</p>
+            <p className="text-xs text-gray-500">{t('settings.policyEditor.activeSessions')}</p>
+            <p className="text-lg text-white mt-1">{formatNumber(node.current_sessions)}</p>
           </div>
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-xs text-gray-500">Visibility</p>
-            <p className="text-lg text-white mt-1">{node.visibility}</p>
+            <p className="text-xs text-gray-500">{t('nodeSettings.visibility.title')}</p>
+            <p className="text-lg text-white mt-1">{t(`nodeSettings.visibility.${node.visibility}.label`)}</p>
           </div>
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-xs text-gray-500">VPN Exit</p>
-            <p className="text-lg text-white mt-1">{node.is_vpn_node ? 'yes' : 'no'}</p>
+            <p className="text-xs text-gray-500">{t('settings.policyEditor.aeronyxExit')}</p>
+            <p className="text-lg text-white mt-1">{node.is_vpn_node ? t('settings.policyEditor.yes') : t('settings.policyEditor.no')}</p>
           </div>
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-xs text-gray-500">Version</p>
-            <p className="text-lg text-white mt-1">{node.version || 'unknown'}</p>
+            <p className="text-xs text-gray-500">{t('settings.policyEditor.version')}</p>
+            <p className="text-lg text-white mt-1">{node.version || t('common.status.unknown')}</p>
           </div>
         </div>
       </div>
@@ -858,34 +886,35 @@ function FleetPresets({
   onApplyFleet: (preset: PolicyPreset) => void;
   savingPresetId: string;
 }) {
+  const { t, formatNumber } = useI18n();
   return (
     <Card variant="default" padding="none">
       <div className="px-5 py-4 border-b border-white/5">
-        <h2 className="text-base font-semibold text-white">Fleet Presets</h2>
+        <h2 className="text-base font-semibold text-white">{t('settings.fleetPresets.title')}</h2>
       </div>
       <div className="grid lg:grid-cols-2 gap-4 p-5">
         {POLICY_PRESETS.map((preset) => (
           <div key={preset.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-medium text-white">{preset.name}</h3>
-                <p className="text-xs text-gray-500 mt-1">{preset.description}</p>
+                <h3 className="text-sm font-medium text-white">{t(`settings.fleetPresets.${preset.id}.name`)}</h3>
+                <p className="text-xs text-gray-500 mt-1">{t(`settings.fleetPresets.${preset.id}.description`)}</p>
               </div>
               {preset.policy.maintenance_mode && (
                 <span className="px-2 py-1 rounded-full bg-yellow-500/15 text-yellow-300 border border-yellow-500/30 text-xs">
-                  maintenance
+                  {t('settings.policyEditor.maintenanceMode')}
                 </span>
               )}
             </div>
             <div className="grid grid-cols-2 gap-2 mt-4 text-xs text-gray-400">
-              <span>tier {preset.policy.node_tier}</span>
-              <span>{preset.policy.heartbeat_interval_seconds}s heartbeat</span>
-              <span>{preset.policy.max_sessions || 'unlimited'} sessions</span>
-              <span>{preset.policy.bandwidth_limit_mbps || 'unlimited'} Mbps</span>
+              <span>{t('settings.fleetPresets.tier', { value: preset.policy.node_tier })}</span>
+              <span>{t('settings.fleetPresets.heartbeat', { seconds: preset.policy.heartbeat_interval_seconds })}</span>
+              <span>{t('settings.fleetPresets.sessions', { value: preset.policy.max_sessions ? formatNumber(preset.policy.max_sessions) : t('billing.summary.unlimited') })}</span>
+              <span>{t('settings.fleetPresets.bandwidth', { value: preset.policy.bandwidth_limit_mbps ? formatNumber(preset.policy.bandwidth_limit_mbps) : t('billing.summary.unlimited') })}</span>
             </div>
             <div className="flex flex-col sm:flex-row gap-2 mt-4">
               <Button variant="secondary" onClick={() => onUsePreset(preset)}>
-                Use on {selectedNodeName}
+                {t('settings.fleetPresets.useOn', { name: selectedNodeName })}
               </Button>
               <Button
                 variant="primary"
@@ -893,7 +922,7 @@ function FleetPresets({
                 disabled={Boolean(savingPresetId)}
                 isLoading={savingPresetId === preset.id}
               >
-                Apply to {nodeCount}
+                {t('settings.fleetPresets.applyTo', { count: formatNumber(nodeCount) })}
               </Button>
             </div>
           </div>
@@ -904,7 +933,7 @@ function FleetPresets({
 }
 
 export default function SettingsPage() {
-  const { t } = useI18n();
+  const { t, formatNumber } = useI18n();
   const { nodes, isLoading, isError, error, refetch } = useNodes();
   const { overview, refetch: refetchVpnOverview } = useVpnOverview();
   const updateNode = useUpdateNode();
@@ -948,7 +977,7 @@ export default function SettingsPage() {
     };
     try {
       await updateNode.mutateAsync({ nodeId: selectedNode.id, data: payload });
-      setMessage('Settings saved.');
+      setMessage(t('settings.policyEditor.saved'));
       setMessageTone('success');
       setLastPolicySave({
         mode: 'single',
@@ -960,21 +989,29 @@ export default function SettingsPage() {
       refetch();
       refetchVpnOverview();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Failed to save policy.');
+      setMessage(err instanceof Error ? err.message : t('settings.policyEditor.saveFailed'));
       setMessageTone('error');
     }
   };
 
   const usePreset = (preset: PolicyPreset) => {
+    const presetName = t(`settings.fleetPresets.${preset.id}.name`);
     setForm((current) => ({ ...current, ...preset.policy }));
-    setMessage(`${preset.name} loaded for ${selectedNode?.name || 'selected node'}.`);
+    setMessage(t('settings.fleetPresets.loadedFor', {
+      preset: presetName,
+      node: selectedNode?.name || t('settings.fleetPresets.selectedNode'),
+    }));
     setMessageTone('success');
   };
 
   const applyFleetPreset = async (preset: PolicyPreset) => {
     if (!nodes.length) return;
+    const presetName = t(`settings.fleetPresets.${preset.id}.name`);
     const confirmed = window.confirm(
-      `Apply "${preset.name}" to all ${nodes.length} nodes?`
+      t('settings.fleetPresets.confirmApply', {
+        preset: presetName,
+        count: formatNumber(nodes.length),
+      })
     );
     if (!confirmed) return;
 
@@ -985,18 +1022,21 @@ export default function SettingsPage() {
         await updateNode.mutateAsync({ nodeId: node.id, data: preset.policy });
       }
       if (selectedNode) setForm((current) => ({ ...current, ...preset.policy }));
-      setMessage(`${preset.name} applied to ${nodes.length} nodes.`);
+      setMessage(t('settings.fleetPresets.appliedTo', {
+        preset: presetName,
+        count: formatNumber(nodes.length),
+      }));
       setMessageTone('success');
       setLastPolicySave({
         mode: 'fleet',
-        nodeName: preset.name,
+        nodeName: presetName,
         nodeCount: nodes.length,
         savedAt: new Date().toISOString(),
       });
       refetch();
       refetchVpnOverview();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Failed to apply fleet preset.');
+      setMessage(err instanceof Error ? err.message : t('settings.fleetPresets.applyFailed'));
       setMessageTone('error');
     } finally {
       setSavingPresetId('');
