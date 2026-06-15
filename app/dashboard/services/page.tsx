@@ -177,7 +177,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.50 - Link rollout blockers to active sessions
+ * Last Modified: v1.1.51 - Show fleet bandwidth limiter bytes
+ * Previous: v1.1.50 - Link rollout blockers to active sessions
  * Previous: v1.1.49 - Add drain age chips
  * Previous: v1.1.48 - Show long-tail drain session age
  * Previous: v1.1.47 - Show cleanup policy rollout gate
@@ -548,6 +549,15 @@ function buildFleetSummary(nodes: VpnNodeHealth[], statuses: NodeOperatorStatus[
     enabledServices: serviceSlots.filter((service) => service.enabled).length,
     totalServiceSlots: serviceSlots.length,
   };
+}
+
+function formatFleetBytes(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return '0 B';
+  if (value >= 1024 ** 4) return `${(value / 1024 ** 4).toFixed(2)} TB`;
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GB`;
+  if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(2)} MB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${Math.round(value).toLocaleString()} B`;
 }
 
 function buildServiceViews(nodes: VpnNodeHealth[], statuses: NodeOperatorStatus[]): ServiceView[] {
@@ -2696,6 +2706,9 @@ function FleetRestartReadinessPanel({
             Max sessions {(policyEnforcementHealth?.max_sessions_rejections ?? 0).toLocaleString()} ·
             bandwidth {(policyEnforcementHealth?.bandwidth_drops ?? 0).toLocaleString()}
           </p>
+          <p className="mt-1 text-xs leading-5 opacity-75">
+            Dropped {formatFleetBytes(policyEnforcementHealth?.bandwidth_drop_bytes)}
+          </p>
         </div>
       </div>
 
@@ -2719,7 +2732,7 @@ function FleetRestartReadinessPanel({
             <StatusPill status={policyEnforcementHealth.problem_panel_summary?.risk ?? policyEnforcementHealth.risk} />
           </div>
           {policyEnforcementHealth.problem_panel_summary && (
-            <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-4">
+            <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-5">
               <div>
                 <p className="uppercase tracking-[0.14em] text-yellow-100/35">Nodes</p>
                 <p className="mt-1 font-semibold text-yellow-100">{policyEnforcementHealth.problem_panel_summary.count.toLocaleString()}</p>
@@ -2735,6 +2748,12 @@ function FleetRestartReadinessPanel({
               <div>
                 <p className="uppercase tracking-[0.14em] text-yellow-100/35">Bandwidth</p>
                 <p className="mt-1 font-semibold text-yellow-100">{policyEnforcementHealth.problem_panel_summary.bandwidth_drops.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Dropped Bytes</p>
+                <p className="mt-1 font-semibold text-yellow-100">
+                  {formatFleetBytes(policyEnforcementHealth.problem_panel_summary.bandwidth_drop_bytes)}
+                </p>
               </div>
             </div>
           )}
@@ -2752,6 +2771,10 @@ function FleetRestartReadinessPanel({
                 <p className="mt-2 leading-5 text-yellow-100/60">
                   Total {node.total_blocks.toLocaleString()} · maintenance {node.maintenance_rejections.toLocaleString()} ·
                   max sessions {node.max_sessions_rejections.toLocaleString()} · bandwidth {node.bandwidth_drops.toLocaleString()}
+                </p>
+                <p className="mt-1 leading-5 text-yellow-100/50">
+                  Dropped {formatFleetBytes(node.bandwidth_drop_bytes)} · limiter window{' '}
+                  {formatFleetBytes(node.bandwidth_window_bytes)}
                 </p>
                 <p className="mt-1 leading-5 text-yellow-100/50">
                   Last reason {node.last_rejection_reason ?? 'policy_enforced'} ·

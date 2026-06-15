@@ -791,6 +791,9 @@ export interface VpnRestartReadinessBlockedNode {
  *   data.nodes[].system.policy_enforcement from
  *   /root/aeronyx/privacy_network/api/vpn_observability.py so Services can
  *   show whether Rust node_policy is actively blocking handshakes or packets.
+ *   bandwidth_drop_bytes / bandwidth_limit_bytes_per_second /
+ *   bandwidth_window_bytes are aggregate limiter fields produced by
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs.
  *   problem_panel_summary and problem_nodes[].primary_action are
  *   backend-authored remediation metadata for the Services Policy Blocks panel.
  * Maintenance recovery source:
@@ -935,6 +938,9 @@ export interface VpnRestartReadinessSummary {
     maintenance_rejections: number;
     max_sessions_rejections: number;
     bandwidth_drops: number;
+    bandwidth_drop_bytes?: number;
+    bandwidth_limit_bytes_per_second?: number;
+    bandwidth_window_bytes?: number;
     total_blocks: number;
     problem_node_count: number;
     critical_nodes: number;
@@ -951,6 +957,9 @@ export interface VpnRestartReadinessSummary {
       maintenance_rejections: number;
       max_sessions_rejections: number;
       bandwidth_drops: number;
+      bandwidth_drop_bytes?: number;
+      bandwidth_limit_bytes_per_second?: number;
+      bandwidth_window_bytes?: number;
       total_blocks: number;
       last_rejection_reason: string | null;
       last_rejection_at: number | null;
@@ -977,6 +986,9 @@ export interface VpnRestartReadinessSummary {
       maintenance_rejections: number;
       max_sessions_rejections: number;
       bandwidth_drops: number;
+      bandwidth_drop_bytes?: number;
+      bandwidth_limit_bytes_per_second?: number;
+      bandwidth_window_bytes?: number;
       source: string;
     };
     source: 'nodes.system.policy_enforcement' | string;

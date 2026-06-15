@@ -43,6 +43,9 @@
  *     Provides data.summary.restart_readiness.policy_enforcement_health for
  *     Services Policy Blocks from data.nodes[].system.policy_enforcement so
  *     operators can see maintenance/max_sessions/bandwidth blocks fleet-wide.
+ *     Includes bandwidth_drop_bytes / bandwidth_limit_bytes_per_second /
+ *     bandwidth_window_bytes, aggregate Rust node_policy limiter telemetry
+ *     produced by /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs.
  *     problem_panel_summary and problem_nodes[].primary_action are
  *     backend-authored remediation metadata for policy blocks.
  *     Provides data.summary.restart_readiness.drain_activity_health_counts
@@ -161,7 +164,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.43 - Documented services placement capacity
+ * Last Modified: v1.1.44 - Documented fleet bandwidth limiter bytes
+ * Previous: v1.1.43 - Documented services placement capacity
  * Previous: v1.1.42 - Documented fleet policy enforcement health
  * Previous: v1.1.41 - Documented fleet policy sync health
  * Previous: v1.1.40 - Documented capacity policy PATCH fields
@@ -304,7 +308,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.policy_enforcement_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level Rust node_policy enforcement counter summary for maintenance_rejections/max_sessions_rejections/bandwidth_drops, problem_panel_summary, and capped problem_nodes[].primary_action triage',
+      purpose: 'Fleet-level Rust node_policy enforcement counter summary for maintenance_rejections/max_sessions_rejections/bandwidth_drops plus aggregate bandwidth_drop_bytes/bandwidth_limit_bytes_per_second/bandwidth_window_bytes, problem_panel_summary, and capped problem_nodes[].primary_action triage',
     },
     {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',
