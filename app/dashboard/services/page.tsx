@@ -9,6 +9,12 @@
  * Privacy Protocol, MemChain, ChatRelay, Sovereign Data Layer, and SuperNode
  * readiness.
  *
+ * Modification Reason:
+ *   v1.1.62 - Promoted backend commercial_placement_health into a first-screen
+ *     fleet commercial operations summary so operators can see Ready,
+ *     Degraded, Blocked, Maintenance, and Needs Rust upgrade counts before
+ *     entering detailed restart/readiness panels.
+ *
  * Backend APIs used on this page:
  *   - GET /api/privacy_network/vpn/overview/
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
@@ -204,7 +210,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.61 - Add placement rollout fleet action links
+ * Last Modified: v1.1.62 - Add fleet commercial operations summary
+ * Previous: v1.1.61 - Add placement rollout fleet action links
  * Previous: v1.1.60 - Show Rust placement rollout restart safety
  * Previous: v1.1.59 - Show Rust placement rollout missing nodes
  * Previous: v1.1.58 - Show Rust placement rollout coverage
@@ -2259,6 +2266,254 @@ function FleetSummaryGrid({
         status={summary.rolloutRestartRequired > 0 ? 'warning' : 'ok'}
       />
     </div>
+  );
+}
+
+/**
+ * First-screen commercial fleet decision panel.
+ *
+ * Backend contract:
+ *   GET /api/privacy_network/vpn/overview/
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   data.summary.restart_readiness.commercial_placement_health is the
+ *   backend-authored paid-placement policy summary. Nodeboard only presents
+ *   counts and routes operators to node detail; it does not infer client
+ *   placement policy in React.
+ *
+ * Rust producers:
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ */
+function FleetCommercialOperationsPanel({
+  summary,
+}: {
+  summary: VpnRestartReadinessSummary | null;
+}) {
+  const commercial = summary?.commercial_placement_health ?? null;
+  const policySync = summary?.policy_sync_health ?? null;
+  const policyBlocks = summary?.policy_enforcement_health ?? null;
+  const runtimeCapability = summary?.runtime_capability_health ?? null;
+  const rollout = commercial?.rust_placement_rollout_summary ?? null;
+  const maintenanceCandidates = summary?.maintenance_exit_candidate_count ?? 0;
+  const ready = commercial?.ready_nodes ?? 0;
+  const degraded = (commercial?.watch_nodes ?? 0)
+    + (commercial?.policy_sync_attention_nodes ?? 0)
+    + (commercial?.recent_policy_problem_nodes ?? 0);
+  const blocked = commercial?.blocked_nodes ?? 0;
+  const needsRustUpgrade = commercial?.rust_placement_missing_nodes
+    ?? rollout?.missing_nodes
+    ?? runtimeCapability?.gap_nodes
+    ?? 0;
+  const total = commercial?.total_nodes ?? summary?.total_vpn_nodes ?? 0;
+  const problemNodes = commercial?.problem_nodes ?? [];
+  const primaryProblem = problemNodes[0] ?? null;
+  const statusCards = [
+    {
+      label: 'Ready',
+      value: ready,
+      detail: 'Can receive AeroNyx Privacy Protocol placement.',
+      status: ready > 0 ? 'ok' : 'pending',
+    },
+    {
+      label: 'Degraded',
+      value: degraded,
+      detail: 'Serving or visible with policy, sync, or runtime attention.',
+      status: degraded > 0 ? 'warning' : 'ok',
+    },
+    {
+      label: 'Blocked',
+      value: blocked,
+      detail: 'Hidden from commercial client placement.',
+      status: blocked > 0 ? 'critical' : 'ok',
+    },
+    {
+      label: 'Maintenance',
+      value: maintenanceCandidates,
+      detail: 'Drained maintenance nodes that may return capacity.',
+      status: maintenanceCandidates > 0 ? 'info' : 'ok',
+    },
+    {
+      label: 'Needs Rust upgrade',
+      value: needsRustUpgrade,
+      detail: 'Missing placement_readiness or commercial runtime capability.',
+      status: needsRustUpgrade > 0 ? 'warning' : 'ok',
+    },
+  ];
+
+  if (!summary && !commercial) {
+    return (
+      <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Commercial Operations</h2>
+            <p className="mt-2 text-sm leading-6 text-gray-400">
+              Waiting for backend commercial placement summary from the AeroNyx Privacy Protocol overview API.
+            </p>
+          </div>
+          <StatusPill status="pending" />
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className={`mb-6 rounded-2xl border p-5 ${drainActivityHealthClass(commercial?.risk ?? 'info')}`}>
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="max-w-4xl">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold text-white">Commercial Operations</h2>
+            <StatusPill status={commercial?.risk ?? 'info'} />
+            <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-xs text-gray-300">
+              {ready.toLocaleString()} / {total.toLocaleString()} ready
+            </span>
+          </div>
+          <p className="mt-2 text-sm leading-6 text-gray-300">
+            {commercial?.label ?? 'Pending'} · {commercial?.detail ?? 'Backend is collecting commercial placement state.'}
+          </p>
+          <p className="mt-1 text-sm leading-6 text-gray-400">
+            {commercial?.next_step
+              ?? 'Wait for data.summary.restart_readiness.commercial_placement_health before changing placement policy.'}
+          </p>
+        </div>
+        <div className="grid min-w-full grid-cols-2 gap-2 text-xs sm:grid-cols-4 xl:min-w-[520px]">
+          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-gray-500">Capacity score</p>
+            <p className="mt-1 text-base font-semibold text-white">
+              {(commercial?.capacity_score_percent ?? 0).toFixed(1)}%
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-gray-500">Public entries</p>
+            <p className="mt-1 text-base font-semibold text-white">
+              {(commercial?.public_entry_nodes ?? 0).toLocaleString()}
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-gray-500">Remaining slots</p>
+            <p className="mt-1 text-base font-semibold text-white">
+              {(commercial?.bounded_capacity_remaining ?? 0).toLocaleString()}
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-gray-500">Rust coverage</p>
+            <p className="mt-1 text-base font-semibold text-white">
+              {(commercial?.rust_placement_coverage_percent ?? 0).toFixed(1)}%
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {statusCards.map((card) => (
+          <div key={card.label} className="rounded-xl border border-white/10 bg-black/20 p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-xs uppercase tracking-[0.16em] opacity-60">{card.label}</p>
+                <p className="mt-2 text-2xl font-semibold">{card.value.toLocaleString()}</p>
+              </div>
+              <StatusPill status={card.status} />
+            </div>
+            <p className="mt-3 text-xs leading-5 opacity-70">{card.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] opacity-60">Policy Sync</p>
+          <p className="mt-2 text-sm font-semibold">
+            {policySync?.label ?? 'Pending'}
+          </p>
+          <p className="mt-1 text-xs leading-5 opacity-70">
+            {policySync?.detail ?? 'Waiting for node_policy sync summary.'}
+          </p>
+          <p className="mt-2 text-xs leading-5 opacity-70">
+            Attention {(policySync?.attention_nodes ?? 0).toLocaleString()} ·
+            synced {(policySync?.synced_nodes ?? 0).toLocaleString()} / {(policySync?.total_nodes ?? 0).toLocaleString()}
+          </p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] opacity-60">Policy Blocks</p>
+          <p className="mt-2 text-sm font-semibold">
+            {policyBlocks?.label ?? 'Pending'}
+          </p>
+          <p className="mt-1 text-xs leading-5 opacity-70">
+            {policyBlocks?.detail ?? 'Waiting for Rust enforcement counters.'}
+          </p>
+          <p className="mt-2 text-xs leading-5 opacity-70">
+            Recent {(policyBlocks?.recent_problem_nodes ?? 0).toLocaleString()} ·
+            total blocks {(policyBlocks?.total_blocks ?? 0).toLocaleString()} ·
+            dropped {formatFleetBytes(policyBlocks?.bandwidth_drop_bytes)}
+          </p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] opacity-60">Runtime Rollout</p>
+          <p className="mt-2 text-sm font-semibold">
+            {rollout?.label ?? 'Rust placement readiness'}
+          </p>
+          <p className="mt-1 text-xs leading-5 opacity-70">
+            {rollout?.detail
+              ?? runtimeCapability?.upgrade_blocker_summary?.detail
+              ?? runtimeCapability?.problem_panel_summary?.detail
+              ?? 'Waiting for Rust placement readiness coverage.'}
+          </p>
+          <p className="mt-2 text-xs leading-5 opacity-70">
+            Reporting {(rollout?.reporting_nodes ?? commercial?.rust_placement_reporting_nodes ?? 0).toLocaleString()} ·
+            accepting {(rollout?.accepting_nodes ?? commercial?.rust_placement_accepting_nodes ?? 0).toLocaleString()} ·
+            missing {needsRustUpgrade.toLocaleString()}
+          </p>
+        </div>
+      </div>
+
+      {problemNodes.length > 0 && (
+        <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-white">Top placement blockers</p>
+              <p className="mt-1 text-xs leading-5 opacity-70">
+                Showing the first {Math.min(problemNodes.length, 3).toLocaleString()} backend-prioritized node actions.
+              </p>
+            </div>
+            {primaryProblem && (
+              <Link
+                href={`/dashboard/nodes/${primaryProblem.id}`}
+                className="inline-flex items-center justify-center rounded-lg border border-white/10 px-3 py-2 text-xs font-medium text-white transition hover:border-white/20 hover:bg-white/5"
+              >
+                Open top issue
+              </Link>
+            )}
+          </div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-3">
+            {problemNodes.slice(0, 3).map((node) => (
+              <div key={node.id} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <Link href={`/dashboard/nodes/${node.id}`} className="min-w-0 truncate font-medium text-white hover:text-purple-300">
+                    {node.name}
+                  </Link>
+                  <span className={`shrink-0 rounded-md border px-2 py-0.5 ${statusClass(node.risk)}`}>
+                    {node.status}
+                  </span>
+                </div>
+                <p className="mt-2 leading-5 opacity-75">
+                  {node.primary_reason.label} · {node.primary_reason.detail}
+                </p>
+                <p className="mt-1 leading-5 opacity-60">
+                  {node.next_step}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="mt-4 text-xs leading-5 opacity-50">
+        Backend contract: GET /api/privacy_network/vpn/overview/ -&gt;
+        data.summary.restart_readiness.commercial_placement_health from
+        /root/aeronyx/privacy_network/api/vpn_observability.py. Rust placement
+        readiness is produced by /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
+        and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
+      </p>
+    </section>
   );
 }
 
@@ -4562,6 +4817,7 @@ export default function NodeServicesPage() {
       )}
 
       <FleetSummaryGrid summary={fleetSummary} latestReportedAt={latestReportedAt} />
+      <FleetCommercialOperationsPanel summary={restartReadinessSummary} />
 
       <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {services.map((service) => (
