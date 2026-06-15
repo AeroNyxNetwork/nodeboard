@@ -317,6 +317,8 @@ type ServiceDetailSection =
   | 'risks'
   | 'nodes';
 
+type ServicesTranslateFn = (key: string, values?: Record<string, string | number>) => string;
+
 interface ServiceView {
   key: ServiceKey;
   label: string;
@@ -2038,6 +2040,7 @@ function buildRestartActionQueues(
   summary: VpnRestartReadinessSummary | null,
   nodes: RestartReadinessNode[],
   filters: RestartQueueFilters,
+  t: ServicesTranslateFn,
 ): RestartActionQueue[] {
   const readinessById = new Map(nodes.map((node) => [node.id, node]));
   const filteredNodeIds = new Set(nodes.map((node) => node.id));
@@ -2099,70 +2102,70 @@ function buildRestartActionQueues(
   return [
     {
       key: 'stale',
-      label: 'Stale Command',
-      description: 'Active restart command exceeded backend SLA and needs inspection.',
+      label: t('services.restartQueue.groups.stale.label'),
+      description: t('services.restartQueue.groups.stale.description'),
       status: filteredStaleCommandItems.length > 0 ? 'critical' : 'healthy',
-      emptyState: 'No stale active restart command.',
+      emptyState: t('services.restartQueue.groups.stale.empty'),
       items: sortRestartQueueItems(filteredStaleCommandItems),
     },
     {
       key: 'retry',
-      label: 'Retry Needed',
-      description: 'Latest restart command failed, timed out, or needs manual closure.',
+      label: t('services.restartQueue.groups.retry.label'),
+      description: t('services.restartQueue.groups.retry.description'),
       status: filteredCommandClosureItems.length > 0 ? 'critical' : 'healthy',
-      emptyState: 'No failed restart command outcome.',
+      emptyState: t('services.restartQueue.groups.retry.empty'),
       items: sortRestartQueueItems(filteredCommandClosureItems),
     },
     {
       key: 'capability',
-      label: 'Rust Capability',
-      description: 'Rust nodes missing operator_status or session_cleanup telemetry required for commercial restart and cutover operations.',
+      label: t('services.restartQueue.groups.capability.label'),
+      description: t('services.restartQueue.groups.capability.description'),
       status: filteredRuntimeCapabilityItems.length > 0
         ? (filteredRuntimeCapabilityItems.some((item) => item.risk === 'critical') ? 'critical' : 'warning')
         : 'healthy',
-      emptyState: 'No Rust runtime capability gap.',
+      emptyState: t('services.restartQueue.groups.capability.empty'),
       items: sortRestartQueueItems(filteredRuntimeCapabilityItems),
     },
     {
       key: 'cutover',
-      label: 'Cutover Blockers',
-      description: 'Maintenance or rollout nodes where backend cutover_guard says replacing Rust may disconnect client traffic.',
+      label: t('services.restartQueue.groups.cutover.label'),
+      description: t('services.restartQueue.groups.cutover.description'),
       status: filteredCutoverGuardItems.length > 0
         ? (filteredCutoverGuardItems.some((item) => item.risk === 'critical') ? 'critical' : 'warning')
         : 'healthy',
-      emptyState: 'No unsafe Rust cutover node.',
+      emptyState: t('services.restartQueue.groups.cutover.empty'),
       items: sortRestartQueueItems(filteredCutoverGuardItems),
     },
     {
       key: 'critical',
-      label: 'Critical Drain',
-      description: 'Handle first. Backend activity_health marked these blocked nodes as critical.',
+      label: t('services.restartQueue.groups.critical.label'),
+      description: t('services.restartQueue.groups.critical.description'),
       status: criticalItems.length > 0 ? 'critical' : 'healthy',
-      emptyState: 'No critical drain risk.',
+      emptyState: t('services.restartQueue.groups.critical.empty'),
       items: criticalItems,
     },
     {
       key: 'warning',
-      label: 'Warning Drain',
-      description: 'Review before restart. These blocked nodes still need drain or signal work.',
+      label: t('services.restartQueue.groups.warning.label'),
+      description: t('services.restartQueue.groups.warning.description'),
       status: warningItems.length > 0 ? 'warning' : 'healthy',
-      emptyState: 'No warning drain items.',
+      emptyState: t('services.restartQueue.groups.warning.empty'),
       items: warningItems,
     },
     {
       key: 'ready',
-      label: 'Ready to Restart',
-      description: 'Maintenance is on, active sessions are drained, and backend gate allows restart.',
+      label: t('services.restartQueue.groups.ready.label'),
+      description: t('services.restartQueue.groups.ready.description'),
       status: readyItems.length > 0 ? 'ready' : 'pending',
-      emptyState: 'No node is restart-ready right now.',
+      emptyState: t('services.restartQueue.groups.ready.empty'),
       items: sortRestartQueueItems(filteredReadyItems),
     },
     {
       key: 'current',
-      label: 'Current',
-      description: 'Healthy baseline sample. These nodes do not need rollout action.',
+      label: t('services.restartQueue.groups.current.label'),
+      description: t('services.restartQueue.groups.current.description'),
       status: 'current',
-      emptyState: 'No current nodes reported in this owner scope.',
+      emptyState: t('services.restartQueue.groups.current.empty'),
       items: sortRestartQueueItems(filteredCurrentItems).slice(0, 4),
     },
   ];
@@ -2202,7 +2205,7 @@ function PageHeader({
             {t('services.liveRefresh', { interval: formatRefreshInterval(refreshIntervalMs) })}
           </span>
           <span className="rounded-md border border-white/10 px-2 py-1">
-            {isFetching ? 'updating backend overview' : formatDataUpdatedAt(dataUpdatedAt)}
+            {isFetching ? t('services.updatingOverview') : formatDataUpdatedAt(dataUpdatedAt)}
           </span>
           <span className="rounded-md border border-white/10 px-2 py-1">
             {t('services.apiOverview')}
@@ -2547,13 +2550,6 @@ function FleetCommercialOperationsPanel({
         </div>
       )}
 
-      <p className="mt-4 text-xs leading-5 opacity-50">
-        Backend contract: GET /api/privacy_network/vpn/overview/ -&gt;
-        data.summary.restart_readiness.commercial_placement_health from
-        /root/aeronyx/privacy_network/api/vpn_observability.py. Rust placement
-        readiness is produced by /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
-        and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
-      </p>
     </section>
   );
 }
@@ -3047,8 +3043,8 @@ function FleetRestartReadinessPanel({
   };
   const filterOptions = useMemo(() => restartQueueFilterOptions(nodes), [nodes]);
   const actionQueues = useMemo(
-    () => buildRestartActionQueues(summary, nodes, queueFilters),
-    [summary, nodes, queueFilters],
+    () => buildRestartActionQueues(summary, nodes, queueFilters, t),
+    [summary, nodes, queueFilters, t],
   );
   const queueItemCount = actionQueues.reduce((sum, queue) => sum + queue.items.length, 0);
 
@@ -3204,64 +3200,84 @@ function FleetRestartReadinessPanel({
             {commercialPlacementHealth?.label ?? t('common.status.pending')} · {commercialPlacementHealth?.detail ?? t('services.restartReadiness.waitingPlacement')}
           </p>
           <p className="mt-2 text-xs leading-5 opacity-80">
-            Score {(commercialPlacementHealth?.capacity_score_percent ?? 0).toFixed(1)}% ·
-            watch {(commercialPlacementHealth?.watch_nodes ?? 0).toLocaleString()} ·
-            blocked {(commercialPlacementHealth?.blocked_nodes ?? 0).toLocaleString()}
+            {t('services.restartReadiness.commercialScoreCounts', {
+              score: (commercialPlacementHealth?.capacity_score_percent ?? 0).toFixed(1),
+              watch: formatNumber(commercialPlacementHealth?.watch_nodes ?? 0),
+              blocked: formatNumber(commercialPlacementHealth?.blocked_nodes ?? 0),
+            })}
           </p>
           <p className="mt-1 text-xs leading-5 opacity-75">
-            Public entries {(commercialPlacementHealth?.public_entry_nodes ?? 0).toLocaleString()} /{' '}
-            {(commercialPlacementHealth?.total_nodes ?? 0).toLocaleString()} ·
-            regions {(commercialPlacementHealth?.regions_count ?? 0).toLocaleString()}
+            {t('services.restartReadiness.publicEntriesRegions', {
+              public: formatNumber(commercialPlacementHealth?.public_entry_nodes ?? 0),
+              total: formatNumber(commercialPlacementHealth?.total_nodes ?? 0),
+              regions: formatNumber(commercialPlacementHealth?.regions_count ?? 0),
+            })}
           </p>
           <p className="mt-1 text-xs leading-5 opacity-75">
-            Sessions {(commercialPlacementHealth?.active_sessions ?? 0).toLocaleString()} ·
-            capped slots {(commercialPlacementHealth?.max_capacity_slots ?? 0).toLocaleString()} ·
-            remaining {(commercialPlacementHealth?.bounded_capacity_remaining ?? 0).toLocaleString()} ·
-            unlimited {(commercialPlacementHealth?.unlimited_capacity_nodes ?? 0).toLocaleString()}
+            {t('services.restartReadiness.capacityLine', {
+              sessions: formatNumber(commercialPlacementHealth?.active_sessions ?? 0),
+              capped: formatNumber(commercialPlacementHealth?.max_capacity_slots ?? 0),
+              remaining: formatNumber(commercialPlacementHealth?.bounded_capacity_remaining ?? 0),
+              unlimited: formatNumber(commercialPlacementHealth?.unlimited_capacity_nodes ?? 0),
+            })}
           </p>
           {(commercialPlacementHealth?.policy_sync_attention_nodes || commercialPlacementHealth?.recent_policy_problem_nodes) ? (
             <p className="mt-1 text-xs leading-5 opacity-75">
-              Policy sync attention {(commercialPlacementHealth?.policy_sync_attention_nodes ?? 0).toLocaleString()} ·
-              recent blocks {(commercialPlacementHealth?.recent_policy_problem_nodes ?? 0).toLocaleString()}
+              {t('services.restartReadiness.policyAttentionLine', {
+                attention: formatNumber(commercialPlacementHealth?.policy_sync_attention_nodes ?? 0),
+                recent: formatNumber(commercialPlacementHealth?.recent_policy_problem_nodes ?? 0),
+              })}
             </p>
           ) : null}
           <p className="mt-1 text-xs leading-5 opacity-75">
-            Rust runtime {(commercialPlacementHealth?.rust_placement_reporting_nodes ?? 0).toLocaleString()} reporting ·
-            accepting {(commercialPlacementHealth?.rust_placement_accepting_nodes ?? 0).toLocaleString()} ·
-            coverage {(commercialPlacementHealth?.rust_placement_coverage_percent ?? 0).toFixed(1)}%
+            {t('services.restartReadiness.rustRuntimeLine', {
+              reporting: formatNumber(commercialPlacementHealth?.rust_placement_reporting_nodes ?? 0),
+              accepting: formatNumber(commercialPlacementHealth?.rust_placement_accepting_nodes ?? 0),
+              coverage: (commercialPlacementHealth?.rust_placement_coverage_percent ?? 0).toFixed(1),
+            })}
           </p>
           {commercialPlacementHealth?.rust_placement_rollout_summary && (
             <p className="mt-1 text-xs leading-5 opacity-75">
               {commercialPlacementHealth.rust_placement_rollout_summary.label} ·
-              missing {commercialPlacementHealth.rust_placement_rollout_summary.missing_nodes.toLocaleString()}
+              {t('services.restartReadiness.missingCount', {
+                count: formatNumber(commercialPlacementHealth.rust_placement_rollout_summary.missing_nodes),
+              })}
             </p>
           )}
         </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(policyEnforcementHealth?.risk ?? 'info')}`}>
-          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Policy Blocks</p>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">{t('services.commercial.policyBlocks')}</p>
           <p className="mt-2 text-2xl font-semibold">
-            {(policyEnforcementHealth?.total_blocks ?? 0).toLocaleString()}
+            {formatNumber(policyEnforcementHealth?.total_blocks ?? 0)}
           </p>
           <p className="mt-1 text-xs opacity-70">
-            {policyEnforcementHealth?.label ?? 'Pending'} · {policyEnforcementHealth?.detail ?? 'waiting for backend policy enforcement summary'}
+            {policyEnforcementHealth?.label ?? t('common.status.pending')} · {policyEnforcementHealth?.detail ?? t('services.restartReadiness.waitingPolicyEnforcement')}
           </p>
           <p className="mt-2 text-xs leading-5 opacity-80">
-            Max sessions {(policyEnforcementHealth?.max_sessions_rejections ?? 0).toLocaleString()} ·
-            bandwidth {(policyEnforcementHealth?.bandwidth_drops ?? 0).toLocaleString()}
+            {t('services.restartReadiness.policyBlockLine', {
+              sessions: formatNumber(policyEnforcementHealth?.max_sessions_rejections ?? 0),
+              bandwidth: formatNumber(policyEnforcementHealth?.bandwidth_drops ?? 0),
+            })}
           </p>
           {policyEnforcementHealth?.dominant_block_reason && (
             <p className="mt-1 text-xs leading-5 opacity-75">
-              Main reason {policyEnforcementHealth.dominant_block_reason.label} ·
-              {policyEnforcementHealth.dominant_block_reason.count.toLocaleString()} blocks ·
-              {policyEnforcementHealth.dominant_block_reason.share_percent.toFixed(1)}%
+              {t('services.restartReadiness.mainBlockReason', {
+                reason: policyEnforcementHealth.dominant_block_reason.label,
+                count: formatNumber(policyEnforcementHealth.dominant_block_reason.count),
+                share: policyEnforcementHealth.dominant_block_reason.share_percent.toFixed(1),
+              })}
             </p>
           )}
           <p className="mt-1 text-xs leading-5 opacity-75">
-            Dropped {formatFleetBytes(policyEnforcementHealth?.bandwidth_drop_bytes)}
+            {t('services.restartReadiness.droppedLine', {
+              bytes: formatFleetBytes(policyEnforcementHealth?.bandwidth_drop_bytes),
+            })}
           </p>
           <p className="mt-1 text-xs leading-5 opacity-75">
-            Recent {(policyEnforcementHealth?.recent_problem_nodes ?? 0).toLocaleString()} ·
-            Historical {(policyEnforcementHealth?.historical_problem_nodes ?? 0).toLocaleString()}
+            {t('services.restartReadiness.recentHistoricalLine', {
+              recent: formatNumber(policyEnforcementHealth?.recent_problem_nodes ?? 0),
+              historical: formatNumber(policyEnforcementHealth?.historical_problem_nodes ?? 0),
+            })}
           </p>
           <p className="mt-1 text-xs leading-5 opacity-75">
             Fresh {(policyEnforcementHealth?.telemetry_source_counts?.cache ?? 0).toLocaleString()} ·
