@@ -14,18 +14,20 @@ import React, { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useNodes, useDeleteNode, useVpnOverview, useVpnServers } from '@/hooks/useNodes';
 import { Node, NodeStatus, VpnHealthStatus, VpnNodeHealth, VpnServerCandidate, VpnServerPlacementSummary } from '@/types';
-import { formatRelativeTime } from '@/lib/api';
 import Button from '@/components/common/Button';
 import Card, { EmptyState } from '@/components/common/Card';
 import NodeCard, { NodeCardSkeleton } from '@/components/dashboard/NodeCard';
 import AddNodeModal from '@/components/dashboard/AddNodeModal';
 import { ConfirmDialog } from '@/components/common/Modal';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 // ============================================
 // Filter Tabs Component
 // ============================================
 
 type FilterOption = 'all' | NodeStatus;
+type TranslateFn = (key: string, values?: Record<string, string | number>) => string;
+type FormatNumberFn = (value: number, options?: Intl.NumberFormatOptions) => string;
 
 interface FilterTabsProps {
   activeFilter: FilterOption;
@@ -39,10 +41,11 @@ interface FilterTabsProps {
 }
 
 function FilterTabs({ activeFilter, onFilterChange, counts }: FilterTabsProps) {
+  const { t, formatNumber } = useI18n();
   const tabs: { id: FilterOption; label: string; count: number }[] = [
-    { id: 'all', label: 'All Nodes', count: counts.all },
-    { id: 'online', label: 'Online', count: counts.online },
-    { id: 'offline', label: 'Offline', count: counts.offline },
+    { id: 'all', label: t('nodes.filters.all'), count: counts.all },
+    { id: 'online', label: t('nodes.filters.online'), count: counts.online },
+    { id: 'offline', label: t('nodes.filters.offline'), count: counts.offline },
   ];
 
   return (
@@ -69,7 +72,7 @@ function FilterTabs({ activeFilter, onFilterChange, counts }: FilterTabsProps) {
                 : 'bg-white/10 text-gray-500'
               }
             `}>
-              {tab.count}
+              {formatNumber(tab.count)}
             </span>
           </span>
         </button>
@@ -89,6 +92,7 @@ interface ActionsBarProps {
 }
 
 function ActionsBar({ searchQuery, onSearchChange, onAddNode }: ActionsBarProps) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
       {/* Search */}
@@ -103,7 +107,7 @@ function ActionsBar({ searchQuery, onSearchChange, onAddNode }: ActionsBarProps)
         </svg>
         <input
           type="text"
-          placeholder="Search nodes..."
+          placeholder={t('nodes.searchPlaceholder')}
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           className="
@@ -126,7 +130,7 @@ function ActionsBar({ searchQuery, onSearchChange, onAddNode }: ActionsBarProps)
           </svg>
         }
       >
-        Add Node
+        {t('nodes.addNode')}
       </Button>
     </div>
   );
@@ -159,66 +163,62 @@ const vpnHealthStyles: Record<VpnHealthStatus, { label: string; badge: string; d
   },
 };
 
-function formatAvailability(value: number | null | undefined) {
-  if (typeof value !== 'number' || Number.isNaN(value)) return 'pending';
+function formatAvailability(value: number | null | undefined, t: TranslateFn) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return t('nodes.pending');
   return `${value.toFixed(value >= 99.95 ? 2 : 1)}%`;
 }
 
-function formatMetric(value: number | null | undefined, suffix: string) {
-  return typeof value === 'number' && !Number.isNaN(value) ? `${value}${suffix}` : 'pending';
+function formatMetric(value: number | null | undefined, suffix: string, t: TranslateFn) {
+  return typeof value === 'number' && !Number.isNaN(value) ? `${value}${suffix}` : t('nodes.pending');
 }
 
-function formatMemory(used: number | null, total: number | null) {
-  if (used === null) return 'pending';
-  return total ? `${used}/${total} MB` : `${used} MB`;
+function formatMemory(used: number | null, total: number | null, t: TranslateFn, formatNumber: FormatNumberFn) {
+  if (used === null) return t('nodes.pending');
+  return total ? `${formatNumber(used)}/${formatNumber(total)} MB` : `${formatNumber(used)} MB`;
 }
 
-function formatPolicyLimit(value: number, unit: string) {
-  return value > 0 ? `${value} ${unit}` : 'unlimited';
+function formatPolicyLimit(value: number, unit: string, t: TranslateFn, formatNumber: FormatNumberFn) {
+  return value > 0 ? `${formatNumber(value)} ${unit}` : t('nodes.policy.unlimited');
 }
 
 function PolicyBadge({ node }: { node: VpnNodeHealth }) {
+  const { t } = useI18n();
   if (node.maintenance_mode) {
     return (
       <span className="inline-flex items-center px-2 py-1 rounded-full border border-yellow-500/30 bg-yellow-500/15 text-xs font-medium text-yellow-300">
-        Maintenance
+        {t('nodes.policy.maintenance')}
       </span>
     );
   }
   return (
     <span className="inline-flex items-center px-2 py-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 text-xs font-medium text-emerald-300">
-      Accepting
+      {t('nodes.policy.accepting')}
     </span>
   );
 }
 
-function formatCapacityLeft(node: VpnNodeHealth) {
+function formatCapacityLeft(node: VpnNodeHealth, t: TranslateFn, formatNumber: FormatNumberFn) {
   return node.max_sessions > 0
-    ? `${Math.max(0, node.max_sessions - node.active_sessions)} capacity left`
-    : `${node.total_sessions} total`;
+    ? t('nodes.capacityLeft', { count: formatNumber(Math.max(0, node.max_sessions - node.active_sessions)) })
+    : t('nodes.capacityTotal', { count: formatNumber(node.total_sessions) });
 }
 
 function VpnHealthBadge({ status }: { status: VpnHealthStatus }) {
+  const { t } = useI18n();
   const style = vpnHealthStyles[status];
   return (
     <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full border text-xs font-medium ${style.badge}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-      {style.label}
+      {t(`nodes.vpnHealth.${status}`)}
     </span>
   );
 }
 
-function formatPlacementReason(reason: string | null | undefined) {
-  if (!reason) return 'candidate';
-  const labels: Record<string, string> = {
-    heartbeat_stale: 'heartbeat stale',
-    maintenance_mode: 'maintenance',
-    max_sessions_reached: 'session cap reached',
-    vpn_health_failed: 'VPN health failed',
-    overloaded: 'overloaded',
-    low_24h_availability: 'low 24h availability',
-  };
-  return labels[reason] || reason.replace(/_/g, ' ');
+function formatPlacementReason(reason: string | null | undefined, t: TranslateFn) {
+  if (!reason) return t('nodes.placement.reason.candidate');
+  const key = `nodes.placement.reason.${reason}`;
+  const translated = t(key);
+  return translated === key ? reason.replace(/_/g, ' ') : translated;
 }
 
 function placementStatusClass(server: VpnServerCandidate) {
@@ -229,15 +229,20 @@ function placementStatusClass(server: VpnServerCandidate) {
   return 'bg-red-500/15 text-red-300 border-red-500/25';
 }
 
-function formatPlacementCapacity(capacity: number, unlimitedNodes: number) {
-  if (unlimitedNodes > 0 && capacity > 0) return `${capacity} slots + ${unlimitedNodes} unlimited`;
-  if (unlimitedNodes > 0) return `${unlimitedNodes} unlimited`;
-  return `${capacity} slots`;
+function formatPlacementCapacity(capacity: number, unlimitedNodes: number, t: TranslateFn, formatNumber: FormatNumberFn) {
+  if (unlimitedNodes > 0 && capacity > 0) {
+    return t('nodes.placement.slotsWithUnlimited', {
+      slots: formatNumber(capacity),
+      unlimited: formatNumber(unlimitedNodes),
+    });
+  }
+  if (unlimitedNodes > 0) return t('nodes.placement.unlimitedNodes', { count: formatNumber(unlimitedNodes) });
+  return t('nodes.placement.slots', { count: formatNumber(capacity) });
 }
 
-function topUnavailableReason(reasons: Record<string, number>) {
+function topUnavailableReason(reasons: Record<string, number>, t: TranslateFn, formatNumber: FormatNumberFn) {
   const [reason, count] = Object.entries(reasons).sort((a, b) => b[1] - a[1])[0] || [];
-  return reason ? `${formatPlacementReason(reason)} ${count}` : 'clear';
+  return reason ? `${formatPlacementReason(reason, t)} ${formatNumber(count)}` : t('nodes.placement.allCandidatesClear');
 }
 
 function ClientPlacementPanel({
@@ -253,6 +258,8 @@ function ClientPlacementPanel({
   total: number;
   available: number;
 }) {
+  const { t, formatNumber } = useI18n();
+
   if (isLoading) {
     return (
       <Card variant="default" padding="md" className="mb-6">
@@ -285,16 +292,18 @@ function ClientPlacementPanel({
     <Card variant="default" padding="none" className="mb-6">
       <div className="px-5 py-4 border-b border-white/5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-white">Client Placement</h2>
+          <h2 className="text-base font-semibold text-white">{t('nodes.placement.title')}</h2>
           <p className="text-xs text-gray-500 mt-1">
-            Public VPN candidates from backend failover policy. Unavailable nodes hide their address from clients.
+            {t('nodes.placement.description')}
           </p>
         </div>
         <div className="text-xs text-gray-500 sm:text-right">
-          <span className="text-emerald-300">{available}</span> available · {unavailable} unavailable
+          <span className="text-emerald-300">{formatNumber(available)}</span> {t('nodes.placement.availableLabel')}
+          {' · '}
+          {formatNumber(unavailable)} {t('nodes.placement.unavailableLabel')}
           {summary && (
             <div className="mt-1 text-gray-600">
-              {formatPlacementCapacity(summary.available_capacity_remaining, summary.unlimited_capacity_nodes)}
+              {formatPlacementCapacity(summary.available_capacity_remaining, summary.unlimited_capacity_nodes, t, formatNumber)}
             </div>
           )}
         </div>
@@ -304,7 +313,7 @@ function ClientPlacementPanel({
         <div className="border-b border-white/5 px-5 py-4">
           <div className="grid lg:grid-cols-[1.4fr_1fr] gap-3">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Region Capacity</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{t('nodes.placement.regionCapacity')}</p>
               <div className="mt-2 grid sm:grid-cols-2 xl:grid-cols-4 gap-2">
                 {regions.map((region) => (
                   <div key={region.key} className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
@@ -312,32 +321,36 @@ function ClientPlacementPanel({
                       <span className="truncate text-xs font-medium text-gray-300">
                         {region.flag ? `${region.flag} ` : ''}{region.label}
                       </span>
-                      <span className="text-[11px] text-emerald-300">{region.available}/{region.total}</span>
+                      <span className="text-[11px] text-emerald-300">{formatNumber(region.available)}/{formatNumber(region.total)}</span>
                     </div>
                     <p className="mt-1 text-[11px] text-gray-500">
-                      {formatPlacementCapacity(region.capacity_remaining, region.unlimited_capacity_nodes)}
+                      {formatPlacementCapacity(region.capacity_remaining, region.unlimited_capacity_nodes, t, formatNumber)}
                     </p>
                     <p className="mt-1 text-[11px] text-gray-600">
-                      {region.unavailable > 0 ? topUnavailableReason(region.unavailable_reasons) : 'all candidates clear'}
+                      {region.unavailable > 0
+                        ? topUnavailableReason(region.unavailable_reasons, t, formatNumber)
+                        : t('nodes.placement.allCandidatesClear')}
                     </p>
                   </div>
                 ))}
               </div>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Tier Capacity</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{t('nodes.placement.tierCapacity')}</p>
               <div className="mt-2 grid sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3 gap-2">
                 {tiers.map((tier) => (
                   <div key={tier.key} className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate text-xs font-medium text-gray-300">{tier.tier || tier.label}</span>
-                      <span className="text-[11px] text-emerald-300">{tier.available}/{tier.total}</span>
+                      <span className="text-[11px] text-emerald-300">{formatNumber(tier.available)}/{formatNumber(tier.total)}</span>
                     </div>
                     <p className="mt-1 text-[11px] text-gray-500">
-                      {formatPlacementCapacity(tier.capacity_remaining, tier.unlimited_capacity_nodes)}
+                      {formatPlacementCapacity(tier.capacity_remaining, tier.unlimited_capacity_nodes, t, formatNumber)}
                     </p>
                     <p className="mt-1 text-[11px] text-gray-600">
-                      {tier.average_load === null ? 'load pending' : `${tier.average_load}% avg load`}
+                      {tier.average_load === null
+                        ? t('nodes.placement.loadPending')
+                        : t('nodes.placement.averageLoad', { value: formatNumber(tier.average_load) })}
                     </p>
                   </div>
                 ))}
@@ -362,32 +375,34 @@ function ClientPlacementPanel({
                   <span className="font-medium text-white truncate">{server.name}</span>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  {server.country_name || server.country} · {server.node_tier || 'public'}
+                  {server.country_name || server.country} · {server.node_tier || t('nodes.publicTier')}
                 </p>
               </div>
               <span className={`shrink-0 inline-flex rounded-full border px-2 py-1 text-xs ${placementStatusClass(server)}`}>
-                {server.available ? `rank ${server.failover_rank ?? '-'}` : formatPlacementReason(server.unavailable_reason)}
+                {server.available
+                  ? t('nodes.placement.rank', { rank: server.failover_rank ?? '-' })
+                  : formatPlacementReason(server.unavailable_reason, t)}
               </span>
             </div>
 
             <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
               <div>
-                <p className="text-gray-600">Load</p>
-                <p className="mt-1 text-gray-300">{server.load === null ? 'pending' : `${server.load}%`}</p>
+                <p className="text-gray-600">{t('nodes.placement.load')}</p>
+                <p className="mt-1 text-gray-300">{server.load === null ? t('nodes.pending') : `${formatNumber(server.load)}%`}</p>
               </div>
               <div>
                 <p className="text-gray-600">24h</p>
-                <p className="mt-1 text-gray-300">{formatAvailability(server.availability_24h_percent)}</p>
+                <p className="mt-1 text-gray-300">{formatAvailability(server.availability_24h_percent, t)}</p>
               </div>
               <div>
-                <p className="text-gray-600">Sessions</p>
-                <p className="mt-1 text-gray-300">{server.current_sessions}</p>
+                <p className="text-gray-600">{t('nodes.placement.sessions')}</p>
+                <p className="mt-1 text-gray-300">{formatNumber(server.current_sessions)}</p>
               </div>
             </div>
             <p className="mt-3 text-xs text-gray-500">
               {server.available
-                ? `${server.address || 'hidden'}:${server.port}`
-                : `hidden from clients · ${formatPlacementReason(server.unavailable_reason)}`}
+                ? `${server.address || t('nodes.placement.hiddenAddress')}:${server.port}`
+                : t('nodes.placement.hiddenFromClients', { reason: formatPlacementReason(server.unavailable_reason, t) })}
             </p>
           </Link>
         ))}
@@ -403,6 +418,8 @@ function VpnNodeOperationsTable({
   nodes: VpnNodeHealth[];
   isLoading: boolean;
 }) {
+  const { t, formatNumber, formatRelativeTime } = useI18n();
+
   if (isLoading) {
     return (
       <Card variant="default" padding="md" className="mb-6">
@@ -432,11 +449,11 @@ function VpnNodeOperationsTable({
     <Card variant="default" padding="none" className="mb-6">
       <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-white">VPN Node Operations</h2>
-          <p className="text-xs text-gray-500 mt-1">Health, load, sessions, and heartbeat freshness from signed VPN telemetry</p>
+          <h2 className="text-base font-semibold text-white">{t('nodes.operations.title')}</h2>
+          <p className="text-xs text-gray-500 mt-1">{t('nodes.operations.description')}</p>
         </div>
         <Link href="/dashboard/sessions" className="text-sm text-purple-300 hover:text-purple-200">
-          VPN Operations
+          {t('nodes.operations.link')}
         </Link>
       </div>
 
@@ -444,15 +461,15 @@ function VpnNodeOperationsTable({
         <table className="w-full min-w-[1180px] text-sm">
           <thead className="text-xs uppercase text-gray-500 bg-white/[0.02]">
             <tr>
-              <th className="text-left font-medium px-5 py-3">Node</th>
-              <th className="text-left font-medium px-4 py-3">Region</th>
-              <th className="text-left font-medium px-4 py-3">Health</th>
-              <th className="text-left font-medium px-4 py-3">Policy</th>
-              <th className="text-left font-medium px-4 py-3">Availability</th>
-              <th className="text-left font-medium px-4 py-3">Sessions</th>
-              <th className="text-left font-medium px-4 py-3">Load</th>
-              <th className="text-left font-medium px-4 py-3">Version</th>
-              <th className="text-left font-medium px-5 py-3">Last Heartbeat</th>
+              <th className="text-left font-medium px-5 py-3">{t('nodes.operations.node')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('nodes.operations.region')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('nodes.operations.health')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('nodes.operations.policy')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('nodes.operations.availability')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('nodes.operations.sessions')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('nodes.operations.load')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('nodes.operations.version')}</th>
+              <th className="text-left font-medium px-5 py-3">{t('nodes.operations.lastHeartbeat')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
@@ -463,55 +480,57 @@ function VpnNodeOperationsTable({
                     {node.name}
                   </Link>
                   <div className="text-xs text-gray-500 mt-1">
-                    {node.public_ip || 'no ip'}:{node.port}
+                    {node.public_ip || t('nodes.noIp')}:{node.port}
                   </div>
                 </td>
                 <td className="px-4 py-4 text-gray-300">
-                  {node.region_code || 'pending'}
+                  {node.region_code || t('nodes.pending')}
                   {node.city ? <div className="text-xs text-gray-500">{node.city}</div> : null}
                 </td>
                 <td className="px-4 py-4">
                   <div className="flex flex-col gap-1.5">
                     <VpnHealthBadge status={node.health_status} />
-                    <span className="text-xs text-gray-500">{node.health_score}/100 score</span>
+                    <span className="text-xs text-gray-500">{t('nodes.score', { score: formatNumber(node.health_score) })}</span>
                   </div>
                 </td>
                 <td className="px-4 py-4 text-gray-300">
                   <div className="flex flex-col gap-1.5">
                     <div className="flex items-center gap-2">
                       <PolicyBadge node={node} />
-                      <span className="text-xs text-gray-500">{node.node_tier || 'public'}</span>
+                      <span className="text-xs text-gray-500">{node.node_tier || t('nodes.publicTier')}</span>
                     </div>
                     <div className="text-xs text-gray-500">
-                      cap {formatPolicyLimit(node.max_sessions, 'sessions')} ·{' '}
-                      {formatPolicyLimit(node.bandwidth_limit_mbps, 'Mbps')}
+                      {t('nodes.policy.cap')} {formatPolicyLimit(node.max_sessions, t('nodes.policy.sessions'), t, formatNumber)} ·{' '}
+                      {formatPolicyLimit(node.bandwidth_limit_mbps, t('nodes.policy.mbps'), t, formatNumber)}
                     </div>
                   </div>
                 </td>
                 <td className="px-4 py-4 text-gray-300">
-                  <span className="text-white font-medium">{formatAvailability(node.availability_24h?.percent)}</span>
+                  <span className="text-white font-medium">{formatAvailability(node.availability_24h?.percent, t)}</span>
                   <div className="text-xs text-gray-500">
-                    {node.availability_24h?.sample_count ?? 0} samples
+                    {t('nodes.samples', { count: formatNumber(node.availability_24h?.sample_count ?? 0) })}
                   </div>
                 </td>
                 <td className="px-4 py-4 text-gray-300">
-                  <span className="text-white font-medium">{node.active_sessions}</span>
-                  <span className="text-gray-500"> active</span>
+                  <span className="text-white font-medium">{formatNumber(node.active_sessions)}</span>
+                  <span className="text-gray-500"> {t('nodes.active')}</span>
                   <div className="text-xs text-gray-500">
-                    {formatCapacityLeft(node)}
+                    {formatCapacityLeft(node, t, formatNumber)}
                   </div>
                 </td>
                 <td className="px-4 py-4 text-gray-300">
-                  CPU {formatMetric(node.system.cpu_usage, '%')}
+                  {t('nodes.operations.cpu')} {formatMetric(node.system.cpu_usage, '%', t)}
                   <div className="text-xs text-gray-500">
-                    Mem {formatMemory(node.system.memory_mb, node.system.memory_total_mb)}
+                    {t('nodes.operations.memory')} {formatMemory(node.system.memory_mb, node.system.memory_total_mb, t, formatNumber)}
                   </div>
                 </td>
-                <td className="px-4 py-4 text-gray-400">{node.version || 'unknown'}</td>
+                <td className="px-4 py-4 text-gray-400">{node.version || t('nodes.unknown')}</td>
                 <td className="px-5 py-4 text-gray-400">
-                  {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : 'never'}
+                  {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : t('nodes.never')}
                   <div className="text-xs text-gray-600">
-                    {node.last_seen_seconds === null ? 'age pending' : `${node.last_seen_seconds}s age`}
+                    {node.last_seen_seconds === null
+                      ? t('nodes.agePending')
+                      : t('nodes.ageSeconds', { seconds: formatNumber(node.last_seen_seconds) })}
                   </div>
                 </td>
               </tr>
@@ -528,6 +547,7 @@ function VpnNodeOperationsTable({
 // ============================================
 
 export default function NodesPage() {
+  const { t, formatNumber } = useI18n();
   const { nodes, isLoading } = useNodes();
   const { overview, isLoading: vpnOverviewLoading } = useVpnOverview();
   const {
@@ -616,9 +636,9 @@ export default function NodesPage() {
     <div className="max-w-7xl mx-auto">
       {/* Page Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">Nodes</h1>
+        <h1 className="text-2xl font-bold text-white">{t('nodes.title')}</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Manage and monitor all your privacy network nodes
+          {t('nodes.subtitle')}
         </p>
       </div>
 
@@ -669,11 +689,11 @@ export default function NodesPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             }
-            title="No Results Found"
-            description={`No nodes match "${searchQuery}". Try a different search term.`}
+            title={t('nodes.noResultsTitle')}
+            description={t('nodes.noResultsDescription', { query: searchQuery })}
             action={
               <Button variant="secondary" onClick={handleClearSearch}>
-                Clear Search
+                {t('nodes.clearSearch')}
               </Button>
             }
           />
@@ -684,20 +704,22 @@ export default function NodesPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
               </svg>
             }
-            title={activeFilter === 'all' ? 'No Nodes Yet' : `No ${activeFilter} Nodes`}
+            title={activeFilter === 'all'
+              ? t('nodes.emptyTitle')
+              : t('nodes.emptyStatusTitle', { status: t(`common.status.${activeFilter}`) })}
             description={
               activeFilter === 'all'
-                ? 'Get started by adding your first node to the network.'
-                : `You don't have any ${activeFilter} nodes at the moment.`
+                ? t('nodes.emptyDescription')
+                : t('nodes.emptyStatusDescription', { status: t(`common.status.${activeFilter}`) })
             }
             action={
               activeFilter === 'all' ? (
                 <Button variant="primary" onClick={handleOpenAddModal}>
-                  Add Your First Node
+                  {t('nodes.addFirstNode')}
                 </Button>
               ) : (
                 <Button variant="secondary" onClick={handleViewAllNodes}>
-                  View All Nodes
+                  {t('nodes.viewAllNodes')}
                 </Button>
               )
             }
@@ -718,7 +740,10 @@ export default function NodesPage() {
       {/* Results Count */}
       {!isLoading && filteredNodes.length > 0 && (
         <div className="mt-6 text-center text-sm text-gray-500">
-          Showing {filteredNodes.length} of {nodes.length} nodes
+          {t('nodes.resultsCount', {
+            shown: formatNumber(filteredNodes.length),
+            total: formatNumber(nodes.length),
+          })}
         </div>
       )}
 
@@ -733,10 +758,10 @@ export default function NodesPage() {
         isOpen={!!nodeToDelete}
         onClose={handleCancelDelete}
         onConfirm={handleDeleteNode}
-        title="Delete Node"
-        message={`Are you sure you want to delete "${nodeToDelete?.name}"? This action cannot be undone and will remove all associated data.`}
-        confirmText="Delete Node"
-        cancelText="Cancel"
+        title={t('nodes.deleteTitle')}
+        message={t('nodes.deleteMessage', { name: nodeToDelete?.name || t('nodes.card.unnamed') })}
+        confirmText={t('nodes.deleteTitle')}
+        cancelText={t('nodes.cancel')}
         variant="danger"
         isLoading={deleteNodeMutation.isPending}
       />
