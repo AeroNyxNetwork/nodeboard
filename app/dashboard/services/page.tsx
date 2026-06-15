@@ -90,7 +90,8 @@
  *     upgrade preflight copy and counts. primary_action is the backend-owned
  *     operator intent for the Restart Action Queue button.
  *     upgrade_blockers is backend-authored fleet blocker display order and
- *     copy; upgrade_blocker_counts remains a compatibility map.
+ *     copy; upgrade_blocker_summary is the backend-authored card sentence and
+ *     next-step copy; upgrade_blocker_counts remains a compatibility map.
  *   - data.summary.restart_readiness.policy_sync_health
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates data.nodes[].system.policy_sync so Services can verify
@@ -1406,6 +1407,7 @@ function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
       upgradeSafe: 0,
       upgradeBlocked: 0,
       blockerSummary: '',
+      blockerNextStep: '',
       problemNodes: [],
       label: 'Pending',
       detail: 'waiting for backend runtime capability summary',
@@ -1420,6 +1422,7 @@ function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
     next_step: 'Review Rust operator_status and session_cleanup reporting before cutover work.',
     count: capability.gap_nodes,
   };
+  const backendBlockerSummary = capability.upgrade_blocker_summary ?? null;
   const backendBlockers = capability.upgrade_blockers ?? [];
   const blockerSummary = backendBlockers.length > 0
     ? backendBlockers
@@ -1442,7 +1445,8 @@ function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
     rolloutReporting: capability.rollout_reporting_nodes,
     upgradeSafe: capability.upgrade_safe_nodes ?? 0,
     upgradeBlocked: capability.upgrade_blocked_nodes ?? 0,
-    blockerSummary,
+    blockerSummary: backendBlockerSummary?.detail ?? blockerSummary,
+    blockerNextStep: backendBlockerSummary?.next_step ?? '',
     problemNodes: capability.problem_nodes ?? [],
     label: summaryCopy.label,
     detail: summaryCopy.detail,
@@ -2601,8 +2605,11 @@ function FleetRestartReadinessPanel({
           )}
           {runtimeCapability.blockerSummary && (
             <p className="mt-1 text-xs leading-5 opacity-75">
-              Blocked by {runtimeCapability.blockerSummary}
+              {runtimeCapability.blockerSummary}
             </p>
+          )}
+          {runtimeCapability.blockerNextStep && (
+            <p className="mt-1 text-xs leading-5 opacity-75">{runtimeCapability.blockerNextStep}</p>
           )}
           {runtimeCapability.next_step && (
             <p className="mt-2 text-xs leading-5 opacity-80">{runtimeCapability.next_step}</p>
