@@ -11,6 +11,7 @@
 'use client';
 
 import React, { useCallback, useState } from 'react';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 // ============================================
 // Types
@@ -227,6 +228,7 @@ interface CopyButtonProps {
 
 export function CopyButton({ text, onCopy, className = '' }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
+  const { t } = useI18n();
 
   const handleCopy = useCallback(async () => {
     try {
@@ -252,7 +254,7 @@ export function CopyButton({ text, onCopy, className = '' }: CopyButtonProps) {
           </svg>
         )
       }
-      aria-label={copied ? 'Copied' : 'Copy to clipboard'}
+      aria-label={copied ? t('common.copied') : t('common.copyToClipboard')}
       onClick={handleCopy}
       className={className}
     />

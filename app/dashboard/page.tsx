@@ -33,12 +33,16 @@ import Link from 'next/link';
 import { useNodes, useAggregatedStats, useDeleteNode, useVpnOverview, useVpnEvents, useVpnBilling, useVpnServers } from '@/hooks/useNodes';
 import { useAuthStore } from '@/stores/authStore';
 import { Node, VpnEvent, VpnEventSeverity, VpnHealthStatus, VpnServerPlacementGroup } from '@/types';
-import { formatBytes, formatRelativeTime, truncateAddress } from '@/lib/api';
+import { formatBytes, truncateAddress } from '@/lib/api';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 import Card, { StatCard, EmptyState } from '@/components/common/Card';
 import Button from '@/components/common/Button';
 import NodeCard, { NodeCardSkeleton } from '@/components/dashboard/NodeCard';
 import AddNodeModal from '@/components/dashboard/AddNodeModal';
 import { ConfirmDialog } from '@/components/common/Modal';
+
+type TranslateFn = (key: string, values?: Record<string, string | number>) => string;
+type FormatNumberFn = (value: number, options?: Intl.NumberFormatOptions) => string;
 
 // ============================================
 // Page Header Component
@@ -46,13 +50,14 @@ import { ConfirmDialog } from '@/components/common/Modal';
 
 function PageHeader({ onAddNode }: { onAddNode: () => void }) {
   const walletAddress = useAuthStore((state) => state.walletAddress);
+  const { t } = useI18n();
 
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
       <div>
-        <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+        <h1 className="text-2xl font-bold text-white">{t('dashboard.title')}</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Welcome back, {truncateAddress(walletAddress || '', 6)}
+          {t('dashboard.welcome', { wallet: truncateAddress(walletAddress || '', 6) })}
         </p>
       </div>
       <Button
@@ -64,7 +69,7 @@ function PageHeader({ onAddNode }: { onAddNode: () => void }) {
           </svg>
         }
       >
-        Add Node
+        {t('nodes.addNode')}
       </Button>
     </div>
   );
@@ -76,6 +81,7 @@ function PageHeader({ onAddNode }: { onAddNode: () => void }) {
 
 function StatsGrid() {
   const { stats, isLoading } = useAggregatedStats();
+  const { t, formatNumber } = useI18n();
 
   if (isLoading) {
     return (
@@ -90,9 +96,9 @@ function StatsGrid() {
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
       <StatCard
-        label="Total Nodes"
-        value={stats.totalNodes}
-        subValue={`${stats.onlineNodes} online`}
+        label={t('dashboard.stats.totalNodes')}
+        value={formatNumber(stats.totalNodes)}
+        subValue={t('dashboard.stats.onlineNodes', { count: formatNumber(stats.onlineNodes) })}
         icon={
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
@@ -100,9 +106,9 @@ function StatsGrid() {
         }
       />
       <StatCard
-        label="Active Sessions"
-        value={stats.activeSessions.toLocaleString()}
-        subValue={`${stats.totalSessions.toLocaleString()} total`}
+        label={t('dashboard.stats.activeSessions')}
+        value={formatNumber(stats.activeSessions)}
+        subValue={t('dashboard.stats.totalSessions', { count: formatNumber(stats.totalSessions) })}
         icon={
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -110,8 +116,8 @@ function StatsGrid() {
         }
       />
       <StatCard
-        label="Total Traffic"
-        value={`${stats.totalTrafficGB.toFixed(1)} GB`}
+        label={t('dashboard.stats.totalTraffic')}
+        value={`${formatNumber(stats.totalTrafficGB, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} GB`}
         icon={
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
@@ -119,8 +125,10 @@ function StatsGrid() {
         }
       />
       <StatCard
-        label="Avg Uptime"
-        value={`${stats.avgUptime.toFixed(1)}h`}
+        label={t('dashboard.stats.avgUptime')}
+        value={t('dashboard.stats.hours', {
+          count: formatNumber(stats.avgUptime, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+        })}
         icon={
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -148,20 +156,20 @@ const eventSeverityClass: Record<VpnEventSeverity, string> = {
   info: 'bg-sky-400',
 };
 
-function formatAvailability(value: number | null | undefined) {
-  if (typeof value !== 'number' || Number.isNaN(value)) return 'pending';
-  return `${value.toFixed(value >= 99.95 ? 2 : 1)}%`;
+function formatAvailability(value: number | null | undefined, t: TranslateFn, formatNumber: FormatNumberFn) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return t('common.status.pending');
+  return `${formatNumber(value, { minimumFractionDigits: value >= 99.95 ? 2 : 1, maximumFractionDigits: value >= 99.95 ? 2 : 1 })}%`;
 }
 
-function formatPercent(value: number | null | undefined) {
-  if (typeof value !== 'number' || Number.isNaN(value)) return 'pending';
-  return `${value.toFixed(value >= 99.5 ? 0 : 1)}%`;
+function formatPercent(value: number | null | undefined, t: TranslateFn, formatNumber: FormatNumberFn) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return t('common.status.pending');
+  return `${formatNumber(value, { minimumFractionDigits: value >= 99.5 ? 0 : 1, maximumFractionDigits: value >= 99.5 ? 0 : 1 })}%`;
 }
 
-function formatHours(seconds: number | null | undefined) {
-  if (typeof seconds !== 'number' || Number.isNaN(seconds)) return 'pending';
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
-  return `${(seconds / 3600).toFixed(1)}h`;
+function formatHours(seconds: number | null | undefined, t: TranslateFn, formatNumber: FormatNumberFn) {
+  if (typeof seconds !== 'number' || Number.isNaN(seconds)) return t('common.status.pending');
+  if (seconds < 3600) return t('dashboard.time.minutes', { count: formatNumber(Math.round(seconds / 60)) });
+  return t('dashboard.time.hours', { count: formatNumber(seconds / 3600, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) });
 }
 
 function detailNumber(details: Record<string, unknown>, key: string): number {
@@ -174,15 +182,20 @@ function detailNumber(details: Record<string, unknown>, key: string): number {
   return 0;
 }
 
-function formatPlacementCapacity(capacity: number, unlimitedNodes: number) {
-  if (unlimitedNodes > 0 && capacity > 0) return `${capacity.toLocaleString()} slots + ${unlimitedNodes} unlimited`;
-  if (unlimitedNodes > 0) return `${unlimitedNodes} unlimited`;
-  return `${capacity.toLocaleString()} slots`;
+function formatPlacementCapacity(capacity: number, unlimitedNodes: number, t: TranslateFn, formatNumber: FormatNumberFn) {
+  if (unlimitedNodes > 0 && capacity > 0) {
+    return t('dashboard.placement.slotsAndUnlimited', {
+      slots: formatNumber(capacity),
+      unlimited: formatNumber(unlimitedNodes),
+    });
+  }
+  if (unlimitedNodes > 0) return t('dashboard.placement.unlimitedNodes', { count: formatNumber(unlimitedNodes) });
+  return t('dashboard.placement.slots', { count: formatNumber(capacity) });
 }
 
-function formatPlacementRatio(group: VpnServerPlacementGroup | null) {
-  if (!group) return 'pending';
-  return `${group.available}/${group.total}`;
+function formatPlacementRatio(group: VpnServerPlacementGroup | null, t: TranslateFn, formatNumber: FormatNumberFn) {
+  if (!group) return t('common.status.pending');
+  return `${formatNumber(group.available)}/${formatNumber(group.total)}`;
 }
 
 function formatPlacementGroupLabel(group: VpnServerPlacementGroup | null, fallback: string) {
@@ -190,22 +203,22 @@ function formatPlacementGroupLabel(group: VpnServerPlacementGroup | null, fallba
   return group.label || group.key || fallback;
 }
 
-function topPlacementReason(reasons: Record<string, number>) {
+function topPlacementReason(reasons: Record<string, number>, t: TranslateFn, formatNumber: FormatNumberFn) {
   const [reason, count] = Object.entries(reasons).sort((a, b) => b[1] - a[1])[0] ?? [];
-  if (!reason || !count) return 'clear';
-  return `${reason.replaceAll('_', ' ')} (${count})`;
+  if (!reason || !count) return t('services.placement.clear');
+  return `${reason.replaceAll('_', ' ')} (${formatNumber(count)})`;
 }
 
-function formatEventReason(event: VpnEvent) {
+function formatEventReason(event: VpnEvent, t: TranslateFn, formatNumber: FormatNumberFn) {
   const details = event.details || {};
 
   if (event.type === 'runtime_recovery' || event.type === 'runtime_restarted') {
     const interrupted = detailNumber(details, 'interrupted_sessions_24h');
     const uptime = typeof details.runtime_uptime_seconds === 'number'
-      ? formatHours(details.runtime_uptime_seconds)
-      : 'pending';
-    if (interrupted > 0) return `${interrupted} sessions interrupted · uptime ${uptime}`;
-    return `runtime uptime ${uptime}`;
+      ? formatHours(details.runtime_uptime_seconds, t, formatNumber)
+      : t('common.status.pending');
+    if (interrupted > 0) return t('dashboard.events.sessionsInterrupted', { count: formatNumber(interrupted), uptime });
+    return t('dashboard.events.runtimeUptime', { uptime });
   }
 
   if (event.type === 'placement_capacity_exhausted' || event.type === 'placement_capacity_pressure') {
@@ -213,7 +226,12 @@ function formatEventReason(event: VpnEvent) {
     const label = typeof details.placement_label === 'string' ? details.placement_label : 'Fleet';
     const available = detailNumber(details, 'available_candidates');
     const total = detailNumber(details, 'total_candidates');
-    return `${label} ${scope} · ${available}/${total} candidates`;
+    return t('dashboard.events.placementCandidates', {
+      label,
+      scope,
+      available: formatNumber(available),
+      total: formatNumber(total),
+    });
   }
   if (event.type === 'client_placement_unavailable' && typeof details.unavailable_reason === 'string') {
     return details.unavailable_reason.replaceAll('_', ' ');
@@ -227,20 +245,20 @@ function formatEventReason(event: VpnEvent) {
     const reason = typeof details.last_rejection_reason === 'string'
       ? details.last_rejection_reason.replaceAll('_', ' ')
       : 'policy enforced';
-    return `${blocked} blocked · ${reason}`;
+    return t('dashboard.events.policyBlocked', { count: formatNumber(blocked), reason });
   }
   if (typeof details.degraded_reason === 'string') return details.degraded_reason;
   if (typeof details.error_message === 'string') return details.error_message;
-  if (typeof details.quality_status === 'string') return `session ${details.quality_status}`;
-  if (typeof details.health_status === 'string') return `node ${details.health_status}`;
+  if (typeof details.quality_status === 'string') return t('dashboard.events.sessionStatus', { status: details.quality_status });
+  if (typeof details.health_status === 'string') return t('dashboard.events.nodeStatus', { status: details.health_status });
   if (typeof details.observed_mbps === 'number' && typeof details.bandwidth_limit_mbps === 'number') {
     return `${details.observed_mbps.toFixed(1)} / ${details.bandwidth_limit_mbps.toFixed(1)} Mbps`;
   }
   if (Array.isArray(details.changed_fields) && details.changed_fields.length > 0) {
     return details.changed_fields.slice(0, 3).join(', ');
   }
-  if (event.session_id) return `session ${event.session_id}`;
-  if (event.command_id) return `command ${event.command_id.slice(0, 8)}`;
+  if (event.session_id) return t('dashboard.events.sessionId', { id: event.session_id });
+  if (event.command_id) return t('dashboard.events.commandId', { id: event.command_id.slice(0, 8) });
   return event.type.replaceAll('_', ' ');
 }
 
@@ -253,6 +271,7 @@ function attentionEventPriority(event: VpnEvent) {
 }
 
 function VpnOperationsSnapshot() {
+  const { t, formatNumber, formatRelativeTime } = useI18n();
   const { overview, isLoading, isError } = useVpnOverview();
   const { events: eventOverview, isLoading: eventsLoading } = useVpnEvents({
     days: 1,
@@ -305,11 +324,11 @@ function VpnOperationsSnapshot() {
       <Card variant="outline" padding="md" className="mb-8 border-yellow-500/25">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h2 className="text-base font-semibold text-white">VPN Operations</h2>
-            <p className="text-sm text-yellow-300 mt-1">VPN observability data is temporarily unavailable.</p>
+            <h2 className="text-base font-semibold text-white">{t('dashboard.operations.title')}</h2>
+            <p className="text-sm text-yellow-300 mt-1">{t('dashboard.operations.unavailable')}</p>
           </div>
           <Link href="/dashboard/sessions" className="text-sm text-purple-300 hover:text-purple-200">
-            Open VPN Operations
+            {t('dashboard.operations.open')}
           </Link>
         </div>
       </Card>
@@ -321,53 +340,53 @@ function VpnOperationsSnapshot() {
       <Card variant="default" padding="md">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-5">
           <div>
-            <h2 className="text-base font-semibold text-white">VPN Operations</h2>
+            <h2 className="text-base font-semibold text-white">{t('dashboard.operations.title')}</h2>
             <p className="text-xs text-gray-500 mt-1">
-              Updated {formatRelativeTime(overview.generated_at)}
+              {t('dashboard.operations.updated', { time: formatRelativeTime(overview.generated_at) })}
             </p>
           </div>
           <Link href="/dashboard/sessions" className="text-sm text-purple-300 hover:text-purple-200">
-            Open Operations
+            {t('dashboard.operations.openShort')}
           </Link>
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-            <p className="text-xs text-gray-500">Healthy VPN Nodes</p>
+            <p className="text-xs text-gray-500">{t('dashboard.operations.healthyNodes')}</p>
             <p className="text-xl font-semibold text-white mt-1">
-              {summary?.healthy_nodes ?? 0}/{summary?.total_nodes ?? 0}
+              {formatNumber(summary?.healthy_nodes ?? 0)}/{formatNumber(summary?.total_nodes ?? 0)}
             </p>
             <p className="text-xs text-gray-600">
-              {(summary?.degraded_nodes ?? 0) + (summary?.overloaded_nodes ?? 0)} degraded
+              {t('dashboard.operations.degradedCount', { count: formatNumber((summary?.degraded_nodes ?? 0) + (summary?.overloaded_nodes ?? 0)) })}
             </p>
           </div>
           <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-            <p className="text-xs text-gray-500">24h Availability</p>
+            <p className="text-xs text-gray-500">{t('dashboard.operations.availability24h')}</p>
             <p className="text-xl font-semibold text-white mt-1">
-              {formatAvailability(summary?.availability_24h_percent)}
+              {formatAvailability(summary?.availability_24h_percent, t, formatNumber)}
             </p>
-            <p className="text-xs text-gray-600">sampled heartbeats</p>
+            <p className="text-xs text-gray-600">{t('dashboard.operations.sampledHeartbeats')}</p>
           </div>
           <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-            <p className="text-xs text-gray-500">Active Tunnels</p>
-            <p className="text-xl font-semibold text-white mt-1">{summary?.active_sessions ?? 0}</p>
-            <p className="text-xs text-gray-600">live sessions</p>
+            <p className="text-xs text-gray-500">{t('dashboard.operations.activeTunnels')}</p>
+            <p className="text-xl font-semibold text-white mt-1">{formatNumber(summary?.active_sessions ?? 0)}</p>
+            <p className="text-xs text-gray-600">{t('dashboard.operations.liveSessions')}</p>
           </div>
           <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-            <p className="text-xs text-gray-500">VPN Traffic</p>
+            <p className="text-xs text-gray-500">{t('dashboard.operations.traffic')}</p>
             <p className="text-xl font-semibold text-white mt-1">{formatBytes(totalTrafficBytes, 1)}</p>
-            <p className="text-xs text-gray-600">{summary?.open_alerts ?? 0} open alerts</p>
+            <p className="text-xs text-gray-600">{t('dashboard.operations.openAlerts', { count: formatNumber(summary?.open_alerts ?? 0) })}</p>
           </div>
         </div>
 
         <div className="mt-5 border-t border-white/5 pt-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-600">Client Placement</p>
-              <p className="mt-1 text-xs text-gray-500">Commercial capacity visible to the client failover policy.</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-600">{t('dashboard.placement.title')}</p>
+              <p className="mt-1 text-xs text-gray-500">{t('dashboard.placement.description')}</p>
             </div>
             <Link href="/dashboard/nodes" className="text-sm text-purple-300 hover:text-purple-200">
-              Placement
+              {t('dashboard.placement.open')}
             </Link>
           </div>
 
@@ -378,46 +397,50 @@ function VpnOperationsSnapshot() {
               ))}
             </div>
           ) : placementError || !placementSummary ? (
-            <p className="text-sm text-yellow-300">Client placement capacity is temporarily unavailable.</p>
+            <p className="text-sm text-yellow-300">{t('dashboard.placement.unavailable')}</p>
           ) : (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-                <p className="text-xs text-gray-500">Available Capacity</p>
+                <p className="text-xs text-gray-500">{t('dashboard.placement.availableCapacity')}</p>
                 <p className="text-lg font-semibold text-white mt-1">
                   {formatPlacementCapacity(
                     placementSummary.available_capacity_remaining,
-                    placementSummary.unlimited_capacity_nodes
+                    placementSummary.unlimited_capacity_nodes,
+                    t,
+                    formatNumber
                   )}
                 </p>
-                <p className="text-xs text-gray-600">{placementAvailable} / {placementTotal} candidates</p>
+                <p className="text-xs text-gray-600">{t('dashboard.placement.candidates', { available: formatNumber(placementAvailable), total: formatNumber(placementTotal) })}</p>
               </div>
               <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-                <p className="text-xs text-gray-500">Top Region</p>
+                <p className="text-xs text-gray-500">{t('dashboard.placement.topRegion')}</p>
                 <p className="text-lg font-semibold text-white mt-1 truncate">
-                  {formatPlacementGroupLabel(topRegion, 'no region')}
+                  {formatPlacementGroupLabel(topRegion, t('dashboard.placement.noRegion'))}
                 </p>
                 <p className="text-xs text-gray-600">
-                  {formatPlacementRatio(topRegion)} · {formatPlacementCapacity(
+                  {formatPlacementRatio(topRegion, t, formatNumber)} · {formatPlacementCapacity(
                     topRegion?.capacity_remaining ?? 0,
-                    topRegion?.unlimited_capacity_nodes ?? 0
+                    topRegion?.unlimited_capacity_nodes ?? 0,
+                    t,
+                    formatNumber
                   )}
                 </p>
               </div>
               <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-                <p className="text-xs text-gray-500">Top Tier</p>
+                <p className="text-xs text-gray-500">{t('dashboard.placement.topTier')}</p>
                 <p className="text-lg font-semibold text-white mt-1 truncate">
-                  {formatPlacementGroupLabel(topTier, 'no tier')}
+                  {formatPlacementGroupLabel(topTier, t('dashboard.placement.noTier'))}
                 </p>
                 <p className="text-xs text-gray-600">
-                  {formatPlacementRatio(topTier)} · {formatPercent(topTier?.average_load)}
+                  {formatPlacementRatio(topTier, t, formatNumber)} · {formatPercent(topTier?.average_load, t, formatNumber)}
                 </p>
               </div>
               <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-                <p className="text-xs text-gray-500">Blocked Reasons</p>
+                <p className="text-xs text-gray-500">{t('dashboard.placement.blockedReasons')}</p>
                 <p className="text-lg font-semibold text-white mt-1 truncate">
-                  {topPlacementReason(placementSummary.unavailable_reasons)}
+                  {topPlacementReason(placementSummary.unavailable_reasons, t, formatNumber)}
                 </p>
-                <p className="text-xs text-gray-600">{placementUnavailable} hidden</p>
+                <p className="text-xs text-gray-600">{t('dashboard.placement.hiddenCount', { count: formatNumber(placementUnavailable) })}</p>
               </div>
             </div>
           )}
@@ -426,11 +449,11 @@ function VpnOperationsSnapshot() {
         <div className="mt-5 border-t border-white/5 pt-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-600">Traffic & Billing</p>
-              <p className="mt-1 text-xs text-gray-500">24h operating consumption and voucher issuance.</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-600">{t('dashboard.billing.title')}</p>
+              <p className="mt-1 text-xs text-gray-500">{t('dashboard.billing.description')}</p>
             </div>
             <Link href="/dashboard/billing" className="text-sm text-purple-300 hover:text-purple-200">
-              Billing
+              {t('dashboard.billing.open')}
             </Link>
           </div>
 
@@ -441,35 +464,35 @@ function VpnOperationsSnapshot() {
               ))}
             </div>
           ) : billingError || !billing ? (
-            <p className="text-sm text-yellow-300">Traffic and billing data is temporarily unavailable.</p>
+            <p className="text-sm text-yellow-300">{t('dashboard.billing.unavailable')}</p>
           ) : (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-                <p className="text-xs text-gray-500">24h Traffic</p>
+                <p className="text-xs text-gray-500">{t('dashboard.billing.traffic24h')}</p>
                 <p className="text-lg font-semibold text-white mt-1">{formatBytes(billing.summary.total_bytes, 1)}</p>
-                <p className="text-xs text-gray-600">{billing.summary.total_sessions} sessions</p>
+                <p className="text-xs text-gray-600">{t('dashboard.billing.sessions', { count: formatNumber(billing.summary.total_sessions) })}</p>
               </div>
               <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-                <p className="text-xs text-gray-500">Billable Time</p>
-                <p className="text-lg font-semibold text-white mt-1">{formatHours(dailyUsage?.billable_seconds)}</p>
-                <p className="text-xs text-gray-600">{billing.summary.active_sessions} active now</p>
+                <p className="text-xs text-gray-500">{t('dashboard.billing.billableTime')}</p>
+                <p className="text-lg font-semibold text-white mt-1">{formatHours(dailyUsage?.billable_seconds, t, formatNumber)}</p>
+                <p className="text-xs text-gray-600">{t('dashboard.billing.activeNow', { count: formatNumber(billing.summary.active_sessions) })}</p>
               </div>
               <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-                <p className="text-xs text-gray-500">Monthly Quota</p>
+                <p className="text-xs text-gray-500">{t('dashboard.billing.monthlyQuota')}</p>
                 <p className="text-lg font-semibold text-white mt-1">
-                  {monthlyQuota?.is_unlimited ? 'Unlimited' : formatPercent(monthlyQuota?.usage_percent)}
+                  {monthlyQuota?.is_unlimited ? t('billing.summary.unlimited') : formatPercent(monthlyQuota?.usage_percent, t, formatNumber)}
                 </p>
-                <p className="text-xs text-gray-600">{monthlyQuota?.tier || dailyUsage?.tier || 'no tier'}</p>
+                <p className="text-xs text-gray-600">{monthlyQuota?.tier || dailyUsage?.tier || t('dashboard.placement.noTier')}</p>
               </div>
               <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-                <p className="text-xs text-gray-500">Vouchers</p>
+                <p className="text-xs text-gray-500">{t('dashboard.billing.vouchers')}</p>
                 <p className="text-lg font-semibold text-white mt-1">
-                  {billing.voucher_accounting.issued_vouchers.toLocaleString()}
+                  {formatNumber(billing.voucher_accounting.issued_vouchers)}
                 </p>
                 <p className="text-xs text-gray-600">
                   {billing.voucher_accounting.last_issued_at
-                    ? `last ${formatRelativeTime(billing.voucher_accounting.last_issued_at)}`
-                    : 'none issued'}
+                    ? t('dashboard.billing.lastIssued', { time: formatRelativeTime(billing.voucher_accounting.last_issued_at) })
+                    : t('dashboard.billing.noneIssued')}
                 </p>
               </div>
             </div>
@@ -479,17 +502,17 @@ function VpnOperationsSnapshot() {
 
       <Card variant="default" padding="md">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-white">Needs Attention</h2>
+          <h2 className="text-base font-semibold text-white">{t('dashboard.attention.title')}</h2>
           <Link href="/dashboard/events" className="text-sm text-purple-300 hover:text-purple-200">
-            Events
+            {t('dashboard.attention.events')}
           </Link>
         </div>
 
         <div className="space-y-5">
           <div>
-            <p className="mb-2 text-[11px] uppercase tracking-wide text-gray-600">Nodes</p>
+            <p className="mb-2 text-[11px] uppercase tracking-wide text-gray-600">{t('nav.nodes')}</p>
             {attentionNodes.length === 0 ? (
-              <p className="text-sm text-emerald-300">All VPN nodes are currently healthy.</p>
+              <p className="text-sm text-emerald-300">{t('dashboard.attention.nodesHealthy')}</p>
             ) : (
               <div className="space-y-3">
                 {attentionNodes.map((node) => (
@@ -505,7 +528,7 @@ function VpnOperationsSnapshot() {
                           <span className="text-sm font-medium text-white truncate">{node.name}</span>
                         </div>
                         <p className="text-xs text-gray-500 mt-1 truncate">
-                          {node.public_ip || 'no ip'} · {node.region_code || 'no region'}
+                          {node.public_ip || t('dashboard.attention.noIp')} · {node.region_code || t('dashboard.placement.noRegion')}
                         </p>
                       </div>
                       <span className="text-xs text-gray-400">{node.health_score}/100</span>
@@ -517,7 +540,7 @@ function VpnOperationsSnapshot() {
           </div>
 
           <div>
-            <p className="mb-2 text-[11px] uppercase tracking-wide text-gray-600">Recent Events</p>
+            <p className="mb-2 text-[11px] uppercase tracking-wide text-gray-600">{t('dashboard.attention.recentEvents')}</p>
             {eventsLoading ? (
               <div className="space-y-2">
                 {[...Array(3)].map((_, index) => (
@@ -525,7 +548,7 @@ function VpnOperationsSnapshot() {
                 ))}
               </div>
             ) : recentEvents.length === 0 ? (
-              <p className="text-sm text-gray-500">No VPN events in the last 24 hours.</p>
+              <p className="text-sm text-gray-500">{t('dashboard.attention.noEvents24h')}</p>
             ) : (
               <div className="space-y-3">
                 {recentEvents.map((event) => (
@@ -541,11 +564,11 @@ function VpnOperationsSnapshot() {
                           <span className="truncate text-sm font-medium text-white">{event.title}</span>
                         </div>
                         <p className="mt-1 truncate text-xs text-gray-500">
-                          {event.node_name || 'Fleet'} · {formatEventReason(event)}
+                          {event.node_name || t('dashboard.attention.fleet')} · {formatEventReason(event, t, formatNumber)}
                         </p>
                       </div>
                       <span className="shrink-0 text-xs text-gray-500">
-                        {event.created_at ? formatRelativeTime(event.created_at) : 'now'}
+                        {event.created_at ? formatRelativeTime(event.created_at) : t('events.table.now')}
                       </span>
                     </div>
                   </Link>
@@ -566,6 +589,7 @@ function VpnOperationsSnapshot() {
 export default function DashboardPage() {
   const { nodes, isLoading } = useNodes();
   const deleteNodeMutation = useDeleteNode();
+  const { t, formatNumber } = useI18n();
   
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [nodeToDelete, setNodeToDelete] = useState<Node | null>(null);
@@ -613,10 +637,10 @@ export default function DashboardPage() {
       {/* Nodes Section */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-white">Your Nodes</h2>
+          <h2 className="text-lg font-semibold text-white">{t('dashboard.nodes.title')}</h2>
           {nodes.length > 0 && (
             <span className="text-sm text-gray-500">
-              {nodes.length} node{nodes.length !== 1 ? 's' : ''}
+              {t('dashboard.nodes.count', { count: formatNumber(nodes.length) })}
             </span>
           )}
         </div>
@@ -634,11 +658,11 @@ export default function DashboardPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
               </svg>
             }
-            title="No Nodes Yet"
-            description="Get started by adding your first node to the network. Generate a registration code and run the setup command on your server."
+            title={t('dashboard.nodes.emptyTitle')}
+            description={t('dashboard.nodes.emptyDescription')}
             action={
               <Button variant="primary" onClick={handleOpenAddModal}>
-                Add Your First Node
+                {t('nodes.addFirstNode')}
               </Button>
             }
           />
@@ -656,11 +680,11 @@ export default function DashboardPage() {
         <Card variant="outline" padding="md" className="mt-8">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-medium text-white">Need more capacity?</h3>
-              <p className="text-sm text-gray-400">Add more nodes to increase your network contribution and earnings.</p>
+              <h3 className="font-medium text-white">{t('dashboard.capacity.title')}</h3>
+              <p className="text-sm text-gray-400">{t('dashboard.capacity.description')}</p>
             </div>
             <Button variant="secondary" onClick={handleOpenAddModal}>
-              Add Another Node
+              {t('dashboard.capacity.addAnother')}
             </Button>
           </div>
         </Card>
@@ -677,10 +701,10 @@ export default function DashboardPage() {
         isOpen={!!nodeToDelete}
         onClose={handleCancelDelete}
         onConfirm={handleDeleteNode}
-        title="Delete Node"
-        message={`Are you sure you want to delete "${nodeToDelete?.name}"? This action cannot be undone.`}
-        confirmText="Delete"
-        cancelText="Cancel"
+        title={t('dashboard.delete.title')}
+        message={t('dashboard.delete.message', { name: nodeToDelete?.name || '' })}
+        confirmText={t('dashboard.delete.confirm')}
+        cancelText={t('common.cancel')}
         variant="danger"
         isLoading={deleteNodeMutation.isPending}
       />
