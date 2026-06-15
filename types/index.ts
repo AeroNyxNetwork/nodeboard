@@ -781,6 +781,8 @@ export interface VpnRestartReadinessBlockedNode {
  *   data.summary.restart_readiness.maintenance_exit_candidates lists nodes
  *   that are current, drained, and still in maintenance mode so Services can
  *   restore commercial client placement capacity.
+ *   maintenance_exit_summary is backend-authored fleet recovery context:
+ *   visible/hidden candidate counts, public entry count, and region count.
  *   Candidates are sourced from node-level
  *   operator_action_plan.recommended_actions key=end_maintenance.
  *   Candidate public_ip / region_code / city / version are node placement
@@ -838,6 +840,19 @@ export interface VpnRestartReadinessSummary {
     privacy_boundary: string;
   };
   maintenance_exit_candidate_count?: number;
+  maintenance_exit_summary?: {
+    status?: string;
+    risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+    label: string;
+    detail: string;
+    next_step?: string;
+    count: number;
+    visible_count: number;
+    hidden_count: number;
+    public_entry_count: number;
+    regions_count: number;
+    source: string;
+  };
   maintenance_exit_candidates?: Array<{
     id: string;
     name: string;

@@ -76,6 +76,8 @@
  *     restart work is complete. Candidate public_ip / region_code / city /
  *     version fields show which commercial entry point returns to client
  *     placement without exposing client-level traffic.
+ *     maintenance_exit_summary provides backend-authored visible/hidden
+ *     candidate, public entry, and region counts for the recovery panel.
  *     Candidate selection is sourced from node-level
  *     operator_action_plan.recommended_actions key=end_maintenance.
  *   - GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=
@@ -327,7 +329,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.maintenance_exit_candidates',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level current/drained maintenance nodes sourced from operator_action_plan.recommended_actions key=end_maintenance, including public_ip/region_code/city/version placement context for Services capacity recovery before PATCH maintenance_mode=false',
+      purpose: 'Fleet-level current/drained maintenance nodes plus maintenance_exit_summary visible/hidden candidate, public entry, and region counts sourced from operator_action_plan.recommended_actions key=end_maintenance for Services capacity recovery before PATCH maintenance_mode=false',
     },
     {
       endpoint: 'GET /api/privacy_network/vpn/servers/',

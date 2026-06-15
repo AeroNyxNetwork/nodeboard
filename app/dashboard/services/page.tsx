@@ -145,6 +145,8 @@
  *     Lists current/drained nodes still in maintenance mode so Services can
  *     recover commercial client placement capacity with PATCH
  *     /api/privacy_network/nodes/{id}/ maintenance_mode=false.
+ *     maintenance_exit_summary provides backend-authored visible/hidden
+ *     candidate, public entry, and region counts for the recovery panel.
  *     Includes node placement metadata public_ip / region_code / city /
  *     version so operators understand which commercial entry point returns
  *     to client placement before ending maintenance mode.
@@ -2524,6 +2526,7 @@ function FleetRestartReadinessPanel({
   const policyEnforcementHealth = summary?.policy_enforcement_health ?? null;
   const maintenanceExitCandidates = summary?.maintenance_exit_candidates ?? [];
   const maintenanceExitCandidateCount = summary?.maintenance_exit_candidate_count ?? maintenanceExitCandidates.length;
+  const maintenanceExitSummary = summary?.maintenance_exit_summary ?? null;
   const commandCancelability = {
     cancelable: commandCounts?.cancelable_active ?? 0,
     locked: commandCounts?.non_cancelable_active ?? 0,
@@ -3055,13 +3058,46 @@ function FleetRestartReadinessPanel({
         <div className="mt-4 rounded-xl border border-emerald-300/20 bg-emerald-500/[0.04] p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-emerald-100">Maintenance Exit Candidates</h3>
+              <h3 className="text-sm font-semibold text-emerald-100">
+                {maintenanceExitSummary?.label ?? 'Maintenance Exit Candidates'}
+              </h3>
               <p className="mt-1 text-xs leading-5 text-emerald-100/60">
-                Backend found current, drained nodes still in maintenance mode. Ending maintenance restores client placement capacity.
+                {maintenanceExitSummary?.detail
+                  ?? 'Backend found current, drained nodes still in maintenance mode. Ending maintenance restores client placement capacity.'}
               </p>
+              {maintenanceExitSummary?.next_step && (
+                <p className="mt-1 text-xs leading-5 text-emerald-100/50">
+                  {maintenanceExitSummary.next_step}
+                </p>
+              )}
             </div>
-            <StatusPill status="ready" />
+            <StatusPill status={maintenanceExitSummary?.risk ?? 'ready'} />
           </div>
+          {maintenanceExitSummary && (
+            <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-emerald-100/10 py-3 text-xs sm:grid-cols-4">
+              <div>
+                <p className="uppercase tracking-[0.14em] text-emerald-100/35">Candidates</p>
+                <p className="mt-1 font-semibold text-emerald-100">{maintenanceExitSummary.count.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-emerald-100/35">Shown</p>
+                <p className="mt-1 font-semibold text-emerald-100">
+                  {maintenanceExitSummary.visible_count.toLocaleString()}
+                  {maintenanceExitSummary.hidden_count > 0
+                    ? ` / +${maintenanceExitSummary.hidden_count.toLocaleString()} hidden`
+                    : ''}
+                </p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-emerald-100/35">Public Entries</p>
+                <p className="mt-1 font-semibold text-emerald-100">{maintenanceExitSummary.public_entry_count.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-emerald-100/35">Regions</p>
+                <p className="mt-1 font-semibold text-emerald-100">{maintenanceExitSummary.regions_count.toLocaleString()}</p>
+              </div>
+            </div>
+          )}
           <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
             {maintenanceExitCandidates.map((node) => {
               const isEndingMaintenance = endingMaintenanceNodeId === node.id;
@@ -3114,6 +3150,12 @@ function FleetRestartReadinessPanel({
               Showing {maintenanceExitCandidates.length.toLocaleString()} of {maintenanceExitCandidateCount.toLocaleString()} candidates.
             </p>
           )}
+          <p className="mt-3 text-xs leading-5 text-emerald-100/45">
+            Backend contract: GET /api/privacy_network/vpn/overview/ exposes
+            data.summary.restart_readiness.maintenance_exit_summary and
+            maintenance_exit_candidates from /root/aeronyx/privacy_network/api/vpn_observability.py.
+            Action source: data.nodes[].system.restart_readiness.operator_action_plan.recommended_actions key=end_maintenance.
+          </p>
         </div>
       )}
 
