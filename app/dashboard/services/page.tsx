@@ -2248,36 +2248,39 @@ function FleetSummaryGrid({
   summary: FleetSummary;
   latestReportedAt: string | null;
 }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   return (
     <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
       <SummaryTile
-        label="Reporting Nodes"
+        label={t('services.summary.reportingNodes')}
         value={`${summary.reportingNodes}/${summary.totalNodes}`}
-        detail={latestReportedAt ? `Latest operator heartbeat ${formatRelativeTime(latestReportedAt)}` : 'Waiting for Rust operator heartbeat'}
+        detail={latestReportedAt
+          ? t('services.summary.latestHeartbeat', { time: i18nRelativeTime(latestReportedAt) })
+          : t('services.summary.waitingHeartbeat')}
         status={summary.reportingNodes > 0 ? 'ok' : 'pending'}
       />
       <SummaryTile
-        label="Privacy Ready"
-        value={summary.healthyPrivacyNodes.toLocaleString()}
-        detail="AeroNyx Privacy Protocol nodes with healthy tunnel checks."
+        label={t('services.summary.privacyReady')}
+        value={formatNumber(summary.healthyPrivacyNodes)}
+        detail={t('services.summary.privacyReadyDetail')}
         status={summary.healthyPrivacyNodes > 0 ? 'ok' : 'attention'}
       />
       <SummaryTile
-        label="Enabled Services"
+        label={t('services.summary.enabledServices')}
         value={`${summary.enabledServices}/${summary.totalServiceSlots || 0}`}
-        detail="Service slots enabled across reporting nodes."
+        detail={t('services.summary.enabledServicesDetail')}
         status={summary.enabledServices > 0 ? 'ok' : 'pending'}
       />
       <SummaryTile
-        label="Needs Attention"
-        value={summary.attentionNodes.toLocaleString()}
-        detail="Nodes reporting degraded, failed, or attention status."
+        label={t('services.summary.needsAttention')}
+        value={formatNumber(summary.attentionNodes)}
+        detail={t('services.summary.needsAttentionDetail')}
         status={summary.attentionNodes > 0 ? 'attention' : 'ok'}
       />
       <SummaryTile
-        label="Rollout Restarts"
-        value={summary.rolloutRestartRequired.toLocaleString()}
-        detail="Rust processes running a replaced binary and waiting for controlled restart."
+        label={t('services.summary.rolloutRestarts')}
+        value={formatNumber(summary.rolloutRestartRequired)}
+        detail={t('services.summary.rolloutRestartsDetail')}
         status={summary.rolloutRestartRequired > 0 ? 'warning' : 'ok'}
       />
     </div>
@@ -2304,6 +2307,7 @@ function FleetCommercialOperationsPanel({
 }: {
   summary: VpnRestartReadinessSummary | null;
 }) {
+  const { t, formatNumber } = useI18n();
   const commercial = summary?.commercial_placement_health ?? null;
   const policySync = summary?.policy_sync_health ?? null;
   const policyBlocks = summary?.policy_enforcement_health ?? null;
@@ -2324,33 +2328,33 @@ function FleetCommercialOperationsPanel({
   const primaryProblem = problemNodes[0] ?? null;
   const statusCards = [
     {
-      label: 'Ready',
+      label: t('services.commercial.ready'),
       value: ready,
-      detail: 'Can receive AeroNyx Privacy Protocol placement.',
+      detail: t('services.commercial.readyDetail'),
       status: ready > 0 ? 'ok' : 'pending',
     },
     {
-      label: 'Degraded',
+      label: t('services.commercial.degraded'),
       value: degraded,
-      detail: 'Serving or visible with policy, sync, or runtime attention.',
+      detail: t('services.commercial.degradedDetail'),
       status: degraded > 0 ? 'warning' : 'ok',
     },
     {
-      label: 'Blocked',
+      label: t('common.status.blocked'),
       value: blocked,
-      detail: 'Hidden from commercial client placement.',
+      detail: t('services.commercial.blockedDetail'),
       status: blocked > 0 ? 'critical' : 'ok',
     },
     {
-      label: 'Maintenance',
+      label: t('settings.policyEditor.maintenanceMode'),
       value: maintenanceCandidates,
-      detail: 'Drained maintenance nodes that may return capacity.',
+      detail: t('services.commercial.maintenanceDetail'),
       status: maintenanceCandidates > 0 ? 'info' : 'ok',
     },
     {
-      label: 'Needs Rust upgrade',
+      label: t('services.commercial.needsRustUpgrade'),
       value: needsRustUpgrade,
-      detail: 'Missing placement_readiness or commercial runtime capability.',
+      detail: t('services.commercial.needsRustUpgradeDetail'),
       status: needsRustUpgrade > 0 ? 'warning' : 'ok',
     },
   ];
@@ -2360,9 +2364,9 @@ function FleetCommercialOperationsPanel({
       <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-white">Commercial Operations</h2>
+            <h2 className="text-lg font-semibold text-white">{t('services.commercial.title')}</h2>
             <p className="mt-2 text-sm leading-6 text-gray-400">
-              Waiting for backend commercial placement summary from the AeroNyx Privacy Protocol overview API.
+              {t('services.commercial.waitingSummary')}
             </p>
           </div>
           <StatusPill status="pending" />
@@ -2376,41 +2380,41 @@ function FleetCommercialOperationsPanel({
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="max-w-4xl">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold text-white">Commercial Operations</h2>
+            <h2 className="text-lg font-semibold text-white">{t('services.commercial.title')}</h2>
             <StatusPill status={commercial?.risk ?? 'info'} />
             <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-xs text-gray-300">
-              {ready.toLocaleString()} / {total.toLocaleString()} ready
+              {t('services.commercial.readyCount', { ready: formatNumber(ready), total: formatNumber(total) })}
             </span>
           </div>
           <p className="mt-2 text-sm leading-6 text-gray-300">
-            {commercial?.label ?? 'Pending'} · {commercial?.detail ?? 'Backend is collecting commercial placement state.'}
+            {commercial?.label ?? t('common.status.pending')} · {commercial?.detail ?? t('services.commercial.collectingPlacement')}
           </p>
           <p className="mt-1 text-sm leading-6 text-gray-400">
             {commercial?.next_step
-              ?? 'Wait for data.summary.restart_readiness.commercial_placement_health before changing placement policy.'}
+              ?? t('services.commercial.waitBeforePolicyChange')}
           </p>
         </div>
         <div className="grid min-w-full grid-cols-2 gap-2 text-xs sm:grid-cols-4 xl:min-w-[520px]">
           <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <p className="text-gray-500">Capacity score</p>
+            <p className="text-gray-500">{t('services.commercial.capacityScore')}</p>
             <p className="mt-1 text-base font-semibold text-white">
               {(commercial?.capacity_score_percent ?? 0).toFixed(1)}%
             </p>
           </div>
           <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <p className="text-gray-500">Public entries</p>
+            <p className="text-gray-500">{t('services.commercial.publicEntries')}</p>
             <p className="mt-1 text-base font-semibold text-white">
               {(commercial?.public_entry_nodes ?? 0).toLocaleString()}
             </p>
           </div>
           <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <p className="text-gray-500">Remaining slots</p>
+            <p className="text-gray-500">{t('services.commercial.remainingSlots')}</p>
             <p className="mt-1 text-base font-semibold text-white">
               {(commercial?.bounded_capacity_remaining ?? 0).toLocaleString()}
             </p>
           </div>
           <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <p className="text-gray-500">Rust coverage</p>
+            <p className="text-gray-500">{t('services.commercial.rustCoverage')}</p>
             <p className="mt-1 text-base font-semibold text-white">
               {(commercial?.rust_placement_coverage_percent ?? 0).toFixed(1)}%
             </p>
@@ -2424,7 +2428,7 @@ function FleetCommercialOperationsPanel({
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-xs uppercase tracking-[0.16em] opacity-60">{card.label}</p>
-                <p className="mt-2 text-2xl font-semibold">{card.value.toLocaleString()}</p>
+                <p className="mt-2 text-2xl font-semibold">{formatNumber(card.value)}</p>
               </div>
               <StatusPill status={card.status} />
             </div>
@@ -2435,47 +2439,54 @@ function FleetCommercialOperationsPanel({
 
       <div className="mt-4 grid gap-3 lg:grid-cols-3">
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-          <p className="text-xs uppercase tracking-[0.16em] opacity-60">Policy Sync</p>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-60">{t('settings.policySync.title')}</p>
           <p className="mt-2 text-sm font-semibold">
-            {policySync?.label ?? 'Pending'}
+            {policySync?.label ?? t('common.status.pending')}
           </p>
           <p className="mt-1 text-xs leading-5 opacity-70">
-            {policySync?.detail ?? 'Waiting for node_policy sync summary.'}
+            {policySync?.detail ?? t('services.commercial.waitingPolicySync')}
           </p>
           <p className="mt-2 text-xs leading-5 opacity-70">
-            Attention {(policySync?.attention_nodes ?? 0).toLocaleString()} ·
-            synced {(policySync?.synced_nodes ?? 0).toLocaleString()} / {(policySync?.total_nodes ?? 0).toLocaleString()}
+            {t('services.commercial.policySyncCounts', {
+              attention: formatNumber(policySync?.attention_nodes ?? 0),
+              synced: formatNumber(policySync?.synced_nodes ?? 0),
+              total: formatNumber(policySync?.total_nodes ?? 0),
+            })}
           </p>
         </div>
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-          <p className="text-xs uppercase tracking-[0.16em] opacity-60">Policy Blocks</p>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-60">{t('services.commercial.policyBlocks')}</p>
           <p className="mt-2 text-sm font-semibold">
-            {policyBlocks?.label ?? 'Pending'}
+            {policyBlocks?.label ?? t('common.status.pending')}
           </p>
           <p className="mt-1 text-xs leading-5 opacity-70">
-            {policyBlocks?.detail ?? 'Waiting for Rust enforcement counters.'}
+            {policyBlocks?.detail ?? t('services.commercial.waitingEnforcement')}
           </p>
           <p className="mt-2 text-xs leading-5 opacity-70">
-            Recent {(policyBlocks?.recent_problem_nodes ?? 0).toLocaleString()} ·
-            total blocks {(policyBlocks?.total_blocks ?? 0).toLocaleString()} ·
-            dropped {formatFleetBytes(policyBlocks?.bandwidth_drop_bytes)}
+            {t('services.commercial.policyBlockCounts', {
+              recent: formatNumber(policyBlocks?.recent_problem_nodes ?? 0),
+              total: formatNumber(policyBlocks?.total_blocks ?? 0),
+              dropped: formatFleetBytes(policyBlocks?.bandwidth_drop_bytes),
+            })}
           </p>
         </div>
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-          <p className="text-xs uppercase tracking-[0.16em] opacity-60">Runtime Rollout</p>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-60">{t('services.commercial.runtimeRollout')}</p>
           <p className="mt-2 text-sm font-semibold">
-            {rollout?.label ?? 'Rust placement readiness'}
+            {rollout?.label ?? t('services.commercial.rustPlacementReadiness')}
           </p>
           <p className="mt-1 text-xs leading-5 opacity-70">
             {rollout?.detail
               ?? runtimeCapability?.upgrade_blocker_summary?.detail
               ?? runtimeCapability?.problem_panel_summary?.detail
-              ?? 'Waiting for Rust placement readiness coverage.'}
+              ?? t('services.commercial.waitingRustCoverage')}
           </p>
           <p className="mt-2 text-xs leading-5 opacity-70">
-            Reporting {(rollout?.reporting_nodes ?? commercial?.rust_placement_reporting_nodes ?? 0).toLocaleString()} ·
-            accepting {(rollout?.accepting_nodes ?? commercial?.rust_placement_accepting_nodes ?? 0).toLocaleString()} ·
-            missing {needsRustUpgrade.toLocaleString()}
+            {t('services.commercial.runtimeRolloutCounts', {
+              reporting: formatNumber(rollout?.reporting_nodes ?? commercial?.rust_placement_reporting_nodes ?? 0),
+              accepting: formatNumber(rollout?.accepting_nodes ?? commercial?.rust_placement_accepting_nodes ?? 0),
+              missing: formatNumber(needsRustUpgrade),
+            })}
           </p>
         </div>
       </div>
@@ -2484,9 +2495,9 @@ function FleetCommercialOperationsPanel({
         <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-sm font-semibold text-white">Top placement blockers</p>
+              <p className="text-sm font-semibold text-white">{t('services.commercial.topPlacementBlockers')}</p>
               <p className="mt-1 text-xs leading-5 opacity-70">
-                Showing the first {Math.min(problemNodes.length, 3).toLocaleString()} backend-prioritized node actions.
+                {t('services.commercial.showingBackendActions', { count: formatNumber(Math.min(problemNodes.length, 3)) })}
               </p>
             </div>
             {primaryProblem && (
@@ -2494,7 +2505,7 @@ function FleetCommercialOperationsPanel({
                 href={`/dashboard/nodes/${primaryProblem.id}`}
                 className="inline-flex items-center justify-center rounded-lg border border-white/10 px-3 py-2 text-xs font-medium text-white transition hover:border-white/20 hover:bg-white/5"
               >
-                Open top issue
+                {t('services.commercial.openTopIssue')}
               </Link>
             )}
           </div>
@@ -2979,6 +2990,7 @@ function FleetRestartReadinessPanel({
   onQueueRestart: (nodeId: string, nodeName: string) => void;
   onCancelRestartCommand: (nodeId: string, nodeName: string, commandId: string) => void;
 }) {
+  const { t, formatNumber } = useI18n();
   const [queueFilters, setQueueFilters] = useState<RestartQueueFilters>({
     region: 'all',
     version: 'all',
@@ -3022,11 +3034,9 @@ function FleetRestartReadinessPanel({
     <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-white">Fleet Restart Readiness</h2>
+          <h2 className="text-lg font-semibold text-white">{t('services.restartReadiness.title')}</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-400">
-            Commercial restart gate for staged Rust rollouts from the backend overview API. A node is
-            restart-ready only when it needs rollout attention, maintenance mode is enabled, and active
-            sessions have drained to zero.
+            {t('services.restartReadiness.description')}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -3037,34 +3047,40 @@ function FleetRestartReadinessPanel({
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Ready Now</p>
-          <p className="mt-2 text-2xl font-semibold text-white">{readyCount.toLocaleString()}</p>
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{t('services.restartReadiness.readyNow')}</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatNumber(readyCount)}</p>
         </div>
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Blocked</p>
-          <p className="mt-2 text-2xl font-semibold text-white">{blockedCount.toLocaleString()}</p>
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{t('common.status.blocked')}</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatNumber(blockedCount)}</p>
         </div>
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Pending Signal</p>
-          <p className="mt-2 text-2xl font-semibold text-white">{pendingCount.toLocaleString()}</p>
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{t('services.restartReadiness.pendingSignal')}</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatNumber(pendingCount)}</p>
         </div>
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Sessions Blocking</p>
-          <p className="mt-2 text-2xl font-semibold text-white">{totalActiveSessions.toLocaleString()}</p>
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{t('services.restartReadiness.sessionsBlocking')}</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatNumber(totalActiveSessions)}</p>
         </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(cutoverGuard.risk)}`}>
-          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Cutover Safety</p>
-          <p className="mt-2 text-2xl font-semibold">{cutoverGuard.count.toLocaleString()} unsafe</p>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">{t('services.restartReadiness.cutoverSafety')}</p>
+          <p className="mt-2 text-2xl font-semibold">{t('services.restartReadiness.unsafeCount', { count: formatNumber(cutoverGuard.count) })}</p>
           <p className="mt-1 text-xs opacity-70">{cutoverGuard.label} · {cutoverGuard.detail}</p>
           <p className="mt-2 text-xs leading-5 opacity-80">
-            Actionable {cutoverGuard.actionable.toLocaleString()} · Safe{' '}
-            {cutoverGuard.safe.toLocaleString()} / {cutoverGuard.total.toLocaleString()} · Unsafe{' '}
-            {cutoverGuard.blocked.toLocaleString()} · Impact {cutoverGuard.impact}
+            {t('services.restartReadiness.cutoverCounts', {
+              actionable: formatNumber(cutoverGuard.actionable),
+              safe: formatNumber(cutoverGuard.safe),
+              total: formatNumber(cutoverGuard.total),
+              unsafe: formatNumber(cutoverGuard.blocked),
+              impact: cutoverGuard.impact,
+            })}
           </p>
           {(cutoverGuard.observedOnly > 0 || cutoverGuard.servingTraffic > 0) && (
             <p className="mt-1 text-xs leading-5 opacity-75">
-              Observed only {cutoverGuard.observedOnly.toLocaleString()} · Serving traffic{' '}
-              {cutoverGuard.servingTraffic.toLocaleString()}
+              {t('services.restartReadiness.cutoverObserved', {
+                observed: formatNumber(cutoverGuard.observedOnly),
+                serving: formatNumber(cutoverGuard.servingTraffic),
+              })}
             </p>
           )}
           {cutoverGuard.next_step && (
@@ -3072,36 +3088,44 @@ function FleetRestartReadinessPanel({
           )}
         </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(drainRisk.risk)}`}>
-          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Drain Risk</p>
-          <p className="mt-2 text-2xl font-semibold">{drainRisk.count.toLocaleString()}</p>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">{t('services.restartReadiness.drainRisk')}</p>
+          <p className="mt-2 text-2xl font-semibold">{formatNumber(drainRisk.count)}</p>
           <p className="mt-1 text-xs opacity-70">{drainRisk.label} · {drainRisk.detail}</p>
           {drainRisk.next_step && (
             <p className="mt-2 text-xs leading-5 opacity-80">{drainRisk.next_step}</p>
           )}
         </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(commandDelivery.risk)}`}>
-          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Command Delivery</p>
-          <p className="mt-2 text-2xl font-semibold">{commandDelivery.count.toLocaleString()}</p>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">{t('services.restartReadiness.commandDelivery')}</p>
+          <p className="mt-2 text-2xl font-semibold">{formatNumber(commandDelivery.count)}</p>
           <p className="mt-1 text-xs opacity-70">{commandDelivery.label} · {commandDelivery.detail}</p>
           {commandDelivery.attention > 0 && (
             <p className="mt-2 text-xs leading-5 opacity-80">
-              Attention {commandDelivery.attention.toLocaleString()} · Ready {commandDelivery.ready.toLocaleString()}
+              {t('services.restartReadiness.attentionReady', {
+                attention: formatNumber(commandDelivery.attention),
+                ready: formatNumber(commandDelivery.ready),
+              })}
             </p>
           )}
         </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(runtimeCapability.risk)}`}>
-          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Rust Capability</p>
-          <p className="mt-2 text-2xl font-semibold">{runtimeCapability.gaps.toLocaleString()} gaps</p>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">{t('services.restartReadiness.rustCapability')}</p>
+          <p className="mt-2 text-2xl font-semibold">{t('services.restartReadiness.gapsCount', { count: formatNumber(runtimeCapability.gaps) })}</p>
           <p className="mt-1 text-xs opacity-70">{runtimeCapability.label} · {runtimeCapability.detail}</p>
           <p className="mt-2 text-xs leading-5 opacity-80">
-            Operator {runtimeCapability.operatorReporting.toLocaleString()} / {runtimeCapability.total.toLocaleString()} ·
-            Cleanup {runtimeCapability.cleanupReporting.toLocaleString()} / {runtimeCapability.total.toLocaleString()} ·
-            Rollout {runtimeCapability.rolloutReporting.toLocaleString()} / {runtimeCapability.total.toLocaleString()}
+            {t('services.restartReadiness.runtimeCapabilityCounts', {
+              operator: formatNumber(runtimeCapability.operatorReporting),
+              cleanup: formatNumber(runtimeCapability.cleanupReporting),
+              rollout: formatNumber(runtimeCapability.rolloutReporting),
+              total: formatNumber(runtimeCapability.total),
+            })}
           </p>
           {(runtimeCapability.upgradeSafe > 0 || runtimeCapability.upgradeBlocked > 0) && (
             <p className="mt-1 text-xs leading-5 opacity-75">
-              Upgrade safe {runtimeCapability.upgradeSafe.toLocaleString()} ·
-              blocked {runtimeCapability.upgradeBlocked.toLocaleString()}
+              {t('services.restartReadiness.upgradeCounts', {
+                safe: formatNumber(runtimeCapability.upgradeSafe),
+                blocked: formatNumber(runtimeCapability.upgradeBlocked),
+              })}
             </p>
           )}
           {runtimeCapability.blockerSummary && (
@@ -3117,13 +3141,15 @@ function FleetRestartReadinessPanel({
           )}
         </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(commandLifecycle.risk)}`}>
-          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Command SLA</p>
-          <p className="mt-2 text-2xl font-semibold">{commandLifecycle.count.toLocaleString()}</p>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">{t('services.restartReadiness.commandSla')}</p>
+          <p className="mt-2 text-2xl font-semibold">{formatNumber(commandLifecycle.count)}</p>
           <p className="mt-1 text-xs opacity-70">{commandLifecycle.label} · {commandLifecycle.detail}</p>
           {(commandCancelability.cancelable > 0 || commandCancelability.locked > 0) && (
             <p className="mt-2 text-xs leading-5 opacity-80">
-              Cancelable {commandCancelability.cancelable.toLocaleString()} · Locked{' '}
-              {commandCancelability.locked.toLocaleString()}
+              {t('services.restartReadiness.cancelableLocked', {
+                cancelable: formatNumber(commandCancelability.cancelable),
+                locked: formatNumber(commandCancelability.locked),
+              })}
             </p>
           )}
           {commandLifecycle.next_step && (
@@ -3131,24 +3157,27 @@ function FleetRestartReadinessPanel({
           )}
         </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(policySyncHealth?.risk ?? 'info')}`}>
-          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Policy Sync</p>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">{t('settings.policySync.title')}</p>
           <p className="mt-2 text-2xl font-semibold">
-            {(policySyncHealth?.attention_nodes ?? 0).toLocaleString()}
+            {formatNumber(policySyncHealth?.attention_nodes ?? 0)}
           </p>
           <p className="mt-1 text-xs opacity-70">
-            {policySyncHealth?.label ?? 'Pending'} · {policySyncHealth?.detail ?? 'waiting for backend policy sync summary'}
+            {policySyncHealth?.label ?? t('common.status.pending')} · {policySyncHealth?.detail ?? t('services.restartReadiness.waitingPolicySync')}
           </p>
           <p className="mt-2 text-xs leading-5 opacity-80">
-            Synced {(policySyncHealth?.synced_nodes ?? 0).toLocaleString()} / {(policySyncHealth?.total_nodes ?? 0).toLocaleString()}
+            {t('services.restartReadiness.syncedCount', {
+              synced: formatNumber(policySyncHealth?.synced_nodes ?? 0),
+              total: formatNumber(policySyncHealth?.total_nodes ?? 0),
+            })}
           </p>
         </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(commercialPlacementHealth?.risk ?? 'info')}`}>
-          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Commercial Placement</p>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">{t('services.restartReadiness.commercialPlacement')}</p>
           <p className="mt-2 text-2xl font-semibold">
-            {(commercialPlacementHealth?.ready_nodes ?? 0).toLocaleString()} ready
+            {t('services.commercial.readyValue', { count: formatNumber(commercialPlacementHealth?.ready_nodes ?? 0) })}
           </p>
           <p className="mt-1 text-xs opacity-70">
-            {commercialPlacementHealth?.label ?? 'Pending'} · {commercialPlacementHealth?.detail ?? 'waiting for backend placement summary'}
+            {commercialPlacementHealth?.label ?? t('common.status.pending')} · {commercialPlacementHealth?.detail ?? t('services.restartReadiness.waitingPlacement')}
           </p>
           <p className="mt-2 text-xs leading-5 opacity-80">
             Score {(commercialPlacementHealth?.capacity_score_percent ?? 0).toFixed(1)}% ·
@@ -4084,15 +4113,12 @@ function FleetRestartReadinessPanel({
       <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-white">Restart Action Queue</h3>
+            <h3 className="text-sm font-semibold text-white">{t('services.restartQueue.title')}</h3>
             <p className="mt-1 text-xs leading-5 text-gray-500">
-              Prioritized from data.summary.restart_readiness.blocked_nodes,
-              cutover_guard_counts.actionable_problem_nodes,
-              runtime_capability_health.problem_nodes, and
-              data.nodes[].system.restart_readiness.
+              {t('services.restartQueue.description')}
             </p>
             <p className="mt-1 text-xs text-gray-600">
-              Showing {queueItemCount.toLocaleString()} item{queueItemCount === 1 ? '' : 's'}.
+              {t('services.restartQueue.showingItems', { count: formatNumber(queueItemCount) })}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -4100,9 +4126,9 @@ function FleetRestartReadinessPanel({
               value={queueFilters.region}
               onChange={(event) => setQueueFilters((current) => ({ ...current, region: event.target.value }))}
               className="h-9 rounded-lg border border-white/10 bg-black/30 px-3 text-xs text-gray-200 outline-none transition hover:border-white/20 focus:border-emerald-400/40"
-              aria-label="Restart queue region filter"
+              aria-label={t('services.restartQueue.regionFilter')}
             >
-              <option value="all">All regions</option>
+              <option value="all">{t('services.restartQueue.allRegions')}</option>
               {filterOptions.regions.map((region) => (
                 <option key={region} value={region}>{region}</option>
               ))}
@@ -4111,9 +4137,9 @@ function FleetRestartReadinessPanel({
               value={queueFilters.version}
               onChange={(event) => setQueueFilters((current) => ({ ...current, version: event.target.value }))}
               className="h-9 rounded-lg border border-white/10 bg-black/30 px-3 text-xs text-gray-200 outline-none transition hover:border-white/20 focus:border-emerald-400/40"
-              aria-label="Restart queue version filter"
+              aria-label={t('services.restartQueue.versionFilter')}
             >
-              <option value="all">All versions</option>
+              <option value="all">{t('services.restartQueue.allVersions')}</option>
               {filterOptions.versions.map((version) => (
                 <option key={version} value={version}>v{version}</option>
               ))}
@@ -4125,7 +4151,7 @@ function FleetRestartReadinessPanel({
                 status: event.target.value as RestartQueueStatusFilter,
               }))}
               className="h-9 rounded-lg border border-white/10 bg-black/30 px-3 text-xs text-gray-200 outline-none transition hover:border-white/20 focus:border-emerald-400/40"
-              aria-label="Restart queue status filter"
+              aria-label={t('services.restartQueue.statusFilter')}
             >
               {restartQueueStatusFilters.map((filter) => (
                 <option key={filter.value} value={filter.value}>{filter.label}</option>
@@ -4223,7 +4249,7 @@ function FleetRestartReadinessPanel({
                               href={`/dashboard/nodes/${item.id}?command_action=restart_service#vpn-commands`}
                               className="shrink-0 text-sky-200 hover:text-sky-100"
                             >
-                              Open
+                              {t('services.restartQueue.openCommand')}
                             </Link>
                           </div>
                           <div className="mt-2 grid grid-cols-3 gap-1">
@@ -4248,7 +4274,7 @@ function FleetRestartReadinessPanel({
                           )}
                           {cancelUnavailableReason && (
                             <p className="mt-2 text-[11px] leading-5 opacity-70">
-                              Cancel unavailable: {cancelUnavailableReason}
+                              {t('services.restartQueue.cancelUnavailable', { reason: cancelUnavailableReason })}
                             </p>
                           )}
                         </div>
@@ -4267,7 +4293,7 @@ function FleetRestartReadinessPanel({
                             disabled={Boolean(enablingMaintenanceNodeId)}
                             className="inline-flex items-center justify-center rounded-md border border-yellow-300/20 px-2.5 py-1 font-medium text-yellow-100 transition hover:border-yellow-200/40 hover:bg-yellow-300/10 disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            {isEnablingMaintenance ? 'Enabling...' : 'Enable maintenance'}
+                            {isEnablingMaintenance ? t('services.restartQueue.enabling') : t('services.restartQueue.enableMaintenance')}
                           </button>
                         )}
                         {item.canQueueRestart && (
@@ -4277,7 +4303,7 @@ function FleetRestartReadinessPanel({
                             disabled={Boolean(restartingNodeId)}
                             className="inline-flex items-center justify-center rounded-md border border-emerald-300/20 px-2.5 py-1 font-medium text-emerald-100 transition hover:border-emerald-200/40 hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            {isRestarting ? 'Queueing...' : 'Queue restart'}
+                            {isRestarting ? t('services.restartQueue.queueing') : t('services.restartQueue.queueRestart')}
                           </button>
                         )}
                         {cancellableRestartCommand && (
@@ -4287,7 +4313,7 @@ function FleetRestartReadinessPanel({
                             disabled={Boolean(cancellingCommandId)}
                             className="inline-flex items-center justify-center rounded-md border border-red-300/20 px-2.5 py-1 font-medium text-red-100 transition hover:border-red-200/40 hover:bg-red-300/10 disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            {isCancellingCommand ? 'Cancelling...' : 'Cancel command'}
+                            {isCancellingCommand ? t('services.restartQueue.cancelling') : t('services.restartQueue.cancelCommand')}
                           </button>
                         )}
                       </div>
@@ -4329,7 +4355,7 @@ function FleetRestartReadinessPanel({
                         disabled={Boolean(cancellingCommandId)}
                         className="inline-flex items-center justify-center rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-medium text-red-100 transition hover:border-red-400/40 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        {cancellingCommandId === node.activeRestartCommand.id ? 'Cancelling...' : 'Cancel command'}
+                        {cancellingCommandId === node.activeRestartCommand.id ? t('services.restartQueue.cancelling') : t('services.restartQueue.cancelCommand')}
                       </button>
                     )}
                   </>
