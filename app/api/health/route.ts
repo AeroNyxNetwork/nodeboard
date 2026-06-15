@@ -75,6 +75,8 @@
  *     Includes Rust runtime data.nodes[].system.placement_readiness from
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *     and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
+ *     Includes rust_placement_rollout_summary so Services can show backend
+ *     coverage guidance for runtime-owned admission rollout.
  *     Provides data.summary.restart_readiness.drain_activity_health_counts
  *     for the Services page top-level Drain Risk card.
  *     drain_activity_health_counts.summary is backend-authored display copy
@@ -191,7 +193,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.54 - Documented Rust placement readiness
+ * Last Modified: v1.1.55 - Documented Rust placement rollout summary
+ * Previous: v1.1.54 - Documented Rust placement readiness
  * Previous: v1.1.53 - Documented commercial placement health
  * Previous: v1.1.52 - Documented dominant policy block reason
  * Previous: v1.1.51 - Documented fleet counter scope coverage
@@ -365,7 +368,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.commercial_placement_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Backend-authored ready/watch/blocked commercial placement summary for AeroNyx Privacy Protocol nodes, combining data.nodes[], data.nodes[].system.placement_readiness from Rust /api/vpn/health, policy_sync_health, and policy_enforcement_health so Services can show paid-placement readiness without reimplementing backend policy',
+      purpose: 'Backend-authored ready/watch/blocked commercial placement summary for AeroNyx Privacy Protocol nodes, combining data.nodes[], data.nodes[].system.placement_readiness from Rust /api/vpn/health, policy_sync_health, and policy_enforcement_health so Services can show paid-placement readiness without reimplementing backend policy; includes rust_placement_rollout_summary for runtime admission rollout coverage',
     },
     {
       endpoint: 'data.nodes[].system.placement_readiness',

@@ -126,6 +126,8 @@
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs and
  *     /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs, so this
  *     card can show runtime-owned admission coverage.
+ *     rust_placement_rollout_summary is backend-authored coverage copy and
+ *     next-step guidance for placement_readiness rollout.
  *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
@@ -195,7 +197,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.57 - Show Rust placement readiness
+ * Last Modified: v1.1.58 - Show Rust placement rollout coverage
+ * Previous: v1.1.57 - Show Rust placement readiness
  * Previous: v1.1.56 - Show commercial placement health
  * Previous: v1.1.55 - Show dominant policy block reason
  * Previous: v1.1.54 - Show fleet policy counter scope coverage
@@ -2768,8 +2771,15 @@ function FleetRestartReadinessPanel({
           ) : null}
           <p className="mt-1 text-xs leading-5 opacity-75">
             Rust runtime {(commercialPlacementHealth?.rust_placement_reporting_nodes ?? 0).toLocaleString()} reporting ·
-            accepting {(commercialPlacementHealth?.rust_placement_accepting_nodes ?? 0).toLocaleString()}
+            accepting {(commercialPlacementHealth?.rust_placement_accepting_nodes ?? 0).toLocaleString()} ·
+            coverage {(commercialPlacementHealth?.rust_placement_coverage_percent ?? 0).toFixed(1)}%
           </p>
+          {commercialPlacementHealth?.rust_placement_rollout_summary && (
+            <p className="mt-1 text-xs leading-5 opacity-75">
+              {commercialPlacementHealth.rust_placement_rollout_summary.label} ·
+              missing {commercialPlacementHealth.rust_placement_rollout_summary.missing_nodes.toLocaleString()}
+            </p>
+          )}
         </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(policyEnforcementHealth?.risk ?? 'info')}`}>
           <p className="text-xs uppercase tracking-[0.16em] opacity-70">Policy Blocks</p>
@@ -2858,6 +2868,33 @@ function FleetRestartReadinessPanel({
               <p className="mt-1 font-semibold text-sky-100">{commercialPlacementHealth.recent_policy_problem_nodes.toLocaleString()}</p>
             </div>
           </div>
+          {commercialPlacementHealth.rust_placement_rollout_summary && (
+            <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="font-semibold text-sky-100">
+                    {commercialPlacementHealth.rust_placement_rollout_summary.label}
+                  </p>
+                  <p className="mt-1 leading-5 text-sky-100/55">
+                    {commercialPlacementHealth.rust_placement_rollout_summary.detail}
+                  </p>
+                </div>
+                <span className={`shrink-0 rounded-md border px-2 py-0.5 ${statusClass(commercialPlacementHealth.rust_placement_rollout_summary.risk)}`}>
+                  {commercialPlacementHealth.rust_placement_rollout_summary.status}
+                </span>
+              </div>
+              <p className="mt-1 leading-5 text-sky-100/45">
+                Coverage {commercialPlacementHealth.rust_placement_rollout_summary.coverage_percent.toFixed(1)}% ·
+                reporting {commercialPlacementHealth.rust_placement_rollout_summary.reporting_nodes.toLocaleString()} /{' '}
+                {commercialPlacementHealth.rust_placement_rollout_summary.total_nodes.toLocaleString()} ·
+                accepting {commercialPlacementHealth.rust_placement_rollout_summary.accepting_nodes.toLocaleString()} ·
+                missing {commercialPlacementHealth.rust_placement_rollout_summary.missing_nodes.toLocaleString()}
+              </p>
+              <p className="mt-1 leading-5 text-sky-100/45">
+                {commercialPlacementHealth.rust_placement_rollout_summary.next_step}
+              </p>
+            </div>
+          )}
           <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
             {commercialPlacementHealth.problem_nodes.map((node) => (
               <div key={node.id} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">

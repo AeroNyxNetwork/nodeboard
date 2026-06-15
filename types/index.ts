@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.18 - Added Rust placement rollout summary.
  *   v1.5.17 - Added Rust placement readiness fields.
  *   v1.5.16 - Added commercial placement health summary.
  *   v1.5.15 - Added fleet dominant policy block reason summary.
@@ -57,7 +58,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.17 - Added Rust placement readiness fields
+ * Last Modified: v1.5.18 - Added Rust placement rollout summary
+ * Previous: v1.5.17 - Added Rust placement readiness fields
  * Previous: v1.5.16 - Added commercial placement health summary
  * Previous: v1.5.15 - Added fleet dominant policy block reason summary
  * Previous: v1.5.14 - Added fleet policy counter scope rollout summary
@@ -865,6 +867,9 @@ export interface VpnRestartReadinessBlockedNode {
  *   commercial_placement_health includes rust_placement_reporting_nodes and
  *   rust_placement_accepting_nodes so Services can show rollout coverage for
  *   runtime-owned admission decisions.
+ *   rust_placement_rollout_summary is backend-authored coverage copy and
+ *   next-step guidance so the Services page does not compare raw counters to
+ *   infer whether runtime admission rollout is complete.
  * Maintenance recovery source:
  *   data.summary.restart_readiness.maintenance_exit_candidates lists nodes
  *   that are current, drained, and still in maintenance mode so Services can
@@ -1159,6 +1164,22 @@ export interface VpnRestartReadinessSummary {
     recent_policy_problem_nodes: number;
     rust_placement_reporting_nodes?: number;
     rust_placement_accepting_nodes?: number;
+    rust_placement_missing_nodes?: number;
+    rust_placement_coverage_percent?: number;
+    rust_placement_rollout_summary?: {
+      status: string;
+      risk: 'healthy' | 'warning' | 'critical' | 'info' | string;
+      label: string;
+      detail: string;
+      next_step: string;
+      reporting_nodes: number;
+      accepting_nodes: number;
+      missing_nodes: number;
+      total_nodes: number;
+      coverage_percent: number;
+      source: string;
+      privacy_boundary: string;
+    };
     visible_problem_count: number;
     hidden_problem_count: number;
     problem_nodes?: Array<{
