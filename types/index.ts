@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.20 - Added restart safety to Rust placement rollout targets.
  *   v1.5.19 - Added Rust placement rollout missing node list.
  *   v1.5.18 - Added Rust placement rollout summary.
  *   v1.5.17 - Added Rust placement readiness fields.
@@ -59,7 +60,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.19 - Added Rust placement rollout missing node list
+ * Last Modified: v1.5.20 - Added restart safety to Rust placement rollout targets
+ * Previous: v1.5.19 - Added Rust placement rollout missing node list
  * Previous: v1.5.18 - Added Rust placement rollout summary
  * Previous: v1.5.17 - Added Rust placement readiness fields
  * Previous: v1.5.16 - Added commercial placement health summary
@@ -874,6 +876,8 @@ export interface VpnRestartReadinessBlockedNode {
  *   infer whether runtime admission rollout is complete.
  *   missing_node_list is backend-sorted rollout work; React only renders the
  *   target node and routes primary_action to node detail.
+ *   missing_node_list[].restart_safety mirrors backend cutover_guard so
+ *   Services can show whether upgrading/restarting a missing runtime is safe.
  * Maintenance recovery source:
  *   data.summary.restart_readiness.maintenance_exit_candidates lists nodes
  *   that are current, drained, and still in maintenance mode so Services can
@@ -1193,6 +1197,15 @@ export interface VpnRestartReadinessSummary {
         version?: string | null;
         active_sessions: number;
         last_seen_seconds: number | null;
+        restart_safety?: {
+          safe_to_cutover: boolean;
+          status: string;
+          risk: 'healthy' | 'warning' | 'critical' | 'info' | string;
+          label: string;
+          detail: string;
+          next_step: string;
+          source: string;
+        };
         next_step: string;
         primary_action?: {
           key: string;

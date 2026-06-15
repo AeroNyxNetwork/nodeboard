@@ -79,6 +79,8 @@
  *     coverage guidance for runtime-owned admission rollout.
  *     Includes rust_placement_rollout_summary.missing_node_list so Services
  *     can show which nodes need the placement_readiness Rust rollout.
+ *     missing_node_list[].restart_safety mirrors backend cutover_guard so
+ *     Services can show whether a target can be safely restarted now.
  *     Provides data.summary.restart_readiness.drain_activity_health_counts
  *     for the Services page top-level Drain Risk card.
  *     drain_activity_health_counts.summary is backend-authored display copy
@@ -195,7 +197,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.56 - Documented Rust placement rollout missing nodes
+ * Last Modified: v1.1.57 - Documented Rust placement rollout restart safety
+ * Previous: v1.1.56 - Documented Rust placement rollout missing nodes
  * Previous: v1.1.55 - Documented Rust placement rollout summary
  * Previous: v1.1.54 - Documented Rust placement readiness
  * Previous: v1.1.53 - Documented commercial placement health
@@ -371,7 +374,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.commercial_placement_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Backend-authored ready/watch/blocked commercial placement summary for AeroNyx Privacy Protocol nodes, combining data.nodes[], data.nodes[].system.placement_readiness from Rust /api/vpn/health, policy_sync_health, and policy_enforcement_health so Services can show paid-placement readiness without reimplementing backend policy; includes rust_placement_rollout_summary and missing_node_list for runtime admission rollout coverage and target nodes',
+      purpose: 'Backend-authored ready/watch/blocked commercial placement summary for AeroNyx Privacy Protocol nodes, combining data.nodes[], data.nodes[].system.placement_readiness from Rust /api/vpn/health, policy_sync_health, and policy_enforcement_health so Services can show paid-placement readiness without reimplementing backend policy; includes rust_placement_rollout_summary, missing_node_list, and missing_node_list[].restart_safety for runtime admission rollout targets and cutover safety',
     },
     {
       endpoint: 'data.nodes[].system.placement_readiness',

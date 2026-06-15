@@ -130,6 +130,8 @@
  *     next-step guidance for placement_readiness rollout.
  *     rust_placement_rollout_summary.missing_node_list is backend-sorted
  *     rollout work; Services only renders the target nodes and routes actions.
+ *     missing_node_list[].restart_safety mirrors backend cutover_guard so
+ *     Services can show whether a missing runtime may be restarted now.
  *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
@@ -199,7 +201,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.59 - Show Rust placement rollout missing nodes
+ * Last Modified: v1.1.60 - Show Rust placement rollout restart safety
+ * Previous: v1.1.59 - Show Rust placement rollout missing nodes
  * Previous: v1.1.58 - Show Rust placement rollout coverage
  * Previous: v1.1.57 - Show Rust placement readiness
  * Previous: v1.1.56 - Show commercial placement health
@@ -2914,6 +2917,16 @@ function FleetRestartReadinessPanel({
                         sessions {node.active_sessions.toLocaleString()} ·
                         heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
                       </p>
+                      {node.restart_safety && (
+                        <div className="mt-1 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                          <p className="leading-5 text-sky-100/45">
+                            Restart safety {node.restart_safety.label} · {node.restart_safety.detail}
+                          </p>
+                          <span className={`shrink-0 rounded-md border px-2 py-0.5 ${statusClass(node.restart_safety.risk)}`}>
+                            {node.restart_safety.safe_to_cutover ? 'safe' : node.restart_safety.status}
+                          </span>
+                        </div>
+                      )}
                       <p className="mt-1 leading-5 text-sky-100/45">{node.next_step}</p>
                       {node.primary_action && (
                         <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
