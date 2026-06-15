@@ -79,6 +79,9 @@
  *     activity_health is backend-authored drain risk triage for operators.
  *     cleanup_policy_pending means Rust has not reported
  *     heartbeat.system_stats.vpn_health.session_cleanup yet.
+ *     data.nodes[].system.policy_enforcement includes Rust node_policy
+ *     aggregate bandwidth_drop_bytes / bandwidth_limit_bytes_per_second /
+ *     bandwidth_window_bytes for commercial limiter diagnostics.
  *   - GET /api/privacy_network/vpn/servers/
  *     /root/aeronyx/privacy_network/api/vpn_servers.py
  *     Exposes per-node placement eligibility, capacity_remaining,
@@ -777,6 +780,7 @@ function CommercialReadinessPanel({
   const policySync = health.system.policy_sync;
   const peakBps = metrics?.summary.peak_total_bps ?? null;
   const drops = policyCount(enforcement?.bandwidth_drops);
+  const droppedBytes = policyCount(enforcement?.bandwidth_drop_bytes);
   const maxSessionRejects = policyCount(enforcement?.max_sessions_rejections);
   const remaining = server?.capacity_remaining ?? (
     health.max_sessions > 0 ? Math.max(0, health.max_sessions - health.active_sessions) : null
@@ -864,7 +868,7 @@ function CommercialReadinessPanel({
             {drops + maxSessionRejects}
           </p>
           <p className="mt-0.5 text-[11px] text-gray-600">
-            {maxSessionRejects} session · {drops} packet
+            {maxSessionRejects} session · {drops} packet · {formatBytes(droppedBytes)}
           </p>
         </div>
       </div>
@@ -1322,6 +1326,9 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
   const maintenance = policyCount(enforcement?.maintenance_rejections);
   const maxSessions = policyCount(enforcement?.max_sessions_rejections);
   const bandwidth = policyCount(enforcement?.bandwidth_drops);
+  const bandwidthDropBytes = policyCount(enforcement?.bandwidth_drop_bytes);
+  const bandwidthLimitBpsSnapshot = policyCount(enforcement?.bandwidth_limit_bytes_per_second);
+  const bandwidthWindowBytes = policyCount(enforcement?.bandwidth_window_bytes);
   const total = maintenance + maxSessions + bandwidth;
   const lastAt = enforcement?.last_rejection_at
     ? new Date(enforcement.last_rejection_at * 1000).toISOString()
@@ -1377,6 +1384,7 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
           <p className="text-[11px] uppercase text-gray-600">Bandwidth Drops</p>
           <p className="text-base font-semibold text-white mt-1">{bandwidth}</p>
+          <p className="text-[11px] text-gray-600 mt-0.5">{formatBytes(bandwidthDropBytes)} rejected</p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2 min-w-0">
           <p className="text-[11px] uppercase text-gray-600">Last Rejection</p>
@@ -1386,6 +1394,25 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
           <p className="text-[11px] text-gray-600 mt-0.5">
             {lastAt ? formatRelativeTime(lastAt) : 'no recent block'}
           </p>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+        <div className="grid gap-2 sm:grid-cols-3 text-xs">
+          <div>
+            <p className="text-gray-600">Limiter Snapshot</p>
+            <p className="mt-0.5 text-gray-300">
+              {bandwidthLimitBpsSnapshot > 0 ? formatBitsPerSecond(bandwidthLimitBpsSnapshot * 8) : 'unlimited'}
+            </p>
+          </div>
+          <div>
+            <p className="text-gray-600">Current Window</p>
+            <p className="mt-0.5 text-gray-300">{formatBytes(bandwidthWindowBytes)}</p>
+          </div>
+          <div>
+            <p className="text-gray-600">Rust Source</p>
+            <p className="mt-0.5 text-gray-500 truncate">/root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs</p>
+          </div>
         </div>
       </div>
     </div>

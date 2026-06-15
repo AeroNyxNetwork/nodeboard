@@ -367,6 +367,22 @@ export interface VpnPolicyEnforcement {
   maintenance_rejections: number;
   max_sessions_rejections: number;
   bandwidth_drops: number;
+  /**
+   * Aggregate Rust node_policy bandwidth limiter telemetry exposed through:
+   *   GET /api/privacy_network/vpn/overview/
+   *
+   * Backend file:
+   *   /root/aeronyx/privacy_network/api/vpn_observability.py
+   * Rust source:
+   *   /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
+   *
+   * Privacy boundary: aggregate limiter counters only. No packet payloads,
+   * destinations, DNS contents, domains, URLs, browsing history, voucher
+   * secrets, client public IPs, or wallet-level traffic.
+   */
+  bandwidth_drop_bytes?: number;
+  bandwidth_limit_bytes_per_second?: number;
+  bandwidth_window_bytes?: number;
   last_rejection_reason: string | null;
   last_rejection_at: number | null;
 }
