@@ -85,6 +85,8 @@
  *     The cutover safety panel links to
  *     /dashboard/sessions?node={id}&status=active&quality=all and the local
  *     #maintenance-drain section for follow-up actions.
+ *     Services uses the same links for rust_placement_rollout_summary
+ *     missing_node_list fleet triage.
  *     Includes rust_placement_rollout_summary so Services can show backend
  *     coverage guidance for runtime-owned admission rollout.
  *     Includes rust_placement_rollout_summary.missing_node_list so Services
@@ -207,7 +209,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.61 - Documented placement rollout action links
+ * Last Modified: v1.1.62 - Documented fleet placement rollout action links
+ * Previous: v1.1.61 - Documented placement rollout action links
  * Previous: v1.1.60 - Documented placement rollout cutover safety
  * Previous: v1.1.59 - Documented placement readiness durable fallback
  * Previous: v1.1.58 - Documented node detail Rust placement admission
@@ -404,6 +407,11 @@ const healthPayload = {
       endpoint: 'data.nodes[].system.restart_readiness.drain_eta.cutover_guard',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Backend-authored node detail upgrade/restart safety shown beside missing Rust placement_readiness so operators do not restart a placement rollout target while active sessions or cleanup-policy gaps make cutover unsafe; node detail links this state to /dashboard/sessions?node={id}&status=active&quality=all and #maintenance-drain for follow-up',
+    },
+    {
+      endpoint: 'data.summary.restart_readiness.commercial_placement_health.rust_placement_rollout_summary.missing_node_list[]',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Backend-sorted fleet placement_readiness rollout targets rendered by Services with active-session and maintenance-drain links, using active_sessions, restart_safety.next_step, and primary_action without React reinterpreting cutover policy',
     },
     {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',

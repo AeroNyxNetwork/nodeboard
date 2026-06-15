@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.25 - Documented fleet placement rollout action links.
  *   v1.5.24 - Documented placement rollout action links.
  *   v1.5.23 - Documented placement rollout cutover safety coupling.
  *   v1.5.22 - Documented durable placement readiness fallback.
@@ -64,7 +65,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.24 - Documented placement rollout action links
+ * Last Modified: v1.5.25 - Documented fleet placement rollout action links
+ * Previous: v1.5.24 - Documented placement rollout action links
  * Previous: v1.5.23 - Documented placement rollout cutover safety coupling
  * Previous: v1.5.22 - Documented durable placement readiness fallback
  * Previous: v1.5.21 - Added node-level Rust placement readiness snapshot
@@ -1607,6 +1609,10 @@ export interface NodeboardHealthRuntime {
  * backend-authored restart/upgrade safety before rolling out the Rust field.
  * The same panel links to /dashboard/sessions?node={id}&status=active&quality=all
  * and #maintenance-drain for backend-guided operator follow-up.
+ * Services also renders those actions for
+ * data.summary.restart_readiness.commercial_placement_health
+ * .rust_placement_rollout_summary.missing_node_list so fleet triage can route
+ * directly to active sessions or node detail without duplicating backend rules.
  */
 export interface VpnPlacementReadiness {
   reported: boolean;
