@@ -10,6 +10,9 @@
  * readiness.
  *
  * Modification Reason:
+ *   v1.1.63 - Collapsed secondary operational reports behind detail module
+ *     buttons so the first-level Services page answers commercial readiness
+ *     before exposing placement, rollout, policy, and node-table diagnostics.
  *   v1.1.62 - Promoted backend commercial_placement_health into a first-screen
  *     fleet commercial operations summary so operators can see Ready,
  *     Degraded, Blocked, Maintenance, and Needs Rust upgrade counts before
@@ -210,7 +213,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.62 - Add fleet commercial operations summary
+ * Last Modified: v1.1.63 - Collapse secondary detail modules
+ * Previous: v1.1.62 - Add fleet commercial operations summary
  * Previous: v1.1.61 - Add placement rollout fleet action links
  * Previous: v1.1.60 - Show Rust placement rollout restart safety
  * Previous: v1.1.59 - Show Rust placement rollout missing nodes
@@ -304,6 +308,13 @@ type ServiceKey =
   | 'chat_relay'
   | 'sovereign_data_layer'
   | 'supernode';
+
+type ServiceDetailSection =
+  | 'placement'
+  | 'restart'
+  | 'layers'
+  | 'risks'
+  | 'nodes';
 
 interface ServiceView {
   key: ServiceKey;
@@ -2517,6 +2528,128 @@ function FleetCommercialOperationsPanel({
   );
 }
 
+function DetailModulesPanel({
+  activeSection,
+  onSelect,
+  placementAvailable,
+  placementTotal,
+  restartAttention,
+  rolloutAttention,
+  serviceCount,
+  riskCount,
+  nodeCount,
+}: {
+  activeSection: ServiceDetailSection | null;
+  onSelect: (section: ServiceDetailSection | null) => void;
+  placementAvailable: number;
+  placementTotal: number;
+  restartAttention: number;
+  rolloutAttention: number;
+  serviceCount: number;
+  riskCount: number;
+  nodeCount: number;
+}) {
+  const modules: Array<{
+    key: ServiceDetailSection;
+    label: string;
+    eyebrow: string;
+    count: string;
+    detail: string;
+    status: string;
+  }> = [
+    {
+      key: 'placement',
+      label: 'Client Placement',
+      eyebrow: 'capacity',
+      count: `${placementAvailable.toLocaleString()} / ${placementTotal.toLocaleString()}`,
+      detail: 'Placement capacity, unavailable reasons, region and tier groups.',
+      status: placementAvailable > 0 ? 'ok' : 'warning',
+    },
+    {
+      key: 'restart',
+      label: 'Restart & Rollout',
+      eyebrow: 'operations',
+      count: (restartAttention + rolloutAttention).toLocaleString(),
+      detail: 'Restart gates, drain risk, command delivery, Rust rollout gaps.',
+      status: restartAttention + rolloutAttention > 0 ? 'warning' : 'ok',
+    },
+    {
+      key: 'layers',
+      label: 'Service Layers',
+      eyebrow: 'signals',
+      count: serviceCount.toLocaleString(),
+      detail: 'Privacy Protocol, MemChain, ChatRelay, data layer, and operator heartbeat.',
+      status: serviceCount > 0 ? 'ok' : 'pending',
+    },
+    {
+      key: 'risks',
+      label: 'Service Risks',
+      eyebrow: 'alerts',
+      count: riskCount.toLocaleString(),
+      detail: 'Degraded service-layer risks and remediation notes.',
+      status: riskCount > 0 ? 'warning' : 'ok',
+    },
+    {
+      key: 'nodes',
+      label: 'Node Readiness',
+      eyebrow: 'table',
+      count: nodeCount.toLocaleString(),
+      detail: 'Full per-node readiness table and service cards.',
+      status: nodeCount > 0 ? 'info' : 'pending',
+    },
+  ];
+
+  return (
+    <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Detail Modules</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-400">
+            Open secondary reports only when you need placement, rollout, policy, or node-level diagnostics.
+          </p>
+        </div>
+        {activeSection && (
+          <button
+            type="button"
+            onClick={() => onSelect(null)}
+            className="inline-flex items-center justify-center rounded-lg border border-white/10 px-3 py-2 text-xs font-medium text-gray-200 transition hover:border-white/20 hover:bg-white/5"
+          >
+            Collapse details
+          </button>
+        )}
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {modules.map((module) => {
+          const active = activeSection === module.key;
+          return (
+            <button
+              key={module.key}
+              type="button"
+              onClick={() => onSelect(active ? null : module.key)}
+              className={`rounded-xl border p-4 text-left transition ${
+                active
+                  ? 'border-purple-400/40 bg-purple-500/[0.10]'
+                  : 'border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.06]'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">{module.eyebrow}</p>
+                  <p className="mt-2 text-sm font-semibold text-white">{module.label}</p>
+                </div>
+                <StatusPill status={module.status} />
+              </div>
+              <p className="mt-3 text-2xl font-semibold text-white">{module.count}</p>
+              <p className="mt-2 text-xs leading-5 text-gray-500">{module.detail}</p>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function ServiceCard({ service }: { service: ServiceView }) {
   return (
     <section className="min-h-[210px] rounded-2xl border border-white/10 bg-white/[0.04] p-5">
@@ -4616,6 +4749,7 @@ export default function NodeServicesPage() {
   const [restartingNodeId, setRestartingNodeId] = useState<string | null>(null);
   const [cancellingCommandId, setCancellingCommandId] = useState<string | null>(null);
   const [operationNotice, setOperationNotice] = useState<OperationNotice | null>(null);
+  const [activeDetailSection, setActiveDetailSection] = useState<ServiceDetailSection | null>(null);
 
   const refreshOperationalSnapshots = async () => {
     await refetch();
@@ -4753,6 +4887,12 @@ export default function NodeServicesPage() {
   const runtimeRolloutNodes = useMemo(() => collectRuntimeRolloutNodes(nodes), [nodes]);
   const sessionCleanupRolloutNodes = useMemo(() => collectSessionCleanupRolloutNodes(nodes), [nodes]);
   const latestReportedAt = useMemo(() => latestReportTime(operatorStatuses), [operatorStatuses]);
+  const restartAttentionCount = restartReadinessNodes.filter((node) => node.status !== 'current').length;
+  const rolloutAttentionCount = (
+    sessionCleanupRolloutNodes.length
+    + pendingOperatorNodes.length
+    + runtimeRolloutNodes.length
+  );
 
   if (isLoading) {
     return (
@@ -4819,112 +4959,170 @@ export default function NodeServicesPage() {
       <FleetSummaryGrid summary={fleetSummary} latestReportedAt={latestReportedAt} />
       <FleetCommercialOperationsPanel summary={restartReadinessSummary} />
 
-      <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {services.map((service) => (
-          <ServiceCard key={service.key} service={service} />
-        ))}
-      </div>
-
-      <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-white">Operator Signal</h2>
-            <p className="mt-1 text-sm text-gray-400">
-              {operatorStatuses.length > 0
-                ? `${operatorStatuses.length} node(s) reporting operator_status through signed Rust heartbeat`
-                : 'Waiting for system_stats.operator_status from Rust heartbeats'}
-            </p>
-          </div>
-          <StatusPill status={operatorStatuses.length > 0 ? 'ok' : 'pending'} />
-        </div>
-      </div>
-
-      <PlacementCapacityPanel
-        summary={placementSummary}
-        servers={placementServers}
-        nodesById={nodesById}
-        available={placementAvailable}
-        total={placementTotal}
-        isLoading={isPlacementLoading}
+      <DetailModulesPanel
+        activeSection={activeDetailSection}
+        onSelect={setActiveDetailSection}
+        placementAvailable={placementAvailable}
+        placementTotal={placementTotal}
+        restartAttention={restartAttentionCount}
+        rolloutAttention={rolloutAttentionCount}
+        serviceCount={operatorStatuses.length}
+        riskCount={risks.length}
+        nodeCount={nodes.length}
       />
 
-      <FleetRestartReadinessPanel
-        nodes={restartReadinessNodes}
-        summary={restartReadinessSummary}
-        enablingMaintenanceNodeId={enablingMaintenanceNodeId}
-        endingMaintenanceNodeId={endingMaintenanceNodeId}
-        restartingNodeId={restartingNodeId}
-        cancellingCommandId={cancellingCommandId}
-        onEnableMaintenance={handleEnableMaintenance}
-        onEndMaintenance={handleEndMaintenance}
-        onQueueRestart={handleQueueRestart}
-        onCancelRestartCommand={handleCancelRestartCommand}
-      />
-      <SessionCleanupRolloutPanel nodes={sessionCleanupRolloutNodes} />
-      <PendingOperatorRolloutPanel nodes={pendingOperatorNodes} />
-      <RuntimeRolloutPanel nodes={runtimeRolloutNodes} />
+      {activeDetailSection === 'placement' && (
+        <PlacementCapacityPanel
+          summary={placementSummary}
+          servers={placementServers}
+          nodesById={nodesById}
+          available={placementAvailable}
+          total={placementTotal}
+          isLoading={isPlacementLoading}
+        />
+      )}
 
-      {risks.length > 0 && (
-        <div className="mb-6 rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-5">
-          <h2 className="text-lg font-semibold text-yellow-100">Service Risks</h2>
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">
-            {risks.map((risk, index) => (
-              <div key={`${risk.code}-${index}`} className="rounded-xl border border-yellow-300/10 bg-black/20 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium text-yellow-100">
-                    {risk.nodeName}: {risk.message}
-                  </p>
-                  <StatusPill status={risk.severity} />
-                </div>
-                <p className="mt-2 text-xs leading-5 text-yellow-100/70">{risk.remediation}</p>
+      {activeDetailSection === 'restart' && (
+        <>
+          <FleetRestartReadinessPanel
+            nodes={restartReadinessNodes}
+            summary={restartReadinessSummary}
+            enablingMaintenanceNodeId={enablingMaintenanceNodeId}
+            endingMaintenanceNodeId={endingMaintenanceNodeId}
+            restartingNodeId={restartingNodeId}
+            cancellingCommandId={cancellingCommandId}
+            onEnableMaintenance={handleEnableMaintenance}
+            onEndMaintenance={handleEndMaintenance}
+            onQueueRestart={handleQueueRestart}
+            onCancelRestartCommand={handleCancelRestartCommand}
+          />
+          <SessionCleanupRolloutPanel nodes={sessionCleanupRolloutNodes} />
+          <PendingOperatorRolloutPanel nodes={pendingOperatorNodes} />
+          <RuntimeRolloutPanel nodes={runtimeRolloutNodes} />
+        </>
+      )}
+
+      {activeDetailSection === 'layers' && (
+        <>
+          <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Operator Signal</h2>
+                <p className="mt-1 text-sm text-gray-400">
+                  {operatorStatuses.length > 0
+                    ? `${operatorStatuses.length} node(s) reporting operator_status through signed Rust heartbeat`
+                    : 'Waiting for system_stats.operator_status from Rust heartbeats'}
+                </p>
               </div>
+              <StatusPill status={operatorStatuses.length > 0 ? 'ok' : 'pending'} />
+            </div>
+          </div>
+
+          <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {services.map((service) => (
+              <ServiceCard key={service.key} service={service} />
             ))}
           </div>
+        </>
+      )}
+
+      {activeDetailSection === 'risks' && (
+        <div className={`mb-6 rounded-2xl border p-5 ${
+          risks.length > 0
+            ? 'border-yellow-500/20 bg-yellow-500/10'
+            : 'border-white/10 bg-white/[0.04]'
+        }`}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className={`text-lg font-semibold ${risks.length > 0 ? 'text-yellow-100' : 'text-white'}`}>
+                Service Risks
+              </h2>
+              <p className={`mt-1 text-sm ${risks.length > 0 ? 'text-yellow-100/65' : 'text-gray-400'}`}>
+                {risks.length > 0
+                  ? `${risks.length} service-layer risk(s) need attention.`
+                  : 'No service-layer risks are currently reported.'}
+              </p>
+            </div>
+            <StatusPill status={risks.length > 0 ? 'warning' : 'ok'} />
+          </div>
+          {risks.length > 0 && (
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              {risks.map((risk, index) => (
+                <div key={`${risk.code}-${index}`} className="rounded-xl border border-yellow-300/10 bg-black/20 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-yellow-100">
+                      {risk.nodeName}: {risk.message}
+                    </p>
+                    <StatusPill status={risk.severity} />
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-yellow-100/70">{risk.remediation}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
-        <div className="border-b border-white/10 px-5 py-4">
-          <h2 className="text-lg font-semibold text-white">Node Readiness</h2>
-          <p className="mt-1 text-sm text-gray-400">
-            Per-node service readiness from Django overview snapshots and Rust operator heartbeats.
-          </p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1080px] text-left">
-            <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.12em] text-gray-500">
-              <tr>
-                <th className="px-4 py-3 font-medium">Node</th>
-                <th className="px-4 py-3 font-medium">Privacy</th>
-                <th className="px-4 py-3 font-medium">MemChain</th>
-                <th className="px-4 py-3 font-medium">ChatRelay</th>
-                <th className="px-4 py-3 font-medium">Data Layer</th>
-                <th className="px-4 py-3 font-medium">Operator</th>
-                <th className="px-4 py-3 font-medium">Rollout</th>
-                <th className="px-4 py-3 font-medium">Heartbeat</th>
-              </tr>
-            </thead>
-            <tbody>
-              {nodes.length > 0 ? (
-                nodes.map((node) => <NodeReadinessRow key={node.id} node={node} />)
-              ) : (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
-                    No nodes are reporting yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {activeDetailSection === 'nodes' && (
+        <>
+          <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
+            <div className="border-b border-white/10 px-5 py-4">
+              <h2 className="text-lg font-semibold text-white">Node Readiness</h2>
+              <p className="mt-1 text-sm text-gray-400">
+                Per-node service readiness from Django overview snapshots and Rust operator heartbeats.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1080px] text-left">
+                <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.12em] text-gray-500">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Node</th>
+                    <th className="px-4 py-3 font-medium">Privacy</th>
+                    <th className="px-4 py-3 font-medium">MemChain</th>
+                    <th className="px-4 py-3 font-medium">ChatRelay</th>
+                    <th className="px-4 py-3 font-medium">Data Layer</th>
+                    <th className="px-4 py-3 font-medium">Operator</th>
+                    <th className="px-4 py-3 font-medium">Rollout</th>
+                    <th className="px-4 py-3 font-medium">Heartbeat</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {nodes.length > 0 ? (
+                    nodes.map((node) => <NodeReadinessRow key={node.id} node={node} />)
+                  ) : (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
+                        No nodes are reporting yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
-      {nodes.length > 0 && (
-        <div className="mt-6 grid gap-4 xl:grid-cols-2">
-          {nodes.map((node) => (
-            <NodeDetailCard key={node.id} node={node} />
-          ))}
-        </div>
+          {nodes.length > 0 && (
+            <div className="mt-6 grid gap-4 xl:grid-cols-2">
+              {nodes.map((node) => (
+                <NodeDetailCard key={node.id} node={node} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {!activeDetailSection && (
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Details collapsed</h2>
+              <p className="mt-1 text-sm leading-6 text-gray-400">
+                Select a detail module above to inspect placement, rollout, service-layer, risk, or node-table diagnostics.
+              </p>
+            </div>
+            <StatusPill status="info" />
+          </div>
+        </section>
       )}
     </div>
   );
