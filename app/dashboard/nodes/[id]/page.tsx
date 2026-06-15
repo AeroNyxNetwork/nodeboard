@@ -22,11 +22,12 @@
  *   2. NodeSettings — visibility / region / VPN / password config
  *   3. Service Readiness panel from /vpn/overview/ operator_status
  *   4. VPN Health panel from /vpn/overview/ for live heartbeat diagnostics
- *   5. Recent VPN Events for node-scoped health/session/command triage
- *   6. Wallet ban policies and VPN command history
- *   7. Stats grid — uptime / sessions / traffic
- *   8. Hardware info + node details
- *   9. Recent sessions table
+ *   5. Commercial readiness panel from /vpn/overview/ + /vpn/servers/
+ *   6. Recent VPN Events for node-scoped health/session/command triage
+ *   7. Wallet ban policies and VPN command history
+ *   8. Stats grid — uptime / sessions / traffic
+ *   9. Hardware info + node details
+ *   10. Recent sessions table
  *
  * Backend APIs and file paths used by this page:
  *   - GET /api/privacy_network/nodes/{id}/
@@ -78,6 +79,14 @@
  *     activity_health is backend-authored drain risk triage for operators.
  *     cleanup_policy_pending means Rust has not reported
  *     heartbeat.system_stats.vpn_health.session_cleanup yet.
+ *   - GET /api/privacy_network/vpn/servers/
+ *     /root/aeronyx/privacy_network/api/vpn_servers.py
+ *     Exposes per-node placement eligibility, capacity_remaining,
+ *     failover_rank, availability_24h_percent, and unavailable_reason for the
+ *     Commercial Readiness panel. This endpoint only returns owner-scoped
+ *     operational placement metadata; it does not expose client destinations,
+ *     DNS contents, packet payloads, browsing history, voucher secrets, or
+ *     wallet-level traffic.
  *   - GET /api/privacy_network/nodes/{id}/sessions/?status=active
  *     /root/aeronyx/privacy_network/api/sessions.py
  *     /root/aeronyx/privacy_network/serializers.py
@@ -119,7 +128,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.16 - Render backend recommended operator actions
+ * Last Modified: v1.6.17 - Add commercial readiness panel
+ * Previous: v1.6.16 - Render backend recommended operator actions
  * Previous: v1.6.15 - Add operator action contextual controls
  * Previous: v1.6.14 - Show backend operator action plan
  * Previous: v1.6.13 - Use backend node command delivery policy
@@ -685,78 +695,184 @@ function formatPlacementReason(reason: string | null | undefined) {
     vpn_health_failed: 'VPN health failed',
     overloaded: 'overloaded',
     low_24h_availability: 'low 24h availability',
+    vpn_health_degraded: 'VPN health degraded',
   };
   return labels[reason] || reason.replace(/_/g, ' ');
 }
 
-function NodePlacementStrip({
-  server,
-  isLoading,
-}: {
-  server: VpnServerCandidate | null;
-  isLoading: boolean;
-}) {
-  if (isLoading) {
-    return (
-      <div className="mt-5 h-14 rounded-xl bg-white/[0.04] border border-white/5 animate-pulse" />
-    );
-  }
+function placementNextAction(reason: string | null | undefined) {
+  const actions: Record<string, string> = {
+    heartbeat_stale: 'Check Rust service heartbeat and command delivery before advertising this node.',
+    maintenance_mode: 'End maintenance after active sessions are drained and restart checks are clear.',
+    max_sessions_reached: 'Raise max_sessions in Node Settings or wait for active sessions to close.',
+    vpn_health_failed: 'Run diagnostics, inspect health checks, then restart under maintenance if needed.',
+    vpn_health_degraded: 'Review failed checks and recent events before increasing placement traffic.',
+    overloaded: 'Lower load, raise capacity, or keep this node behind healthier candidates.',
+    low_24h_availability: 'Wait for more healthy samples or inspect heartbeat/service stability.',
+  };
+  return reason ? actions[reason] || 'Review placement health, policy sync, and recent events for this node.' : 'Keep monitoring capacity and policy counters while this node receives clients.';
+}
 
-  if (!server) {
+function readinessToneClass(status: 'ready' | 'attention' | 'blocked' | 'pending') {
+  if (status === 'ready') return 'border-emerald-500/20 bg-emerald-500/[0.05]';
+  if (status === 'blocked') return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  if (status === 'attention') return 'border-sky-500/20 bg-sky-500/[0.05]';
+  return 'border-white/5 bg-white/[0.02]';
+}
+
+function readinessBadgeClass(status: 'ready' | 'attention' | 'blocked' | 'pending') {
+  if (status === 'ready') return 'border-emerald-500/25 bg-emerald-500/15 text-emerald-300';
+  if (status === 'blocked') return 'border-yellow-500/25 bg-yellow-500/15 text-yellow-300';
+  if (status === 'attention') return 'border-sky-500/25 bg-sky-500/15 text-sky-300';
+  return 'border-white/10 bg-white/5 text-gray-300';
+}
+
+function sessionCapacityValue(activeSessions: number, maxSessions: number, remaining: number | null | undefined) {
+  if (maxSessions > 0) return `${activeSessions} / ${maxSessions}`;
+  if (typeof remaining === 'number') return `${activeSessions} active`;
+  return `${activeSessions} / unlimited`;
+}
+
+/**
+ * Commercial client-placement decision view.
+ *
+ * Backend contracts:
+ *   GET /api/privacy_network/vpn/overview/
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *   GET /api/privacy_network/vpn/servers/
+ *     /root/aeronyx/privacy_network/api/vpn_servers.py
+ * Rust producers:
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
+ */
+function CommercialReadinessPanel({
+  health,
+  server,
+  metrics,
+  isPlacementLoading,
+  isMetricsLoading,
+}: {
+  health: VpnNodeHealth;
+  server: VpnServerCandidate | null;
+  metrics: VpnNodeMetrics | null;
+  isPlacementLoading: boolean;
+  isMetricsLoading: boolean;
+}) {
+  if (isPlacementLoading) {
     return (
-      <div className="mt-5 rounded-xl border border-yellow-500/20 bg-yellow-500/[0.05] px-4 py-3">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <div>
-            <p className="text-sm font-medium text-yellow-200">Client Placement</p>
-            <p className="text-xs text-gray-500 mt-1">
-              This node is not in the public VPN candidate list.
-            </p>
+      <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.02] p-4">
+        <div className="animate-pulse space-y-3">
+          <div className="h-4 w-44 rounded bg-white/10" />
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            {[...Array(5)].map((_, index) => (
+              <div key={index} className="h-16 rounded-lg bg-white/5" />
+            ))}
           </div>
-          <span className="text-xs text-yellow-300">not advertised</span>
         </div>
       </div>
     );
   }
+
+  const enforcement = health.system.policy_enforcement;
+  const policySync = health.system.policy_sync;
+  const peakBps = metrics?.summary.peak_total_bps ?? null;
+  const drops = policyCount(enforcement?.bandwidth_drops);
+  const maxSessionRejects = policyCount(enforcement?.max_sessions_rejections);
+  const remaining = server?.capacity_remaining ?? (
+    health.max_sessions > 0 ? Math.max(0, health.max_sessions - health.active_sessions) : null
+  );
+  const syncStatus = policySync?.status || 'unknown';
+  const runtimeMismatch = (policySync?.mismatched_fields?.length ?? 0) > 0;
+  const placementBlocked = !server || !server.available;
+  const needsAttention = runtimeMismatch || drops > 0 || maxSessionRejects > 0;
+  const status = placementBlocked ? 'blocked' : needsAttention ? 'attention' : 'ready';
+  const statusLabel = status === 'ready' ? 'ready for clients' : status === 'attention' ? 'watch policy' : 'not advertised';
+  const placementReason = server?.unavailable_reason ?? (!server ? 'not_in_candidate_list' : null);
+  const nextAction = !server
+    ? 'Check visibility, region, VPN mode, and heartbeat before expecting public placement.'
+    : placementNextAction(server.unavailable_reason);
+  const limitBps = bandwidthLimitBps(health.bandwidth_limit_mbps);
+  const nearBandwidthCap = limitBps > 0 && typeof peakBps === 'number' && peakBps >= limitBps * 0.9;
 
   return (
-    <div className={`mt-5 rounded-xl border px-4 py-3 ${
-      server.available
-        ? 'border-emerald-500/20 bg-emerald-500/[0.05]'
-        : 'border-yellow-500/20 bg-yellow-500/[0.05]'
-    }`}>
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-        <div>
+    <div className={`mt-5 rounded-xl border p-4 ${readinessToneClass(status)}`}>
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-medium text-white">Client Placement</p>
-            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${
-              server.available
-                ? 'border-emerald-500/25 bg-emerald-500/15 text-emerald-300'
-                : 'border-yellow-500/25 bg-yellow-500/15 text-yellow-300'
-            }`}>
-              {server.available ? `rank ${server.failover_rank ?? '-'}` : formatPlacementReason(server.unavailable_reason)}
+            <h4 className="text-sm font-semibold text-white">AeroNyx Client Readiness</h4>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${readinessBadgeClass(status)}`}>
+              {statusLabel}
             </span>
+            {server?.available ? (
+              <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-gray-300">
+                failover rank {server.failover_rank ?? '-'}
+              </span>
+            ) : null}
           </div>
-          <p className="text-xs text-gray-500 mt-1">
-            {server.available
-              ? `Clients can receive ${server.address || 'hidden'}:${server.port}`
-              : `Hidden from clients: ${formatPlacementReason(server.unavailable_reason)}`}
+          <p className="mt-1 text-xs leading-5 text-gray-500">
+            {server?.available
+              ? `Clients can receive ${server.address || 'hidden'}:${server.port} when policy counters stay clear.`
+              : `Hidden from client placement: ${formatPlacementReason(placementReason)}.`}
           </p>
         </div>
-        <div className="grid grid-cols-3 gap-3 text-xs text-gray-400 min-w-[260px]">
-          <div>
-            <p className="text-gray-600">24h</p>
-            <p className="mt-1 text-gray-300">{formatAvailability(server.availability_24h_percent)}</p>
-          </div>
-          <div>
-            <p className="text-gray-600">Load</p>
-            <p className="mt-1 text-gray-300">{server.load === null ? 'pending' : `${server.load}%`}</p>
-          </div>
-          <div>
-            <p className="text-gray-600">Sessions</p>
-            <p className="mt-1 text-gray-300">{server.current_sessions}</p>
-          </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-400 lg:max-w-md">
+          <p className="font-medium text-gray-300">Next operator action</p>
+          <p className="mt-1 leading-5 text-gray-500">{nextAction}</p>
         </div>
       </div>
+
+      <div className="mt-4 grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2 min-w-0">
+          <p className="text-[11px] uppercase text-gray-600">Placement</p>
+          <p className="mt-1 truncate text-base font-semibold text-white">
+            {server?.available ? 'Advertised' : 'Hidden'}
+          </p>
+          <p className="mt-0.5 truncate text-[11px] text-gray-600">
+            {server ? formatPlacementReason(server.unavailable_reason) : 'not in candidate list'}
+          </p>
+        </div>
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
+          <p className="text-[11px] uppercase text-gray-600">Session Capacity</p>
+          <p className="mt-1 text-base font-semibold text-white">
+            {sessionCapacityValue(health.active_sessions, health.max_sessions, remaining)}
+          </p>
+          <p className="mt-0.5 text-[11px] text-gray-600">
+            {health.max_sessions > 0 ? `${remaining ?? 0} slots left` : 'unlimited policy'}
+          </p>
+        </div>
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
+          <p className="text-[11px] uppercase text-gray-600">Bandwidth Policy</p>
+          <p className={`mt-1 text-base font-semibold ${drops > 0 || nearBandwidthCap ? 'text-yellow-200' : 'text-white'}`}>
+            {formatBandwidthLimit(health.bandwidth_limit_mbps)}
+          </p>
+          <p className="mt-0.5 text-[11px] text-gray-600">
+            {isMetricsLoading ? 'loading peak' : `${formatBitsPerSecond(peakBps)} peak`}
+          </p>
+        </div>
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2 min-w-0">
+          <p className="text-[11px] uppercase text-gray-600">Policy Sync</p>
+          <p className={`mt-1 truncate text-base font-semibold ${runtimeMismatch ? 'text-yellow-200' : 'text-white'}`}>
+            {syncStatus}
+          </p>
+          <p className="mt-0.5 truncate text-[11px] text-gray-600">
+            {runtimeMismatch ? policySync?.mismatched_fields?.map((field) => field.replace(/_/g, ' ')).join(', ') : 'nodeboard vs Rust'}
+          </p>
+        </div>
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
+          <p className="text-[11px] uppercase text-gray-600">Runtime Blocks</p>
+          <p className={`mt-1 text-base font-semibold ${drops + maxSessionRejects > 0 ? 'text-yellow-200' : 'text-white'}`}>
+            {drops + maxSessionRejects}
+          </p>
+          <p className="mt-0.5 text-[11px] text-gray-600">
+            {maxSessionRejects} session · {drops} packet
+          </p>
+        </div>
+      </div>
+
+      <p className="mt-3 text-[11px] leading-5 text-gray-600">
+        Backend: GET /api/privacy_network/vpn/overview/ from /root/aeronyx/privacy_network/api/vpn_observability.py
+        and GET /api/privacy_network/vpn/servers/ from /root/aeronyx/privacy_network/api/vpn_servers.py.
+      </p>
     </div>
   );
 }
@@ -2980,7 +3096,13 @@ function VpnHealthPanel({
         </div>
       </div>
 
-      <NodePlacementStrip server={placement} isLoading={placementLoading} />
+      <CommercialReadinessPanel
+        health={health}
+        server={placement}
+        metrics={metrics}
+        isPlacementLoading={placementLoading}
+        isMetricsLoading={metricsLoading}
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 mt-5">
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
