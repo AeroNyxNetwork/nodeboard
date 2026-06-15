@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.17 - Added Rust placement readiness fields.
  *   v1.5.16 - Added commercial placement health summary.
  *   v1.5.15 - Added fleet dominant policy block reason summary.
  *   v1.5.14 - Added fleet policy counter scope rollout summary.
@@ -56,7 +57,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.16 - Added commercial placement health summary
+ * Last Modified: v1.5.17 - Added Rust placement readiness fields
+ * Previous: v1.5.16 - Added commercial placement health summary
  * Previous: v1.5.15 - Added fleet dominant policy block reason summary
  * Previous: v1.5.14 - Added fleet policy counter scope rollout summary
  * Previous: v1.5.13 - Added fleet policy counter scope summary fields
@@ -857,6 +859,12 @@ export interface VpnRestartReadinessBlockedNode {
  *   Services can show whether AeroNyx Privacy Protocol nodes are safe for
  *   more paid placement. The backend owns ready/watch/blocked classification;
  *   React only renders the operator decision and routes primary_action.
+ *   New Rust runtimes also report data.nodes[].system.placement_readiness
+ *   from /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
+ *   and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
+ *   commercial_placement_health includes rust_placement_reporting_nodes and
+ *   rust_placement_accepting_nodes so Services can show rollout coverage for
+ *   runtime-owned admission decisions.
  * Maintenance recovery source:
  *   data.summary.restart_readiness.maintenance_exit_candidates lists nodes
  *   that are current, drained, and still in maintenance mode so Services can
@@ -1149,6 +1157,8 @@ export interface VpnRestartReadinessSummary {
     capacity_score_percent: number;
     policy_sync_attention_nodes: number;
     recent_policy_problem_nodes: number;
+    rust_placement_reporting_nodes?: number;
+    rust_placement_accepting_nodes?: number;
     visible_problem_count: number;
     hidden_problem_count: number;
     problem_nodes?: Array<{
@@ -1167,6 +1177,10 @@ export interface VpnRestartReadinessSummary {
       capacity_ratio_percent?: number | null;
       last_seen_seconds: number | null;
       policy_sync_status: string;
+      rust_placement_reported?: boolean;
+      rust_accepting_new_sessions?: boolean | null;
+      rust_placement_status?: string;
+      rust_placement_reason?: string;
       recent_policy_block: boolean;
       primary_reason: {
         key: string;

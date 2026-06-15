@@ -122,6 +122,10 @@
  *     into backend-authored ready/watch/blocked classification for commercial
  *     AeroNyx Privacy Protocol placement. Services renders the operator
  *     decision and primary_action only; it does not infer paid placement rules.
+ *     New Rust runtimes report data.nodes[].system.placement_readiness from
+ *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs and
+ *     /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs, so this
+ *     card can show runtime-owned admission coverage.
  *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
@@ -191,7 +195,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.56 - Show commercial placement health
+ * Last Modified: v1.1.57 - Show Rust placement readiness
+ * Previous: v1.1.56 - Show commercial placement health
  * Previous: v1.1.55 - Show dominant policy block reason
  * Previous: v1.1.54 - Show fleet policy counter scope coverage
  * Previous: v1.1.53 - Show fleet policy counter scope
@@ -2761,6 +2766,10 @@ function FleetRestartReadinessPanel({
               recent blocks {(commercialPlacementHealth?.recent_policy_problem_nodes ?? 0).toLocaleString()}
             </p>
           ) : null}
+          <p className="mt-1 text-xs leading-5 opacity-75">
+            Rust runtime {(commercialPlacementHealth?.rust_placement_reporting_nodes ?? 0).toLocaleString()} reporting ·
+            accepting {(commercialPlacementHealth?.rust_placement_accepting_nodes ?? 0).toLocaleString()}
+          </p>
         </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(policyEnforcementHealth?.risk ?? 'info')}`}>
           <p className="text-xs uppercase tracking-[0.16em] opacity-70">Policy Blocks</p>
@@ -2875,6 +2884,10 @@ function FleetRestartReadinessPanel({
                 <p className="mt-1 leading-5 text-sky-100/45">
                   Policy sync {node.policy_sync_status} · recent policy block {node.recent_policy_block ? 'yes' : 'no'} ·
                   heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
+                </p>
+                <p className="mt-1 leading-5 text-sky-100/45">
+                  Rust admission {node.rust_placement_reported ? (node.rust_accepting_new_sessions ? 'accepting' : 'blocked') : 'missing'} ·
+                  status {node.rust_placement_status ?? 'missing'} · reason {node.rust_placement_reason ?? 'not_reported'}
                 </p>
                 <p className="mt-1 leading-5 text-sky-100/50">{node.next_step}</p>
                 {node.primary_action && (

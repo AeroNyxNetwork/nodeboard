@@ -72,6 +72,9 @@
  *     policy_enforcement_health. The backend owns ready/watch/blocked
  *     classification and primary_action so React does not guess paid placement
  *     rules.
+ *     Includes Rust runtime data.nodes[].system.placement_readiness from
+ *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
+ *     and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
  *     Provides data.summary.restart_readiness.drain_activity_health_counts
  *     for the Services page top-level Drain Risk card.
  *     drain_activity_health_counts.summary is backend-authored display copy
@@ -188,7 +191,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.53 - Documented commercial placement health
+ * Last Modified: v1.1.54 - Documented Rust placement readiness
+ * Previous: v1.1.53 - Documented commercial placement health
  * Previous: v1.1.52 - Documented dominant policy block reason
  * Previous: v1.1.51 - Documented fleet counter scope coverage
  * Previous: v1.1.50 - Documented fleet policy counter scope
@@ -361,7 +365,12 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.commercial_placement_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Backend-authored ready/watch/blocked commercial placement summary for AeroNyx Privacy Protocol nodes, combining data.nodes[], policy_sync_health, and policy_enforcement_health so Services can show paid-placement readiness without reimplementing backend policy',
+      purpose: 'Backend-authored ready/watch/blocked commercial placement summary for AeroNyx Privacy Protocol nodes, combining data.nodes[], data.nodes[].system.placement_readiness from Rust /api/vpn/health, policy_sync_health, and policy_enforcement_health so Services can show paid-placement readiness without reimplementing backend policy',
+    },
+    {
+      endpoint: 'data.nodes[].system.placement_readiness',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Mapped Rust runtime admission snapshot from /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs, including accepting_new_sessions, reason, session capacity, and bandwidth window coverage for commercial placement triage',
     },
     {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',
