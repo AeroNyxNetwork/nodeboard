@@ -4338,6 +4338,8 @@ function WalletBanPolicyRow({
   onUnban: (walletHex: string) => void;
   isBusy: boolean;
 }) {
+  const { t, formatRelativeTime: formatLocalizedRelativeTime } = useI18n();
+
   return (
     <tr className="hover:bg-white/[0.02]">
       <td className="px-4 py-3">
@@ -4353,7 +4355,7 @@ function WalletBanPolicyRow({
         <span className="text-sm text-gray-400">{formatPolicySource(ban.source)}</span>
       </td>
       <td className="px-4 py-3">
-        <span className="text-sm text-gray-400">{formatRelativeTime(ban.banned_at)}</span>
+        <span className="text-sm text-gray-400">{formatLocalizedRelativeTime(ban.banned_at)}</span>
       </td>
       <td className="px-4 py-3">
         {ban.command_id ? (
@@ -4364,7 +4366,7 @@ function WalletBanPolicyRow({
             <CopyButton text={ban.command_id} />
           </div>
         ) : (
-          <span className="text-sm text-gray-600">manual</span>
+          <span className="text-sm text-gray-600">{t('nodeDetail.wallet.manual')}</span>
         )}
       </td>
       <td className="px-4 py-3 text-right">
@@ -4374,7 +4376,7 @@ function WalletBanPolicyRow({
           disabled={isBusy}
           onClick={() => onUnban(ban.wallet_hex)}
         >
-          Unban
+          {t('nodeDetail.wallet.unban')}
         </Button>
       </td>
     </tr>
@@ -4390,11 +4392,12 @@ function WalletBanPolicyPanel({
   isVpnNode: boolean;
   onToast: (message: string, variant?: 'success' | 'error') => void;
 }) {
+  const { t } = useI18n();
   const { bans, isLoading, isError, refetch } = useNodeWalletBans(nodeId, 'active');
   const runCommand = useRunNodeCommand();
 
   const handleUnban = async (walletHex: string) => {
-    if (!window.confirm(`Unban wallet ${walletHex.slice(0, 8)}...?`)) {
+    if (!window.confirm(t('nodeDetail.wallet.unbanConfirm', { wallet: `${walletHex.slice(0, 8)}...` }))) {
       return;
     }
 
@@ -4408,9 +4411,9 @@ function WalletBanPolicyPanel({
         },
       });
       await refetch();
-      onToast('Wallet unban queued');
+      onToast(t('nodeDetail.wallet.unbanQueued'));
     } catch (error) {
-      onToast(error instanceof Error ? error.message : 'Failed to queue wallet unban', 'error');
+      onToast(error instanceof Error ? error.message : t('nodeDetail.wallet.unbanFailed'), 'error');
     }
   };
 
@@ -4420,13 +4423,13 @@ function WalletBanPolicyPanel({
     <Card variant="default" padding="none" className="mb-6">
       <div className="px-6 py-4 border-b border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h3 className="font-semibold text-white">Wallet Ban Policies</h3>
+          <h3 className="font-semibold text-white">{t('nodeDetail.wallet.title')}</h3>
           <p className="text-sm text-gray-500 mt-1">
-            Currently enforced wallet blocks for this node.
+            {t('nodeDetail.wallet.description')}
           </p>
         </div>
         <Button variant="secondary" size="sm" onClick={() => refetch()}>
-          Refresh
+          {t('common.refreshNow')}
         </Button>
       </div>
 
@@ -4438,26 +4441,26 @@ function WalletBanPolicyPanel({
         </div>
       ) : isError ? (
         <div className="p-6 flex items-center justify-between gap-4">
-          <p className="text-sm text-yellow-300">Wallet ban policies could not be loaded.</p>
+          <p className="text-sm text-yellow-300">{t('nodeDetail.wallet.unavailable')}</p>
           <Button variant="secondary" size="sm" onClick={() => refetch()}>
-            Retry
+            {t('common.retry')}
           </Button>
         </div>
       ) : bans.length === 0 ? (
         <div className="p-8 text-center">
-          <p className="text-sm text-gray-500">No active wallet bans on this node.</p>
+          <p className="text-sm text-gray-500">{t('nodeDetail.wallet.empty')}</p>
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="text-left text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-3 font-medium">Wallet</th>
-                <th className="px-4 py-3 font-medium">Reason</th>
-                <th className="px-4 py-3 font-medium">Source</th>
-                <th className="px-4 py-3 font-medium">Banned</th>
-                <th className="px-4 py-3 font-medium">Command</th>
-                <th className="px-4 py-3 font-medium text-right">Action</th>
+                <th className="px-4 py-3 font-medium">{t('nodeDetail.wallet.wallet')}</th>
+                <th className="px-4 py-3 font-medium">{t('nodeDetail.wallet.reason')}</th>
+                <th className="px-4 py-3 font-medium">{t('nodeDetail.wallet.source')}</th>
+                <th className="px-4 py-3 font-medium">{t('nodeDetail.wallet.banned')}</th>
+                <th className="px-4 py-3 font-medium">{t('nodeDetail.wallet.command')}</th>
+                <th className="px-4 py-3 font-medium text-right">{t('nodeDetail.wallet.action')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
@@ -4482,12 +4485,20 @@ function WalletBanPolicyPanel({
 // ============================================
 
 function SessionsTable({ nodeId }: { nodeId: string }) {
+  const { t, formatNumber } = useI18n();
   const { sessions, isLoading } = useNodeSessions(nodeId, { limit: 10 });
+
+  const formatSessionStatus = (status: string) => {
+    if (status === 'active') return t('common.status.active');
+    if (status === 'completed') return t('common.status.completed');
+    if (status === 'error') return t('common.status.error');
+    return status.replace(/_/g, ' ');
+  };
 
   return (
     <Card variant="default" padding="none">
       <div className="px-6 py-4 border-b border-white/5">
-        <h3 className="font-semibold text-white">Recent Sessions</h3>
+        <h3 className="font-semibold text-white">{t('nodeDetail.sessions.title')}</h3>
       </div>
       {isLoading ? (
         <div className="p-6 space-y-3">
@@ -4497,18 +4508,18 @@ function SessionsTable({ nodeId }: { nodeId: string }) {
         </div>
       ) : sessions.length === 0 ? (
         <div className="p-12 text-center">
-          <p className="text-gray-500">No sessions recorded yet</p>
+          <p className="text-gray-500">{t('nodeDetail.sessions.empty')}</p>
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="text-left text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-6 py-3 font-medium">Session ID</th>
-                <th className="px-6 py-3 font-medium">Client</th>
-                <th className="px-6 py-3 font-medium">Traffic</th>
-                <th className="px-6 py-3 font-medium">Duration</th>
-                <th className="px-6 py-3 font-medium">Status</th>
+                <th className="px-6 py-3 font-medium">{t('nodeDetail.sessions.sessionId')}</th>
+                <th className="px-6 py-3 font-medium">{t('nodeDetail.sessions.client')}</th>
+                <th className="px-6 py-3 font-medium">{t('nodeDetail.sessions.traffic')}</th>
+                <th className="px-6 py-3 font-medium">{t('nodeDetail.sessions.duration')}</th>
+                <th className="px-6 py-3 font-medium">{t('nodeDetail.sessions.status')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
@@ -4525,10 +4536,10 @@ function SessionsTable({ nodeId }: { nodeId: string }) {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-300">
-                    {session.total_bytes_mb.toFixed(2)} MB
+                    {formatNumber(session.total_bytes_mb, { maximumFractionDigits: 2 })} MB
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-400">
-                    {session.duration_seconds > 0 ? formatDuration(session.duration_seconds) : 'Active'}
+                    {session.duration_seconds > 0 ? formatDuration(session.duration_seconds) : t('common.status.active')}
                   </td>
                   <td className="px-6 py-4">
                     <span className={`
@@ -4541,7 +4552,7 @@ function SessionsTable({ nodeId }: { nodeId: string }) {
                         session.status === 'active' ? 'bg-emerald-400 animate-pulse' :
                         session.status === 'completed' ? 'bg-gray-400' : 'bg-red-400'
                       }`} />
-                      {session.status}
+                      {formatSessionStatus(session.status)}
                     </span>
                   </td>
                 </tr>
