@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.14 - Added fleet policy counter scope rollout summary.
  *   v1.5.13 - Added fleet policy counter scope summary fields.
  *   v1.5.12 - Added Rust policy counter scope timestamp.
  *   v1.5.11 - Added node policy block current-impact fields.
@@ -53,7 +54,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.13 - Added fleet policy counter scope summary fields
+ * Last Modified: v1.5.14 - Added fleet policy counter scope rollout summary
+ * Previous: v1.5.13 - Added fleet policy counter scope summary fields
  * Previous: v1.5.12 - Added Rust policy counter scope timestamp
  * Previous: v1.5.11 - Added node policy block current-impact fields
  * Previous: v1.5.10 - Documented node heartbeat source quality
@@ -838,6 +840,8 @@ export interface VpnRestartReadinessBlockedNode {
  *   counter_scope_started_at_min / counter_scope_started_at_max summarize
  *   Rust process-local counter scope across the fleet; source Rust file:
  *   /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs.
+ *   counter_scope_summary is backend-authored rollout quality for the Rust
+ *   counters_started_at field.
  *   problem_panel_summary and problem_nodes[].primary_action are
  *   backend-authored remediation metadata for the Services Policy Blocks panel.
  * Maintenance recovery source:
@@ -996,6 +1000,16 @@ export interface VpnRestartReadinessSummary {
     counter_scope_started_at_min?: number | null;
     counter_scope_started_at_max?: number | null;
     counter_scope_reporting_nodes?: number;
+    counter_scope_summary?: {
+      status: string;
+      risk: 'healthy' | 'warning' | 'critical' | 'info' | string;
+      label: string;
+      detail: string;
+      next_step: string;
+      reporting_nodes: number;
+      covered_nodes: number;
+      missing_nodes: number;
+    };
     telemetry_source_counts?: Record<string, number>;
     telemetry_source_summary?: {
       status: string;
@@ -1054,6 +1068,16 @@ export interface VpnRestartReadinessSummary {
       counter_scope_started_at_min?: number | null;
       counter_scope_started_at_max?: number | null;
       counter_scope_reporting_nodes?: number;
+      counter_scope_summary?: {
+        status: string;
+        risk: 'healthy' | 'warning' | 'critical' | 'info' | string;
+        label: string;
+        detail: string;
+        next_step: string;
+        reporting_nodes: number;
+        covered_nodes: number;
+        missing_nodes: number;
+      };
       telemetry_source_counts?: Record<string, number>;
       telemetry_source_summary?: {
         status: string;

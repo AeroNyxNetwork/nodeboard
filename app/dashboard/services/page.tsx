@@ -112,6 +112,8 @@
  *     counters are fresh heartbeat cache, durable sample fallback, or missing.
  *     counter_scope_started_at_min / counter_scope_started_at_max summarize
  *     Rust process-local counter age across the fleet.
+ *     counter_scope_summary is backend-authored coverage quality for that
+ *     Rust counters_started_at rollout.
  *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
@@ -181,7 +183,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.53 - Show fleet policy counter scope
+ * Last Modified: v1.1.54 - Show fleet policy counter scope coverage
+ * Previous: v1.1.53 - Show fleet policy counter scope
  * Previous: v1.1.52 - Show policy telemetry source quality
  * Previous: v1.1.51 - Show fleet bandwidth limiter bytes
  * Previous: v1.1.50 - Link rollout blockers to active sessions
@@ -2745,6 +2748,13 @@ function FleetRestartReadinessPanel({
             Scope oldest {formatUnixSecondsRelative(policyEnforcementHealth?.counter_scope_started_at_min)} ·
             newest {formatUnixSecondsRelative(policyEnforcementHealth?.counter_scope_started_at_max)}
           </p>
+          {policyEnforcementHealth?.counter_scope_summary && (
+            <p className="mt-1 text-xs leading-5 opacity-75">
+              Scope covered {policyEnforcementHealth.counter_scope_summary.covered_nodes.toLocaleString()} /{' '}
+              {policyEnforcementHealth.counter_scope_summary.reporting_nodes.toLocaleString()} ·
+              missing {policyEnforcementHealth.counter_scope_summary.missing_nodes.toLocaleString()}
+            </p>
+          )}
         </div>
       </div>
 
@@ -2784,6 +2794,26 @@ function FleetRestartReadinessPanel({
               </div>
               <p className="mt-1 leading-5 text-yellow-100/45">
                 {policyEnforcementHealth.telemetry_source_summary.next_step}
+              </p>
+            </div>
+          )}
+          {policyEnforcementHealth.counter_scope_summary && (
+            <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="font-semibold text-yellow-100">
+                    {policyEnforcementHealth.counter_scope_summary.label}
+                  </p>
+                  <p className="mt-1 leading-5 text-yellow-100/55">
+                    {policyEnforcementHealth.counter_scope_summary.detail}
+                  </p>
+                </div>
+                <span className={`shrink-0 rounded-md border px-2 py-0.5 ${statusClass(policyEnforcementHealth.counter_scope_summary.risk)}`}>
+                  {policyEnforcementHealth.counter_scope_summary.status}
+                </span>
+              </div>
+              <p className="mt-1 leading-5 text-yellow-100/45">
+                {policyEnforcementHealth.counter_scope_summary.next_step}
               </p>
             </div>
           )}
