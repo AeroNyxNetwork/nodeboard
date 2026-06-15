@@ -116,6 +116,12 @@
  *     Rust counters_started_at rollout.
  *     dominant_block_reason is backend-authored guidance for whether fleet
  *     policy blocks are mainly maintenance, max_sessions, or bandwidth.
+ *   - data.summary.restart_readiness.commercial_placement_health
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Combines data.nodes[], policy_sync_health, and policy_enforcement_health
+ *     into backend-authored ready/watch/blocked classification for commercial
+ *     AeroNyx Privacy Protocol placement. Services renders the operator
+ *     decision and primary_action only; it does not infer paid placement rules.
  *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
@@ -185,7 +191,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.55 - Show dominant policy block reason
+ * Last Modified: v1.1.56 - Show commercial placement health
+ * Previous: v1.1.55 - Show dominant policy block reason
  * Previous: v1.1.54 - Show fleet policy counter scope coverage
  * Previous: v1.1.53 - Show fleet policy counter scope
  * Previous: v1.1.52 - Show policy telemetry source quality
@@ -2583,6 +2590,7 @@ function FleetRestartReadinessPanel({
   const commandHistory = commandCounts?.history_24h ?? null;
   const policySyncHealth = summary?.policy_sync_health ?? null;
   const policyEnforcementHealth = summary?.policy_enforcement_health ?? null;
+  const commercialPlacementHealth = summary?.commercial_placement_health ?? null;
   const maintenanceExitCandidates = summary?.maintenance_exit_candidates ?? [];
   const maintenanceExitCandidateCount = summary?.maintenance_exit_candidate_count ?? maintenanceExitCandidates.length;
   const maintenanceExitSummary = summary?.maintenance_exit_summary ?? null;
@@ -2723,6 +2731,37 @@ function FleetRestartReadinessPanel({
             Synced {(policySyncHealth?.synced_nodes ?? 0).toLocaleString()} / {(policySyncHealth?.total_nodes ?? 0).toLocaleString()}
           </p>
         </div>
+        <div className={`rounded-xl border p-4 ${drainActivityHealthClass(commercialPlacementHealth?.risk ?? 'info')}`}>
+          <p className="text-xs uppercase tracking-[0.16em] opacity-70">Commercial Placement</p>
+          <p className="mt-2 text-2xl font-semibold">
+            {(commercialPlacementHealth?.ready_nodes ?? 0).toLocaleString()} ready
+          </p>
+          <p className="mt-1 text-xs opacity-70">
+            {commercialPlacementHealth?.label ?? 'Pending'} · {commercialPlacementHealth?.detail ?? 'waiting for backend placement summary'}
+          </p>
+          <p className="mt-2 text-xs leading-5 opacity-80">
+            Score {(commercialPlacementHealth?.capacity_score_percent ?? 0).toFixed(1)}% ·
+            watch {(commercialPlacementHealth?.watch_nodes ?? 0).toLocaleString()} ·
+            blocked {(commercialPlacementHealth?.blocked_nodes ?? 0).toLocaleString()}
+          </p>
+          <p className="mt-1 text-xs leading-5 opacity-75">
+            Public entries {(commercialPlacementHealth?.public_entry_nodes ?? 0).toLocaleString()} /{' '}
+            {(commercialPlacementHealth?.total_nodes ?? 0).toLocaleString()} ·
+            regions {(commercialPlacementHealth?.regions_count ?? 0).toLocaleString()}
+          </p>
+          <p className="mt-1 text-xs leading-5 opacity-75">
+            Sessions {(commercialPlacementHealth?.active_sessions ?? 0).toLocaleString()} ·
+            capped slots {(commercialPlacementHealth?.max_capacity_slots ?? 0).toLocaleString()} ·
+            remaining {(commercialPlacementHealth?.bounded_capacity_remaining ?? 0).toLocaleString()} ·
+            unlimited {(commercialPlacementHealth?.unlimited_capacity_nodes ?? 0).toLocaleString()}
+          </p>
+          {(commercialPlacementHealth?.policy_sync_attention_nodes || commercialPlacementHealth?.recent_policy_problem_nodes) ? (
+            <p className="mt-1 text-xs leading-5 opacity-75">
+              Policy sync attention {(commercialPlacementHealth?.policy_sync_attention_nodes ?? 0).toLocaleString()} ·
+              recent blocks {(commercialPlacementHealth?.recent_policy_problem_nodes ?? 0).toLocaleString()}
+            </p>
+          ) : null}
+        </div>
         <div className={`rounded-xl border p-4 ${drainActivityHealthClass(policyEnforcementHealth?.risk ?? 'info')}`}>
           <p className="text-xs uppercase tracking-[0.16em] opacity-70">Policy Blocks</p>
           <p className="mt-2 text-2xl font-semibold">
@@ -2767,6 +2806,102 @@ function FleetRestartReadinessPanel({
           )}
         </div>
       </div>
+
+      {commercialPlacementHealth?.problem_nodes?.length ? (
+        <div className="mt-4 rounded-xl border border-sky-300/20 bg-sky-500/[0.04] p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-sky-100">
+                {commercialPlacementHealth.label}
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-sky-100/60">
+                {commercialPlacementHealth.detail}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-sky-100/50">
+                {commercialPlacementHealth.next_step}
+              </p>
+            </div>
+            <StatusPill status={commercialPlacementHealth.risk} />
+          </div>
+          <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-sky-100/10 py-3 text-xs sm:grid-cols-3 lg:grid-cols-6">
+            <div>
+              <p className="uppercase tracking-[0.14em] text-sky-100/35">Ready</p>
+              <p className="mt-1 font-semibold text-sky-100">{commercialPlacementHealth.ready_nodes.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="uppercase tracking-[0.14em] text-sky-100/35">Watch</p>
+              <p className="mt-1 font-semibold text-sky-100">{commercialPlacementHealth.watch_nodes.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="uppercase tracking-[0.14em] text-sky-100/35">Blocked</p>
+              <p className="mt-1 font-semibold text-sky-100">{commercialPlacementHealth.blocked_nodes.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="uppercase tracking-[0.14em] text-sky-100/35">Public Entries</p>
+              <p className="mt-1 font-semibold text-sky-100">{commercialPlacementHealth.public_entry_nodes.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="uppercase tracking-[0.14em] text-sky-100/35">Policy Sync</p>
+              <p className="mt-1 font-semibold text-sky-100">{commercialPlacementHealth.policy_sync_attention_nodes.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="uppercase tracking-[0.14em] text-sky-100/35">Recent Blocks</p>
+              <p className="mt-1 font-semibold text-sky-100">{commercialPlacementHealth.recent_policy_problem_nodes.toLocaleString()}</p>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+            {commercialPlacementHealth.problem_nodes.map((node) => (
+              <div key={node.id} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <Link href={`/dashboard/nodes/${node.id}`} className="min-w-0 truncate font-medium text-white hover:text-purple-300">
+                    {node.name}
+                  </Link>
+                  <span className={`shrink-0 rounded-md border px-2 py-0.5 ${statusClass(node.risk)}`}>
+                    {node.status}
+                  </span>
+                </div>
+                <p className="mt-2 leading-5 text-sky-100/65">
+                  {node.primary_reason.label} · {node.primary_reason.detail}
+                </p>
+                <p className="mt-1 leading-5 text-sky-100/50">
+                  Region {node.region_code || node.city || 'unknown'} · public entry {node.public_ip ? 'yes' : 'missing'} ·
+                  health {node.health_status}
+                </p>
+                <p className="mt-1 leading-5 text-sky-100/50">
+                  Sessions {node.active_sessions.toLocaleString()} /{' '}
+                  {node.max_sessions > 0 ? node.max_sessions.toLocaleString() : 'unlimited'} ·
+                  capacity {typeof node.capacity_ratio_percent === 'number' ? `${node.capacity_ratio_percent.toFixed(1)}%` : 'unlimited'}
+                </p>
+                <p className="mt-1 leading-5 text-sky-100/45">
+                  Policy sync {node.policy_sync_status} · recent policy block {node.recent_policy_block ? 'yes' : 'no'} ·
+                  heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
+                </p>
+                <p className="mt-1 leading-5 text-sky-100/50">{node.next_step}</p>
+                {node.primary_action && (
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="leading-5 text-sky-100/40">
+                      Action {node.primary_action.key} · {node.primary_action.detail}
+                    </p>
+                    {/* Backend primary_action owns placement remediation; nodeboard only routes to node detail. */}
+                    <Link
+                      href={`/dashboard/nodes/${node.id}`}
+                      className="inline-flex shrink-0 items-center justify-center rounded-md border border-sky-100/20 px-2.5 py-1.5 font-medium text-sky-100 transition hover:border-sky-100/40 hover:bg-sky-100/10"
+                    >
+                      {node.primary_action.label}
+                    </Link>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs leading-5 text-sky-100/45">
+            Backend contract: GET /api/privacy_network/vpn/overview/ exposes
+            data.summary.restart_readiness.commercial_placement_health from
+            /root/aeronyx/privacy_network/api/vpn_observability.py. The backend combines
+            data.nodes[], policy_sync_health, and policy_enforcement_health; nodeboard does not infer paid-placement policy.
+          </p>
+        </div>
+      ) : null}
 
       {policyEnforcementHealth?.problem_nodes?.length ? (
         <div className="mt-4 rounded-xl border border-yellow-300/20 bg-yellow-500/[0.04] p-4">

@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.16 - Added commercial placement health summary.
  *   v1.5.15 - Added fleet dominant policy block reason summary.
  *   v1.5.14 - Added fleet policy counter scope rollout summary.
  *   v1.5.13 - Added fleet policy counter scope summary fields.
@@ -55,7 +56,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.15 - Added fleet dominant policy block reason summary
+ * Last Modified: v1.5.16 - Added commercial placement health summary
+ * Previous: v1.5.15 - Added fleet dominant policy block reason summary
  * Previous: v1.5.14 - Added fleet policy counter scope rollout summary
  * Previous: v1.5.13 - Added fleet policy counter scope summary fields
  * Previous: v1.5.12 - Added Rust policy counter scope timestamp
@@ -848,6 +850,13 @@ export interface VpnRestartReadinessBlockedNode {
  *   policy blocks are mainly maintenance, max_sessions, or bandwidth.
  *   problem_panel_summary and problem_nodes[].primary_action are
  *   backend-authored remediation metadata for the Services Policy Blocks panel.
+ * Commercial placement source:
+ *   data.summary.restart_readiness.commercial_placement_health is produced by
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py from
+ *   data.nodes[], policy_sync_health, and policy_enforcement_health so
+ *   Services can show whether AeroNyx Privacy Protocol nodes are safe for
+ *   more paid placement. The backend owns ready/watch/blocked classification;
+ *   React only renders the operator decision and routes primary_action.
  * Maintenance recovery source:
  *   data.summary.restart_readiness.maintenance_exit_candidates lists nodes
  *   that are current, drained, and still in maintenance mode so Services can
@@ -1119,6 +1128,71 @@ export interface VpnRestartReadinessSummary {
       source: string;
     };
     source: 'nodes.system.policy_enforcement' | string;
+    privacy_boundary: string;
+  };
+  commercial_placement_health?: {
+    status: 'ready' | 'watch' | 'attention' | 'blocked' | 'pending' | string;
+    risk: 'healthy' | 'warning' | 'critical' | 'info' | string;
+    label: string;
+    detail: string;
+    next_step: string;
+    total_nodes: number;
+    public_entry_nodes: number;
+    ready_nodes: number;
+    watch_nodes: number;
+    blocked_nodes: number;
+    regions_count: number;
+    active_sessions: number;
+    max_capacity_slots: number;
+    bounded_capacity_remaining: number;
+    unlimited_capacity_nodes: number;
+    capacity_score_percent: number;
+    policy_sync_attention_nodes: number;
+    recent_policy_problem_nodes: number;
+    visible_problem_count: number;
+    hidden_problem_count: number;
+    problem_nodes?: Array<{
+      id: string;
+      name: string;
+      status: 'ready' | 'watch' | 'blocked' | string;
+      risk: 'healthy' | 'warning' | 'critical' | 'info' | string;
+      health_status: string;
+      public_ip?: string | null;
+      region_code?: string | null;
+      city?: string | null;
+      version?: string | null;
+      maintenance_mode: boolean;
+      active_sessions: number;
+      max_sessions: number;
+      capacity_ratio_percent?: number | null;
+      last_seen_seconds: number | null;
+      policy_sync_status: string;
+      recent_policy_block: boolean;
+      primary_reason: {
+        key: string;
+        label: string;
+        detail: string;
+      };
+      blockers: Array<{
+        key: string;
+        label: string;
+        detail: string;
+      }>;
+      warnings: Array<{
+        key: string;
+        label: string;
+        detail: string;
+      }>;
+      next_step: string;
+      primary_action?: {
+        key: string;
+        label: string;
+        intent: 'node_detail' | string;
+        detail: string;
+      };
+      source: string;
+    }>;
+    source: string;
     privacy_boundary: string;
   };
   command_delivery_health?: {

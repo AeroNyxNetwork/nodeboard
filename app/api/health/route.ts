@@ -67,6 +67,11 @@
  *     max_sessions, or bandwidth is the main policy block cause.
  *     problem_panel_summary and problem_nodes[].primary_action are
  *     backend-authored remediation metadata for policy blocks.
+ *     Provides data.summary.restart_readiness.commercial_placement_health for
+ *     Services Commercial Placement from data.nodes[], policy_sync_health, and
+ *     policy_enforcement_health. The backend owns ready/watch/blocked
+ *     classification and primary_action so React does not guess paid placement
+ *     rules.
  *     Provides data.summary.restart_readiness.drain_activity_health_counts
  *     for the Services page top-level Drain Risk card.
  *     drain_activity_health_counts.summary is backend-authored display copy
@@ -183,7 +188,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.52 - Documented dominant policy block reason
+ * Last Modified: v1.1.53 - Documented commercial placement health
+ * Previous: v1.1.52 - Documented dominant policy block reason
  * Previous: v1.1.51 - Documented fleet counter scope coverage
  * Previous: v1.1.50 - Documented fleet policy counter scope
  * Previous: v1.1.49 - Documented Rust policy counter scope
@@ -351,6 +357,11 @@ const healthPayload = {
       endpoint: 'data.summary.restart_readiness.policy_enforcement_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Fleet-level Rust node_policy enforcement counter summary for maintenance_rejections/max_sessions_rejections/bandwidth_drops plus aggregate bandwidth_drop_bytes/bandwidth_limit_bytes_per_second/bandwidth_window_bytes, recent_problem_nodes/historical_problem_nodes current-impact classification, telemetry_source_counts/telemetry_source_summary freshness quality, counter_scope_started_at_min/counter_scope_started_at_max Rust process counter scope, counter_scope_summary rollout coverage, dominant_block_reason main cause guidance, problem_panel_summary, and capped problem_nodes[].primary_action triage',
+    },
+    {
+      endpoint: 'data.summary.restart_readiness.commercial_placement_health',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Backend-authored ready/watch/blocked commercial placement summary for AeroNyx Privacy Protocol nodes, combining data.nodes[], policy_sync_health, and policy_enforcement_health so Services can show paid-placement readiness without reimplementing backend policy',
     },
     {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',
