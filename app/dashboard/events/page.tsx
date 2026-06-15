@@ -15,9 +15,9 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useNodes, useVpnEvents, UseVpnEventsOptions } from '@/hooks/useNodes';
 import { VpnEvent, VpnEventSeverity } from '@/types';
-import { formatRelativeTime } from '@/lib/api';
 import Card, { EmptyState, LoadingCard } from '@/components/common/Card';
 import Button from '@/components/common/Button';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 type SeverityFilter = NonNullable<UseVpnEventsOptions['severity']>;
 
@@ -60,11 +60,12 @@ function EventIcon() {
 }
 
 function SeverityBadge({ severity }: { severity: VpnEventSeverity }) {
+  const { t } = useI18n();
   const style = severityStyles[severity];
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${style.badge}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-      {style.label}
+      {t(`events.severity.${severity}`)}
     </span>
   );
 }
@@ -78,6 +79,7 @@ function SummaryCard({
   value: number;
   tone: 'critical' | 'warning' | 'info' | 'open';
 }) {
+  const { formatNumber } = useI18n();
   const toneClass = {
     critical: 'text-red-300',
     warning: 'text-yellow-300',
@@ -88,7 +90,7 @@ function SummaryCard({
   return (
     <Card variant="default" padding="md">
       <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-2xl font-semibold mt-2 ${toneClass}`}>{value}</p>
+      <p className={`text-2xl font-semibold mt-2 ${toneClass}`}>{formatNumber(value)}</p>
     </Card>
   );
 }
@@ -118,11 +120,12 @@ function QueryBar({
   onNode: (value: string) => void;
   onRefresh: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <Card variant="default" padding="md">
       <div className="grid md:grid-cols-[120px_150px_180px_1fr_auto] gap-3 items-end">
         <label className="block">
-          <span className="text-xs text-gray-500">Days</span>
+          <span className="text-xs text-gray-500">{t('events.filters.days')}</span>
           <select
             value={days}
             onChange={(event) => onDays(Number(event.target.value))}
@@ -136,7 +139,7 @@ function QueryBar({
           </select>
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Severity</span>
+          <span className="text-xs text-gray-500">{t('events.filters.severity')}</span>
           <select
             value={severity}
             onChange={(event) => onSeverity(event.target.value as SeverityFilter)}
@@ -144,19 +147,19 @@ function QueryBar({
           >
             {SEVERITY_OPTIONS.map((value) => (
               <option key={value} value={value} className="bg-[#111118]">
-                {value}
+                {t(`events.severity.${value}`)}
               </option>
             ))}
           </select>
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Type</span>
+          <span className="text-xs text-gray-500">{t('events.filters.type')}</span>
           <select
             value={eventType}
             onChange={(event) => onType(event.target.value)}
             className="mt-1 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
           >
-            <option value="" className="bg-[#111118]">All types</option>
+            <option value="" className="bg-[#111118]">{t('events.filters.allTypes')}</option>
             {typeOptions.map((value) => (
               <option key={value} value={value} className="bg-[#111118]">
                 {value}
@@ -165,13 +168,13 @@ function QueryBar({
           </select>
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Node</span>
+          <span className="text-xs text-gray-500">{t('events.filters.node')}</span>
           <select
             value={nodeId}
             onChange={(event) => onNode(event.target.value)}
             className="mt-1 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
           >
-            <option value="" className="bg-[#111118]">All nodes</option>
+            <option value="" className="bg-[#111118]">{t('events.filters.allNodes')}</option>
             {nodes.map((node) => (
               <option key={node.id} value={node.id} className="bg-[#111118]">
                 {node.name}
@@ -179,7 +182,7 @@ function QueryBar({
             ))}
           </select>
         </label>
-        <Button variant="secondary" onClick={onRefresh}>Refresh</Button>
+        <Button variant="secondary" onClick={onRefresh}>{t('common.refreshNow')}</Button>
       </div>
     </Card>
   );
@@ -628,18 +631,19 @@ function runbookHint(event: VpnEvent): string {
 }
 
 function EventDetailPanel({ event }: { event: VpnEvent }) {
+  const { t } = useI18n();
   const rows = buildDetailRows(event);
   const hint = runbookHint(event);
 
   if (!rows.length && !hint) {
-    return <div className="text-xs text-gray-600">No structured details for this event.</div>;
+    return <div className="text-xs text-gray-600">{t('events.details.noStructured')}</div>;
   }
 
   return (
     <div className="space-y-3">
       {hint && (
         <div className="rounded-md border border-purple-500/20 bg-purple-500/10 px-3 py-2">
-          <div className="text-[11px] uppercase tracking-wide text-purple-300">Runbook Hint</div>
+          <div className="text-[11px] uppercase tracking-wide text-purple-300">{t('events.details.runbookHint')}</div>
           <div className="mt-1 text-xs text-gray-300">{hint}</div>
         </div>
       )}
@@ -658,14 +662,15 @@ function EventDetailPanel({ event }: { event: VpnEvent }) {
 }
 
 function EventsTable({ events }: { events: VpnEvent[] }) {
+  const { t, formatRelativeTime } = useI18n();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (!events.length) {
     return (
       <EmptyState
         icon={<EventIcon />}
-        title="No Events"
-        description="Matching VPN health, session, command, and policy events will appear here."
+        title={t('events.emptyTitle')}
+        description={t('events.emptyDescription')}
       />
     );
   }
@@ -674,21 +679,21 @@ function EventsTable({ events }: { events: VpnEvent[] }) {
     <Card variant="default" padding="none">
       <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold text-white">Event Stream</h2>
-          <p className="text-xs text-gray-500 mt-1">Node health, session errors, operator commands, and policy changes</p>
+          <h2 className="text-base font-semibold text-white">{t('events.table.title')}</h2>
+          <p className="text-xs text-gray-500 mt-1">{t('events.table.description')}</p>
         </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[980px] text-sm">
           <thead className="text-xs uppercase text-gray-500 bg-white/[0.02]">
             <tr>
-              <th className="text-left font-medium px-5 py-3">Severity</th>
-              <th className="text-left font-medium px-4 py-3">Event</th>
-              <th className="text-left font-medium px-4 py-3">Node</th>
-              <th className="text-left font-medium px-4 py-3">Source</th>
-              <th className="text-left font-medium px-4 py-3">Status</th>
-              <th className="text-left font-medium px-4 py-3">Ref</th>
-              <th className="text-left font-medium px-5 py-3">Time</th>
+              <th className="text-left font-medium px-5 py-3">{t('events.table.severity')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('events.table.event')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('events.table.node')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('events.table.source')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('events.table.status')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('events.table.ref')}</th>
+              <th className="text-left font-medium px-5 py-3">{t('events.table.time')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
@@ -708,10 +713,10 @@ function EventsTable({ events }: { events: VpnEvent[] }) {
                     <td className="px-4 py-4">
                       {event.node_id ? (
                         <Link href={`/dashboard/nodes/${event.node_id}`} className="text-gray-300 hover:text-purple-300">
-                          {event.node_name || 'node'}
+                          {event.node_name || t('events.table.nodeFallback')}
                         </Link>
                       ) : (
-                        <div className="text-gray-300">{event.node_name || 'all nodes'}</div>
+                        <div className="text-gray-300">{event.node_name || t('events.table.allNodes')}</div>
                       )}
                       {event.node_id && (
                         <div className="text-xs text-gray-600 font-mono mt-1">{event.node_id.slice(0, 8)}</div>
@@ -720,7 +725,7 @@ function EventsTable({ events }: { events: VpnEvent[] }) {
                     <td className="px-4 py-4 text-gray-400">{event.source}</td>
                     <td className="px-4 py-4">
                       <span className="inline-flex px-2 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-gray-300">
-                        {event.status || 'open'}
+                        {event.status || t('events.summary.open')}
                       </span>
                       {event.action && <div className="text-xs text-gray-600 mt-1">{commandActionLabel(event.action)}</div>}
                     </td>
@@ -733,7 +738,7 @@ function EventsTable({ events }: { events: VpnEvent[] }) {
                               href={sessionsHref(event)}
                               className="text-xs font-medium text-sky-300 hover:text-sky-200"
                             >
-                              Open Sessions
+                              {t('events.table.openSessions')}
                             </Link>
                           ) : null}
                           {event.node_id ? (
@@ -741,7 +746,7 @@ function EventsTable({ events }: { events: VpnEvent[] }) {
                               href={`/dashboard/nodes/${event.node_id}`}
                               className="text-xs font-medium text-emerald-300 hover:text-emerald-200"
                             >
-                              Node Detail
+                              {t('events.table.nodeDetail')}
                             </Link>
                           ) : null}
                         </div>
@@ -751,12 +756,12 @@ function EventsTable({ events }: { events: VpnEvent[] }) {
                           onClick={() => setExpandedId(isExpanded ? null : event.id)}
                           className="block text-xs font-medium text-purple-300 hover:text-purple-200"
                         >
-                          {isExpanded ? 'Hide' : 'Details'}
+                          {isExpanded ? t('events.table.hide') : t('events.table.details')}
                         </button>
                       </div>
                     </td>
                     <td className="px-5 py-4 text-gray-400">
-                      {event.created_at ? formatRelativeTime(event.created_at) : 'now'}
+                      {event.created_at ? formatRelativeTime(event.created_at) : t('events.table.now')}
                     </td>
                   </tr>
                   {isExpanded && (
@@ -780,6 +785,7 @@ export default function VpnEventsPage() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { t, formatRelativeTime } = useI18n();
   const [days, setDays] = useState(() => initialDays(searchParams.get('days')));
   const [severity, setSeverity] = useState<SeverityFilter>(() => initialSeverity(searchParams.get('severity')));
   const [eventType, setEventType] = useState(() => searchParams.get('type') || '');
@@ -830,9 +836,9 @@ export default function VpnEventsPage() {
     return (
       <EmptyState
         icon={<EventIcon />}
-        title="Events Unavailable"
-        description={error?.message || 'Unable to load VPN events.'}
-        action={<Button variant="secondary" onClick={() => refetch()}>Retry</Button>}
+        title={t('events.unavailableTitle')}
+        description={error?.message || t('events.unavailableDescription')}
+        action={<Button variant="secondary" onClick={() => refetch()}>{t('common.retry')}</Button>}
       />
     );
   }
@@ -849,12 +855,14 @@ export default function VpnEventsPage() {
     <div className="space-y-6">
       <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Alerts / Events</h1>
+          <h1 className="text-2xl font-bold text-white">{t('events.title')}</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {events?.generated_at ? `Updated ${formatRelativeTime(events.generated_at)}` : 'Waiting for event data'}
+            {events?.generated_at
+              ? t('events.updated', { time: formatRelativeTime(events.generated_at) })
+              : t('events.waiting')}
           </p>
         </div>
-        <Button variant="secondary" onClick={() => refetch()}>Refresh</Button>
+        <Button variant="secondary" onClick={() => refetch()}>{t('common.refreshNow')}</Button>
       </div>
 
       <QueryBar
@@ -872,10 +880,10 @@ export default function VpnEventsPage() {
       />
 
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <SummaryCard label="Open" value={summary.open} tone="open" />
-        <SummaryCard label="Critical" value={summary.critical} tone="critical" />
-        <SummaryCard label="Warning" value={summary.warning} tone="warning" />
-        <SummaryCard label="Info" value={summary.info} tone="info" />
+        <SummaryCard label={t('events.summary.open')} value={summary.open} tone="open" />
+        <SummaryCard label={t('events.severity.critical')} value={summary.critical} tone="critical" />
+        <SummaryCard label={t('events.severity.warning')} value={summary.warning} tone="warning" />
+        <SummaryCard label={t('events.severity.info')} value={summary.info} tone="info" />
       </div>
 
       <EventsTable events={events?.events ?? []} />
