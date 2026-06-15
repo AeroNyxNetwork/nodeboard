@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.15 - Added fleet dominant policy block reason summary.
  *   v1.5.14 - Added fleet policy counter scope rollout summary.
  *   v1.5.13 - Added fleet policy counter scope summary fields.
  *   v1.5.12 - Added Rust policy counter scope timestamp.
@@ -54,7 +55,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.14 - Added fleet policy counter scope rollout summary
+ * Last Modified: v1.5.15 - Added fleet dominant policy block reason summary
+ * Previous: v1.5.14 - Added fleet policy counter scope rollout summary
  * Previous: v1.5.13 - Added fleet policy counter scope summary fields
  * Previous: v1.5.12 - Added Rust policy counter scope timestamp
  * Previous: v1.5.11 - Added node policy block current-impact fields
@@ -842,6 +844,8 @@ export interface VpnRestartReadinessBlockedNode {
  *   /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs.
  *   counter_scope_summary is backend-authored rollout quality for the Rust
  *   counters_started_at field.
+ *   dominant_block_reason is backend-authored guidance for whether fleet
+ *   policy blocks are mainly maintenance, max_sessions, or bandwidth.
  *   problem_panel_summary and problem_nodes[].primary_action are
  *   backend-authored remediation metadata for the Services Policy Blocks panel.
  * Maintenance recovery source:
@@ -1010,6 +1014,16 @@ export interface VpnRestartReadinessSummary {
       covered_nodes: number;
       missing_nodes: number;
     };
+    dominant_block_reason?: {
+      key: 'maintenance' | 'max_sessions' | 'bandwidth' | 'none' | string;
+      label: string;
+      count: number;
+      share_percent: number;
+      detail: string;
+      next_step: string;
+      reason_counts: Record<string, number>;
+      source: string;
+    };
     telemetry_source_counts?: Record<string, number>;
     telemetry_source_summary?: {
       status: string;
@@ -1077,6 +1091,16 @@ export interface VpnRestartReadinessSummary {
         reporting_nodes: number;
         covered_nodes: number;
         missing_nodes: number;
+      };
+      dominant_block_reason?: {
+        key: 'maintenance' | 'max_sessions' | 'bandwidth' | 'none' | string;
+        label: string;
+        count: number;
+        share_percent: number;
+        detail: string;
+        next_step: string;
+        reason_counts: Record<string, number>;
+        source: string;
       };
       telemetry_source_counts?: Record<string, number>;
       telemetry_source_summary?: {

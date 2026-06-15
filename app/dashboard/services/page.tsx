@@ -114,6 +114,8 @@
  *     Rust process-local counter age across the fleet.
  *     counter_scope_summary is backend-authored coverage quality for that
  *     Rust counters_started_at rollout.
+ *     dominant_block_reason is backend-authored guidance for whether fleet
+ *     policy blocks are mainly maintenance, max_sessions, or bandwidth.
  *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
@@ -183,7 +185,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.54 - Show fleet policy counter scope coverage
+ * Last Modified: v1.1.55 - Show dominant policy block reason
+ * Previous: v1.1.54 - Show fleet policy counter scope coverage
  * Previous: v1.1.53 - Show fleet policy counter scope
  * Previous: v1.1.52 - Show policy telemetry source quality
  * Previous: v1.1.51 - Show fleet bandwidth limiter bytes
@@ -2732,6 +2735,13 @@ function FleetRestartReadinessPanel({
             Max sessions {(policyEnforcementHealth?.max_sessions_rejections ?? 0).toLocaleString()} ·
             bandwidth {(policyEnforcementHealth?.bandwidth_drops ?? 0).toLocaleString()}
           </p>
+          {policyEnforcementHealth?.dominant_block_reason && (
+            <p className="mt-1 text-xs leading-5 opacity-75">
+              Main reason {policyEnforcementHealth.dominant_block_reason.label} ·
+              {policyEnforcementHealth.dominant_block_reason.count.toLocaleString()} blocks ·
+              {policyEnforcementHealth.dominant_block_reason.share_percent.toFixed(1)}%
+            </p>
+          )}
           <p className="mt-1 text-xs leading-5 opacity-75">
             Dropped {formatFleetBytes(policyEnforcementHealth?.bandwidth_drop_bytes)}
           </p>
@@ -2814,6 +2824,28 @@ function FleetRestartReadinessPanel({
               </div>
               <p className="mt-1 leading-5 text-yellow-100/45">
                 {policyEnforcementHealth.counter_scope_summary.next_step}
+              </p>
+            </div>
+          )}
+          {policyEnforcementHealth.dominant_block_reason && (
+            <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="font-semibold text-yellow-100">
+                    Main policy reason: {policyEnforcementHealth.dominant_block_reason.label}
+                  </p>
+                  <p className="mt-1 leading-5 text-yellow-100/55">
+                    {policyEnforcementHealth.dominant_block_reason.count.toLocaleString()} blocks ·
+                    {policyEnforcementHealth.dominant_block_reason.share_percent.toFixed(1)}% ·
+                    {policyEnforcementHealth.dominant_block_reason.detail}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-md border border-white/10 px-2 py-0.5 text-yellow-100/70">
+                  {policyEnforcementHealth.dominant_block_reason.key}
+                </span>
+              </div>
+              <p className="mt-1 leading-5 text-yellow-100/45">
+                {policyEnforcementHealth.dominant_block_reason.next_step}
               </p>
             </div>
           )}
