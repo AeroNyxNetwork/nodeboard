@@ -100,11 +100,14 @@
  *     Aggregates data.nodes[].system.policy_sync so Services can verify
  *     max_sessions and bandwidth_limit_mbps changes have reached Rust
  *     node_policy before operators trust commercial capacity limits.
+ *     problem_panel_summary and problem_nodes[].primary_action are backend
+ *     remediation metadata for the Policy Sync attention panel.
  *   - data.summary.restart_readiness.policy_enforcement_health
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates data.nodes[].system.policy_enforcement so Services can show
  *     whether maintenance, max_sessions, or bandwidth policy is actively
- *     blocking handshakes or packets in Rust node_policy.
+ *     blocking handshakes or packets in Rust node_policy. problem_panel_summary
+ *     and problem_nodes[].primary_action drive the Policy Blocks panel.
  *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
@@ -2677,13 +2680,41 @@ function FleetRestartReadinessPanel({
         <div className="mt-4 rounded-xl border border-yellow-300/20 bg-yellow-500/[0.04] p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-yellow-100">Policy Blocks</h3>
+              <h3 className="text-sm font-semibold text-yellow-100">
+                {policyEnforcementHealth.problem_panel_summary?.label ?? 'Policy Blocks'}
+              </h3>
               <p className="mt-1 text-xs leading-5 text-yellow-100/60">
-                Rust node_policy is actively blocking handshakes or packets. Confirm whether this is expected protection or a commercial capacity shortage.
+                {policyEnforcementHealth.problem_panel_summary?.detail
+                  ?? 'Rust node_policy is actively blocking handshakes or packets. Confirm whether this is expected protection or a commercial capacity shortage.'}
               </p>
+              {policyEnforcementHealth.problem_panel_summary?.next_step && (
+                <p className="mt-1 text-xs leading-5 text-yellow-100/50">
+                  {policyEnforcementHealth.problem_panel_summary.next_step}
+                </p>
+              )}
             </div>
-            <StatusPill status={policyEnforcementHealth.risk} />
+            <StatusPill status={policyEnforcementHealth.problem_panel_summary?.risk ?? policyEnforcementHealth.risk} />
           </div>
+          {policyEnforcementHealth.problem_panel_summary && (
+            <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-4">
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Nodes</p>
+                <p className="mt-1 font-semibold text-yellow-100">{policyEnforcementHealth.problem_panel_summary.count.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Critical</p>
+                <p className="mt-1 font-semibold text-yellow-100">{policyEnforcementHealth.problem_panel_summary.critical_nodes.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Max Sessions</p>
+                <p className="mt-1 font-semibold text-yellow-100">{policyEnforcementHealth.problem_panel_summary.max_sessions_rejections.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Bandwidth</p>
+                <p className="mt-1 font-semibold text-yellow-100">{policyEnforcementHealth.problem_panel_summary.bandwidth_drops.toLocaleString()}</p>
+              </div>
+            </div>
+          )}
           <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
             {policyEnforcementHealth.problem_nodes.map((node) => (
               <div key={node.id} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
@@ -2704,6 +2735,20 @@ function FleetRestartReadinessPanel({
                   heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
                 </p>
                 <p className="mt-1 leading-5 text-yellow-100/50">{node.next_step}</p>
+                {node.primary_action && (
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="leading-5 text-yellow-100/45">
+                      Primary action {node.primary_action.label} · {node.primary_action.detail}
+                    </p>
+                    {/* Backend primary_action.intent owns policy remediation; nodeboard only maps it to node detail. */}
+                    <Link
+                      href={`/dashboard/nodes/${node.id}`}
+                      className="inline-flex shrink-0 items-center justify-center rounded-md border border-yellow-100/20 px-2.5 py-1.5 font-medium text-yellow-100 transition hover:border-yellow-100/40 hover:bg-yellow-100/10"
+                    >
+                      {node.primary_action.label}
+                    </Link>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -2720,13 +2765,46 @@ function FleetRestartReadinessPanel({
         <div className="mt-4 rounded-xl border border-yellow-300/20 bg-yellow-500/[0.04] p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-yellow-100">Policy Sync Attention</h3>
+              <h3 className="text-sm font-semibold text-yellow-100">
+                {policySyncHealth.problem_panel_summary?.label ?? 'Policy Sync Attention'}
+              </h3>
               <p className="mt-1 text-xs leading-5 text-yellow-100/60">
-                Backend found capacity policy that Rust has not confirmed yet. Wait for signed heartbeat before trusting new max_sessions or bandwidth limits.
+                {policySyncHealth.problem_panel_summary?.detail
+                  ?? 'Backend found capacity policy that Rust has not confirmed yet. Wait for signed heartbeat before trusting new max_sessions or bandwidth limits.'}
               </p>
+              {policySyncHealth.problem_panel_summary?.next_step && (
+                <p className="mt-1 text-xs leading-5 text-yellow-100/50">
+                  {policySyncHealth.problem_panel_summary.next_step}
+                </p>
+              )}
             </div>
-            <StatusPill status={policySyncHealth.risk} />
+            <StatusPill status={policySyncHealth.problem_panel_summary?.risk ?? policySyncHealth.risk} />
           </div>
+          {policySyncHealth.problem_panel_summary && (
+            <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-4">
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Attention</p>
+                <p className="mt-1 font-semibold text-yellow-100">{policySyncHealth.problem_panel_summary.count.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Shown</p>
+                <p className="mt-1 font-semibold text-yellow-100">
+                  {policySyncHealth.problem_panel_summary.visible_count.toLocaleString()}
+                  {policySyncHealth.problem_panel_summary.hidden_count > 0
+                    ? ` / +${policySyncHealth.problem_panel_summary.hidden_count.toLocaleString()} hidden`
+                    : ''}
+                </p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Pending</p>
+                <p className="mt-1 font-semibold text-yellow-100">{policySyncHealth.problem_panel_summary.pending_nodes.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Unknown</p>
+                <p className="mt-1 font-semibold text-yellow-100">{policySyncHealth.problem_panel_summary.unknown_nodes.toLocaleString()}</p>
+              </div>
+            </div>
+          )}
           <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
             {policySyncHealth.problem_nodes.map((node) => (
               <div key={node.id} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
@@ -2747,6 +2825,20 @@ function FleetRestartReadinessPanel({
                   </p>
                 )}
                 <p className="mt-1 leading-5 text-yellow-100/50">{node.next_step}</p>
+                {node.primary_action && (
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="leading-5 text-yellow-100/45">
+                      Primary action {node.primary_action.label} · {node.primary_action.detail}
+                    </p>
+                    {/* Backend primary_action.intent owns policy sync remediation; nodeboard only maps it to node detail. */}
+                    <Link
+                      href={`/dashboard/nodes/${node.id}`}
+                      className="inline-flex shrink-0 items-center justify-center rounded-md border border-yellow-100/20 px-2.5 py-1.5 font-medium text-yellow-100 transition hover:border-yellow-100/40 hover:bg-yellow-100/10"
+                    >
+                      {node.primary_action.label}
+                    </Link>
+                  </div>
+                )}
               </div>
             ))}
           </div>

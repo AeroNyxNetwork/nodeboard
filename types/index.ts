@@ -768,11 +768,15 @@ export interface VpnRestartReadinessBlockedNode {
  *   /root/aeronyx/privacy_network/api/vpn_observability.py so Services can
  *   show whether max_sessions / bandwidth_limit_mbps policy changes have
  *   reached Rust node_policy before operators trust commercial capacity.
+ *   problem_panel_summary and problem_nodes[].primary_action are
+ *   backend-authored remediation metadata for the Services Policy Sync panel.
  * Policy enforcement source:
  *   data.summary.restart_readiness.policy_enforcement_health aggregates
  *   data.nodes[].system.policy_enforcement from
  *   /root/aeronyx/privacy_network/api/vpn_observability.py so Services can
  *   show whether Rust node_policy is actively blocking handshakes or packets.
+ *   problem_panel_summary and problem_nodes[].primary_action are
+ *   backend-authored remediation metadata for the Services Policy Blocks panel.
  * Maintenance recovery source:
  *   data.summary.restart_readiness.maintenance_exit_candidates lists nodes
  *   that are current, drained, and still in maintenance mode so Services can
@@ -873,7 +877,26 @@ export interface VpnRestartReadinessSummary {
       mismatched_fields: string[];
       message: string;
       next_step: string;
+      primary_action?: {
+        key: string;
+        label: string;
+        intent: 'node_policy' | string;
+        detail: string;
+      };
     }>;
+    problem_panel_summary?: {
+      status?: string;
+      risk: 'healthy' | 'warning' | 'critical' | 'info' | string;
+      label: string;
+      detail: string;
+      next_step?: string;
+      count: number;
+      visible_count: number;
+      hidden_count: number;
+      pending_nodes: number;
+      unknown_nodes: number;
+      source: string;
+    };
     source: 'nodes.system.policy_sync' | string;
     privacy_boundary: string;
   };
@@ -902,7 +925,29 @@ export interface VpnRestartReadinessSummary {
       last_rejection_at: number | null;
       severity: 'warning' | 'critical' | string;
       next_step: string;
+      primary_action?: {
+        key: string;
+        label: string;
+        intent: 'node_policy' | string;
+        detail: string;
+      };
     }>;
+    problem_panel_summary?: {
+      status?: string;
+      risk: 'healthy' | 'warning' | 'critical' | 'info' | string;
+      label: string;
+      detail: string;
+      next_step?: string;
+      count: number;
+      visible_count: number;
+      hidden_count: number;
+      critical_nodes: number;
+      warning_nodes: number;
+      maintenance_rejections: number;
+      max_sessions_rejections: number;
+      bandwidth_drops: number;
+      source: string;
+    };
     source: 'nodes.system.policy_enforcement' | string;
     privacy_boundary: string;
   };

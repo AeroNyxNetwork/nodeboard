@@ -38,9 +38,13 @@
  *     Provides data.summary.restart_readiness.policy_sync_health for Services
  *     Policy Sync health from data.nodes[].system.policy_sync so operators can
  *     verify max_sessions / bandwidth_limit_mbps reached Rust node_policy.
+ *     problem_panel_summary and problem_nodes[].primary_action are
+ *     backend-authored remediation metadata for sync issues.
  *     Provides data.summary.restart_readiness.policy_enforcement_health for
  *     Services Policy Blocks from data.nodes[].system.policy_enforcement so
  *     operators can see maintenance/max_sessions/bandwidth blocks fleet-wide.
+ *     problem_panel_summary and problem_nodes[].primary_action are
+ *     backend-authored remediation metadata for policy blocks.
  *     Provides data.summary.restart_readiness.drain_activity_health_counts
  *     for the Services page top-level Drain Risk card.
  *     drain_activity_health_counts.summary is backend-authored display copy
@@ -293,12 +297,12 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.policy_sync_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level commercial capacity policy sync summary for max_sessions/bandwidth_limit_mbps desired-vs-runtime state from data.nodes[].system.policy_sync and Rust node_policy',
+      purpose: 'Fleet-level commercial capacity policy sync summary for max_sessions/bandwidth_limit_mbps desired-vs-runtime state from data.nodes[].system.policy_sync and Rust node_policy, including problem_panel_summary and problem_nodes[].primary_action for Services remediation',
     },
     {
       endpoint: 'data.summary.restart_readiness.policy_enforcement_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level Rust node_policy enforcement counter summary for maintenance_rejections/max_sessions_rejections/bandwidth_drops and capped problem_nodes triage',
+      purpose: 'Fleet-level Rust node_policy enforcement counter summary for maintenance_rejections/max_sessions_rejections/bandwidth_drops, problem_panel_summary, and capped problem_nodes[].primary_action triage',
     },
     {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',
