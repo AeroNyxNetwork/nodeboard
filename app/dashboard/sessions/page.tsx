@@ -61,9 +61,10 @@ import {
   VpnSession,
   VpnSessionQualitySummary,
 } from '@/types';
-import { formatBytes, formatDuration, formatRelativeTime, truncateAddress } from '@/lib/api';
+import { formatBytes, formatDuration, truncateAddress } from '@/lib/api';
 import Card, { EmptyState, LoadingCard, StatCard } from '@/components/common/Card';
 import Button from '@/components/common/Button';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 type SessionFilter = 'all' | 'active' | 'completed' | 'error';
 type QualityFilter = 'all' | SessionQualityStatus;
@@ -128,16 +129,18 @@ function formatHealthCheckName(name: string): string {
 }
 
 function HealthBadge({ status }: { status: VpnHealthStatus }) {
+  const { t } = useI18n();
   const style = healthStyles[status];
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${style.badge}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-      {style.label}
+      {t(`nodes.vpnHealth.${status}`)}
     </span>
   );
 }
 
 function SessionStatusBadge({ status }: { status: VpnSession['status'] }) {
+  const { t } = useI18n();
   const styles = {
     active: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
     completed: 'bg-gray-500/15 text-gray-300 border-gray-500/30',
@@ -145,7 +148,7 @@ function SessionStatusBadge({ status }: { status: VpnSession['status'] }) {
   };
   return (
     <span className={`inline-flex items-center px-2 py-1 rounded-full border text-xs font-medium ${styles[status]}`}>
-      {status}
+      {t(`common.status.${status}`)}
     </span>
   );
 }
@@ -184,11 +187,12 @@ const sessionQualityStyles: Record<SessionQualityStatus, { label: string; badge:
 };
 
 function SessionQualityBadge({ status }: { status: SessionQualityStatus }) {
+  const { t } = useI18n();
   const style = sessionQualityStyles[status] || sessionQualityStyles.pending;
   return (
     <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full border text-xs font-medium ${style.badge}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-      {style.label}
+      {t(`sessions.quality.${status}`)}
     </span>
   );
 }
@@ -208,6 +212,7 @@ function QualitySummaryStrip({
   inViewCount,
   onSelect,
 }: QualitySummaryStripProps) {
+  const { t, formatNumber } = useI18n();
   const total = QUALITY_SUMMARY_FILTERS.reduce(
     (sum, status) => sum + (summary?.[status] ?? 0),
     0
@@ -224,9 +229,12 @@ function QualitySummaryStrip({
   return (
     <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.025] px-4 py-3">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-3">
-        <h3 className="text-sm font-semibold text-white">Session Quality</h3>
+        <h3 className="text-sm font-semibold text-white">{t('sessions.quality.title')}</h3>
         <div className="text-xs text-gray-500">
-          {filteredCount} matching / {inViewCount} shown
+          {t('sessions.quality.matchingShown', {
+            matching: formatNumber(filteredCount),
+            shown: formatNumber(inViewCount),
+          })}
         </div>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
@@ -235,8 +243,8 @@ function QualitySummaryStrip({
           onClick={() => onSelect('all')}
           className={buttonClass(active === 'all')}
         >
-          <div className="text-xs uppercase tracking-wide text-gray-500">All</div>
-          <div className="mt-1 text-xl font-semibold text-white">{total}</div>
+          <div className="text-xs uppercase tracking-wide text-gray-500">{t('sessions.quality.all')}</div>
+          <div className="mt-1 text-xl font-semibold text-white">{formatNumber(total)}</div>
         </button>
         {QUALITY_SUMMARY_FILTERS.map((status) => {
           const style = sessionQualityStyles[status];
@@ -250,10 +258,10 @@ function QualitySummaryStrip({
             >
               <div className="flex items-center gap-1.5 text-xs">
                 <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-                <span>{style.label}</span>
+                <span>{t(`sessions.quality.${status}`)}</span>
               </div>
               <div className="mt-1 text-xl font-semibold text-white">
-                {summary?.[status] ?? 0}
+                {formatNumber(summary?.[status] ?? 0)}
               </div>
             </button>
           );
@@ -284,6 +292,7 @@ function RestartDrainContextPanel({
   filteredCount: number;
   onClear: () => void;
 }) {
+  const { t, formatNumber, formatRelativeTime } = useI18n();
   const readiness = node.system.restart_readiness;
   const drainEta = readiness?.drain_eta ?? null;
   const drainHealth = drainEta?.activity_health ?? null;
@@ -291,17 +300,17 @@ function RestartDrainContextPanel({
     (check.name === 'dns_stub' || check.name === 'dns_query') && !check.ok
   ));
   const cleanupPolicyDetail = typeof drainEta?.cleanup_timeout_seconds === 'number'
-    ? `client liveness timeout ${formatDuration(drainEta.cleanup_timeout_seconds)}`
+    ? t('sessions.restart.cleanupTimeout', { duration: formatDuration(drainEta.cleanup_timeout_seconds) })
     : drainEta?.status === 'cleanup_policy_pending'
-      ? 'waiting for upgraded Rust heartbeat to report session_cleanup policy'
-      : drainEta?.next_step ?? 'waiting for restart drain data';
+      ? t('sessions.restart.cleanupPending')
+      : drainEta?.next_step ?? t('sessions.restart.waitingDrain');
   const activeSessions = readiness?.active_sessions ?? node.active_sessions;
   const maintenanceMode = readiness?.maintenance_mode ?? node.maintenance_mode;
   const blockers = readiness?.blockers?.map((blocker) => blocker.message) ?? [];
   const nextStep = readiness?.next_step || (
     maintenanceMode
-      ? `Drain ${activeSessions.toLocaleString()} active session(s) before restart.`
-      : 'Enable maintenance mode before restarting this node.'
+      ? t('sessions.restart.defaultDrain', { count: formatNumber(activeSessions) })
+      : t('sessions.restart.defaultMaintenance')
   );
   const status = readiness?.status ?? (activeSessions > 0 || !maintenanceMode ? 'blocked' : 'ready');
   const statusClass = status === 'ready'
@@ -316,14 +325,14 @@ function RestartDrainContextPanel({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${statusClass}`}>
-              Restart {status}
+              {t('sessions.restart.status', { status: t(`common.status.${status}`) })}
             </span>
             <span className="text-xs text-gray-500">
-              Services deep link - {filteredCount.toLocaleString()} matching active session(s)
+              {t('sessions.restart.deepLink', { count: formatNumber(filteredCount) })}
             </span>
           </div>
           <h3 className="mt-3 text-base font-semibold text-white">
-            {node.name} session drain context
+            {t('sessions.restart.contextTitle', { name: node.name })}
           </h3>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-400">
             {nextStep}
@@ -348,15 +357,15 @@ function RestartDrainContextPanel({
           ) : null}
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-              <div className="text-xs font-medium text-gray-300">Cleanup Policy</div>
+              <div className="text-xs font-medium text-gray-300">{t('sessions.restart.cleanupPolicy')}</div>
               <div className="mt-1 text-xs leading-5 text-gray-500">{cleanupPolicyDetail}</div>
             </div>
             <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-              <div className="text-xs font-medium text-gray-300">DNS Gateway</div>
+              <div className="text-xs font-medium text-gray-300">{t('sessions.restart.dnsGateway')}</div>
               <div className="mt-1 text-xs leading-5 text-gray-500">
                 {failedDnsCheck
                   ? `${formatHealthCheckName(failedDnsCheck.name)}: ${failedDnsCheck.detail}`
-                  : 'gateway DNS checks are not blocking this session view'}
+                  : t('sessions.restart.dnsClear')}
               </div>
             </div>
           </div>
@@ -364,22 +373,22 @@ function RestartDrainContextPanel({
 
         <div className="grid grid-cols-2 gap-2 text-xs text-gray-400 sm:flex sm:flex-wrap sm:justify-end">
           <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <div className="text-gray-600">Active</div>
-            <div className="mt-1 text-sm font-semibold text-white">{activeSessions.toLocaleString()}</div>
+            <div className="text-gray-600">{t('sessions.restart.active')}</div>
+            <div className="mt-1 text-sm font-semibold text-white">{formatNumber(activeSessions)}</div>
           </div>
           <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <div className="text-gray-600">Maintenance</div>
-            <div className="mt-1 text-sm font-semibold text-white">{maintenanceMode ? 'On' : 'Off'}</div>
+            <div className="text-gray-600">{t('sessions.restart.maintenance')}</div>
+            <div className="mt-1 text-sm font-semibold text-white">{maintenanceMode ? t('sessions.restart.on') : t('sessions.restart.off')}</div>
           </div>
           {drainEta?.oldest_started_at ? (
             <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-              <div className="text-gray-600">Oldest Active</div>
+              <div className="text-gray-600">{t('sessions.restart.oldestActive')}</div>
               <div className="mt-1 text-sm font-semibold text-white">{formatRelativeTime(drainEta.oldest_started_at)}</div>
             </div>
           ) : null}
           {drainEta?.latest_activity_at ? (
             <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-              <div className="text-gray-600">Latest Activity</div>
+              <div className="text-gray-600">{t('sessions.restart.latestActivity')}</div>
               <div className="mt-1 text-sm font-semibold text-white">{formatRelativeTime(drainEta.latest_activity_at)}</div>
             </div>
           ) : null}
@@ -387,16 +396,16 @@ function RestartDrainContextPanel({
             href={`/dashboard/nodes/${node.id}`}
             className="inline-flex items-center justify-center rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-gray-200 transition hover:border-white/20 hover:bg-white/5"
           >
-            Open Node
+            {t('sessions.restart.openNode')}
           </Link>
           <Link
             href="/dashboard/services"
             className="inline-flex items-center justify-center rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-gray-200 transition hover:border-white/20 hover:bg-white/5"
           >
-            Services
+            {t('sessions.restart.services')}
           </Link>
           <Button variant="secondary" size="sm" onClick={onClear}>
-            Clear Filter
+            {t('sessions.restart.clearFilter')}
           </Button>
         </div>
       </div>
@@ -441,17 +450,18 @@ function AffectedSessionsPanel({
   sessions: VpnSession[];
   onQualityFilter: (status: QualityFilter) => void;
 }) {
+  const { t, formatNumber } = useI18n();
   const affected = impactedSessions(sessions);
   if (affected.length === 0) {
     return (
       <div className="mb-4 rounded-xl border border-emerald-500/15 bg-emerald-500/[0.04] px-4 py-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
-            <h3 className="text-sm font-semibold text-white">Affected Sessions</h3>
-            <p className="mt-1 text-xs text-emerald-300">No active degraded, stale, or error sessions in the current view.</p>
+            <h3 className="text-sm font-semibold text-white">{t('sessions.affected.title')}</h3>
+            <p className="mt-1 text-xs text-emerald-300">{t('sessions.affected.none')}</p>
           </div>
           <Button variant="secondary" size="sm" onClick={() => onQualityFilter('all')}>
-            All Sessions
+            {t('sessions.affected.allSessions')}
           </Button>
         </div>
       </div>
@@ -470,63 +480,63 @@ function AffectedSessionsPanel({
     <div className="mb-4 rounded-xl border border-yellow-500/20 bg-yellow-500/[0.05] px-4 py-3">
       <div className="mb-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-white">Affected Sessions</h3>
+          <h3 className="text-sm font-semibold text-white">{t('sessions.affected.title')}</h3>
           <p className="mt-1 text-xs text-gray-500">
-            {affected.length} active tunnels need attention in the current view.
+            {t('sessions.affected.count', { count: formatNumber(affected.length) })}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" size="sm" onClick={() => onQualityFilter('degraded')}>
-            Degraded
+            {t('sessions.quality.degraded')}
           </Button>
           <Button variant="secondary" size="sm" onClick={() => onQualityFilter('stale')}>
-            Stale
+            {t('sessions.quality.stale')}
           </Button>
           <Button variant="secondary" size="sm" onClick={() => onQualityFilter('error')}>
-            Error
+            {t('sessions.quality.error')}
           </Button>
         </div>
       </div>
 
       <div className="grid lg:grid-cols-[1.1fr_0.9fr_1.2fr] gap-3">
         <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
-          <p className="text-[11px] uppercase tracking-wide text-gray-600">Top Reasons</p>
+          <p className="text-[11px] uppercase tracking-wide text-gray-600">{t('sessions.affected.topReasons')}</p>
           <div className="mt-2 space-y-2">
             {byReason.map(([reason, count]) => (
               <div key={reason} className="flex items-center justify-between gap-3 text-xs">
                 <span className="truncate text-gray-300" title={reason}>{reason}</span>
-                <span className="shrink-0 text-yellow-300">{count}</span>
+                <span className="shrink-0 text-yellow-300">{formatNumber(count)}</span>
               </div>
             ))}
           </div>
         </div>
 
         <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
-          <p className="text-[11px] uppercase tracking-wide text-gray-600">Affected Nodes</p>
+          <p className="text-[11px] uppercase tracking-wide text-gray-600">{t('sessions.affected.affectedNodes')}</p>
           <div className="mt-2 space-y-2">
             {byNode.map(([nodeName, count]) => (
               <div key={nodeName} className="flex items-center justify-between gap-3 text-xs">
                 <span className="truncate text-gray-300" title={nodeName}>{nodeName}</span>
-                <span className="shrink-0 text-yellow-300">{count}</span>
+                <span className="shrink-0 text-yellow-300">{formatNumber(count)}</span>
               </div>
             ))}
           </div>
         </div>
 
         <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
-          <p className="text-[11px] uppercase tracking-wide text-gray-600">Lowest Quality</p>
+          <p className="text-[11px] uppercase tracking-wide text-gray-600">{t('sessions.affected.lowestQuality')}</p>
           <div className="mt-2 space-y-2">
             {severe.map((session) => (
               <div key={session.id} className="flex items-center justify-between gap-3 text-xs">
                 <div className="min-w-0">
                   <p className="truncate text-gray-300">
-                    {truncateAddress(session.session_id, 8)} · {session.virtual_ip || 'vip pending'}
+                    {truncateAddress(session.session_id, 8)} · {session.virtual_ip || t('sessions.sessionTable.virtualIpPending')}
                   </p>
                   <p className="mt-0.5 truncate text-gray-600" title={sessionImpactReason(session)}>
                     {sessionImpactReason(session)}
                   </p>
                 </div>
-                <span className="shrink-0 text-yellow-300">{session.quality_score ?? 'pending'}</span>
+                <span className="shrink-0 text-yellow-300">{session.quality_score ?? t('sessions.quality.pending')}</span>
               </div>
             ))}
           </div>
@@ -544,31 +554,36 @@ function EmptyIcon() {
   );
 }
 
-function formatMaybeTime(value: string | null) {
-  return value ? formatRelativeTime(value) : 'pending';
+type TranslateFn = (key: string, values?: Record<string, string | number>) => string;
+type FormatNumberFn = (value: number, options?: Intl.NumberFormatOptions) => string;
+type FormatRelativeTimeFn = (value: string | Date | number | null | undefined) => string;
+
+function formatMaybeTime(value: string | null, t: TranslateFn, formatRelativeTime: FormatRelativeTimeFn) {
+  return value ? formatRelativeTime(value) : t('nodes.pending');
 }
 
-function formatMetric(value: number | null, suffix: string) {
-  return value === null || Number.isNaN(value) ? 'pending' : `${value}${suffix}`;
+function formatMetric(value: number | null, suffix: string, t: TranslateFn, formatNumber: FormatNumberFn) {
+  return value === null || Number.isNaN(value) ? t('nodes.pending') : `${formatNumber(value)}${suffix}`;
 }
 
-function formatMemory(used: number | null, total: number | null) {
-  if (used === null) return 'pending';
-  return total ? `${used} / ${total} MB` : `${used} MB`;
+function formatMemory(used: number | null, total: number | null, t: TranslateFn, formatNumber: FormatNumberFn) {
+  if (used === null) return t('nodes.pending');
+  return total ? `${formatNumber(used)} / ${formatNumber(total)} MB` : `${formatNumber(used)} MB`;
 }
 
-function formatAvailability(value: number | null | undefined) {
-  if (typeof value !== 'number' || Number.isNaN(value)) return 'pending';
+function formatAvailability(value: number | null | undefined, t: TranslateFn) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return t('nodes.pending');
   return `${value.toFixed(value >= 99.95 ? 2 : 1)}%`;
 }
 
 function NodeHealthTable({ nodes }: { nodes: VpnNodeHealth[] }) {
+  const { t, formatNumber, formatRelativeTime } = useI18n();
   if (nodes.length === 0) {
     return (
       <EmptyState
         icon={<EmptyIcon />}
-        title="No VPN Nodes"
-        description="VPN nodes will appear here after the first signed heartbeat."
+        title={t('sessions.nodeHealth.emptyTitle')}
+        description={t('sessions.nodeHealth.emptyDescription')}
       />
     );
   }
@@ -577,8 +592,8 @@ function NodeHealthTable({ nodes }: { nodes: VpnNodeHealth[] }) {
     <Card variant="default" padding="none">
       <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold text-white">Node Health</h2>
-          <p className="text-xs text-gray-500 mt-1">Live status from signed node heartbeats</p>
+          <h2 className="text-base font-semibold text-white">{t('sessions.nodeHealth.title')}</h2>
+          <p className="text-xs text-gray-500 mt-1">{t('sessions.nodeHealth.description')}</p>
         </div>
       </div>
 
@@ -586,14 +601,14 @@ function NodeHealthTable({ nodes }: { nodes: VpnNodeHealth[] }) {
         <table className="w-full min-w-[1120px] text-sm">
           <thead className="text-xs uppercase text-gray-500 bg-white/[0.02]">
             <tr>
-              <th className="text-left font-medium px-5 py-3">Node</th>
-              <th className="text-left font-medium px-4 py-3">Health</th>
-              <th className="text-left font-medium px-4 py-3">Availability</th>
-              <th className="text-left font-medium px-4 py-3">Sessions</th>
-              <th className="text-left font-medium px-4 py-3">Load</th>
-              <th className="text-left font-medium px-4 py-3">Traffic</th>
-              <th className="text-left font-medium px-4 py-3">Checks</th>
-              <th className="text-left font-medium px-5 py-3">Last Seen</th>
+              <th className="text-left font-medium px-5 py-3">{t('sessions.nodeHealth.node')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('sessions.nodeHealth.health')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('sessions.nodeHealth.availability')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('sessions.nodeHealth.sessions')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('sessions.nodeHealth.load')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('sessions.nodeHealth.traffic')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('sessions.nodeHealth.checks')}</th>
+              <th className="text-left font-medium px-5 py-3">{t('sessions.nodeHealth.lastSeen')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
@@ -604,55 +619,62 @@ function NodeHealthTable({ nodes }: { nodes: VpnNodeHealth[] }) {
                   <td className="px-5 py-4">
                     <div className="font-medium text-white">{node.name}</div>
                     <div className="text-xs text-gray-500 mt-1">
-                      {node.public_ip || 'no ip'}:{node.port}
+                      {node.public_ip || t('nodes.noIp')}:{node.port}
                       {node.region_code ? ` - ${node.region_code}` : ''}
                     </div>
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex flex-col gap-1.5">
                       <HealthBadge status={node.health_status} />
-                      <span className="text-xs text-gray-500">{node.health_score}/100 score</span>
+                      <span className="text-xs text-gray-500">{t('nodes.score', { score: formatNumber(node.health_score) })}</span>
                     </div>
                   </td>
                   <td className="px-4 py-4">
                     <div className="text-white font-medium">
-                      {formatAvailability(node.availability_24h?.percent)}
+                      {formatAvailability(node.availability_24h?.percent, t)}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {node.availability_24h?.sample_count ?? 0} samples / {node.availability_24h?.window_hours ?? 24}h
+                      {t('sessions.nodeHealth.samplesWindow', {
+                        samples: formatNumber(node.availability_24h?.sample_count ?? 0),
+                        hours: formatNumber(node.availability_24h?.window_hours ?? 24),
+                      })}
                     </div>
                     {node.availability_24h?.last_gap_seconds ? (
                       <div className="text-xs text-yellow-300">
-                        gap {formatDuration(node.availability_24h.last_gap_seconds)}
+                        {t('sessions.nodeHealth.gap', { duration: formatDuration(node.availability_24h.last_gap_seconds) })}
                       </div>
                     ) : null}
                   </td>
                   <td className="px-4 py-4 text-gray-300">
-                    <span className="text-white font-medium">{node.active_sessions}</span>
-                    <span className="text-gray-500"> active</span>
-                    <div className="text-xs text-gray-500">{node.total_sessions} total</div>
+                    <span className="text-white font-medium">{formatNumber(node.active_sessions)}</span>
+                    <span className="text-gray-500"> {t('nodes.active')}</span>
+                    <div className="text-xs text-gray-500">{t('nodes.capacityTotal', { count: formatNumber(node.total_sessions) })}</div>
                   </td>
                   <td className="px-4 py-4">
                     <div className="text-gray-300">
-                      CPU {formatMetric(node.system.cpu_usage, '%')}
+                      {t('nodes.operations.cpu')} {formatMetric(node.system.cpu_usage, '%', t, formatNumber)}
                     </div>
                     <div className="text-xs text-gray-500">
-                      Mem {formatMemory(node.system.memory_mb, node.system.memory_total_mb)}
+                      {t('nodes.operations.memory')} {formatMemory(node.system.memory_mb, node.system.memory_total_mb, t, formatNumber)}
                     </div>
                     <div className="text-xs text-gray-600">
-                      {node.system.cpu_count ? `${node.system.cpu_count} cores` : 'cores pending'}
+                      {node.system.cpu_count
+                        ? t('sessions.nodeHealth.cores', { count: formatNumber(node.system.cpu_count) })
+                        : t('sessions.nodeHealth.coresPending')}
                     </div>
                   </td>
                   <td className="px-4 py-4 text-gray-300">
-                    <div>{node.traffic_in_mb.toFixed(1)} MB in</div>
-                    <div className="text-xs text-gray-500">{node.traffic_out_mb.toFixed(1)} MB out</div>
+                    <div>{t('sessions.stats.trafficIn', {
+                      value: formatNumber(node.traffic_in_mb, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+                    })}</div>
+                    <div className="text-xs text-gray-500">{formatNumber(node.traffic_out_mb, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MB {t('sessions.sessionTable.out')}</div>
                     <div className="text-xs text-gray-600">
-                      {node.system.source === 'cache' ? 'live heartbeat' : 'sample fallback'}
+                      {node.system.source === 'cache' ? t('sessions.nodeHealth.liveHeartbeat') : t('sessions.nodeHealth.sampleFallback')}
                     </div>
                   </td>
                   <td className="px-4 py-4">
                     {failedChecks.length === 0 ? (
-                      <span className="text-xs text-emerald-300">all clear</span>
+                      <span className="text-xs text-emerald-300">{t('sessions.nodeHealth.allClear')}</span>
                     ) : (
                       <div className="space-y-1">
                         {failedChecks.slice(0, 2).map((check) => (
@@ -664,7 +686,7 @@ function NodeHealthTable({ nodes }: { nodes: VpnNodeHealth[] }) {
                     )}
                   </td>
                   <td className="px-5 py-4 text-gray-400">
-                    {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : 'never'}
+                    {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : t('nodes.never')}
                   </td>
                 </tr>
               );
@@ -685,12 +707,13 @@ interface SessionTableProps {
 }
 
 function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSession, onBanWallet }: SessionTableProps) {
+  const { t, formatNumber, formatRelativeTime } = useI18n();
   if (sessions.length === 0) {
     return (
       <EmptyState
         icon={<EmptyIcon />}
-        title="No Matching Sessions"
-        description="Sessions appear here as nodes report VPN connection events."
+        title={t('sessions.sessionTable.emptyTitle')}
+        description={t('sessions.sessionTable.emptyDescription')}
       />
     );
   }
@@ -701,15 +724,15 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
         <table className="w-full min-w-[1240px] text-sm">
           <thead className="text-xs uppercase text-gray-500 bg-white/[0.02]">
             <tr>
-              <th className="text-left font-medium px-5 py-3">Session</th>
-              <th className="text-left font-medium px-4 py-3">Node</th>
-              <th className="text-left font-medium px-4 py-3">Client</th>
-              <th className="text-left font-medium px-4 py-3">Status</th>
-              <th className="text-left font-medium px-4 py-3">Duration</th>
-              <th className="text-left font-medium px-4 py-3">Traffic</th>
-              <th className="text-left font-medium px-4 py-3">Quality</th>
-              <th className="text-left font-medium px-5 py-3">Last Activity</th>
-              <th className="text-right font-medium px-5 py-3">Operations</th>
+              <th className="text-left font-medium px-5 py-3">{t('sessions.sessionTable.session')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('sessions.sessionTable.node')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('sessions.sessionTable.client')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('sessions.sessionTable.status')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('sessions.sessionTable.duration')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('sessions.sessionTable.traffic')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('sessions.sessionTable.quality')}</th>
+              <th className="text-left font-medium px-5 py-3">{t('sessions.sessionTable.lastActivity')}</th>
+              <th className="text-right font-medium px-5 py-3">{t('sessions.sessionTable.operations')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
@@ -717,7 +740,7 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
               <tr key={session.id} className="hover:bg-white/[0.03] transition-colors">
                 <td className="px-5 py-4">
                   <div className="font-mono text-xs text-white">{truncateAddress(session.session_id, 8)}</div>
-                  <div className="text-xs text-gray-500 mt-1">{session.virtual_ip || 'virtual ip pending'}</div>
+                  <div className="text-xs text-gray-500 mt-1">{session.virtual_ip || t('sessions.sessionTable.virtualIpPending')}</div>
                 </td>
                 <td className="px-4 py-4">
                   <Link href={`/dashboard/nodes/${session.node_id}`} className="text-gray-300 hover:text-purple-300">
@@ -726,7 +749,7 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
                 </td>
                 <td className="px-4 py-4">
                   <span className="font-mono text-xs text-gray-300">
-                    {truncateAddress(session.client_wallet || 'anonymous', 6)}
+                    {truncateAddress(session.client_wallet || t('sessions.sessionTable.anonymous'), 6)}
                   </span>
                 </td>
                 <td className="px-4 py-4">
@@ -744,7 +767,7 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
                 <td className="px-4 py-4 text-gray-300">
                   {session.total_bytes_mb.toFixed(1)} MB
                   <div className="text-xs text-gray-500">
-                    {formatBytes(session.bytes_in, 1)} in / {formatBytes(session.bytes_out, 1)} out
+                    {formatBytes(session.bytes_in, 1)} {t('sessions.sessionTable.in')} / {formatBytes(session.bytes_out, 1)} {t('sessions.sessionTable.out')}
                   </div>
                 </td>
                 <td className="px-4 py-4 text-gray-300">
@@ -752,14 +775,14 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
                     <div className="flex items-center gap-2">
                       <SessionQualityBadge status={session.quality_status} />
                       {session.quality_score !== null ? (
-                        <span className="text-xs text-gray-500">{session.quality_score}/100</span>
+                        <span className="text-xs text-gray-500">{formatNumber(session.quality_score)}/100</span>
                       ) : null}
                     </div>
                     <div className="text-xs text-gray-500">
-                      RTT {formatMetric(session.rtt_ms, ' ms')} · loss {formatMetric(session.packet_loss, '%')}
+                      RTT {formatMetric(session.rtt_ms, ' ms', t, formatNumber)} · {t('sessions.sessionTable.loss')} {formatMetric(session.packet_loss, '%', t, formatNumber)}
                     </div>
                     <div className="text-xs text-gray-500">
-                      ACK {session.keepalive_acks}/{session.keepalive_probes_sent} · missed {session.keepalive_missed} · pending {session.keepalive_pending}
+                      ACK {formatNumber(session.keepalive_acks)}/{formatNumber(session.keepalive_probes_sent)} · {t('sessions.sessionTable.missed')} {formatNumber(session.keepalive_missed)} · {t('sessions.sessionTable.pending')} {formatNumber(session.keepalive_pending)}
                     </div>
                     {session.degraded_reason ? (
                       <div className="max-w-[260px] truncate text-xs text-yellow-300" title={session.degraded_reason}>
@@ -769,7 +792,7 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
                   </div>
                 </td>
                 <td className="px-5 py-4 text-gray-400">
-                  {formatMaybeTime(session.last_activity_at || session.last_rx_at || session.last_tx_at)}
+                  {formatMaybeTime(session.last_activity_at || session.last_rx_at || session.last_tx_at, t, formatRelativeTime)}
                 </td>
                 <td className="px-5 py-4 text-right">
                   {session.status === 'active' ? (
@@ -781,7 +804,7 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
                         disabled={Boolean(kickingSessionId || banningSessionId)}
                         onClick={() => onKickSession(session)}
                       >
-                        Kick
+                        {t('sessions.sessionTable.kick')}
                       </Button>
                       <Button
                         variant="danger"
@@ -790,7 +813,7 @@ function SessionTable({ sessions, kickingSessionId, banningSessionId, onKickSess
                         disabled={Boolean(kickingSessionId || banningSessionId) || !session.client_wallet}
                         onClick={() => onBanWallet(session)}
                       >
-                        Ban Wallet
+                        {t('sessions.sessionTable.banWallet')}
                       </Button>
                     </div>
                   ) : (
@@ -810,6 +833,7 @@ export default function SessionsPage() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { t, formatNumber, formatRelativeTime } = useI18n();
   const [statusFilter, setStatusFilter] = useState<SessionFilter>(() => parseSessionFilter(searchParams.get('status')));
   const [nodeFilter, setNodeFilter] = useState(() => searchParams.get('node') || '');
   const [qualityFilter, setQualityFilter] = useState<QualityFilter>(() => parseQualityFilter(searchParams.get('quality')));
@@ -895,7 +919,7 @@ export default function SessionsPage() {
         },
       });
       setOperationNotice({
-        message: `Kick queued for ${truncateAddress(session.session_id, 8)}`,
+        message: t('sessions.kickQueued', { id: truncateAddress(session.session_id, 8) }),
         nodeId: session.node_id,
         commandId: response.data.command.id,
         commandAction: 'kick_session',
@@ -904,7 +928,7 @@ export default function SessionsPage() {
       refetchSessions();
     } catch (error) {
       setOperationNotice({
-        message: error instanceof Error ? error.message : 'Failed to queue kick command',
+        message: error instanceof Error ? error.message : t('sessions.kickFailed'),
       });
     } finally {
       setKickingSessionId(null);
@@ -912,7 +936,10 @@ export default function SessionsPage() {
   };
 
   const handleBanWallet = async (session: VpnSession) => {
-    if (!window.confirm(`Ban wallet ${truncateAddress(session.client_wallet, 6)} on ${session.node_name}? Active tunnels for this wallet will be disconnected.`)) {
+    if (!window.confirm(t('sessions.confirmBan', {
+      wallet: truncateAddress(session.client_wallet, 6),
+      node: session.node_name,
+    }))) {
       return;
     }
 
@@ -932,7 +959,7 @@ export default function SessionsPage() {
         },
       });
       setOperationNotice({
-        message: `Ban queued for wallet ${truncateAddress(session.client_wallet, 6)}`,
+        message: t('sessions.banQueued', { wallet: truncateAddress(session.client_wallet, 6) }),
         nodeId: session.node_id,
         commandId: response.data.command.id,
         commandAction: 'ban_wallet',
@@ -941,7 +968,7 @@ export default function SessionsPage() {
       refetchSessions();
     } catch (error) {
       setOperationNotice({
-        message: error instanceof Error ? error.message : 'Failed to queue wallet ban',
+        message: error instanceof Error ? error.message : t('sessions.banFailed'),
       });
     } finally {
       setBanningSessionId(null);
@@ -952,19 +979,19 @@ export default function SessionsPage() {
     <div className="max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">VPN Operations</h1>
+          <h1 className="text-2xl font-bold text-white">{t('sessions.title')}</h1>
           <p className="text-sm text-gray-400 mt-1">
-            Node health, active tunnels, and operational alerts
+            {t('sessions.subtitle')}
           </p>
         </div>
         <Button variant="secondary" onClick={handleRefresh}>
-          Refresh
+          {t('common.refreshNow')}
         </Button>
       </div>
 
       {overviewError || sessionsError ? (
         <Card variant="outline" padding="md" className="mb-6 border-red-500/30">
-          <div className="text-sm text-red-300">VPN observability data is unavailable.</div>
+          <div className="text-sm text-red-300">{t('sessions.dataUnavailable')}</div>
         </Card>
       ) : null}
 
@@ -975,7 +1002,7 @@ export default function SessionsPage() {
               <div className="text-sm text-gray-300">{operationNotice.message}</div>
               {operationNotice.commandId ? (
                 <div className="mt-1 text-xs text-gray-600">
-                  Command <span className="font-mono">{operationNotice.commandId.slice(0, 8)}</span>
+                  {t('sessions.command')} <span className="font-mono">{operationNotice.commandId.slice(0, 8)}</span>
                 </div>
               ) : null}
             </div>
@@ -984,7 +1011,7 @@ export default function SessionsPage() {
                 href={`/dashboard/nodes/${operationNotice.nodeId}${operationNotice.commandAction ? `?command_action=${operationNotice.commandAction}` : ''}#vpn-commands`}
                 className="text-sm font-medium text-purple-300 hover:text-purple-200"
               >
-                Open Node Commands
+                {t('sessions.openNodeCommands')}
               </Link>
             ) : null}
           </div>
@@ -1006,29 +1033,39 @@ export default function SessionsPage() {
       ) : (
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
           <StatCard
-            label="Healthy Nodes"
-            value={`${summary?.healthy_nodes ?? 0}/${summary?.total_nodes ?? 0}`}
-            subValue={`${summary?.degraded_nodes ?? 0} degraded, ${summary?.offline_nodes ?? 0} offline`}
+            label={t('sessions.stats.healthyNodes')}
+            value={`${formatNumber(summary?.healthy_nodes ?? 0)}/${formatNumber(summary?.total_nodes ?? 0)}`}
+            subValue={t('sessions.stats.healthSub', {
+              degraded: formatNumber(summary?.degraded_nodes ?? 0),
+              offline: formatNumber(summary?.offline_nodes ?? 0),
+            })}
           />
           <StatCard
-            label="24h Availability"
-            value={formatAvailability(summary?.availability_24h_percent)}
-            subValue="sampled heartbeat average"
+            label={t('sessions.stats.availability')}
+            value={formatAvailability(summary?.availability_24h_percent, t)}
+            subValue={t('sessions.stats.availabilitySub')}
           />
           <StatCard
-            label="Active Tunnels"
-            value={summary?.active_sessions ?? 0}
-            subValue={`${sessionFilteredCount} matching, ${sessionCount} shown`}
+            label={t('sessions.stats.activeTunnels')}
+            value={formatNumber(summary?.active_sessions ?? 0)}
+            subValue={t('sessions.stats.matchingShown', {
+              matching: formatNumber(sessionFilteredCount),
+              shown: formatNumber(sessionCount),
+            })}
           />
           <StatCard
-            label="VPN Traffic"
+            label={t('sessions.stats.traffic')}
             value={formatBytes(totalTrafficBytes, 1)}
-            subValue={`${(summary?.traffic_in_mb ?? 0).toFixed(1)} MB in`}
+            subValue={t('sessions.stats.trafficIn', {
+              value: formatNumber(summary?.traffic_in_mb ?? 0, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+            })}
           />
           <StatCard
-            label="Open Alerts"
-            value={summary?.open_alerts ?? 0}
-            subValue={overview?.generated_at ? `Updated ${formatRelativeTime(overview.generated_at)}` : 'Awaiting data'}
+            label={t('sessions.stats.openAlerts')}
+            value={formatNumber(summary?.open_alerts ?? 0)}
+            subValue={overview?.generated_at
+              ? t('sessions.stats.updated', { time: formatRelativeTime(overview.generated_at) })
+              : t('sessions.stats.awaitingData')}
           />
         </div>
       )}
@@ -1045,7 +1082,7 @@ export default function SessionsPage() {
                 <span className="text-xs text-yellow-300">{alert.severity}</span>
               </div>
               <div className="text-xs text-gray-500 mt-1">
-                {alert.created_at ? formatRelativeTime(alert.created_at) : 'no heartbeat'}
+                {alert.created_at ? formatRelativeTime(alert.created_at) : t('sessions.alert.noHeartbeat')}
               </div>
             </div>
           ))}
@@ -1058,18 +1095,18 @@ export default function SessionsPage() {
 
       <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 mb-4">
         <div>
-          <h2 className="text-lg font-semibold text-white">VPN Sessions</h2>
-          <p className="text-xs text-gray-500 mt-1">Session identity is operational only; traffic destinations are not collected.</p>
+          <h2 className="text-lg font-semibold text-white">{t('sessions.heading.sessions')}</h2>
+          <p className="text-xs text-gray-500 mt-1">{t('sessions.heading.sessionsDescription')}</p>
         </div>
         <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3 w-full xl:w-auto">
           <label className="block">
-            <span className="text-xs text-gray-500">Node</span>
+            <span className="text-xs text-gray-500">{t('sessions.filters.node')}</span>
             <select
               value={nodeFilter}
               onChange={(event) => setNodeFilter(event.target.value)}
               className="mt-1 w-full min-w-[180px] rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
             >
-              <option value="" className="bg-[#111118]">All nodes</option>
+              <option value="" className="bg-[#111118]">{t('sessions.filters.allNodes')}</option>
               {sortedNodes.map((node) => (
                 <option key={node.id} value={node.id} className="bg-[#111118]">
                   {node.name}
@@ -1078,7 +1115,7 @@ export default function SessionsPage() {
             </select>
           </label>
           <label className="block">
-            <span className="text-xs text-gray-500">Status</span>
+            <span className="text-xs text-gray-500">{t('sessions.filters.status')}</span>
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value as SessionFilter)}
@@ -1086,13 +1123,13 @@ export default function SessionsPage() {
             >
               {SESSION_FILTERS.map((filter) => (
                 <option key={filter} value={filter} className="bg-[#111118]">
-                  {filter}
+                  {t(`common.status.${filter}`)}
                 </option>
               ))}
             </select>
           </label>
           <label className="block">
-            <span className="text-xs text-gray-500">Quality</span>
+            <span className="text-xs text-gray-500">{t('sessions.filters.quality')}</span>
             <select
               value={qualityFilter}
               onChange={(event) => setQualityFilter(event.target.value as QualityFilter)}
@@ -1100,18 +1137,18 @@ export default function SessionsPage() {
             >
               {QUALITY_FILTERS.map((filter) => (
                 <option key={filter} value={filter} className="bg-[#111118]">
-                  {filter}
+                  {t(`sessions.quality.${filter}`)}
                 </option>
               ))}
             </select>
           </label>
           <label className="block">
-            <span className="text-xs text-gray-500">Session / Wallet / VIP</span>
+            <span className="text-xs text-gray-500">{t('sessions.filters.search')}</span>
             <input
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search operational id"
+              placeholder={t('sessions.filters.searchPlaceholder')}
               className="mt-1 w-full min-w-[200px] rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-purple-500/50"
             />
           </label>

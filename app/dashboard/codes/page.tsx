@@ -41,12 +41,14 @@ import { CODE_STATUS_CONFIG } from '@/lib/constants';
 import Card, { EmptyState } from '@/components/common/Card';
 import Button, { CopyButton } from '@/components/common/Button';
 import { ConfirmDialog } from '@/components/common/Modal';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 // ============================================
 // Countdown Component
 // ============================================
 
 function CodeCountdown({ expiresAt }: { expiresAt: string }) {
+  const { t } = useI18n();
   const [timeLeft, setTimeLeft] = useState(getCodeTimeRemaining(expiresAt));
 
   useEffect(() => {
@@ -57,7 +59,7 @@ function CodeCountdown({ expiresAt }: { expiresAt: string }) {
   }, [expiresAt]);
 
   if (timeLeft.isExpired) {
-    return <span className="text-red-400">Expired</span>;
+    return <span className="text-red-400">{t('codes.expired')}</span>;
   }
 
   return (
@@ -77,8 +79,11 @@ interface CodeRowProps {
 }
 
 function CodeRow({ code, onRevoke }: CodeRowProps) {
+  const { t, formatDateTime } = useI18n();
   const statusConfig = CODE_STATUS_CONFIG[code.status];
   const isRevokable = code.status === 'unused' && code.is_valid;
+  const statusKey = `codes.status.${code.status}`;
+  const translatedStatus = t(statusKey);
 
   return (
     <motion.tr
@@ -103,7 +108,7 @@ function CodeRow({ code, onRevoke }: CodeRowProps) {
           inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium
           ${statusConfig.bgColor} ${statusConfig.textColor}
         `}>
-          {statusConfig.label}
+          {translatedStatus === statusKey ? statusConfig.label : translatedStatus}
         </span>
       </td>
 
@@ -118,7 +123,7 @@ function CodeRow({ code, onRevoke }: CodeRowProps) {
 
       {/* Created */}
       <td className="px-6 py-4 text-sm text-gray-400">
-        {new Date(code.created_at).toLocaleString()}
+        {formatDateTime(code.created_at)}
       </td>
 
       {/* Actions */}
@@ -130,7 +135,7 @@ function CodeRow({ code, onRevoke }: CodeRowProps) {
             onClick={() => onRevoke(code)}
             className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
           >
-            Revoke
+            {t('codes.revoke')}
           </Button>
         )}
       </td>
@@ -143,6 +148,7 @@ function CodeRow({ code, onRevoke }: CodeRowProps) {
 // ============================================
 
 function GenerateCodeCard() {
+  const { t } = useI18n();
   const { generateCode, isLoading, lastGeneratedCode, reset } = useGenerateCode();
   const [showCode, setShowCode] = useState(false);
 
@@ -172,9 +178,9 @@ function GenerateCodeCard() {
             className="flex flex-col sm:flex-row items-center justify-between gap-6"
           >
             <div>
-              <h3 className="text-lg font-semibold text-white mb-1">Generate Registration Code</h3>
+              <h3 className="text-lg font-semibold text-white mb-1">{t('codes.generate.title')}</h3>
               <p className="text-sm text-gray-400">
-                Create a new code to register a node. Codes expire after 15 minutes.
+                {t('codes.generate.description')}
               </p>
             </div>
             <Button
@@ -187,7 +193,7 @@ function GenerateCodeCard() {
                 </svg>
               }
             >
-              Generate Code
+              {t('codes.generate.button')}
             </Button>
           </motion.div>
         ) : lastGeneratedCode ? (
@@ -201,7 +207,7 @@ function GenerateCodeCard() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">
-                  Your New Registration Code
+                  {t('codes.generated.title')}
                 </p>
                 <div className="flex items-center gap-3">
                   <code className="
@@ -229,14 +235,14 @@ function GenerateCodeCard() {
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>Expires in:</span>
+                <span>{t('codes.generated.expiresIn')}</span>
                 <CodeCountdown expiresAt={lastGeneratedCode.expires_at} />
               </div>
             </div>
 
             <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20">
               <p className="text-sm text-purple-200">
-                Run this command on your server to bind the node:
+                {t('codes.generated.commandHint')}
               </p>
               <div className="mt-2 flex items-center gap-2">
                 <code className="flex-1 bg-black/30 px-3 py-2 rounded text-sm font-mono text-gray-300">
@@ -257,6 +263,7 @@ function GenerateCodeCard() {
 // ============================================
 
 export default function CodesPage() {
+  const { t } = useI18n();
   const { codes, isLoading } = useRegistrationCodes({ includeExpired: true });
   const { revokeCode, isLoading: isRevoking } = useRevokeCode();
   const [codeToRevoke, setCodeToRevoke] = useState<RegistrationCode | null>(null);
@@ -275,9 +282,9 @@ export default function CodesPage() {
     <div className="max-w-7xl mx-auto">
       {/* Page Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">Registration Codes</h1>
+        <h1 className="text-2xl font-bold text-white">{t('codes.title')}</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Generate and manage registration codes for binding nodes
+          {t('codes.subtitle')}
         </p>
       </div>
 
@@ -287,7 +294,7 @@ export default function CodesPage() {
       {/* Codes Table */}
       <Card variant="default" padding="none">
         <div className="px-6 py-4 border-b border-white/5">
-          <h3 className="font-semibold text-white">Code History</h3>
+          <h3 className="font-semibold text-white">{t('codes.history.title')}</h3>
         </div>
 
         {isLoading ? (
@@ -301,19 +308,19 @@ export default function CodesPage() {
             <svg className="w-12 h-12 mx-auto text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
             </svg>
-            <p className="text-gray-500">No registration codes yet</p>
-            <p className="text-sm text-gray-600 mt-1">Generate your first code above</p>
+            <p className="text-gray-500">{t('codes.empty.title')}</p>
+            <p className="text-sm text-gray-600 mt-1">{t('codes.empty.description')}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-white/5">
-                  <th className="px-6 py-3 font-medium">Code</th>
-                  <th className="px-6 py-3 font-medium">Status</th>
-                  <th className="px-6 py-3 font-medium">Expires In</th>
-                  <th className="px-6 py-3 font-medium">Created</th>
-                  <th className="px-6 py-3 font-medium">Actions</th>
+                  <th className="px-6 py-3 font-medium">{t('codes.table.code')}</th>
+                  <th className="px-6 py-3 font-medium">{t('codes.table.status')}</th>
+                  <th className="px-6 py-3 font-medium">{t('codes.table.expiresIn')}</th>
+                  <th className="px-6 py-3 font-medium">{t('codes.table.created')}</th>
+                  <th className="px-6 py-3 font-medium">{t('codes.table.actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -337,10 +344,10 @@ export default function CodesPage() {
         isOpen={!!codeToRevoke}
         onClose={() => setCodeToRevoke(null)}
         onConfirm={handleRevoke}
-        title="Revoke Code"
-        message={`Are you sure you want to revoke code "${codeToRevoke?.code}"? This code will no longer be usable.`}
-        confirmText="Revoke"
-        cancelText="Cancel"
+        title={t('codes.revokeTitle')}
+        message={t('codes.revokeMessage', { code: codeToRevoke?.code || '' })}
+        confirmText={t('codes.revoke')}
+        cancelText={t('nodes.cancel')}
         variant="warning"
         isLoading={isRevoking}
       />
