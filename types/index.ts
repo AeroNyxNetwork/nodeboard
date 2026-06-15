@@ -756,7 +756,8 @@ export interface VpnRestartReadinessBlockedNode {
  *   count contract; React should not derive readiness totals. primary_action
  *   is the backend-owned next operator intent for the Restart Action Queue.
  *   upgrade_blocker_counts aggregates checklist_summary.blocking_keys for the
- *   fleet Rust Capability card.
+ *   fleet Rust Capability card. upgrade_blockers is the backend-sorted display
+ *   list with labels/statuses; counts remains a compatibility map.
  * Policy sync source:
  *   data.summary.restart_readiness.policy_sync_health aggregates
  *   data.nodes[].system.policy_sync from
@@ -944,6 +945,12 @@ export interface VpnRestartReadinessSummary {
     upgrade_safe_nodes?: number;
     upgrade_blocked_nodes?: number;
     upgrade_blocker_counts?: Record<string, number>;
+    upgrade_blockers?: Array<{
+      key: string;
+      label: string;
+      status: 'ready' | 'attention' | 'blocked' | 'healthy' | 'warning' | 'critical' | string;
+      count: number;
+    }>;
     problem_nodes?: Array<{
       id: string;
       name: string;

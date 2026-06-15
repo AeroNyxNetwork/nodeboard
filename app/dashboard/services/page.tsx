@@ -89,7 +89,8 @@
  *     upgrade_gate.checklist and checklist_summary are backend-authored
  *     upgrade preflight copy and counts. primary_action is the backend-owned
  *     operator intent for the Restart Action Queue button.
- *     upgrade_blocker_counts is backend-authored fleet blocker aggregation.
+ *     upgrade_blockers is backend-authored fleet blocker display order and
+ *     copy; upgrade_blocker_counts remains a compatibility map.
  *   - data.summary.restart_readiness.policy_sync_health
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates data.nodes[].system.policy_sync so Services can verify
@@ -1419,11 +1420,17 @@ function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
     next_step: 'Review Rust operator_status and session_cleanup reporting before cutover work.',
     count: capability.gap_nodes,
   };
-  const blockerSummary = Object.entries(capability.upgrade_blocker_counts ?? {})
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .slice(0, 3)
-    .map(([key, count]) => `${key.replaceAll('_', ' ')} ${count.toLocaleString()}`)
-    .join(' · ');
+  const backendBlockers = capability.upgrade_blockers ?? [];
+  const blockerSummary = backendBlockers.length > 0
+    ? backendBlockers
+      .slice(0, 3)
+      .map((item) => `${item.label} ${item.count.toLocaleString()}`)
+      .join(' · ')
+    : Object.entries(capability.upgrade_blocker_counts ?? {})
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .slice(0, 3)
+      .map(([key, count]) => `${key.replaceAll('_', ' ')} ${count.toLocaleString()}`)
+      .join(' · ');
 
   return {
     count: summaryCopy.count ?? capability.gap_nodes,
