@@ -6,6 +6,9 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.24 - Added node commercial status, config drift checks, and
+ *     diagnostics checklist so operators can see whether a node is safe to
+ *     serve clients before inspecting low-level telemetry.
  *   v1.6.2 - Consumes backend system.restart_readiness so detail-page restart
  *     actions use the same controlled-restart gate as services fleet view.
  *   v1.6.1 - Added maintenance restart readiness guard so every restart
@@ -152,7 +155,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.23 - Add placement rollout action links
+ * Last Modified: v1.6.24 - Add commercial status and diagnostics summary
+ * Previous: v1.6.23 - Add placement rollout action links
  * Previous: v1.6.22 - Show placement rollout cutover safety
  * Previous: v1.6.21 - Show Rust placement admission readiness
  * Previous: v1.6.20 - Show Rust policy counter scope
@@ -212,6 +216,7 @@ import {
   VpnHealthStatus,
   VpnNodeHealth,
   VpnNodeMetrics,
+  VpnPolicySnapshot,
   VpnRestartCommandState,
   VpnRestartDrainEta,
   VpnRestartReadiness,
@@ -867,6 +872,287 @@ function formatUnixSecondsRelative(seconds: number | null | undefined) {
   return formatRelativeTime(new Date(seconds * 1000).toISOString());
 }
 
+type CommercialStatusKey = 'ready' | 'degraded' | 'blocked' | 'maintenance' | 'upgrade';
+type OperatorCheckStatus = 'pass' | 'warn' | 'fail' | 'pending';
+
+interface OperatorCheckItem {
+  label: string;
+  status: OperatorCheckStatus;
+  detail: string;
+  action: string;
+}
+
+interface CommercialStatusSummary {
+  key: CommercialStatusKey;
+  label: string;
+  detail: string;
+  action: string;
+}
+
+function operatorCheckClass(status: OperatorCheckStatus) {
+  if (status === 'pass') return 'border-emerald-500/20 bg-emerald-500/[0.05] text-emerald-200';
+  if (status === 'fail') return 'border-red-500/25 bg-red-500/[0.06] text-red-200';
+  if (status === 'warn') return 'border-yellow-500/25 bg-yellow-500/[0.06] text-yellow-200';
+  return 'border-white/10 bg-white/[0.03] text-gray-300';
+}
+
+function operatorCheckBadge(status: OperatorCheckStatus) {
+  if (status === 'pass') return 'OK';
+  if (status === 'fail') return 'Fix';
+  if (status === 'warn') return 'Watch';
+  return 'Pending';
+}
+
+function commercialStatusClass(status: CommercialStatusKey) {
+  if (status === 'ready') return 'border-emerald-500/25 bg-emerald-500/[0.07]';
+  if (status === 'maintenance') return 'border-sky-500/25 bg-sky-500/[0.06]';
+  if (status === 'upgrade') return 'border-violet-500/25 bg-violet-500/[0.06]';
+  if (status === 'blocked') return 'border-red-500/25 bg-red-500/[0.06]';
+  return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+}
+
+function commercialStatusBadgeClass(status: CommercialStatusKey) {
+  if (status === 'ready') return 'border-emerald-500/30 bg-emerald-500/15 text-emerald-200';
+  if (status === 'maintenance') return 'border-sky-500/30 bg-sky-500/15 text-sky-200';
+  if (status === 'upgrade') return 'border-violet-500/30 bg-violet-500/15 text-violet-200';
+  if (status === 'blocked') return 'border-red-500/30 bg-red-500/15 text-red-200';
+  return 'border-yellow-500/30 bg-yellow-500/15 text-yellow-200';
+}
+
+function findHealthCheck(health: VpnNodeHealth, name: string) {
+  return health.checks.find((check) => check.name === name) ?? null;
+}
+
+function aggregateHealthChecks(health: VpnNodeHealth, names: string[]): OperatorCheckStatus {
+  const checks = names.map((name) => findHealthCheck(health, name)).filter(Boolean) as VpnNodeHealth['checks'];
+  if (checks.length === 0) return 'pending';
+  return checks.every((check) => check.ok) ? 'pass' : 'fail';
+}
+
+function checkSummary(health: VpnNodeHealth, names: string[]) {
+  const checks = names.map((name) => findHealthCheck(health, name)).filter(Boolean) as VpnNodeHealth['checks'];
+  if (checks.length === 0) return 'waiting for Rust health checks';
+  const failed = checks.filter((check) => !check.ok);
+  if (failed.length === 0) return checks.map((check) => formatHealthCheckName(check.name)).join(', ');
+  return failed.map((check) => `${formatHealthCheckName(check.name)}: ${check.detail}`).join(' · ');
+}
+
+function policySnapshotValue(snapshot: VpnPolicySnapshot | null | undefined, field: keyof VpnPolicySnapshot) {
+  if (!snapshot) return 'pending';
+  const value = snapshot[field];
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') return value.toLocaleString();
+  if (typeof value === 'string' && value.length > 0) return value;
+  return 'pending';
+}
+
+function commercialStatusSummary({
+  health,
+  server,
+  placementReadiness,
+  placementBlocked,
+  runtimeMismatch,
+  activePolicyImpact,
+  failedChecks,
+}: {
+  health: VpnNodeHealth;
+  server: VpnServerCandidate | null;
+  placementReadiness: VpnNodeHealth['system']['placement_readiness'] | null;
+  placementBlocked: boolean;
+  runtimeMismatch: boolean;
+  activePolicyImpact: boolean;
+  failedChecks: VpnNodeHealth['checks'];
+}): CommercialStatusSummary {
+  if (health.maintenance_mode) {
+    return {
+      key: 'maintenance',
+      label: 'Maintenance',
+      detail: 'This node is intentionally removed from client placement while maintenance mode is active.',
+      action: health.active_sessions > 0
+        ? 'Open active sessions and wait for drain before ending maintenance.'
+        : 'End maintenance after diagnostics and restart readiness are clear.',
+    };
+  }
+  if (health.health_status === 'offline' || (typeof health.last_seen_seconds === 'number' && health.last_seen_seconds > COMMAND_DELIVERY_DEGRADED_SECONDS)) {
+    return {
+      key: 'blocked',
+      label: 'Blocked',
+      detail: 'Heartbeat or live health is stale enough that new client placement should stay disabled.',
+      action: 'Check the Rust service, host networking, and signed heartbeat reporter before advertising this node.',
+    };
+  }
+  if (!placementReadiness?.reported) {
+    return {
+      key: 'upgrade',
+      label: 'Needs Rust upgrade',
+      detail: 'Rust has not reported placement_readiness, so nodeboard cannot verify runtime admission decisions.',
+      action: 'Upgrade or restart Rust when cutover guard says it is safe, then confirm placement_readiness appears.',
+    };
+  }
+  if (placementBlocked || !server?.available || placementReadiness.accepting_new_sessions === false) {
+    return {
+      key: 'blocked',
+      label: 'Blocked',
+      detail: `Client placement is blocked: ${formatPlacementReason(server?.unavailable_reason ?? placementReadiness.reason)}.`,
+      action: placementNextAction(server?.unavailable_reason ?? placementReadiness.reason),
+    };
+  }
+  if (runtimeMismatch || activePolicyImpact || failedChecks.length > 0 || placementReadiness.status === 'watch') {
+    return {
+      key: 'degraded',
+      label: 'Serving but degraded',
+      detail: 'The node can be visible to clients, but one or more runtime checks need operator attention.',
+      action: runtimeMismatch
+        ? 'Refresh config or apply policy, then verify nodeboard and Rust policy match.'
+        : activePolicyImpact
+          ? 'Review max session and bandwidth limiter counters before increasing placement traffic.'
+          : 'Run diagnostics and inspect failed health checks before scaling traffic.',
+    };
+  }
+  return {
+    key: 'ready',
+    label: 'Ready to serve',
+    detail: 'Placement, Rust admission, policy sync, and health checks are aligned for commercial traffic.',
+    action: 'Keep monitoring capacity, active sessions, and 24h availability.',
+  };
+}
+
+function configDriftItems(
+  health: VpnNodeHealth,
+  server: VpnServerCandidate | null,
+  policySync: VpnNodeHealth['system']['policy_sync']
+): OperatorCheckItem[] {
+  const mismatches = new Set(policySync?.mismatched_fields ?? []);
+  const runtime = policySync?.runtime ?? null;
+  const desired = policySync?.desired ?? null;
+  const endpoint = `${health.public_ip || 'pending'}:${health.port || 'pending'}`;
+  const placementEndpoint = server ? `${server.address || 'hidden'}:${server.port}` : 'not advertised';
+  const mtuKnown = typeof health.system.configured_mtu === 'number' || typeof health.system.running_mtu === 'number';
+  const mtuMismatch = (
+    typeof health.system.configured_mtu === 'number'
+    && typeof health.system.running_mtu === 'number'
+    && health.system.configured_mtu !== health.system.running_mtu
+  );
+
+  return [
+    {
+      label: 'Max sessions',
+      status: mismatches.has('max_sessions') ? 'fail' : policySync ? 'pass' : 'pending',
+      detail: `nodeboard ${policySnapshotValue(desired, 'max_sessions')} · Rust ${policySnapshotValue(runtime, 'max_sessions')}`,
+      action: mismatches.has('max_sessions') ? 'Refresh config or apply policy before accepting more clients.' : 'Policy capacity is aligned.',
+    },
+    {
+      label: 'Bandwidth limit',
+      status: mismatches.has('bandwidth_limit_mbps') ? 'fail' : policySync ? 'pass' : 'pending',
+      detail: `nodeboard ${policySnapshotValue(desired, 'bandwidth_limit_mbps')} Mbps · Rust ${policySnapshotValue(runtime, 'bandwidth_limit_mbps')} Mbps`,
+      action: mismatches.has('bandwidth_limit_mbps') ? 'Apply policy so Rust enforces the same commercial bandwidth cap.' : 'Bandwidth policy is aligned.',
+    },
+    {
+      label: 'Maintenance mode',
+      status: mismatches.has('maintenance_mode') ? 'fail' : policySync ? 'pass' : 'pending',
+      detail: `nodeboard ${policySnapshotValue(desired, 'maintenance_mode')} · Rust ${policySnapshotValue(runtime, 'maintenance_mode')}`,
+      action: mismatches.has('maintenance_mode') ? 'Refresh config before relying on drain or placement state.' : 'Maintenance state is aligned.',
+    },
+    {
+      label: 'Placement endpoint',
+      status: !server ? 'warn' : endpoint === placementEndpoint ? 'pass' : 'warn',
+      detail: `overview ${endpoint} · placement ${placementEndpoint}`,
+      action: !server
+        ? 'Check visibility, region, VPN mode, and heartbeat if this node should be advertised.'
+        : endpoint === placementEndpoint
+          ? 'Advertised endpoint matches node overview.'
+          : 'Verify backend node port and Rust public_endpoint before routing clients.',
+    },
+    {
+      label: 'Tunnel MTU',
+      status: !mtuKnown ? 'pending' : mtuMismatch ? 'warn' : 'pass',
+      detail: `${formatTunnelMtu(health)} · ${tunnelMtuDetail(health)}`,
+      action: mtuMismatch ? 'Compare Rust config with the running TUN interface before debugging packet stalls.' : 'MTU telemetry is consistent.',
+    },
+  ];
+}
+
+function diagnosticItems({
+  health,
+  server,
+  policySync,
+  placementReadiness,
+}: {
+  health: VpnNodeHealth;
+  server: VpnServerCandidate | null;
+  policySync: VpnNodeHealth['system']['policy_sync'];
+  placementReadiness: VpnNodeHealth['system']['placement_readiness'] | null;
+}): OperatorCheckItem[] {
+  const heartbeatFresh = typeof health.last_seen_seconds !== 'number'
+    ? 'pending'
+    : health.last_seen_seconds <= COMMAND_DELIVERY_FRESH_SECONDS
+      ? 'pass'
+      : health.last_seen_seconds <= COMMAND_DELIVERY_DEGRADED_SECONDS
+        ? 'warn'
+        : 'fail';
+  const routingStatus = aggregateHealthChecks(health, ['tun_device', 'ip_forward', 'nat_masquerade', 'internet_egress']);
+  const udpStatus = aggregateHealthChecks(health, ['udp_listener']);
+  const serviceManager = health.system.service_manager;
+  const serviceStatus: OperatorCheckStatus = !serviceManager
+    ? 'pending'
+    : serviceManager.active_state === 'active' || serviceManager.restart_supported
+      ? 'pass'
+      : 'warn';
+  const policyStatus: OperatorCheckStatus = !policySync
+    ? 'pending'
+    : policySync.status === 'synced' && policySync.mismatched_fields.length === 0
+      ? 'pass'
+      : 'fail';
+  const placementStatus: OperatorCheckStatus = !placementReadiness?.reported
+    ? 'pending'
+    : server?.available && placementReadiness.accepting_new_sessions
+      ? 'pass'
+      : 'warn';
+
+  return [
+    {
+      label: 'Heartbeat',
+      status: heartbeatFresh,
+      detail: typeof health.last_seen_seconds === 'number'
+        ? `${formatDuration(health.last_seen_seconds)} since last signed heartbeat`
+        : 'waiting for signed heartbeat age',
+      action: heartbeatFresh === 'pass' ? 'Reporter freshness is healthy.' : 'Check Rust reporter logs and backend heartbeat ingestion.',
+    },
+    {
+      label: 'UDP listener',
+      status: udpStatus,
+      detail: checkSummary(health, ['udp_listener']),
+      action: udpStatus === 'pass' ? 'Handshake listener is reported healthy.' : 'Run Collect Logs, then restart under maintenance if the listener is down.',
+    },
+    {
+      label: 'Tunnel routing',
+      status: routingStatus,
+      detail: checkSummary(health, ['tun_device', 'ip_forward', 'nat_masquerade', 'internet_egress']),
+      action: routingStatus === 'pass' ? 'Tunnel interface and routing checks are passing.' : 'Fix local TUN, forwarding, NAT, or provider egress before adding traffic.',
+    },
+    {
+      label: 'Service manager',
+      status: serviceStatus,
+      detail: serviceManagerRuntimeDetail(health),
+      action: serviceStatus === 'pass' ? 'System service control is available.' : 'Confirm systemd service state before queueing restarts.',
+    },
+    {
+      label: 'Policy sync',
+      status: policyStatus,
+      detail: policySync?.message || 'waiting for Rust policy snapshot',
+      action: policyStatus === 'pass' ? 'Commercial policy is enforced by Rust.' : 'Use Refresh Config or Apply Policy, then recheck drift.',
+    },
+    {
+      label: 'Client placement',
+      status: placementStatus,
+      detail: server?.available
+        ? `advertised with rank ${server.failover_rank ?? '-'}`
+        : `not advertised: ${formatPlacementReason(server?.unavailable_reason ?? placementReadiness?.reason)}`,
+      action: placementStatus === 'pass' ? 'Node can receive new client placement.' : placementNextAction(server?.unavailable_reason ?? placementReadiness?.reason),
+    },
+  ];
+}
+
 /**
  * Commercial client-placement decision view.
  *
@@ -939,6 +1225,23 @@ function CommercialReadinessPanel({
   const limitBps = bandwidthLimitBps(health.bandwidth_limit_mbps);
   const nearBandwidthCap = limitBps > 0 && typeof peakBps === 'number' && peakBps >= limitBps * 0.9;
   const telemetrySource = health.system.source || 'missing';
+  const failedChecks = health.checks.filter((check) => !check.ok);
+  const commercialSummary = commercialStatusSummary({
+    health,
+    server,
+    placementReadiness,
+    placementBlocked,
+    runtimeMismatch,
+    activePolicyImpact,
+    failedChecks,
+  });
+  const driftItems = configDriftItems(health, server, policySync);
+  const diagnostics = diagnosticItems({
+    health,
+    server,
+    policySync,
+    placementReadiness,
+  });
 
   return (
     <div className={`mt-5 rounded-xl border p-4 ${readinessToneClass(status)}`}>
@@ -979,6 +1282,76 @@ function CommercialReadinessPanel({
         <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-400 lg:max-w-md">
           <p className="font-medium text-gray-300">Next operator action</p>
           <p className="mt-1 leading-5 text-gray-500">{nextAction}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 xl:grid-cols-[1.05fr_1.35fr_1.25fr]">
+        <div className={`rounded-xl border p-3 ${commercialStatusClass(commercialSummary.key)}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Commercial Status</p>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${commercialStatusBadgeClass(commercialSummary.key)}`}>
+              {commercialSummary.label}
+            </span>
+          </div>
+          <p className="mt-3 text-sm leading-5 text-gray-300">{commercialSummary.detail}</p>
+          <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-600">Next step</p>
+            <p className="mt-1 text-xs leading-5 text-gray-400">{commercialSummary.action}</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-white/5 bg-black/20 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Config Drift</p>
+            <span className="text-xs text-gray-600">
+              {driftItems.filter((item) => item.status === 'fail' || item.status === 'warn').length} attention
+            </span>
+          </div>
+          <div className="mt-3 space-y-2">
+            {driftItems.map((item) => (
+              <div key={item.label} className={`rounded-lg border px-3 py-2 ${operatorCheckClass(item.status)}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium">{item.label}</p>
+                    <p className="mt-0.5 break-words text-[11px] leading-4 opacity-70">{item.detail}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full border border-current/20 px-2 py-0.5 text-[10px]">
+                    {operatorCheckBadge(item.status)}
+                  </span>
+                </div>
+                {(item.status === 'fail' || item.status === 'warn') && (
+                  <p className="mt-1 text-[11px] leading-4 opacity-75">{item.action}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-white/5 bg-black/20 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Diagnostics</p>
+            <span className="text-xs text-gray-600">
+              {diagnostics.filter((item) => item.status === 'fail' || item.status === 'warn').length} action items
+            </span>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+            {diagnostics.map((item) => (
+              <div key={item.label} className={`rounded-lg border px-3 py-2 ${operatorCheckClass(item.status)}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium">{item.label}</p>
+                    <p className="mt-0.5 break-words text-[11px] leading-4 opacity-70">{item.detail}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full border border-current/20 px-2 py-0.5 text-[10px]">
+                    {operatorCheckBadge(item.status)}
+                  </span>
+                </div>
+                {(item.status === 'fail' || item.status === 'warn' || item.status === 'pending') && (
+                  <p className="mt-1 text-[11px] leading-4 opacity-75">{item.action}</p>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
