@@ -951,7 +951,7 @@ function formatDrainStatus(status: string | undefined) {
 }
 
 function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; tone?: 'yellow' | 'neutral' }) {
-  const { t, formatNumber } = useI18n();
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const activeSessions = Math.max(0, eta.active_sessions ?? 0);
   const recentSessions = Math.max(0, eta.recent_activity_sessions ?? 0);
   const idleSessions = Math.max(0, eta.idle_activity_sessions ?? 0);
@@ -3026,7 +3026,7 @@ function FleetRestartReadinessPanel({
   onQueueRestart: (nodeId: string, nodeName: string) => void;
   onCancelRestartCommand: (nodeId: string, nodeName: string, commandId: string) => void;
 }) {
-  const { t, formatNumber } = useI18n();
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const [queueFilters, setQueueFilters] = useState<RestartQueueFilters>({
     region: 'all',
     version: 'all',
@@ -3332,27 +3332,27 @@ function FleetRestartReadinessPanel({
           </div>
           <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-sky-100/10 py-3 text-xs sm:grid-cols-3 lg:grid-cols-6">
             <div>
-              <p className="uppercase tracking-[0.14em] text-sky-100/35">Ready</p>
+              <p className="uppercase tracking-[0.14em] text-sky-100/35">{t('services.labels.ready')}</p>
               <p className="mt-1 font-semibold text-sky-100">{commercialPlacementHealth.ready_nodes.toLocaleString()}</p>
             </div>
             <div>
-              <p className="uppercase tracking-[0.14em] text-sky-100/35">Watch</p>
+              <p className="uppercase tracking-[0.14em] text-sky-100/35">{t('services.labels.watch')}</p>
               <p className="mt-1 font-semibold text-sky-100">{commercialPlacementHealth.watch_nodes.toLocaleString()}</p>
             </div>
             <div>
-              <p className="uppercase tracking-[0.14em] text-sky-100/35">Blocked</p>
+              <p className="uppercase tracking-[0.14em] text-sky-100/35">{t('services.labels.blocked')}</p>
               <p className="mt-1 font-semibold text-sky-100">{commercialPlacementHealth.blocked_nodes.toLocaleString()}</p>
             </div>
             <div>
-              <p className="uppercase tracking-[0.14em] text-sky-100/35">Public Entries</p>
+              <p className="uppercase tracking-[0.14em] text-sky-100/35">{t('services.labels.publicEntries')}</p>
               <p className="mt-1 font-semibold text-sky-100">{commercialPlacementHealth.public_entry_nodes.toLocaleString()}</p>
             </div>
             <div>
-              <p className="uppercase tracking-[0.14em] text-sky-100/35">Policy Sync</p>
+              <p className="uppercase tracking-[0.14em] text-sky-100/35">{t('services.labels.policySync')}</p>
               <p className="mt-1 font-semibold text-sky-100">{commercialPlacementHealth.policy_sync_attention_nodes.toLocaleString()}</p>
             </div>
             <div>
-              <p className="uppercase tracking-[0.14em] text-sky-100/35">Recent Blocks</p>
+              <p className="uppercase tracking-[0.14em] text-sky-100/35">{t('services.labels.recentBlocks')}</p>
               <p className="mt-1 font-semibold text-sky-100">{commercialPlacementHealth.recent_policy_problem_nodes.toLocaleString()}</p>
             </div>
           </div>
@@ -3712,11 +3712,11 @@ function FleetRestartReadinessPanel({
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h3 className="text-sm font-semibold text-yellow-100">
-                {policySyncHealth.problem_panel_summary?.label ?? 'Policy Sync Attention'}
+                {policySyncHealth.problem_panel_summary?.label ?? t('services.fallback.policySyncAttention')}
               </h3>
               <p className="mt-1 text-xs leading-5 text-yellow-100/60">
                 {policySyncHealth.problem_panel_summary?.detail
-                  ?? 'Backend found capacity policy that Rust has not confirmed yet. Wait for signed heartbeat before trusting new max_sessions or bandwidth limits.'}
+                  ?? t('services.fallback.policySyncAttentionDetail')}
               </p>
               {policySyncHealth.problem_panel_summary?.next_step && (
                 <p className="mt-1 text-xs leading-5 text-yellow-100/50">
@@ -3729,11 +3729,11 @@ function FleetRestartReadinessPanel({
           {policySyncHealth.problem_panel_summary && (
             <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-4">
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Attention</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.labels.attention')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">{policySyncHealth.problem_panel_summary.count.toLocaleString()}</p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Shown</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.labels.shown')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">
                   {policySyncHealth.problem_panel_summary.visible_count.toLocaleString()}
                   {policySyncHealth.problem_panel_summary.hidden_count > 0
@@ -3742,11 +3742,11 @@ function FleetRestartReadinessPanel({
                 </p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Pending</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('common.status.pending')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">{policySyncHealth.problem_panel_summary.pending_nodes.toLocaleString()}</p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Unknown</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('common.status.unknown')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">{policySyncHealth.problem_panel_summary.unknown_nodes.toLocaleString()}</p>
               </div>
             </div>
@@ -3799,11 +3799,11 @@ function FleetRestartReadinessPanel({
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h3 className="text-sm font-semibold text-yellow-100">
-                {runtimeCapability.problemPanelSummary?.label ?? 'Rust Capability Gaps'}
+                {runtimeCapability.problemPanelSummary?.label ?? t('services.fallback.rustCapabilityGaps')}
               </h3>
               <p className="mt-1 text-xs leading-5 text-yellow-100/60">
                 {runtimeCapability.problemPanelSummary?.detail
-                  ?? 'Nodes below have fresh backend records but do not report the runtime telemetry needed for commercial restart, drain, and cutover operations.'}
+                  ?? t('services.fallback.rustCapabilityGapsDetail')}
               </p>
               {runtimeCapability.problemPanelSummary?.next_step && (
                 <p className="mt-1 text-xs leading-5 text-yellow-100/50">
@@ -3816,11 +3816,11 @@ function FleetRestartReadinessPanel({
           {runtimeCapability.problemPanelSummary && (
             <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-4">
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Gaps</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.labels.gaps')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">{runtimeCapability.problemPanelSummary.count.toLocaleString()}</p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Shown</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.labels.shown')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">
                   {runtimeCapability.problemPanelSummary.visible_count.toLocaleString()}
                   {runtimeCapability.problemPanelSummary.hidden_count > 0
@@ -3829,11 +3829,11 @@ function FleetRestartReadinessPanel({
                 </p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Safe Upgrade</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.labels.safeUpgrade')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">{runtimeCapability.problemPanelSummary.safe_to_upgrade_nodes.toLocaleString()}</p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Blocked</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.labels.blocked')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">{runtimeCapability.problemPanelSummary.blocked_upgrade_nodes.toLocaleString()}</p>
               </div>
             </div>
@@ -3910,11 +3910,11 @@ function FleetRestartReadinessPanel({
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h3 className="text-sm font-semibold text-yellow-100">
-                {commandDelivery.problemPanelSummary?.label ?? 'Command Delivery Issues'}
+                {commandDelivery.problemPanelSummary?.label ?? t('services.fallback.commandDeliveryIssues')}
               </h3>
               <p className="mt-1 text-xs leading-5 text-yellow-100/60">
                 {commandDelivery.problemPanelSummary?.detail
-                  ?? 'Nodes below need fresh Rust heartbeat and operator reporting before restart commands are reliable.'}
+                  ?? t('services.fallback.commandDeliveryIssuesDetail')}
               </p>
               {commandDelivery.problemPanelSummary?.next_step && (
                 <p className="mt-1 text-xs leading-5 text-yellow-100/50">
@@ -3927,11 +3927,11 @@ function FleetRestartReadinessPanel({
           {commandDelivery.problemPanelSummary && (
             <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-4">
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Attention</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.labels.attention')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">{commandDelivery.problemPanelSummary.count.toLocaleString()}</p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Shown</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.labels.shown')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">
                   {commandDelivery.problemPanelSummary.visible_count.toLocaleString()}
                   {commandDelivery.problemPanelSummary.hidden_count > 0
@@ -3940,11 +3940,11 @@ function FleetRestartReadinessPanel({
                 </p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Offline</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('common.status.offline')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">{commandDelivery.problemPanelSummary.offline_nodes.toLocaleString()}</p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Operator Pending</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.labels.operatorPending')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">{commandDelivery.problemPanelSummary.operator_pending_nodes.toLocaleString()}</p>
               </div>
             </div>
@@ -3993,11 +3993,11 @@ function FleetRestartReadinessPanel({
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h3 className="text-sm font-semibold text-emerald-100">
-                {maintenanceExitSummary?.label ?? 'Maintenance Exit Candidates'}
+                {maintenanceExitSummary?.label ?? t('services.fallback.maintenanceExitCandidates')}
               </h3>
               <p className="mt-1 text-xs leading-5 text-emerald-100/60">
                 {maintenanceExitSummary?.detail
-                  ?? 'Backend found current, drained nodes still in maintenance mode. Ending maintenance restores client placement capacity.'}
+                  ?? t('services.fallback.maintenanceExitCandidatesDetail')}
               </p>
               {maintenanceExitSummary?.next_step && (
                 <p className="mt-1 text-xs leading-5 text-emerald-100/50">
@@ -4010,11 +4010,11 @@ function FleetRestartReadinessPanel({
           {maintenanceExitSummary && (
             <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-emerald-100/10 py-3 text-xs sm:grid-cols-4">
               <div>
-                <p className="uppercase tracking-[0.14em] text-emerald-100/35">Candidates</p>
+                <p className="uppercase tracking-[0.14em] text-emerald-100/35">{t('services.labels.candidates')}</p>
                 <p className="mt-1 font-semibold text-emerald-100">{maintenanceExitSummary.count.toLocaleString()}</p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-emerald-100/35">Shown</p>
+                <p className="uppercase tracking-[0.14em] text-emerald-100/35">{t('services.labels.shown')}</p>
                 <p className="mt-1 font-semibold text-emerald-100">
                   {maintenanceExitSummary.visible_count.toLocaleString()}
                   {maintenanceExitSummary.hidden_count > 0
@@ -4023,11 +4023,11 @@ function FleetRestartReadinessPanel({
                 </p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-emerald-100/35">Public Entries</p>
+                <p className="uppercase tracking-[0.14em] text-emerald-100/35">{t('services.labels.publicEntries')}</p>
                 <p className="mt-1 font-semibold text-emerald-100">{maintenanceExitSummary.public_entry_count.toLocaleString()}</p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-emerald-100/35">Regions</p>
+                <p className="uppercase tracking-[0.14em] text-emerald-100/35">{t('services.labels.regions')}</p>
                 <p className="mt-1 font-semibold text-emerald-100">{maintenanceExitSummary.regions_count.toLocaleString()}</p>
               </div>
             </div>
@@ -4081,7 +4081,10 @@ function FleetRestartReadinessPanel({
           </div>
           {maintenanceExitCandidateCount > maintenanceExitCandidates.length && (
             <p className="mt-2 text-xs leading-5 text-emerald-100/50">
-              Showing {maintenanceExitCandidates.length.toLocaleString()} of {maintenanceExitCandidateCount.toLocaleString()} candidates.
+              {t('services.labels.showingCandidates', {
+                shown: formatNumber(maintenanceExitCandidates.length),
+                total: formatNumber(maintenanceExitCandidateCount),
+              })}
             </p>
           )}
         </div>
@@ -4090,48 +4093,48 @@ function FleetRestartReadinessPanel({
       <div className={`mt-4 rounded-xl border p-4 ${drainActivityHealthClass(commandOutcome.risk)}`}>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-white">Restart Outcome Audit</h3>
+            <h3 className="text-sm font-semibold text-white">{t('services.restartOutcome.title')}</h3>
             <p className="mt-1 text-xs leading-5 opacity-70">
-              Latest per-node restart_service terminal outcomes from backend lifecycle metadata.
+              {t('services.restartOutcome.description')}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <StatusPill status={commandOutcome.risk} />
             <span className="rounded-full border border-white/10 px-2.5 py-1 text-xs opacity-80">
-              {commandOutcome.count.toLocaleString()} item{commandOutcome.count === 1 ? '' : 's'}
+              {t('services.restartOutcome.itemCount', { count: formatNumber(commandOutcome.count) })}
             </span>
           </div>
         </div>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {[
-            ['Completed', commandCounts?.completed ?? 0],
-            ['Failed', commandCounts?.failed ?? 0],
-            ['Timed out', commandCounts?.timeout ?? 0],
-            ['Cancelled', commandCounts?.cancelled ?? 0],
+            [t('common.status.completed'), commandCounts?.completed ?? 0],
+            [t('common.status.failed'), commandCounts?.failed ?? 0],
+            [t('common.status.timeout'), commandCounts?.timeout ?? 0],
+            [t('common.status.cancelled'), commandCounts?.cancelled ?? 0],
           ].map(([label, value]) => (
             <div key={label} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
               <p className="text-[11px] uppercase tracking-[0.14em] opacity-60">{label}</p>
-              <p className="mt-1 text-lg font-semibold">{Number(value).toLocaleString()}</p>
+              <p className="mt-1 text-lg font-semibold">{formatNumber(Number(value))}</p>
             </div>
           ))}
         </div>
         <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.14em] opacity-60">24h Reliability</p>
+              <p className="text-[11px] uppercase tracking-[0.14em] opacity-60">{t('services.restartOutcome.reliability24h')}</p>
               <p className="mt-1 text-xs leading-5 opacity-70">
-                Aggregate restart_service lifecycle timing from backend command history.
+                {t('services.restartOutcome.reliabilityDescription')}
               </p>
             </div>
             {commandHistory?.summary && <StatusPill status={commandHistory.summary.risk} />}
           </div>
           <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
             {[
-              ['Commands', (commandHistory?.total ?? 0).toLocaleString()],
-              ['Success', formatOptionalPercent(commandHistory?.success_rate_percent)],
-              ['Delivery', formatOptionalPercent(commandHistory?.delivery_rate_percent)],
-              ['Rust ACK', formatOptionalPercent(commandHistory?.ack_rate_percent)],
-              ['Avg complete', formatOptionalDuration(commandHistory?.average_completion_seconds)],
+              [t('services.restartOutcome.commands'), formatNumber(commandHistory?.total ?? 0)],
+              [t('services.restartOutcome.success'), formatOptionalPercent(commandHistory?.success_rate_percent)],
+              [t('services.restartOutcome.delivery'), formatOptionalPercent(commandHistory?.delivery_rate_percent)],
+              [t('services.restartOutcome.rustAck'), formatOptionalPercent(commandHistory?.ack_rate_percent)],
+              [t('services.restartOutcome.avgComplete'), formatOptionalDuration(commandHistory?.average_completion_seconds)],
             ].map(([label, value]) => (
               <div key={label} className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2">
                 <p className="text-[11px] uppercase tracking-[0.12em] opacity-50">{label}</p>
@@ -4425,7 +4428,7 @@ function FleetRestartReadinessPanel({
                     disabled={Boolean(enablingMaintenanceNodeId)}
                     className="inline-flex items-center justify-center rounded-lg border border-yellow-500/20 px-3 py-1.5 text-xs font-medium text-yellow-100 transition hover:border-yellow-400/40 hover:bg-yellow-500/10 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {enablingMaintenanceNodeId === node.id ? 'Enabling...' : 'Enable maintenance'}
+                    {enablingMaintenanceNodeId === node.id ? t('services.actions.enablingMaintenance') : t('services.actions.enableMaintenance')}
                   </button>
                 )}
               </div>
@@ -4433,19 +4436,19 @@ function FleetRestartReadinessPanel({
 
             <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-gray-400 lg:grid-cols-4">
               <div>
-                <p className="text-gray-600">Active Sessions</p>
-                <p className="mt-1 text-gray-200">{node.activeSessions.toLocaleString()}</p>
+                <p className="text-gray-600">{t('nodeDetail.stats.activeSessions')}</p>
+                <p className="mt-1 text-gray-200">{formatNumber(node.activeSessions)}</p>
               </div>
               <div>
-                <p className="text-gray-600">Operator Signal</p>
-                <p className="mt-1 text-gray-200">{node.operatorReporting ? 'reported' : 'pending'}</p>
+                <p className="text-gray-600">{t('services.labels.operatorSignal')}</p>
+                <p className="mt-1 text-gray-200">{node.operatorReporting ? t('services.labels.reported') : t('common.status.pending')}</p>
               </div>
               <div>
-                <p className="text-gray-600">Next Step</p>
+                <p className="text-gray-600">{t('nodeDetail.commercial.nextStep')}</p>
                 <p className="mt-1 text-gray-200">{node.nextStep}</p>
               </div>
               <div>
-                <p className="text-gray-600">Drain ETA</p>
+                <p className="text-gray-600">{t('services.labels.drainEta')}</p>
                 <p className="mt-1 text-gray-200">{formatDrainEta(node.drainEta)}</p>
                 {node.drainEta?.next_step && (
                   <p className="mt-1 text-[11px] text-gray-600">
@@ -4454,7 +4457,7 @@ function FleetRestartReadinessPanel({
                 )}
                 {node.drainEta?.latest_activity_at && (
                   <p className="mt-1 text-[11px] text-gray-600">
-                    activity {formatRelativeTime(node.drainEta.latest_activity_at)}
+                    {t('services.labels.activityAt', { time: i18nRelativeTime(node.drainEta.latest_activity_at) })}
                   </p>
                 )}
               </div>

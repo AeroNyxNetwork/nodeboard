@@ -1826,6 +1826,8 @@ function NodeMetricsTrendPanel({
   metrics: VpnNodeMetrics | null;
   isLoading: boolean;
 }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
+
   if (isLoading) {
     return (
       <div className="mt-5 border-t border-white/5 pt-4">
@@ -1840,8 +1842,8 @@ function NodeMetricsTrendPanel({
   if (!metrics || metrics.sample_count === 0) {
     return (
       <div className="mt-5 border-t border-white/5 pt-4">
-        <h4 className="text-sm font-semibold text-white">24h Metrics</h4>
-        <p className="text-sm text-gray-500 mt-2">Metrics history will appear after sampled heartbeats are stored.</p>
+        <h4 className="text-sm font-semibold text-white">{t('nodeDetail.metrics.title')}</h4>
+        <p className="text-sm text-gray-500 mt-2">{t('nodeDetail.metrics.empty')}</p>
       </div>
     );
   }
@@ -1854,57 +1856,60 @@ function NodeMetricsTrendPanel({
     <div className="mt-5 border-t border-white/5 pt-4">
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
-          <h4 className="text-sm font-semibold text-white">24h Metrics</h4>
+          <h4 className="text-sm font-semibold text-white">{t('nodeDetail.metrics.title')}</h4>
           <p className="text-xs text-gray-500 mt-1">
-            {metrics.sample_count} sampled heartbeats · updated {formatRelativeTime(metrics.generated_at)}
+            {t('nodeDetail.metrics.sampledUpdated', {
+              count: formatNumber(metrics.sample_count),
+              time: i18nRelativeTime(metrics.generated_at),
+            })}
           </p>
         </div>
         <div className="text-xs text-gray-500">
-          {metrics.summary.invalid_samples} invalid samples
+          {t('nodeDetail.metrics.invalidSamples', { count: formatNumber(metrics.summary.invalid_samples) })}
         </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-          <p className="text-xs text-gray-500">Avg CPU</p>
+          <p className="text-xs text-gray-500">{t('nodeDetail.metrics.avgCpu')}</p>
           <p className="text-lg font-semibold text-white mt-1">
-            {metrics.summary.avg_cpu_usage === null ? 'pending' : `${metrics.summary.avg_cpu_usage}%`}
+            {metrics.summary.avg_cpu_usage === null ? t('common.status.pending') : `${formatNumber(metrics.summary.avg_cpu_usage)}%`}
           </p>
         </div>
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-          <p className="text-xs text-gray-500">Peak Bandwidth</p>
+          <p className="text-xs text-gray-500">{t('nodeDetail.metrics.peakBandwidth')}</p>
           <p className="text-lg font-semibold text-white mt-1">
             {formatBitsPerSecond(metrics.summary.peak_total_bps)}
           </p>
         </div>
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-          <p className="text-xs text-gray-500">Traffic Delta</p>
+          <p className="text-xs text-gray-500">{t('nodeDetail.metrics.trafficDelta')}</p>
           <p className="text-lg font-semibold text-white mt-1">{formatBytes(totalTraffic, 1)}</p>
         </div>
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
-          <p className="text-xs text-gray-500">Max Sessions</p>
-          <p className="text-lg font-semibold text-white mt-1">{metrics.summary.max_active_sessions}</p>
+          <p className="text-xs text-gray-500">{t('nodeDetail.metrics.maxSessions')}</p>
+          <p className="text-lg font-semibold text-white mt-1">{formatNumber(metrics.summary.max_active_sessions)}</p>
         </div>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-3">
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-gray-300">CPU Load</span>
-            <span className="text-xs text-gray-500">{metrics.summary.max_cpu_usage ?? 0}% peak</span>
+            <span className="text-xs font-medium text-gray-300">{t('nodeDetail.metrics.cpuLoad')}</span>
+            <span className="text-xs text-gray-500">{t('nodeDetail.metrics.peakValue', { value: `${formatNumber(metrics.summary.max_cpu_usage ?? 0)}%` })}</span>
           </div>
           <TrendBars
             points={metrics.points}
             getValue={(point) => point.cpu_usage}
             maxValue={cpuMax}
             colorClass="bg-emerald-400/80"
-            formatValue={(value) => value === null ? 'pending' : `${value}%`}
+            formatValue={(value) => value === null ? t('common.status.pending') : `${formatNumber(value)}%`}
           />
         </div>
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-gray-300">Bandwidth</span>
-            <span className="text-xs text-gray-500">{formatBitsPerSecond(metrics.summary.peak_total_bps)} peak</span>
+            <span className="text-xs font-medium text-gray-300">{t('nodeDetail.metrics.bandwidth')}</span>
+            <span className="text-xs text-gray-500">{t('nodeDetail.metrics.peakValue', { value: formatBitsPerSecond(metrics.summary.peak_total_bps) })}</span>
           </div>
           <TrendBars
             points={metrics.points}
@@ -3529,7 +3534,7 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
 
       {operatorStatus.risks.length > 0 && (
         <div className="mt-5 border-t border-white/5 pt-4">
-          <h4 className="text-sm font-semibold text-white">Service Risks</h4>
+          <h4 className="text-sm font-semibold text-white">{t('nodeDetail.service.risks')}</h4>
           <div className="mt-3 grid gap-3 lg:grid-cols-2">
             {operatorStatus.risks.map((risk, index) => (
               <ServiceRiskCard key={`${risk.code}-${index}`} risk={risk} />
