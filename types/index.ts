@@ -758,7 +758,8 @@ export interface VpnRestartReadinessBlockedNode {
  *   upgrade_blocker_counts aggregates checklist_summary.blocking_keys for the
  *   fleet Rust Capability card. upgrade_blockers is the backend-sorted display
  *   list with labels/statuses; upgrade_blocker_summary is backend-authored
- *   card sentence and next-step copy; counts remains a compatibility map.
+ *   card sentence and next-step copy; problem_panel_summary is backend-owned
+ *   Rust Capability Gaps panel context; counts remains a compatibility map.
  * Policy sync source:
  *   data.summary.restart_readiness.policy_sync_health aggregates
  *   data.nodes[].system.policy_sync from
@@ -960,6 +961,19 @@ export interface VpnRestartReadinessSummary {
       next_step?: string;
       count: number;
       top_blocker_key?: string;
+    };
+    problem_panel_summary?: {
+      status?: string;
+      risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+      label: string;
+      detail: string;
+      next_step?: string;
+      count: number;
+      visible_count: number;
+      hidden_count: number;
+      safe_to_upgrade_nodes: number;
+      blocked_upgrade_nodes: number;
+      source: string;
     };
     problem_nodes?: Array<{
       id: string;

@@ -56,7 +56,8 @@
  *     capability decision plus problem_nodes[].upgrade_gate cutover safety
  *     and checklist/checklist_summary/primary_action copy. It also provides
  *     upgrade_blocker_summary, upgrade_blockers, and upgrade_blocker_counts
- *     for fleet-level upgrade blocker card copy.
+ *     for fleet-level upgrade blocker card copy, plus
+ *     problem_panel_summary for the Rust Capability Gaps panel.
  *     Provides data.summary.restart_readiness.command_lifecycle_counts for
  *     Services page Command SLA card, backend-authored stale/retry copy, and
  *     cancelable_active/non_cancelable_active active command counts.
@@ -286,7 +287,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.runtime_capability_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level Rust commercial runtime capability summary for operator_status.runtime_rollout/session_cleanup reporting, including upgrade_blocker_summary/upgrade_blockers/upgrade_blocker_counts, capped problem_nodes plus upgrade_gate cutover safety/checklist/checklist_summary/primary_action copy for the Services Rust Capability card, Rust Capability Gaps panel, and Restart Action Queue',
+      purpose: 'Fleet-level Rust commercial runtime capability summary for operator_status.runtime_rollout/session_cleanup reporting, including upgrade_blocker_summary/upgrade_blockers/upgrade_blocker_counts/problem_panel_summary, capped problem_nodes plus upgrade_gate cutover safety/checklist/checklist_summary/primary_action copy for the Services Rust Capability card, Rust Capability Gaps panel, and Restart Action Queue',
     },
     {
       endpoint: 'data.summary.restart_readiness.policy_sync_health',

@@ -91,7 +91,9 @@
  *     operator intent for the Restart Action Queue button.
  *     upgrade_blockers is backend-authored fleet blocker display order and
  *     copy; upgrade_blocker_summary is the backend-authored card sentence and
- *     next-step copy; upgrade_blocker_counts remains a compatibility map.
+ *     next-step copy; problem_panel_summary is backend-authored context for
+ *     the Rust Capability Gaps panel; upgrade_blocker_counts remains a
+ *     compatibility map.
  *   - data.summary.restart_readiness.policy_sync_health
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates data.nodes[].system.policy_sync so Services can verify
@@ -1408,6 +1410,7 @@ function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
       upgradeBlocked: 0,
       blockerSummary: '',
       blockerNextStep: '',
+      problemPanelSummary: null,
       problemNodes: [],
       label: 'Pending',
       detail: 'waiting for backend runtime capability summary',
@@ -1447,6 +1450,7 @@ function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
     upgradeBlocked: capability.upgrade_blocked_nodes ?? 0,
     blockerSummary: backendBlockerSummary?.detail ?? blockerSummary,
     blockerNextStep: backendBlockerSummary?.next_step ?? '',
+    problemPanelSummary: capability.problem_panel_summary ?? null,
     problemNodes: capability.problem_nodes ?? [],
     label: summaryCopy.label,
     detail: summaryCopy.detail,
@@ -2745,12 +2749,20 @@ function FleetRestartReadinessPanel({
         <div className="mt-4 rounded-xl border border-yellow-300/20 bg-yellow-500/[0.04] p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-yellow-100">Rust Capability Gaps</h3>
+              <h3 className="text-sm font-semibold text-yellow-100">
+                {runtimeCapability.problemPanelSummary?.label ?? 'Rust Capability Gaps'}
+              </h3>
               <p className="mt-1 text-xs leading-5 text-yellow-100/60">
-                Nodes below have fresh backend records but do not report the runtime telemetry needed for commercial restart, drain, and cutover operations.
+                {runtimeCapability.problemPanelSummary?.detail
+                  ?? 'Nodes below have fresh backend records but do not report the runtime telemetry needed for commercial restart, drain, and cutover operations.'}
               </p>
+              {runtimeCapability.problemPanelSummary?.next_step && (
+                <p className="mt-1 text-xs leading-5 text-yellow-100/50">
+                  {runtimeCapability.problemPanelSummary.next_step}
+                </p>
+              )}
             </div>
-            <StatusPill status={runtimeCapability.risk} />
+            <StatusPill status={runtimeCapability.problemPanelSummary?.risk ?? runtimeCapability.risk} />
           </div>
           <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
             {runtimeCapability.problemNodes.map((node) => (
