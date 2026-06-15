@@ -228,6 +228,7 @@ import Card, { StatCard } from '@/components/common/Card';
 import Button, { CopyButton } from '@/components/common/Button';
 import { ConfirmDialog } from '@/components/common/Modal';
 import NodeSettings from '@/components/dashboard/NodeSettings';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 // ============================================
 // VPN Health Config
@@ -394,6 +395,7 @@ function Toast({ message, variant = 'success' }: { message: string; variant?: 's
 
 function BackButton() {
   const router = useRouter();
+  const { t } = useI18n();
   return (
     <button
       onClick={() => router.back()}
@@ -402,7 +404,7 @@ function BackButton() {
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
       </svg>
-      <span className="text-sm">Back to Nodes</span>
+      <span className="text-sm">{t('nodeDetail.backToNodes')}</span>
     </button>
   );
 }
@@ -420,6 +422,7 @@ interface EditableNameProps {
 
 
 function EditableName({ name, onSave, isLoading }: EditableNameProps) {
+  const { t } = useI18n();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -503,7 +506,7 @@ function EditableName({ name, onSave, isLoading }: EditableNameProps) {
     <button
       onClick={() => { setEditValue(name); setIsEditing(true); }}
       className="group/name flex items-center gap-2 text-left"
-      title="Click to edit name"
+      title={t('nodeDetail.editNameTitle')}
     >
       <h1 className="text-2xl font-bold text-white">{name}</h1>
       <svg
@@ -538,12 +541,16 @@ interface NodeHeaderProps {
 }
 
 function NodeHeader({ node, onSaveName, isSavingName, onDelete }: NodeHeaderProps) {
+  const { t, formatRelativeTime: formatLocalizedRelativeTime } = useI18n();
   const statusConfig = NODE_STATUS_CONFIG[node.status] ?? {
     label: 'Unknown',
     bgColor: 'bg-gray-500/20',
     textColor: 'text-gray-400',
     borderColor: 'border-gray-500/50',
   };
+  const statusKey = `common.status.${node.status || 'unknown'}`;
+  const translatedStatus = t(statusKey);
+  const statusLabel = translatedStatus === statusKey ? statusConfig.label : translatedStatus;
 
   return (
     <Card variant="glow" padding="lg" className="mb-6">
@@ -565,14 +572,14 @@ function NodeHeader({ node, onSaveName, isSavingName, onDelete }: NodeHeaderProp
                   node.status === 'online' ? 'bg-emerald-400 animate-pulse' :
                   node.status === 'offline' ? 'bg-gray-400' : 'bg-red-400'
                 }`} />
-                <span className="text-xs font-medium">{statusConfig.label}</span>
+                <span className="text-xs font-medium">{statusLabel}</span>
               </div>
               {node.is_verified && (
                 <span className="flex items-center gap-1 text-xs text-emerald-400">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  Verified
+                  {t('nodes.card.verified')}
                 </span>
               )}
             </div>
@@ -588,14 +595,14 @@ function NodeHeader({ node, onSaveName, isSavingName, onDelete }: NodeHeaderProp
                 <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>Last seen {formatRelativeTime(node.last_heartbeat)}</span>
+                <span>{t('nodeDetail.lastSeen', { time: formatLocalizedRelativeTime(node.last_heartbeat) })}</span>
               </div>
               <span className="text-gray-600">v{node.version}</span>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="danger" onClick={onDelete}>Delete Node</Button>
+          <Button variant="danger" onClick={onDelete}>{t('nodeDetail.deleteNode')}</Button>
         </div>
       </div>
     </Card>
@@ -607,6 +614,7 @@ function NodeHeader({ node, onSaveName, isSavingName, onDelete }: NodeHeaderProp
 // ============================================
 
 function StatsGrid({ nodeId }: { nodeId: string }) {
+  const { t, formatNumber } = useI18n();
   const { stats, isLoading } = useNodeStats(nodeId, { days: 7 });
 
   if (isLoading || !stats) {
@@ -622,26 +630,32 @@ function StatsGrid({ nodeId }: { nodeId: string }) {
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
       <StatCard
-        label="Uptime"
-        value={`${stats.uptime_percentage.toFixed(1)}%`}
-        subValue={`${stats.total_uptime_hours.toFixed(1)} hours`}
+        label={t('nodeDetail.stats.uptime')}
+        value={`${formatNumber(stats.uptime_percentage, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
+        subValue={t('nodeDetail.stats.hours', {
+          count: formatNumber(stats.total_uptime_hours, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+        })}
         icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
       />
       <StatCard
-        label="Active Sessions"
-        value={stats.active_sessions}
-        subValue={`${stats.total_sessions} total`}
+        label={t('nodeDetail.stats.activeSessions')}
+        value={formatNumber(stats.active_sessions)}
+        subValue={t('nodeDetail.stats.total', { count: formatNumber(stats.total_sessions) })}
         icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
       />
       <StatCard
-        label="Total Traffic"
-        value={`${stats.total_traffic_gb.toFixed(2)} GB`}
-        subValue={`~${stats.avg_session_traffic_mb.toFixed(0)} MB/session`}
+        label={t('nodeDetail.stats.totalTraffic')}
+        value={`${formatNumber(stats.total_traffic_gb, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} GB`}
+        subValue={t('nodeDetail.stats.mbPerSession', {
+          count: formatNumber(stats.avg_session_traffic_mb, { maximumFractionDigits: 0 }),
+        })}
         icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>}
       />
       <StatCard
-        label="Avg Session"
-        value={`${stats.avg_session_duration_minutes.toFixed(0)} min`}
+        label={t('nodeDetail.stats.avgSession')}
+        value={t('nodeDetail.stats.minutes', {
+          count: formatNumber(stats.avg_session_duration_minutes, { maximumFractionDigits: 0 }),
+        })}
         icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
       />
     </div>
@@ -4513,6 +4527,11 @@ export default function NodeDetailPage() {
   const params = useParams();
   const router = useRouter();
   const nodeId = params.id as string;
+  const {
+    t,
+    formatDateTime,
+    formatRelativeTime: formatLocalizedRelativeTime,
+  } = useI18n();
 
   const { node, isLoading, isError, refetch } = useNodeDetail(nodeId);
   const updateNodeMutation = useUpdateNode();
@@ -4530,12 +4549,12 @@ export default function NodeDetailPage() {
     try {
       await updateNodeMutation.mutateAsync({ nodeId, data: { name: newName } });
       refetch();
-      showToast('Node name updated');
+      showToast(t('nodeDetail.nameUpdated'));
     } catch (err) {
-      showToast('Failed to update name', 'error');
+      showToast(t('nodeDetail.nameUpdateFailed'), 'error');
       throw err;
     }
-  }, [nodeId, updateNodeMutation, refetch, showToast]);
+  }, [nodeId, updateNodeMutation, refetch, showToast, t]);
 
   const handleToggleMaintenance = useCallback(async () => {
     if (!node) return;
@@ -4546,22 +4565,22 @@ export default function NodeDetailPage() {
         data: { maintenance_mode: nextMaintenance },
       });
       refetch();
-      showToast(nextMaintenance ? 'Maintenance mode enabled' : 'Maintenance mode disabled');
+      showToast(nextMaintenance ? t('nodeDetail.maintenanceEnabled') : t('nodeDetail.maintenanceDisabled'));
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to update maintenance mode', 'error');
+      showToast(error instanceof Error ? error.message : t('nodeDetail.maintenanceUpdateFailed'), 'error');
       throw error;
     }
-  }, [node, nodeId, updateNodeMutation, refetch, showToast]);
+  }, [node, nodeId, updateNodeMutation, refetch, showToast, t]);
 
   const handleDelete = useCallback(async () => {
     try {
       await deleteNodeMutation.mutateAsync(nodeId);
-      showToast('Node deleted successfully');
+      showToast(t('nodeDetail.deleted'));
       setTimeout(() => router.push('/dashboard/nodes'), 1000);
     } catch {
-      showToast('Failed to delete node', 'error');
+      showToast(t('nodeDetail.deleteFailed'), 'error');
     }
-  }, [nodeId, deleteNodeMutation, router, showToast]);
+  }, [nodeId, deleteNodeMutation, router, showToast, t]);
 
   // ── Loading state ─────────────────────────────────────────────────────────
   if (isLoading) {
@@ -4594,10 +4613,10 @@ export default function NodeDetailPage() {
             <svg className="w-16 h-16 mx-auto text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <h2 className="text-xl font-semibold text-white mb-2">Node Not Found</h2>
-            <p className="text-gray-400 mb-6">This node doesn&apos;t exist or has been deleted.</p>
+            <h2 className="text-xl font-semibold text-white mb-2">{t('nodeDetail.notFoundTitle')}</h2>
+            <p className="text-gray-400 mb-6">{t('nodeDetail.notFoundDescription')}</p>
             <Button variant="secondary" onClick={() => router.push('/dashboard/nodes')}>
-              Back to Nodes
+              {t('nodeDetail.backToNodes')}
             </Button>
           </div>
         </Card>
@@ -4655,35 +4674,35 @@ export default function NodeDetailPage() {
       {/* 8. Hardware Info + Node Details */}
       <div className="grid lg:grid-cols-3 gap-6 mb-6">
         <Card variant="default" padding="md" className="lg:col-span-1">
-          <h3 className="font-semibold text-white mb-4">Hardware Info</h3>
+          <h3 className="font-semibold text-white mb-4">{t('nodeDetail.hardware.title')}</h3>
           <div className="space-y-4">
             <div>
-              <span className="text-xs text-gray-500 uppercase tracking-wider">CPU</span>
-              <p className="text-sm text-white mt-1 break-words">{node.hardware_info?.cpu || 'Unknown'}</p>
+              <span className="text-xs text-gray-500 uppercase tracking-wider">{t('nodeDetail.hardware.cpu')}</span>
+              <p className="text-sm text-white mt-1 break-words">{node.hardware_info?.cpu || t('nodes.unknown')}</p>
             </div>
             <div>
-              <span className="text-xs text-gray-500 uppercase tracking-wider">Memory</span>
-              <p className="text-sm text-white mt-1">{node.hardware_info?.memory || 'Unknown'}</p>
+              <span className="text-xs text-gray-500 uppercase tracking-wider">{t('nodeDetail.hardware.memory')}</span>
+              <p className="text-sm text-white mt-1">{node.hardware_info?.memory || t('nodes.unknown')}</p>
             </div>
             <div>
-              <span className="text-xs text-gray-500 uppercase tracking-wider">OS</span>
-              <p className="text-sm text-white mt-1 break-words">{node.hardware_info?.os || 'Unknown'}</p>
+              <span className="text-xs text-gray-500 uppercase tracking-wider">{t('nodeDetail.hardware.os')}</span>
+              <p className="text-sm text-white mt-1 break-words">{node.hardware_info?.os || t('nodes.unknown')}</p>
             </div>
           </div>
         </Card>
 
         <Card variant="default" padding="md" className="lg:col-span-2">
-          <h3 className="font-semibold text-white mb-4">Node Details</h3>
+          <h3 className="font-semibold text-white mb-4">{t('nodeDetail.details.title')}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="min-w-0">
-              <span className="text-xs text-gray-500 uppercase tracking-wider">Node ID</span>
+              <span className="text-xs text-gray-500 uppercase tracking-wider">{t('nodeDetail.details.nodeId')}</span>
               <div className="flex items-center gap-2 mt-1 min-w-0">
                 <span className="text-sm font-mono text-gray-300 truncate">{node.id}</span>
                 <CopyButton text={node.id} />
               </div>
             </div>
             <div className="min-w-0">
-              <span className="text-xs text-gray-500 uppercase tracking-wider">Public Key</span>
+              <span className="text-xs text-gray-500 uppercase tracking-wider">{t('nodeDetail.details.publicKey')}</span>
               <div className="flex items-center gap-2 mt-1 min-w-0">
                 <span className="text-sm font-mono text-gray-300 truncate">
                   {node.public_key?.slice(0, 20)}...
@@ -4692,14 +4711,14 @@ export default function NodeDetailPage() {
               </div>
             </div>
             <div>
-              <span className="text-xs text-gray-500 uppercase tracking-wider">Created</span>
+              <span className="text-xs text-gray-500 uppercase tracking-wider">{t('nodeDetail.details.created')}</span>
               <p className="text-sm text-gray-300 mt-1">
-                {new Date(node.created_at).toLocaleDateString()}
+                {formatDateTime(node.created_at, { dateStyle: 'medium' })}
               </p>
             </div>
             <div>
-              <span className="text-xs text-gray-500 uppercase tracking-wider">Last Updated</span>
-              <p className="text-sm text-gray-300 mt-1">{formatRelativeTime(node.updated_at)}</p>
+              <span className="text-xs text-gray-500 uppercase tracking-wider">{t('nodeDetail.details.lastUpdated')}</span>
+              <p className="text-sm text-gray-300 mt-1">{formatLocalizedRelativeTime(node.updated_at)}</p>
             </div>
           </div>
         </Card>
@@ -4713,10 +4732,10 @@ export default function NodeDetailPage() {
         isOpen={showDeleteDialog}
         onClose={() => setShowDeleteDialog(false)}
         onConfirm={handleDelete}
-        title="Delete Node"
-        message={`Are you sure you want to delete "${node.name}"? This will permanently remove the node and all associated data.`}
-        confirmText="Delete Node"
-        cancelText="Cancel"
+        title={t('nodeDetail.deleteNode')}
+        message={t('nodeDetail.deleteMessage', { name: node.name })}
+        confirmText={t('nodeDetail.deleteNode')}
+        cancelText={t('nodes.cancel')}
         variant="danger"
         isLoading={deleteNodeMutation.isPending}
       />
