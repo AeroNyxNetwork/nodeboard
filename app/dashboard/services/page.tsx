@@ -793,6 +793,13 @@ function topPlacementReason(reasons: Record<string, number>) {
   return reason ? `${formatPlacementReason(reason)} ${count.toLocaleString()}` : 'clear';
 }
 
+function placementReasonEntries(reasons: Record<string, number>) {
+  return Object.entries(reasons)
+    .filter(([, count]) => count > 0)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, 4);
+}
+
 function placementBlockerAction(reason: string | null) {
   const copy: Record<string, string> = {
     maintenance_mode: 'End maintenance after active sessions drain and restart work is complete.',
@@ -2271,6 +2278,7 @@ function PlacementCapacityPanel({
   const unavailable = Math.max(0, total - available);
   const regions = summary?.by_region.slice(0, 4) ?? [];
   const tiers = summary?.by_tier.slice(0, 3) ?? [];
+  const blockerReasons = placementReasonEntries(summary?.unavailable_reasons ?? {});
   const blockedServers = servers
     .filter((server) => !server.available)
     .sort((a, b) => {
@@ -2386,6 +2394,17 @@ function PlacementCapacityPanel({
               Manage nodes
             </Link>
           </div>
+          {blockerReasons.length > 0 && (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              {blockerReasons.map(([reason, count]) => (
+                <div key={reason} className="rounded-md border border-yellow-100/10 bg-black/20 px-3 py-2 text-xs">
+                  <p className="uppercase tracking-[0.12em] text-yellow-100/35">{formatPlacementReason(reason)}</p>
+                  <p className="mt-1 font-semibold text-yellow-100">{count.toLocaleString()} node{count === 1 ? '' : 's'}</p>
+                  <p className="mt-1 leading-5 text-yellow-100/45">{placementBlockerAction(reason)}</p>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="mt-3 grid gap-2 lg:grid-cols-2">
             {blockedServers.map((server) => (
               (() => {
@@ -2438,7 +2457,8 @@ function PlacementCapacityPanel({
 
       <p className="mt-4 text-xs leading-5 text-gray-600">
         Backend contract: GET /api/privacy_network/vpn/servers/ from
-        /root/aeronyx/privacy_network/api/vpn_servers.py. {summary?.privacy_note ?? 'Placement summary is owner-scoped operational metadata only.'}
+        /root/aeronyx/privacy_network/api/vpn_servers.py. summary.unavailable_reasons drives the Placement Blockers reason distribution.
+        {summary?.privacy_note ?? ' Placement summary is owner-scoped operational metadata only.'}
       </p>
     </section>
   );
