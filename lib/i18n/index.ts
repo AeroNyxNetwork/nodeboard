@@ -1478,6 +1478,18 @@ const en: Dictionary = {
   'services.actions.enablingMaintenance': 'Enabling...',
   'services.actions.enableMaintenance': 'Enable maintenance',
 
+  'common.trend.vsLastPeriod': 'vs last period',
+  'nav.toggleMenu': 'Toggle menu',
+  'settings.policyEditor.tierPublic': 'public',
+  'settings.policyEditor.tierPremium': 'premium',
+  'sessions.impact.stale': 'Session activity is stale',
+  'sessions.impact.error': 'Session reported an error',
+  'sessions.impact.keepaliveMissed': 'Keepalive ACK missed {count} times',
+  'sessions.impact.keepalivePending': '{count} keepalive probes pending',
+  'sessions.impact.highRtt': 'RTT is high at {value} ms',
+  'sessions.impact.packetLoss': 'Packet loss is {value}%',
+  'sessions.impact.quality': '{status} session quality',
+
 };
 
 const zhCN: Dictionary = {
@@ -2905,6 +2917,18 @@ const zhCN: Dictionary = {
   'services.restartOutcome.avgComplete': '平均完成',
   'services.actions.enablingMaintenance': '正在启用...',
   'services.actions.enableMaintenance': '启用维护',
+
+  'common.trend.vsLastPeriod': '相比上一周期',
+  'nav.toggleMenu': '切换菜单',
+  'settings.policyEditor.tierPublic': '公开',
+  'settings.policyEditor.tierPremium': '高级',
+  'sessions.impact.stale': '会话活动已陈旧',
+  'sessions.impact.error': '会话报告错误',
+  'sessions.impact.keepaliveMissed': 'Keepalive ACK 丢失 {count} 次',
+  'sessions.impact.keepalivePending': '{count} 个 keepalive 探测待确认',
+  'sessions.impact.highRtt': 'RTT 偏高：{value} ms',
+  'sessions.impact.packetLoss': '丢包率 {value}%',
+  'sessions.impact.quality': '{status} 会话质量',
 
 };
 
@@ -4335,6 +4359,18 @@ const zhTW: Dictionary = {
   'services.actions.enablingMaintenance': '正在啟用...',
   'services.actions.enableMaintenance': '啟用維護',
 
+  'common.trend.vsLastPeriod': '相比上一週期',
+  'nav.toggleMenu': '切換選單',
+  'settings.policyEditor.tierPublic': '公開',
+  'settings.policyEditor.tierPremium': '高級',
+  'sessions.impact.stale': '會話活動已陳舊',
+  'sessions.impact.error': '會話回報錯誤',
+  'sessions.impact.keepaliveMissed': 'Keepalive ACK 遺失 {count} 次',
+  'sessions.impact.keepalivePending': '{count} 個 keepalive 探測待確認',
+  'sessions.impact.highRtt': 'RTT 偏高：{value} ms',
+  'sessions.impact.packetLoss': '丟包率 {value}%',
+  'sessions.impact.quality': '{status} 會話品質',
+
 };
 
 const ja: Dictionary = {
@@ -5762,6 +5798,18 @@ const ja: Dictionary = {
   'services.restartOutcome.avgComplete': 'Avg complete',
   'services.actions.enablingMaintenance': '有効化中...',
   'services.actions.enableMaintenance': 'メンテナンスを有効化',
+
+  'common.trend.vsLastPeriod': '前期間比',
+  'nav.toggleMenu': 'メニューを切り替え',
+  'settings.policyEditor.tierPublic': 'public',
+  'settings.policyEditor.tierPremium': 'premium',
+  'sessions.impact.stale': 'セッション活動が古くなっています',
+  'sessions.impact.error': 'セッションがエラーを報告しました',
+  'sessions.impact.keepaliveMissed': 'Keepalive ACK missed {count} 回',
+  'sessions.impact.keepalivePending': '{count} keepalive probes pending',
+  'sessions.impact.highRtt': 'RTT が高いです: {value} ms',
+  'sessions.impact.packetLoss': 'Packet loss {value}%',
+  'sessions.impact.quality': '{status} session quality',
 
 };
 
@@ -7191,6 +7239,18 @@ const ko: Dictionary = {
   'services.actions.enablingMaintenance': '활성화 중...',
   'services.actions.enableMaintenance': '유지보수 활성화',
 
+  'common.trend.vsLastPeriod': '이전 기간 대비',
+  'nav.toggleMenu': '메뉴 전환',
+  'settings.policyEditor.tierPublic': 'public',
+  'settings.policyEditor.tierPremium': 'premium',
+  'sessions.impact.stale': '세션 활동이 오래되었습니다',
+  'sessions.impact.error': '세션에서 오류가 보고되었습니다',
+  'sessions.impact.keepaliveMissed': 'Keepalive ACK {count}회 누락',
+  'sessions.impact.keepalivePending': '{count} keepalive probes pending',
+  'sessions.impact.highRtt': 'RTT가 높음: {value} ms',
+  'sessions.impact.packetLoss': 'Packet loss {value}%',
+  'sessions.impact.quality': '{status} session quality',
+
 };
 
 const ru: Dictionary = {
@@ -8618,6 +8678,18 @@ const ru: Dictionary = {
   'services.restartOutcome.avgComplete': 'Avg complete',
   'services.actions.enablingMaintenance': 'Включение...',
   'services.actions.enableMaintenance': 'Включить maintenance',
+
+  'common.trend.vsLastPeriod': 'к прошлому периоду',
+  'nav.toggleMenu': 'Переключить меню',
+  'settings.policyEditor.tierPublic': 'public',
+  'settings.policyEditor.tierPremium': 'premium',
+  'sessions.impact.stale': 'Активность сессии устарела',
+  'sessions.impact.error': 'Сессия сообщила об ошибке',
+  'sessions.impact.keepaliveMissed': 'Keepalive ACK пропущен {count} раз',
+  'sessions.impact.keepalivePending': '{count} keepalive probes pending',
+  'sessions.impact.highRtt': 'RTT высокий: {value} ms',
+  'sessions.impact.packetLoss': 'Packet loss {value}%',
+  'sessions.impact.quality': 'качество сессии: {status}',
 
 };
 

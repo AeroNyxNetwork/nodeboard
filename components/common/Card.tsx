@@ -11,6 +11,7 @@
 'use client';
 
 import React from 'react';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 type CardVariant = 'default' | 'glow' | 'solid' | 'outline';
 type CardPadding = 'none' | 'sm' | 'md' | 'lg';
@@ -85,6 +86,8 @@ interface StatCardProps {
 }
 
 export function StatCard({ label, value, subValue, icon, trend, className = '' }: StatCardProps) {
+  const { t, formatNumber } = useI18n();
+
   return (
     <Card variant="default" padding="md" className={className}>
       <div className="flex items-start justify-between">
@@ -100,7 +103,9 @@ export function StatCard({ label, value, subValue, icon, trend, className = '' }
           <span className={trend.isPositive ? 'text-emerald-400' : 'text-red-400'}>
             {trend.isPositive ? '↑' : '↓'} {Math.abs(trend.value)}%
           </span>
-          <span className="text-xs text-gray-500">vs last period</span>
+          <span className="text-xs text-gray-500">
+            {t('common.trend.vsLastPeriod', { value: formatNumber(Math.abs(trend.value)) })}
+          </span>
         </div>
       )}
     </Card>

@@ -110,22 +110,10 @@ const healthStyles: Record<VpnHealthStatus, { label: string; badge: string; dot:
   },
 };
 
-const healthCheckLabels: Record<string, string> = {
-  heartbeat: 'Heartbeat',
-  resource_load: 'Resource Load',
-  traffic_counters: 'Traffic Counters',
-  udp_listener: 'UDP Listener',
-  tun_device: 'TUN Device',
-  mtu_config: 'MTU Config',
-  ip_forward: 'IP Forwarding',
-  nat_masquerade: 'NAT Masquerade',
-  dns_stub: 'DNS Stub',
-  dns_query: 'DNS Query',
-  internet_egress: 'Internet Egress',
-};
-
-function formatHealthCheckName(name: string): string {
-  return healthCheckLabels[name] || name.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+function formatHealthCheckName(name: string, t: TranslateFn): string {
+  const label = t(`nodeDetail.healthCheck.${name}`);
+  if (label !== `nodeDetail.healthCheck.${name}`) return label;
+  return name.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function HealthBadge({ status }: { status: VpnHealthStatus }) {
@@ -364,7 +352,7 @@ function RestartDrainContextPanel({
               <div className="text-xs font-medium text-gray-300">{t('sessions.restart.dnsGateway')}</div>
               <div className="mt-1 text-xs leading-5 text-gray-500">
                 {failedDnsCheck
-                  ? `${formatHealthCheckName(failedDnsCheck.name)}: ${failedDnsCheck.detail}`
+                  ? `${formatHealthCheckName(failedDnsCheck.name, t)}: ${failedDnsCheck.detail}`
                   : t('sessions.restart.dnsClear')}
               </div>
             </div>
@@ -413,15 +401,23 @@ function RestartDrainContextPanel({
   );
 }
 
-function sessionImpactReason(session: VpnSession) {
+function sessionImpactReason(session: VpnSession, t: TranslateFn, formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string) {
   if (session.degraded_reason) return session.degraded_reason;
-  if (session.quality_status === 'stale') return 'Session activity is stale';
-  if (session.quality_status === 'error') return session.last_error || 'Session reported an error';
-  if (session.keepalive_missed > 0) return `Keepalive ACK missed ${session.keepalive_missed} times`;
-  if (session.keepalive_pending > 0) return `${session.keepalive_pending} keepalive probes pending`;
-  if (session.rtt_ms !== null && session.rtt_ms > 250) return `RTT is high at ${session.rtt_ms.toFixed(1)} ms`;
-  if (session.packet_loss !== null && session.packet_loss > 2) return `Packet loss is ${session.packet_loss.toFixed(1)}%`;
-  return `${session.quality_status} session quality`;
+  if (session.quality_status === 'stale') return t('sessions.impact.stale');
+  if (session.quality_status === 'error') return session.last_error || t('sessions.impact.error');
+  if (session.keepalive_missed > 0) return t('sessions.impact.keepaliveMissed', { count: formatNumber(session.keepalive_missed) });
+  if (session.keepalive_pending > 0) return t('sessions.impact.keepalivePending', { count: formatNumber(session.keepalive_pending) });
+  if (session.rtt_ms !== null && session.rtt_ms > 250) {
+    return t('sessions.impact.highRtt', {
+      value: formatNumber(session.rtt_ms, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+    });
+  }
+  if (session.packet_loss !== null && session.packet_loss > 2) {
+    return t('sessions.impact.packetLoss', {
+      value: formatNumber(session.packet_loss, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+    });
+  }
+  return t('sessions.impact.quality', { status: t(`sessions.quality.${session.quality_status}`) });
 }
 
 function impactedSessions(sessions: VpnSession[]) {
@@ -468,7 +464,7 @@ function AffectedSessionsPanel({
     );
   }
 
-  const byReason = topSessionGroups(affected, sessionImpactReason, 4);
+  const byReason = topSessionGroups(affected, (session) => sessionImpactReason(session, t, formatNumber), 4);
   const byNode = topSessionGroups(affected, (session) => session.node_name || session.node_id, 4);
   const severe = [...affected].sort((a, b) => {
     const scoreA = a.quality_score ?? 999;
@@ -532,8 +528,8 @@ function AffectedSessionsPanel({
                   <p className="truncate text-gray-300">
                     {truncateAddress(session.session_id, 8)} · {session.virtual_ip || t('sessions.sessionTable.virtualIpPending')}
                   </p>
-                  <p className="mt-0.5 truncate text-gray-600" title={sessionImpactReason(session)}>
-                    {sessionImpactReason(session)}
+                  <p className="mt-0.5 truncate text-gray-600" title={sessionImpactReason(session, t, formatNumber)}>
+                    {sessionImpactReason(session, t, formatNumber)}
                   </p>
                 </div>
                 <span className="shrink-0 text-yellow-300">{session.quality_score ?? t('sessions.quality.pending')}</span>
@@ -679,7 +675,7 @@ function NodeHealthTable({ nodes }: { nodes: VpnNodeHealth[] }) {
                       <div className="space-y-1">
                         {failedChecks.slice(0, 2).map((check) => (
                           <div key={check.name} className="text-xs text-yellow-300">
-                            {formatHealthCheckName(check.name)}: {check.detail}
+                            {formatHealthCheckName(check.name, t)}: {check.detail}
                           </div>
                         ))}
                       </div>

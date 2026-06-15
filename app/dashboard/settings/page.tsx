@@ -771,8 +771,8 @@ function PolicyEditor({
               onChange={(event) => onForm({ ...form, node_tier: event.target.value as NodeTier })}
               className="mt-1 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
             >
-              <option value="public" className="bg-[#111118]">public</option>
-              <option value="premium" className="bg-[#111118]">premium</option>
+              <option value="public" className="bg-[#111118]">{t('settings.policyEditor.tierPublic')}</option>
+              <option value="premium" className="bg-[#111118]">{t('settings.policyEditor.tierPremium')}</option>
             </select>
           </label>
 

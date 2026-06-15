@@ -291,6 +291,8 @@ interface MobileHeaderProps {
 }
 
 export function MobileHeader({ onMenuToggle }: MobileHeaderProps) {
+  const { t } = useI18n();
+
   return (
     <header className="lg:hidden fixed top-0 left-0 right-0 z-30 bg-[#0D0D12]/90 backdrop-blur-lg border-b border-white/5">
       <div className="flex items-center justify-between px-4 py-3">
@@ -302,7 +304,7 @@ export function MobileHeader({ onMenuToggle }: MobileHeaderProps) {
         <button
           onClick={onMenuToggle}
           className="p-2 rounded-lg hover:bg-white/5 transition-colors"
-          aria-label="Toggle menu"
+          aria-label={t('nav.toggleMenu')}
         >
           <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
