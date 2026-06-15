@@ -14,7 +14,8 @@ import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useNodes, useVpnBilling, UseVpnBillingOptions } from '@/hooks/useNodes';
 import { VpnBillingDailyRow, VpnBillingIdentityRow, VpnBillingNodeRow, VpnBillingSessionRow } from '@/types';
-import { formatDuration, formatRelativeTime } from '@/lib/api';
+import { formatDuration } from '@/lib/api';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 import Card from '@/components/common/Card';
 import Button from '@/components/common/Button';
 
@@ -27,12 +28,15 @@ const STATUS_OPTIONS: Array<NonNullable<UseVpnBillingOptions['status']>> = [
   'error',
 ];
 
-function mb(value: number | null | undefined) {
-  return `${(value || 0).toFixed(2)} MB`;
+type TranslateFn = (key: string, values?: Record<string, string | number>) => string;
+type FormatNumberFn = (value: number, options?: Intl.NumberFormatOptions) => string;
+
+function mb(value: number | null | undefined, formatNumber: FormatNumberFn) {
+  return `${formatNumber(value || 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
 }
 
-function gbFromBytes(value: number | null | undefined) {
-  return `${((value || 0) / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+function gbFromBytes(value: number | null | undefined, formatNumber: FormatNumberFn) {
+  return `${formatNumber((value || 0) / (1024 * 1024 * 1024), { minimumFractionDigits: 2, maximumFractionDigits: 2 })} GB`;
 }
 
 function vpnSessionsHref({
@@ -52,9 +56,9 @@ function vpnSessionsHref({
   return `/dashboard/sessions?${params.toString()}`;
 }
 
-function pct(value: number | null | undefined) {
-  if (value === null || value === undefined) return 'unlimited';
-  return `${value.toFixed(1)}%`;
+function pct(value: number | null | undefined, t: TranslateFn, formatNumber: FormatNumberFn) {
+  if (value === null || value === undefined) return t('billing.summary.unlimited');
+  return `${formatNumber(value, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
 
 function csvCell(value: unknown) {
@@ -81,40 +85,43 @@ function downloadCsv(filename: string, rows: object[]) {
 }
 
 function SummaryCards({ billing }: { billing: NonNullable<ReturnType<typeof useVpnBilling>['billing']> }) {
+  const { t, formatNumber } = useI18n();
   const monthly = billing.quota.monthly;
   const daily = billing.quota.daily_vpn_usage;
   return (
     <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
       <Card variant="default" padding="md">
-        <p className="text-xs text-gray-500">Traffic</p>
-        <p className="text-2xl font-semibold text-white mt-2">{mb(billing.summary.total_traffic_mb)}</p>
+        <p className="text-xs text-gray-500">{t('billing.summary.traffic')}</p>
+        <p className="text-2xl font-semibold text-white mt-2">{mb(billing.summary.total_traffic_mb, formatNumber)}</p>
         <p className="text-xs text-gray-600 mt-1">
-          {billing.summary.total_sessions} sessions
+          {t('billing.summary.sessions', { count: formatNumber(billing.summary.total_sessions) })}
         </p>
       </Card>
       <Card variant="default" padding="md">
-        <p className="text-xs text-gray-500">Active Sessions</p>
-        <p className="text-2xl font-semibold text-white mt-2">{billing.summary.active_sessions}</p>
+        <p className="text-xs text-gray-500">{t('billing.summary.activeSessions')}</p>
+        <p className="text-2xl font-semibold text-white mt-2">{formatNumber(billing.summary.active_sessions)}</p>
         <p className="text-xs text-gray-600 mt-1">
-          {billing.summary.error_sessions} errors
+          {t('billing.summary.errors', { count: formatNumber(billing.summary.error_sessions) })}
         </p>
       </Card>
       <Card variant="default" padding="md">
-        <p className="text-xs text-gray-500">Monthly Quota</p>
+        <p className="text-xs text-gray-500">{t('billing.summary.monthlyQuota')}</p>
         <p className="text-2xl font-semibold text-white mt-2">
-          {monthly?.is_unlimited ? 'Unlimited' : gbFromBytes(monthly?.remaining_bytes)}
+          {monthly?.is_unlimited ? t('billing.summary.unlimited') : gbFromBytes(monthly?.remaining_bytes, formatNumber)}
         </p>
         <p className="text-xs text-gray-600 mt-1">
-          {monthly ? `${pct(monthly.usage_percent)} used` : 'not initialized'}
+          {monthly
+            ? t('billing.summary.used', { value: pct(monthly.usage_percent, t, formatNumber) })
+            : t('billing.summary.notInitialized')}
         </p>
       </Card>
       <Card variant="default" padding="md">
-        <p className="text-xs text-gray-500">Voucher Time</p>
+        <p className="text-xs text-gray-500">{t('billing.summary.voucherTime')}</p>
         <p className="text-2xl font-semibold text-white mt-2">
-          {daily.is_unlimited ? 'Unlimited' : formatDuration(daily.remaining_seconds || 0)}
+          {daily.is_unlimited ? t('billing.summary.unlimited') : formatDuration(daily.remaining_seconds || 0)}
         </p>
         <p className="text-xs text-gray-600 mt-1">
-          {billing.voucher_accounting.issued_vouchers} issued this epoch
+          {t('billing.summary.issuedThisEpoch', { count: formatNumber(billing.voucher_accounting.issued_vouchers) })}
         </p>
       </Card>
     </div>
@@ -122,57 +129,58 @@ function SummaryCards({ billing }: { billing: NonNullable<ReturnType<typeof useV
 }
 
 function BillingAttention({ billing }: { billing: NonNullable<ReturnType<typeof useVpnBilling>['billing']> }) {
+  const { t, formatNumber } = useI18n();
   const monthly = billing.quota.monthly;
   const daily = billing.quota.daily_vpn_usage;
   const items: Array<{ label: string; value: string; tone: 'red' | 'yellow' | 'green'; note: string }> = [];
 
   if (monthly?.is_exceeded) {
     items.push({
-      label: 'Monthly quota exceeded',
-      value: pct(monthly.usage_percent),
+      label: t('billing.attention.monthlyExceeded'),
+      value: pct(monthly.usage_percent, t, formatNumber),
       tone: 'red',
-      note: 'Upgrade quota or reduce paid traffic before accepting more voucher-backed sessions.',
+      note: t('billing.attention.monthlyExceededNote'),
     });
   } else if (monthly && !monthly.is_unlimited && (monthly.usage_percent || 0) >= 80) {
     items.push({
-      label: 'Monthly quota pressure',
-      value: pct(monthly.usage_percent),
+      label: t('billing.attention.monthlyPressure'),
+      value: pct(monthly.usage_percent, t, formatNumber),
       tone: 'yellow',
-      note: 'Watch node traffic and identity rows for the largest consumers before quota is exhausted.',
+      note: t('billing.attention.monthlyPressureNote'),
     });
   }
 
   if (!daily.can_connect || daily.is_exceeded) {
     items.push({
-      label: 'Daily VPN access blocked',
-      value: daily.is_unlimited ? 'unlimited' : formatDuration(daily.remaining_seconds || 0),
+      label: t('billing.attention.dailyBlocked'),
+      value: daily.is_unlimited ? t('billing.summary.unlimited') : formatDuration(daily.remaining_seconds || 0),
       tone: 'red',
-      note: 'The centralized quota service says this operator cannot connect more VPN time today.',
+      note: t('billing.attention.dailyBlockedNote'),
     });
   } else if (!daily.is_unlimited && (daily.usage_percent || 0) >= 80) {
     items.push({
-      label: 'Daily VPN time pressure',
-      value: pct(daily.usage_percent),
+      label: t('billing.attention.dailyPressure'),
+      value: pct(daily.usage_percent, t, formatNumber),
       tone: 'yellow',
-      note: 'Review active sessions and voucher reservations before the daily VPN allowance runs out.',
+      note: t('billing.attention.dailyPressureNote'),
     });
   }
 
   if (billing.summary.error_sessions > 0) {
     items.push({
-      label: 'Session errors in billing window',
-      value: String(billing.summary.error_sessions),
+      label: t('billing.attention.sessionErrors'),
+      value: formatNumber(billing.summary.error_sessions),
       tone: 'yellow',
-      note: 'Open the Sessions tab or VPN Operations to inspect last_error, RTT, packet loss, and affected nodes.',
+      note: t('billing.attention.sessionErrorsNote'),
     });
   }
 
   if (!items.length) {
     items.push({
-      label: 'Billing posture clear',
-      value: 'ok',
+      label: t('billing.attention.clear'),
+      value: t('common.status.ok'),
       tone: 'green',
-      note: 'Quota and session accounting are within expected operating bounds for the current filters.',
+      note: t('billing.attention.clearNote'),
     });
   }
 
@@ -222,11 +230,12 @@ function QueryBar({
   onRefresh: () => void;
   onExport: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <Card variant="default" padding="md">
       <div className="grid md:grid-cols-[120px_150px_1fr_1.2fr_auto_auto] gap-3 items-end">
         <label className="block">
-          <span className="text-xs text-gray-500">Days</span>
+          <span className="text-xs text-gray-500">{t('billing.filters.days')}</span>
           <select
             value={days}
             onChange={(event) => onDays(Number(event.target.value))}
@@ -240,7 +249,7 @@ function QueryBar({
           </select>
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Status</span>
+          <span className="text-xs text-gray-500">{t('billing.filters.status')}</span>
           <select
             value={status}
             onChange={(event) => onStatus(event.target.value as NonNullable<UseVpnBillingOptions['status']>)}
@@ -248,19 +257,19 @@ function QueryBar({
           >
             {STATUS_OPTIONS.map((value) => (
               <option key={value} value={value} className="bg-[#111118]">
-                {value}
+                {t(`common.status.${value}`)}
               </option>
             ))}
           </select>
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Node</span>
+          <span className="text-xs text-gray-500">{t('billing.filters.node')}</span>
           <select
             value={nodeId}
             onChange={(event) => onNode(event.target.value)}
             className="mt-1 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
           >
-            <option value="" className="bg-[#111118]">All nodes</option>
+            <option value="" className="bg-[#111118]">{t('billing.filters.allNodes')}</option>
             {nodes.map((node) => (
               <option key={node.id} value={node.id} className="bg-[#111118]">
                 {node.name}
@@ -269,39 +278,40 @@ function QueryBar({
           </select>
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Wallet / Session</span>
+          <span className="text-xs text-gray-500">{t('billing.filters.walletSession')}</span>
           <input
             type="search"
             value={query}
             onChange={(event) => onQuery(event.target.value)}
-            placeholder="Search wallet or session_id"
+            placeholder={t('billing.filters.searchPlaceholder')}
             className="mt-1 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-purple-500/50"
           />
         </label>
-        <Button variant="secondary" onClick={onRefresh}>Refresh</Button>
-        <Button variant="primary" onClick={onExport}>Export CSV</Button>
+        <Button variant="secondary" onClick={onRefresh}>{t('common.refreshNow')}</Button>
+        <Button variant="primary" onClick={onExport}>{t('billing.filters.exportCsv')}</Button>
       </div>
     </Card>
   );
 }
 
 function NodeTable({ rows }: { rows: VpnBillingNodeRow[] }) {
-  if (!rows.length) return <EmptyTable label="No node traffic in this range." />;
+  const { t, formatNumber, formatRelativeTime } = useI18n();
+  if (!rows.length) return <EmptyTable label={t('billing.table.emptyNodes')} />;
   return (
     <DataTable
-      headers={['Node', 'Region', 'Tier', 'Sessions', 'Traffic', 'Duration', 'Last Seen', 'Ops']}
+      headers={[t('billing.table.node'), t('billing.table.region'), t('billing.table.tier'), t('billing.table.sessions'), t('billing.table.traffic'), t('billing.table.duration'), t('billing.table.lastSeen'), t('billing.table.ops')]}
       rows={rows.map((row) => [
         <Link href={`/dashboard/nodes/${row.node_id}`} className="text-purple-300 hover:text-purple-200">
           {row.node_name}
         </Link>,
-        row.region_code || row.city || 'unknown',
+        row.region_code || row.city || t('common.status.unknown'),
         row.node_tier,
-        `${row.sessions} (${row.active_sessions} active)`,
-        mb(row.total_traffic_mb),
+        t('billing.table.activeCount', { total: formatNumber(row.sessions), active: formatNumber(row.active_sessions) }),
+        mb(row.total_traffic_mb, formatNumber),
         formatDuration(row.duration_seconds),
-        row.last_seen ? formatRelativeTime(row.last_seen) : 'never',
+        row.last_seen ? formatRelativeTime(row.last_seen) : t('billing.table.never'),
         <Link href={vpnSessionsHref({ nodeId: row.node_id })} className="text-sky-300 hover:text-sky-200">
-          Open Sessions
+          {t('billing.table.openSessions')}
         </Link>,
       ])}
     />
@@ -309,19 +319,20 @@ function NodeTable({ rows }: { rows: VpnBillingNodeRow[] }) {
 }
 
 function IdentityTable({ rows }: { rows: VpnBillingIdentityRow[] }) {
-  if (!rows.length) return <EmptyTable label="No identity traffic in this range." />;
+  const { t, formatNumber, formatRelativeTime } = useI18n();
+  if (!rows.length) return <EmptyTable label={t('billing.table.emptyIdentities')} />;
   return (
     <DataTable
-      headers={['Identity', 'Tier', 'Sessions', 'Traffic', 'Duration', 'Last Seen', 'Ops']}
+      headers={[t('billing.table.identity'), t('billing.table.tier'), t('billing.table.sessions'), t('billing.table.traffic'), t('billing.table.duration'), t('billing.table.lastSeen'), t('billing.table.ops')]}
       rows={rows.map((row) => [
-        row.wallet_short || 'unknown',
+        row.wallet_short || t('common.status.unknown'),
         row.tier,
-        `${row.sessions} (${row.active_sessions} active)`,
-        mb(row.total_traffic_mb),
+        t('billing.table.activeCount', { total: formatNumber(row.sessions), active: formatNumber(row.active_sessions) }),
+        mb(row.total_traffic_mb, formatNumber),
         formatDuration(row.duration_seconds),
-        row.last_seen ? formatRelativeTime(row.last_seen) : 'never',
+        row.last_seen ? formatRelativeTime(row.last_seen) : t('billing.table.never'),
         <Link href={vpnSessionsHref({ q: row.client_wallet || row.wallet_short })} className="text-sky-300 hover:text-sky-200">
-          Open Sessions
+          {t('billing.table.openSessions')}
         </Link>,
       ])}
       monoFirstColumn
@@ -330,16 +341,17 @@ function IdentityTable({ rows }: { rows: VpnBillingIdentityRow[] }) {
 }
 
 function DailyTable({ rows }: { rows: VpnBillingDailyRow[] }) {
-  if (!rows.length) return <EmptyTable label="No daily traffic in this range." />;
+  const { t, formatNumber } = useI18n();
+  if (!rows.length) return <EmptyTable label={t('billing.table.emptyDaily')} />;
   return (
     <DataTable
-      headers={['Day', 'Sessions', 'Ingress', 'Egress', 'Total', 'Duration']}
+      headers={[t('billing.table.day'), t('billing.table.sessions'), t('billing.table.ingress'), t('billing.table.egress'), t('billing.table.total'), t('billing.table.duration')]}
       rows={rows.map((row) => [
         row.day,
-        row.sessions,
-        gbFromBytes(row.bytes_in),
-        gbFromBytes(row.bytes_out),
-        mb(row.total_traffic_mb),
+        formatNumber(row.sessions),
+        gbFromBytes(row.bytes_in, formatNumber),
+        gbFromBytes(row.bytes_out, formatNumber),
+        mb(row.total_traffic_mb, formatNumber),
         formatDuration(row.duration_seconds),
       ])}
     />
@@ -347,28 +359,29 @@ function DailyTable({ rows }: { rows: VpnBillingDailyRow[] }) {
 }
 
 function SessionTable({ rows }: { rows: VpnBillingSessionRow[] }) {
-  if (!rows.length) return <EmptyTable label="No session traffic matches these filters." />;
+  const { t, formatNumber, formatRelativeTime } = useI18n();
+  if (!rows.length) return <EmptyTable label={t('billing.table.emptySessions')} />;
   return (
     <DataTable
-      headers={['Session', 'VIP', 'Identity', 'Node', 'Status', 'Traffic', 'Duration', 'Last Activity', 'Quality', 'Ops']}
+      headers={[t('billing.table.session'), t('billing.table.vip'), t('billing.table.identity'), t('billing.table.node'), t('billing.table.status'), t('billing.table.traffic'), t('billing.table.duration'), t('billing.table.lastActivity'), t('billing.table.quality'), t('billing.table.ops')]}
       rows={rows.map((row) => {
         const lastActivity = row.last_rx_at || row.last_tx_at || row.updated_at;
         return [
           <Link href={vpnSessionsHref({ nodeId: row.node_id, status: row.status, q: row.session_id })} className="text-sky-300 hover:text-sky-200">
             {row.session_id}
           </Link>,
-          row.virtual_ip || 'pending',
-          row.wallet_short || 'unknown',
+          row.virtual_ip || t('billing.table.pending'),
+          row.wallet_short || t('common.status.unknown'),
           <Link href={`/dashboard/nodes/${row.node_id}`} className="text-purple-300 hover:text-purple-200">
             {row.node_name}
           </Link>,
-          row.status,
-          mb(row.total_traffic_mb),
+          t(`common.status.${row.status}`),
+          mb(row.total_traffic_mb, formatNumber),
           formatDuration(row.duration_seconds),
-          lastActivity ? formatRelativeTime(lastActivity) : 'pending',
-          row.last_error || `RTT ${row.rtt_ms === null ? 'pending' : `${row.rtt_ms} ms`}`,
+          lastActivity ? formatRelativeTime(lastActivity) : t('billing.table.pending'),
+          row.last_error || t('billing.table.rtt', { value: row.rtt_ms === null ? t('billing.table.pending') : `${formatNumber(row.rtt_ms)} ms` }),
           <Link href={vpnSessionsHref({ nodeId: row.node_id, status: row.status, q: row.session_id })} className="text-sky-300 hover:text-sky-200">
-            Open Sessions
+            {t('billing.table.openSessions')}
           </Link>,
         ];
       })}
@@ -424,6 +437,7 @@ function DataTable({
 }
 
 export default function BillingPage() {
+  const { t, formatNumber, formatRelativeTime } = useI18n();
   const [days, setDays] = useState(30);
   const [status, setStatus] = useState<NonNullable<UseVpnBillingOptions['status']>>('all');
   const [nodeId, setNodeId] = useState('');
@@ -454,13 +468,13 @@ export default function BillingPage() {
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Traffic & Billing</h1>
+          <h1 className="text-2xl font-bold text-white">{t('billing.title')}</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Node, identity, quota, and voucher accounting.
+            {t('billing.subtitle')}
           </p>
         </div>
         {billing?.generated_at && (
-          <p className="text-xs text-gray-600">Updated {formatRelativeTime(billing.generated_at)}</p>
+          <p className="text-xs text-gray-600">{t('billing.updated', { time: formatRelativeTime(billing.generated_at) })}</p>
         )}
       </div>
 
@@ -489,8 +503,8 @@ export default function BillingPage() {
         </div>
       ) : isError || !billing ? (
         <Card variant="outline" padding="lg" className="text-center">
-          <p className="text-sm text-yellow-300 mb-4">Billing data could not be loaded.</p>
-          <Button variant="secondary" onClick={refetch}>Retry</Button>
+          <p className="text-sm text-yellow-300 mb-4">{t('billing.error')}</p>
+          <Button variant="secondary" onClick={refetch}>{t('common.retry')}</Button>
         </Card>
       ) : (
         <>
@@ -499,32 +513,32 @@ export default function BillingPage() {
 
           <div className="grid lg:grid-cols-3 gap-4">
             <Card variant="default" padding="md">
-              <p className="text-xs text-gray-500">Voucher Epoch</p>
+              <p className="text-xs text-gray-500">{t('billing.extra.voucherEpoch')}</p>
               <p className="text-lg font-semibold text-white mt-2">{billing.voucher_accounting.epoch}</p>
               <p className="text-xs text-gray-600 mt-1">
-                {billing.voucher_accounting.issue_events} issue events
+                {t('billing.extra.issueEvents', { count: formatNumber(billing.voucher_accounting.issue_events) })}
               </p>
             </Card>
             <Card variant="default" padding="md">
-              <p className="text-xs text-gray-500">Daily Reserved</p>
+              <p className="text-xs text-gray-500">{t('billing.extra.dailyReserved')}</p>
               <p className="text-lg font-semibold text-white mt-2">
                 {formatDuration(billing.quota.daily_vpn_usage.reserved_seconds)}
               </p>
               <p className="text-xs text-gray-600 mt-1">
-                {pct(billing.quota.daily_vpn_usage.usage_percent)} used
+                {t('billing.summary.used', { value: pct(billing.quota.daily_vpn_usage.usage_percent, t, formatNumber) })}
               </p>
             </Card>
             <Card variant="default" padding="md">
-              <p className="text-xs text-gray-500">Identity Count</p>
-              <p className="text-lg font-semibold text-white mt-2">{billing.known_identity_count}</p>
+              <p className="text-xs text-gray-500">{t('billing.extra.identityCount')}</p>
+              <p className="text-lg font-semibold text-white mt-2">{formatNumber(billing.known_identity_count)}</p>
               <p className="text-xs text-gray-600 mt-1">
-                {billing.tiers.map((item) => `${item.tier}: ${item.sessions}`).join('  ') || 'no tier matches'}
+                {billing.tiers.map((item) => `${item.tier}: ${formatNumber(item.sessions)}`).join('  ') || t('billing.extra.noTierMatches')}
               </p>
             </Card>
           </div>
 
           <Card variant="outline" padding="md">
-            <p className="text-xs text-gray-500">Privacy Boundary</p>
+            <p className="text-xs text-gray-500">{t('billing.extra.privacyBoundary')}</p>
             <p className="text-sm text-gray-300 mt-1">{billing.privacy_note}</p>
           </Card>
 
@@ -541,13 +555,13 @@ export default function BillingPage() {
                         : 'bg-white/[0.03] text-gray-400 border-white/10 hover:text-white'
                     }`}
                   >
-                    {value === 'nodes' ? 'Nodes' : value === 'identities' ? 'Identities' : value === 'sessions' ? 'Sessions' : 'Daily'}
+                    {t(`billing.tabs.${value}`)}
                   </button>
                 ))}
               </div>
               <p className="text-xs text-gray-600">
-                {billing.filters.days}d · {billing.filters.status}
-                {billing.filters.q ? ` · ${billing.summary.matched_session_count} matches` : ''}
+                {t('billing.filterSummary.days', { count: billing.filters.days })} · {t(`common.status.${billing.filters.status}`)}
+                {billing.filters.q ? ` · ${t('billing.filterSummary.matches', { count: formatNumber(billing.summary.matched_session_count) })}` : ''}
               </p>
             </div>
             {tab === 'nodes' && <NodeTable rows={billing.nodes} />}

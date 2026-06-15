@@ -73,6 +73,7 @@ import { NODE_VISIBILITY_CONFIG } from '@/lib/constants';
 import { useUpdateNode } from '@/hooks/useNodes';
 import Card from '@/components/common/Card';
 import Button from '@/components/common/Button';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 // ============================================
 // Region Data
@@ -133,6 +134,7 @@ interface VisibilityOptionProps {
 
 function VisibilityOption({ value, selected, onSelect }: VisibilityOptionProps) {
   const cfg = NODE_VISIBILITY_CONFIG[value];
+  const { t } = useI18n();
   return (
     <button
       type="button"
@@ -149,9 +151,9 @@ function VisibilityOption({ value, selected, onSelect }: VisibilityOptionProps) 
       <span className="text-lg leading-none mt-0.5">{cfg.icon}</span>
       <div>
         <p className={`text-sm font-medium ${selected ? cfg.textColor : 'text-white'}`}>
-          {cfg.label}
+          {t(`nodeSettings.visibility.${value}.label`)}
         </p>
-        <p className="text-xs text-gray-500 mt-0.5">{cfg.description}</p>
+        <p className="text-xs text-gray-500 mt-0.5">{t(`nodeSettings.visibility.${value}.description`)}</p>
       </div>
       {selected && (
         <span className="ml-auto flex-shrink-0">
@@ -169,6 +171,7 @@ function VisibilityOption({ value, selected, onSelect }: VisibilityOptionProps) 
 // ============================================
 
 export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsProps) {
+  const { t, formatNumber } = useI18n();
   const updateNode = useUpdateNode();
 
   // ── Form state ────────────────────────────────────────────────────────────
@@ -246,16 +249,16 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
   const validate = useCallback((): string => {
     // region_code is now always from the dropdown — no format validation needed
     if (visibility === 'password_protected' && !password && !node.has_access_password) {
-      return 'A password is required for password-protected nodes.';
+      return t('nodeSettings.validation.passwordRequired');
     }
     if (maxSessions < 0 || maxSessions > MAX_COMMERCIAL_SESSIONS) {
-      return `Max sessions must be between 0 and ${MAX_COMMERCIAL_SESSIONS}.`;
+      return t('nodeSettings.validation.maxSessions', { max: formatNumber(MAX_COMMERCIAL_SESSIONS) });
     }
     if (bandwidthLimitMbps < 0 || bandwidthLimitMbps > MAX_BANDWIDTH_LIMIT_MBPS) {
-      return `Bandwidth limit must be between 0 and ${MAX_BANDWIDTH_LIMIT_MBPS} Mbps.`;
+      return t('nodeSettings.validation.bandwidth', { max: formatNumber(MAX_BANDWIDTH_LIMIT_MBPS) });
     }
     return '';
-  }, [visibility, password, node.has_access_password, maxSessions, bandwidthLimitMbps]);
+  }, [visibility, password, node.has_access_password, maxSessions, bandwidthLimitMbps, t, formatNumber]);
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
@@ -293,16 +296,16 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
       await updateNode.mutateAsync({ nodeId: node.id, data: payload });
       setPassword('');
       setIsDirty(false);
-      onToast('Settings saved successfully.');
+      onToast(t('nodeSettings.toast.saved'));
       onSaved();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to save settings.';
+      const msg = err instanceof Error ? err.message : t('nodeSettings.toast.saveFailed');
       setErrorMsg(msg);
       onToast(msg, 'error');
     }
   }, [
     validate, visibility, regionCode, city, isVpnNode, maxSessions, bandwidthLimitMbps,
-    password, node.id, node.visibility, node.has_access_password, updateNode, onToast, onSaved,
+    password, node.id, node.visibility, node.has_access_password, updateNode, onToast, onSaved, t,
   ]);
 
   const handleClearPasswordAndSave = useCallback(async () => {
@@ -321,16 +324,16 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
       setPassword('');
       setIsDirty(false);
       setVisibility('private');
-      onToast('Password protection removed.');
+      onToast(t('nodeSettings.toast.passwordRemoved'));
       onSaved();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to clear password.';
+      const msg = err instanceof Error ? err.message : t('nodeSettings.toast.clearPasswordFailed');
       setErrorMsg(msg);
       onToast(msg, 'error');
     }
   }, [
     regionCode, city, isVpnNode, maxSessions, bandwidthLimitMbps,
-    node.id, updateNode, onToast, onSaved,
+    node.id, updateNode, onToast, onSaved, t,
   ]);
 
   const isSaving = updateNode.isPending;
@@ -348,12 +351,12 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 011.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 01-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 01-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.107-1.204l-.527-.738a1.125 1.125 0 01.12-1.45l.773-.773a1.125 1.125 0 011.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894z" />
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
-          <h3 className="font-semibold text-white">Node Settings</h3>
+          <h3 className="font-semibold text-white">{t('nodeSettings.title')}</h3>
         </div>
         {isDirty && (
           <span className="text-xs text-yellow-400 flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
-            Unsaved changes
+            {t('nodeSettings.unsavedChanges')}
           </span>
         )}
       </div>
@@ -362,7 +365,7 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
 
         {/* ── Visibility ───────────────────────────────────────────────────── */}
         <section>
-          <h4 className="text-sm font-medium text-gray-300 mb-3">Visibility</h4>
+          <h4 className="text-sm font-medium text-gray-300 mb-3">{t('nodeSettings.visibility.title')}</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {(Object.keys(NODE_VISIBILITY_CONFIG) as NodeVisibility[]).map((v) => (
               <VisibilityOption
@@ -378,15 +381,15 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
         {/* ── Access Password (only when password_protected) ───────────────── */}
         {visibility === 'password_protected' && (
           <section>
-            <h4 className="text-sm font-medium text-gray-300 mb-1">Access Password</h4>
+            <h4 className="text-sm font-medium text-gray-300 mb-1">{t('nodeSettings.password.title')}</h4>
             {node.has_access_password && (
               <p className="text-xs text-gray-500 mb-3">
-                A password is already set. Leave blank to keep it, or enter a new one to replace it.
+                {t('nodeSettings.password.existingHint')}
               </p>
             )}
             {!node.has_access_password && (
               <p className="text-xs text-gray-500 mb-3">
-                Set a password users must enter to access this node.
+                {t('nodeSettings.password.newHint')}
               </p>
             )}
             <div className="relative">
@@ -394,7 +397,7 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={handlePasswordChange}
-                placeholder={node.has_access_password ? '••••••••' : 'Enter password...'}
+                placeholder={node.has_access_password ? '••••••••' : t('nodeSettings.password.placeholder')}
                 maxLength={128}
                 className="
                   w-full pr-10 pl-4 py-2.5 rounded-xl
@@ -427,7 +430,7 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
                 onClick={handleClearPassword}
                 className="mt-2 text-xs text-red-400 hover:text-red-300 transition-colors"
               >
-                Remove password protection
+                {t('nodeSettings.password.remove')}
               </button>
             )}
           </section>
@@ -435,11 +438,11 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
 
         {/* ── Region ───────────────────────────────────────────────────────── */}
         <section>
-          <h4 className="text-sm font-medium text-gray-300 mb-3">Region</h4>
+          <h4 className="text-sm font-medium text-gray-300 mb-3">{t('nodeSettings.region.title')}</h4>
           <div className="grid grid-cols-2 gap-3">
             {/* Country dropdown */}
             <div>
-              <label className="block text-xs text-gray-500 mb-1.5">Country</label>
+              <label className="block text-xs text-gray-500 mb-1.5">{t('nodeSettings.region.country')}</label>
               <div className="relative">
                 <select
                   value={regionCode}
@@ -468,19 +471,19 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
               {/* Show auto-detected region hint when nothing selected */}
               {!regionCode && node.auto_region && (
                 <p className="text-xs text-gray-600 mt-1.5">
-                  Auto-detected: <span className="text-gray-400 font-mono">{node.auto_region}</span>
+                  {t('nodeSettings.region.autoDetected')} <span className="text-gray-400 font-mono">{node.auto_region}</span>
                 </p>
               )}
             </div>
 
             {/* City input */}
             <div>
-              <label className="block text-xs text-gray-500 mb-1.5">City <span className="text-gray-600">(optional)</span></label>
+              <label className="block text-xs text-gray-500 mb-1.5">{t('nodeSettings.region.city')} <span className="text-gray-600">{t('nodeSettings.region.optional')}</span></label>
               <input
                 type="text"
                 value={city}
                 onChange={handleCityChange}
-                placeholder="e.g. Tokyo"
+                placeholder={t('nodeSettings.region.cityPlaceholder')}
                 maxLength={100}
                 className="
                   w-full px-4 py-2.5 rounded-xl
@@ -498,9 +501,9 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
         <section>
           <div className="flex items-center justify-between">
             <div>
-              <h4 className="text-sm font-medium text-gray-300">VPN Exit Node</h4>
+              <h4 className="text-sm font-medium text-gray-300">{t('nodeSettings.aeronyxExit.title')}</h4>
               <p className="text-xs text-gray-500 mt-0.5">
-                Declare this node as a VPN exit node. Users can filter for VPN nodes in the node pool.
+                {t('nodeSettings.aeronyxExit.description')}
               </p>
             </div>
             <button
@@ -528,13 +531,13 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
 
         {/* ── Commercial Capacity Policy ──────────────────────────────────── */}
         <section>
-          <h4 className="text-sm font-medium text-gray-300 mb-1">Commercial Capacity</h4>
+          <h4 className="text-sm font-medium text-gray-300 mb-1">{t('nodeSettings.capacity.title')}</h4>
           <p className="text-xs text-gray-500 mb-3">
-            These owner-scoped limits are sent through PATCH /api/privacy_network/nodes/{'{id}'}/ and enforced by Rust node_policy.
+            {t('nodeSettings.capacity.description')}
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1.5">Max active sessions</label>
+              <label className="block text-xs text-gray-500 mb-1.5">{t('nodeSettings.capacity.maxSessions')}</label>
               <input
                 type="number"
                 min={0}
@@ -551,12 +554,12 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
                 "
               />
               <p className="text-xs text-gray-600 mt-1.5">
-                0 means unlimited by nodeboard policy.
+                {t('nodeSettings.capacity.unlimitedByNodeboard')}
               </p>
             </div>
 
             <div>
-              <label className="block text-xs text-gray-500 mb-1.5">Bandwidth cap Mbps</label>
+              <label className="block text-xs text-gray-500 mb-1.5">{t('nodeSettings.capacity.bandwidth')}</label>
               <input
                 type="number"
                 min={0}
@@ -573,7 +576,7 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
                 "
               />
               <p className="text-xs text-gray-600 mt-1.5">
-                0 means unlimited/local default; Rust drops packets when the cap is exceeded.
+                {t('nodeSettings.capacity.bandwidthHint')}
               </p>
             </div>
           </div>
@@ -599,7 +602,7 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
               disabled={isSaving}
               className="text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-40"
             >
-              Remove password protection
+              {t('nodeSettings.password.remove')}
             </button>
           )}
           <div className="ml-auto flex items-center gap-3">
@@ -611,10 +614,10 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
               {isSaving ? (
                 <span className="flex items-center gap-2">
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Saving...
+                  {t('nodeSettings.saving')}
                 </span>
               ) : (
-                'Save Changes'
+                t('nodeSettings.saveChanges')
               )}
             </Button>
           </div>
