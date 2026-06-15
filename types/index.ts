@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.19 - Added Rust placement rollout missing node list.
  *   v1.5.18 - Added Rust placement rollout summary.
  *   v1.5.17 - Added Rust placement readiness fields.
  *   v1.5.16 - Added commercial placement health summary.
@@ -58,7 +59,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.18 - Added Rust placement rollout summary
+ * Last Modified: v1.5.19 - Added Rust placement rollout missing node list
+ * Previous: v1.5.18 - Added Rust placement rollout summary
  * Previous: v1.5.17 - Added Rust placement readiness fields
  * Previous: v1.5.16 - Added commercial placement health summary
  * Previous: v1.5.15 - Added fleet dominant policy block reason summary
@@ -870,6 +872,8 @@ export interface VpnRestartReadinessBlockedNode {
  *   rust_placement_rollout_summary is backend-authored coverage copy and
  *   next-step guidance so the Services page does not compare raw counters to
  *   infer whether runtime admission rollout is complete.
+ *   missing_node_list is backend-sorted rollout work; React only renders the
+ *   target node and routes primary_action to node detail.
  * Maintenance recovery source:
  *   data.summary.restart_readiness.maintenance_exit_candidates lists nodes
  *   that are current, drained, and still in maintenance mode so Services can
@@ -1177,6 +1181,27 @@ export interface VpnRestartReadinessSummary {
       missing_nodes: number;
       total_nodes: number;
       coverage_percent: number;
+      visible_missing_node_count: number;
+      hidden_missing_node_count: number;
+      missing_node_list?: Array<{
+        id: string;
+        name: string;
+        health_status: string;
+        public_ip?: string | null;
+        region_code?: string | null;
+        city?: string | null;
+        version?: string | null;
+        active_sessions: number;
+        last_seen_seconds: number | null;
+        next_step: string;
+        primary_action?: {
+          key: string;
+          label: string;
+          intent: 'node_detail' | string;
+          detail: string;
+        };
+        source: string;
+      }>;
       source: string;
       privacy_boundary: string;
     };

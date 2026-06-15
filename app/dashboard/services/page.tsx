@@ -128,6 +128,8 @@
  *     card can show runtime-owned admission coverage.
  *     rust_placement_rollout_summary is backend-authored coverage copy and
  *     next-step guidance for placement_readiness rollout.
+ *     rust_placement_rollout_summary.missing_node_list is backend-sorted
+ *     rollout work; Services only renders the target nodes and routes actions.
  *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
@@ -197,7 +199,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.58 - Show Rust placement rollout coverage
+ * Last Modified: v1.1.59 - Show Rust placement rollout missing nodes
+ * Previous: v1.1.58 - Show Rust placement rollout coverage
  * Previous: v1.1.57 - Show Rust placement readiness
  * Previous: v1.1.56 - Show commercial placement health
  * Previous: v1.1.55 - Show dominant policy block reason
@@ -2893,6 +2896,43 @@ function FleetRestartReadinessPanel({
               <p className="mt-1 leading-5 text-sky-100/45">
                 {commercialPlacementHealth.rust_placement_rollout_summary.next_step}
               </p>
+              {commercialPlacementHealth.rust_placement_rollout_summary.missing_node_list?.length ? (
+                <div className="mt-2 grid gap-2 lg:grid-cols-2">
+                  {commercialPlacementHealth.rust_placement_rollout_summary.missing_node_list.map((node) => (
+                    <div key={node.id} className="rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <Link href={`/dashboard/nodes/${node.id}`} className="min-w-0 truncate font-medium text-white hover:text-purple-300">
+                          {node.name}
+                        </Link>
+                        <span className="shrink-0 rounded-md border border-sky-100/20 px-2 py-0.5 text-sky-100/70">
+                          missing
+                        </span>
+                      </div>
+                      <p className="mt-1 leading-5 text-sky-100/45">
+                        Region {node.region_code || node.city || 'unknown'} ·
+                        version {node.version || 'unknown'} ·
+                        sessions {node.active_sessions.toLocaleString()} ·
+                        heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
+                      </p>
+                      <p className="mt-1 leading-5 text-sky-100/45">{node.next_step}</p>
+                      {node.primary_action && (
+                        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="leading-5 text-sky-100/35">
+                            Action {node.primary_action.key} · {node.primary_action.detail}
+                          </p>
+                          {/* Backend primary_action owns rollout work; nodeboard only routes to node detail. */}
+                          <Link
+                            href={`/dashboard/nodes/${node.id}`}
+                            className="inline-flex shrink-0 items-center justify-center rounded-md border border-sky-100/20 px-2.5 py-1.5 font-medium text-sky-100 transition hover:border-sky-100/40 hover:bg-sky-100/10"
+                          >
+                            {node.primary_action.label}
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           )}
           <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
