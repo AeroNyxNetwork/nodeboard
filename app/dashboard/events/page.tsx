@@ -20,6 +20,7 @@ import Button from '@/components/common/Button';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 
 type SeverityFilter = NonNullable<UseVpnEventsOptions['severity']>;
+type TranslateFn = (key: string, values?: Record<string, string | number>) => string;
 
 const SEVERITY_OPTIONS: SeverityFilter[] = ['all', 'critical', 'warning', 'info'];
 const DAY_OPTIONS = [1, 7, 14, 30, 60, 90];
@@ -243,18 +244,18 @@ function eventCheckName(event: VpnEvent): string {
   return '';
 }
 
-function commandActionLabel(action?: string | null): string {
+function commandActionLabel(action: string | null | undefined, t: TranslateFn): string {
   const labels: Record<string, string> = {
-    system_info: 'System diagnostics',
-    collect_logs: 'Recent service logs',
-    refresh_config: 'Config refresh',
-    apply_policy: 'Policy acknowledgement',
-    restart_service: 'Service restart',
-    kick_session: 'Session kick',
-    ban_wallet: 'Wallet ban',
-    unban_wallet: 'Wallet unban',
+    system_info: t('events.command.systemInfo'),
+    collect_logs: t('events.command.collectLogs'),
+    refresh_config: t('events.command.refreshConfig'),
+    apply_policy: t('events.command.applyPolicy'),
+    restart_service: t('events.command.restartService'),
+    kick_session: t('events.command.kickSession'),
+    ban_wallet: t('events.command.banWallet'),
+    unban_wallet: t('events.command.unbanWallet'),
   };
-  return action ? labels[action] || action.replace(/_/g, ' ') : 'Command';
+  return action ? labels[action] || action.replace(/_/g, ' ') : t('events.command.generic');
 }
 
 function commandAuditLabel(details: Record<string, unknown>) {
@@ -294,30 +295,30 @@ function sessionsHref(event: VpnEvent) {
   return `/dashboard/sessions?${params.toString()}`;
 }
 
-function placementReasonLabel(reason: unknown) {
-  if (typeof reason !== 'string' || !reason) return 'not eligible';
+function placementReasonLabel(reason: unknown, t: TranslateFn) {
+  if (typeof reason !== 'string' || !reason) return t('events.placement.reason.notEligible');
   const labels: Record<string, string> = {
-    heartbeat_stale: 'heartbeat stale',
-    maintenance_mode: 'maintenance',
-    max_sessions_reached: 'session cap reached',
-    vpn_health_failed: 'VPN health failed',
-    overloaded: 'overloaded',
-    low_24h_availability: 'low 24h availability',
+    heartbeat_stale: t('events.placement.reason.heartbeatStale'),
+    maintenance_mode: t('events.placement.reason.maintenanceMode'),
+    max_sessions_reached: t('events.placement.reason.maxSessionsReached'),
+    vpn_health_failed: t('events.placement.reason.vpnHealthFailed'),
+    overloaded: t('events.placement.reason.overloaded'),
+    low_24h_availability: t('events.placement.reason.lowAvailability'),
   };
   return labels[reason] || reason.replace(/_/g, ' ');
 }
 
-function topReasonLabel(reasons: unknown) {
-  if (!isRecord(reasons)) return 'clear';
+function topReasonLabel(reasons: unknown, t: TranslateFn) {
+  if (!isRecord(reasons)) return t('events.placement.reason.clear');
   const [reason, count] = Object.entries(reasons)
     .filter(([, value]) => typeof value === 'number')
     .sort((a, b) => Number(b[1]) - Number(a[1]))[0] || [];
-  return reason ? `${placementReasonLabel(reason)} ${count}` : 'clear';
+  return reason ? `${placementReasonLabel(reason, t)} ${count}` : t('events.placement.reason.clear');
 }
 
-function formatDurationSeconds(value: unknown): string {
+function formatDurationSeconds(value: unknown, t: TranslateFn): string {
   const seconds = typeof value === 'number' && Number.isFinite(value) ? value : null;
-  if (seconds === null) return 'pending';
+  if (seconds === null) return t('common.status.pending');
   if (seconds < 60) return `${Math.round(seconds)}s`;
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
   if (seconds < 86400) return `${(seconds / 3600).toFixed(1)}h`;
@@ -325,6 +326,7 @@ function formatDurationSeconds(value: unknown): string {
 }
 
 function DetailsPreview({ event }: { event: VpnEvent }) {
+  const { t } = useI18n();
   const changedFields = getChangedFields(event);
   if (event.type === 'node_policy_changed' && changedFields.length) {
     return (
@@ -338,7 +340,7 @@ function DetailsPreview({ event }: { event: VpnEvent }) {
   if (event.type === 'node_policy_enforced') {
     const total = policyEnforcementTotal(event.details || {});
     const reason = shortValue(event.details?.last_rejection_reason, 32);
-    return <span className="text-xs text-gray-500">{total} blocked · {reason}</span>;
+    return <span className="text-xs text-gray-500">{t('events.preview.blocked', { count: total, reason })}</span>;
   }
 
   if (event.type === 'bandwidth_limit_pressure') {
@@ -350,32 +352,32 @@ function DetailsPreview({ event }: { event: VpnEvent }) {
   if (event.type === 'session_traffic_anomaly') {
     const average = shortValue(event.details?.average_mbps, 16);
     const replay = shortValue(event.details?.replay_rejections, 16);
-    return <span className="text-xs text-gray-500">{average} Mbps · replay {replay}</span>;
+    return <span className="text-xs text-gray-500">{t('events.preview.replay', { average, replay })}</span>;
   }
 
   if (event.type === 'health_check_failed') {
     const checkName = eventCheckName(event);
-    return <span className="text-xs text-gray-500">{checkName || 'health check'}</span>;
+    return <span className="text-xs text-gray-500">{checkName || t('events.preview.healthCheck')}</span>;
   }
 
   if (event.type === 'client_placement_unavailable') {
-    const reason = placementReasonLabel(event.details?.unavailable_reason);
+    const reason = placementReasonLabel(event.details?.unavailable_reason, t);
     const availability = event.details?.availability_24h_percent;
-    const availabilityLabel = typeof availability === 'number' ? `${availability.toFixed(availability >= 99.95 ? 2 : 1)}%` : 'pending';
-    return <span className="text-xs text-gray-500">{reason} · 24h {availabilityLabel}</span>;
+    const availabilityLabel = typeof availability === 'number' ? `${availability.toFixed(availability >= 99.95 ? 2 : 1)}%` : t('common.status.pending');
+    return <span className="text-xs text-gray-500">{t('events.preview.availability24h', { reason, availability: availabilityLabel })}</span>;
   }
 
   if (event.type === 'placement_capacity_exhausted' || event.type === 'placement_capacity_pressure') {
     const availableCount = shortValue(event.details?.available_candidates, 16);
     const totalCount = shortValue(event.details?.total_candidates, 16);
     const capacity = shortValue(event.details?.capacity_remaining, 16);
-    return <span className="text-xs text-gray-500">{availableCount}/{totalCount} candidates · {capacity} slots</span>;
+    return <span className="text-xs text-gray-500">{t('events.preview.capacity', { available: availableCount, total: totalCount, slots: capacity })}</span>;
   }
 
   if (event.type === 'runtime_restarted' || event.type === 'runtime_recovery') {
     const interrupted = detailNumber(event.details || {}, 'interrupted_sessions_24h');
-    const uptime = formatDurationSeconds(event.details?.runtime_uptime_seconds);
-    return <span className="text-xs text-gray-500">{interrupted} interrupted · uptime {uptime}</span>;
+    const uptime = formatDurationSeconds(event.details?.runtime_uptime_seconds, t);
+    return <span className="text-xs text-gray-500">{t('events.preview.runtime', { interrupted, uptime })}</span>;
   }
 
   const detailEntries = Object.entries(event.details || {}).filter(([, value]) => (
@@ -387,7 +389,7 @@ function DetailsPreview({ event }: { event: VpnEvent }) {
     const audit = commandAuditLabel(event.details || {});
     return (
       <span className="text-xs text-gray-500">
-        {commandActionLabel(event.action)} · <span className="font-mono">{event.command_id.slice(0, 8)}</span>
+        {commandActionLabel(event.action, t)} · <span className="font-mono">{event.command_id.slice(0, 8)}</span>
         {audit ? ` · ${audit}` : ''}
       </span>
     );
@@ -410,7 +412,7 @@ type DetailRow = {
   value: React.ReactNode;
 };
 
-function buildDetailRows(event: VpnEvent): DetailRow[] {
+function buildDetailRows(event: VpnEvent, t: TranslateFn): DetailRow[] {
   const details = event.details || {};
   const rows: DetailRow[] = [];
 
@@ -431,9 +433,9 @@ function buildDetailRows(event: VpnEvent): DetailRow[] {
     });
 
     rows.push(
-      { label: 'Changed by', value: shortValue(details.changed_by_wallet, 80) },
-      { label: 'Source', value: shortValue(details.source, 80) },
-      { label: 'Audit ID', value: shortValue(details.audit_id, 80) }
+      { label: t('events.details.changedBy'), value: shortValue(details.changed_by_wallet, 80) },
+      { label: t('events.details.source'), value: shortValue(details.source, 80) },
+      { label: t('events.details.auditId'), value: shortValue(details.audit_id, 80) }
     );
     return rows.filter((row) => row.value !== '-');
   }
@@ -537,94 +539,94 @@ function buildDetailRows(event: VpnEvent): DetailRow[] {
   return rows;
 }
 
-function runbookHint(event: VpnEvent): string {
+function runbookHint(event: VpnEvent, t: TranslateFn): string {
   const details = event.details || {};
   const check = eventCheckName(event);
   const reason = typeof details.degraded_reason === 'string' ? details.degraded_reason : '';
   const reasonLower = reason.toLowerCase();
 
   if (event.type === 'node_policy_enforced') {
-    return 'Review Settings for maintenance, max sessions, or bandwidth caps before changing the Rust node. These are expected policy blocks, not packet inspection.';
+    return t('events.runbook.nodePolicyEnforced');
   }
 
   if (event.type === 'node_policy_sync_pending') {
-    return 'The backend policy differs from the Rust runtime snapshot, or the node has not reported a policy snapshot yet. Open Node Detail to check Policy Sync and wait for the next heartbeat before assuming the setting is enforced.';
+    return t('events.runbook.nodePolicySyncPending');
   }
 
   if (event.type === 'runtime_recovery') {
-    return 'The Rust process recovered after restart and stale active sessions were closed. Open Node Detail, check Runtime Recovery, active sessions, Policy Sync, and recent command lifecycle before deciding whether to keep maintenance mode on or restart again.';
+    return t('events.runbook.runtimeRecovery');
   }
 
   if (event.type === 'runtime_restarted') {
-    return 'A recent Rust process restart was observed. Watch active sessions, Policy Sync, and Runtime Recovery for the next heartbeat cycle before taking disruptive action.';
+    return t('events.runbook.runtimeRestarted');
   }
 
   if (event.type === 'client_placement_unavailable') {
-    const placementReason = placementReasonLabel(details.unavailable_reason);
-    return `This public VPN node is hidden from the client server list because of ${placementReason}. Open Node Detail Client Placement, Health, Policy Sync, and Settings before expecting new clients to receive it.`;
+    const placementReason = placementReasonLabel(details.unavailable_reason, t);
+    return t('events.runbook.clientPlacementUnavailable', { reason: placementReason });
   }
 
   if (event.type === 'placement_capacity_exhausted' || event.type === 'placement_capacity_pressure') {
     const scope = shortValue(details.placement_scope, 24);
     const label = shortValue(details.placement_label, 48);
-    const topReason = topReasonLabel(details.unavailable_reasons);
-    return `Client placement capacity is constrained for ${label} ${scope}. Check Nodes > Client Placement for region/tier capacity, then add capacity, lower load, end maintenance, or move traffic. Top unavailable reason: ${topReason}.`;
+    const topReason = topReasonLabel(details.unavailable_reasons, t);
+    return t('events.runbook.placementCapacity', { label, scope, reason: topReason });
   }
 
   if (event.type === 'bandwidth_limit_pressure') {
-    return 'Check whether the node is intentionally capped in Settings. Increase bandwidth_limit_mbps or move traffic to another region/tier if paid users are affected.';
+    return t('events.runbook.bandwidthLimitPressure');
   }
 
   if (event.type === 'node_policy_changed') {
-    return 'Use this audit trail to confirm who changed placement, tier, maintenance, session caps, bandwidth, or heartbeat policy before correlating later health events.';
+    return t('events.runbook.nodePolicyChanged');
   }
 
   if (event.type === 'session_keepalive_timeout') {
-    return 'Keepalive ACK loss means the tunnel can be established while responsiveness is failing. Check node bandwidth pressure and heartbeat freshness, then kick the affected session if missed ACKs continue.';
+    return t('events.runbook.sessionKeepaliveTimeout');
   }
 
   if (event.source === 'node_command' && event.action === 'apply_policy') {
-    return 'Policy acknowledgement confirms the Rust node has received the latest nodeboard policy snapshot. If it stays pending, open Node Detail and compare Policy Sync after the next heartbeat.';
+    return t('events.runbook.applyPolicy');
   }
 
   if (event.type === 'session_degraded' || event.type === 'session_stale') {
     if (reasonLower.includes('keepalive')) {
-      return 'Keepalive degradation usually means tunnel ACKs are delayed or missing. Compare missed and pending counters before deciding whether to kick the session or move traffic.';
+      return t('events.runbook.sessionDegradedKeepalive');
     }
     if (reasonLower.includes('rtt')) {
-      return 'High RTT usually points to route congestion or bad regional placement. Compare the node region with the user cohort and check bandwidth pressure events.';
+      return t('events.runbook.sessionDegradedRtt');
     }
     if (reasonLower.includes('rx') || reasonLower.includes('tx') || reasonLower.includes('stale')) {
-      return 'Stale RX/TX usually means the tunnel stopped carrying traffic. Check node heartbeat freshness, then use VPN Operations to kick the affected session if it remains active.';
+      return t('events.runbook.sessionDegradedTraffic');
     }
-    return 'Open VPN Operations to identify the affected session, virtual IP, last activity, RTT, and packet loss before deciding whether to kick or ban.';
+    return t('events.runbook.sessionDegradedGeneric');
   }
 
   if (event.source === 'node_command') {
-    return 'Open Node Detail command history for lifecycle timing and structured output. Retry only after the previous command is completed, failed, cancelled, or timed out.';
+    return t('events.runbook.nodeCommand');
   }
 
   if (check === 'dns_stub' || check === 'dns_query') {
-    return 'DNS failure usually breaks browsing while the tunnel is up. Use Collect Logs on Node Detail, then check local resolver and firewall configuration on the node.';
+    return t('events.runbook.dnsFailure');
   }
   if (check === 'nat_masquerade' || check === 'ip_forward') {
-    return 'NAT or forwarding failure means clients can connect but cannot exit to the Internet. Check forwarding/NAT config and consider maintenance mode while fixing.';
+    return t('events.runbook.natFailure');
   }
   if (check === 'tun_device' || check === 'mtu_config') {
-    return 'TUN or MTU failure points to local VPN interface configuration. Use System Info and Collect Logs, then restart VPN only if diagnostics confirm the service is wedged.';
+    return t('events.runbook.tunFailure');
   }
   if (check === 'internet_egress') {
-    return 'Egress failure means the node cannot reach the Internet. Move traffic away from this node and verify provider networking before accepting new sessions.';
+    return t('events.runbook.egressFailure');
   }
   if (check === 'udp_listener') {
-    return 'UDP listener failure means new clients cannot connect. Check service status from Node Detail and use Restart VPN if the process is unhealthy.';
+    return t('events.runbook.udpListenerFailure');
   }
 
   if (event.severity === 'critical') {
-    return 'Start with Node Detail health checks, then use maintenance mode to stop new handshakes while you confirm whether active sessions are affected.';
+    return t('events.runbook.criticalDefault');
   }
   if (event.severity === 'warning') {
-    return 'Correlate this warning with recent Settings audits, session quality, and policy enforcement before taking disruptive action.';
+    return t('events.runbook.warningDefault');
   }
 
   return '';
@@ -632,8 +634,8 @@ function runbookHint(event: VpnEvent): string {
 
 function EventDetailPanel({ event }: { event: VpnEvent }) {
   const { t } = useI18n();
-  const rows = buildDetailRows(event);
-  const hint = runbookHint(event);
+  const rows = buildDetailRows(event, t);
+  const hint = runbookHint(event, t);
 
   if (!rows.length && !hint) {
     return <div className="text-xs text-gray-600">{t('events.details.noStructured')}</div>;
@@ -727,7 +729,7 @@ function EventsTable({ events }: { events: VpnEvent[] }) {
                       <span className="inline-flex px-2 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-gray-300">
                         {event.status || t('events.summary.open')}
                       </span>
-                      {event.action && <div className="text-xs text-gray-600 mt-1">{commandActionLabel(event.action)}</div>}
+                      {event.action && <div className="text-xs text-gray-600 mt-1">{commandActionLabel(event.action, t)}</div>}
                     </td>
                     <td className="px-4 py-4">
                       <div className="space-y-2">

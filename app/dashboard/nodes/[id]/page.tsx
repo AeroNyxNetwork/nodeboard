@@ -234,6 +234,8 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 // VPN Health Config
 // ============================================
 
+type TranslateFn = (key: string, values?: Record<string, string | number>) => string;
+
 const VPN_HEALTH_CONFIG: Record<VpnHealthStatus, {
   label: string;
   bgColor: string;
@@ -349,25 +351,27 @@ function initialCommandActionFilter(value: string | null) {
   return value && COMMAND_ACTION_FILTERS.includes(value) ? value : 'all';
 }
 
-function formatHealthCheckName(name: string): string {
+function formatHealthCheckName(name: string, t: TranslateFn): string {
+  const label = t(`nodeDetail.healthCheck.${name}`);
+  if (label !== `nodeDetail.healthCheck.${name}`) return label;
   return HEALTH_CHECK_LABELS[name] || name.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function healthCheckRunbook(name: string): string {
+function healthCheckRunbook(name: string, t: TranslateFn): string {
   const hints: Record<string, string> = {
-    heartbeat: 'Check heartbeat age first. If stale, use maintenance mode before restarting the VPN service.',
-    resource_load: 'High CPU or memory usually affects tunnel quality. Review 24h metrics, then drain or lower session caps in Settings.',
-    traffic_counters: 'Missing traffic counters reduce billing confidence. Run System Info and Refresh Config to confirm telemetry setup.',
-    udp_listener: 'New clients cannot connect when the UDP listener is down. Collect logs, then restart VPN if the service is wedged.',
-    tun_device: 'TUN failures point to local interface setup. Run System Info and Collect Logs before changing node networking.',
-    mtu_config: 'MTU mismatch can cause stalls or packet loss. Compare configured MTU with the running TUN MTU before changing clients.',
-    ip_forward: 'Forwarding failure means tunnels may connect but cannot route. Enable forwarding or put the node into maintenance while fixing.',
-    nat_masquerade: 'NAT failure blocks Internet exit. Check masquerade rules and move traffic away from this node if sessions are active.',
-    dns_stub: 'DNS listener failure breaks name resolution while the tunnel is up. Collect logs and verify the local resolver.',
-    dns_query: 'DNS query failure usually means resolver or egress trouble. Check DNS config, then Internet egress.',
-    internet_egress: 'Egress failure means the node cannot reach the Internet. Stop new handshakes and verify provider networking.',
+    heartbeat: t('nodeDetail.healthRunbook.heartbeat'),
+    resource_load: t('nodeDetail.healthRunbook.resourceLoad'),
+    traffic_counters: t('nodeDetail.healthRunbook.trafficCounters'),
+    udp_listener: t('nodeDetail.healthRunbook.udpListener'),
+    tun_device: t('nodeDetail.healthRunbook.tunDevice'),
+    mtu_config: t('nodeDetail.healthRunbook.mtuConfig'),
+    ip_forward: t('nodeDetail.healthRunbook.ipForward'),
+    nat_masquerade: t('nodeDetail.healthRunbook.natMasquerade'),
+    dns_stub: t('nodeDetail.healthRunbook.dnsStub'),
+    dns_query: t('nodeDetail.healthRunbook.dnsQuery'),
+    internet_egress: t('nodeDetail.healthRunbook.internetEgress'),
   };
-  return hints[name] || 'Use Collect Logs and recent VPN events to decide whether to drain, refresh config, or restart the service.';
+  return hints[name] || t('nodeDetail.healthRunbook.default');
 }
 
 // ============================================
@@ -696,15 +700,15 @@ function formatTunnelMtu(health: VpnNodeHealth) {
   return typeof running === 'number' ? `${running}` : `${configured}`;
 }
 
-function tunnelMtuDetail(health: VpnNodeHealth) {
+function tunnelMtuDetail(health: VpnNodeHealth, t: TranslateFn) {
   const configured = health.system.configured_mtu;
   const running = health.system.running_mtu;
   if (typeof running === 'number' && typeof configured === 'number') {
-    return running === configured ? 'matches config' : `config ${configured}`;
+    return running === configured ? t('nodeDetail.health.mtuMatchesConfig') : t('nodeDetail.health.mtuConfigValue', { value: configured });
   }
-  if (typeof configured === 'number') return 'configured only';
-  if (typeof running === 'number') return 'runtime only';
-  return 'reported by health check';
+  if (typeof configured === 'number') return t('nodeDetail.health.mtuConfiguredOnly');
+  if (typeof running === 'number') return t('nodeDetail.health.mtuRuntimeOnly');
+  return t('nodeDetail.health.reportedByHealthCheck');
 }
 
 function formatServiceManagerName(health: VpnNodeHealth) {
@@ -713,13 +717,13 @@ function formatServiceManagerName(health: VpnNodeHealth) {
   return manager.manager || 'service';
 }
 
-function serviceManagerRuntimeDetail(health: VpnNodeHealth) {
+function serviceManagerRuntimeDetail(health: VpnNodeHealth, t: TranslateFn) {
   const manager = health.system.service_manager;
-  if (!manager) return 'waiting for Rust health';
+  if (!manager) return t('nodeDetail.health.waitingRustHealth');
   const states = [manager.active_state, manager.load_state, manager.unit_file_state]
     .filter((state): state is string => Boolean(state));
   if (states.length > 0) return states.join(' · ');
-  return manager.restart_supported ? 'restart supported' : manager.detail;
+  return manager.restart_supported ? t('nodeDetail.health.restartSupported') : manager.detail;
 }
 
 function policyCount(value: number | null | undefined) {
@@ -735,31 +739,31 @@ function formatAvailability(value: number | null | undefined) {
   return `${value.toFixed(value >= 99.95 ? 2 : 1)}%`;
 }
 
-function formatPlacementReason(reason: string | null | undefined) {
-  if (!reason) return 'candidate';
+function formatPlacementReason(reason: string | null | undefined, t: TranslateFn) {
+  if (!reason) return t('nodeDetail.placementReason.candidate');
   const labels: Record<string, string> = {
-    heartbeat_stale: 'heartbeat stale',
-    maintenance_mode: 'maintenance',
-    max_sessions_reached: 'session cap reached',
-    vpn_health_failed: 'VPN health failed',
-    overloaded: 'overloaded',
-    low_24h_availability: 'low 24h availability',
-    vpn_health_degraded: 'VPN health degraded',
+    heartbeat_stale: t('nodeDetail.placementReason.heartbeatStale'),
+    maintenance_mode: t('nodeDetail.placementReason.maintenanceMode'),
+    max_sessions_reached: t('nodeDetail.placementReason.maxSessionsReached'),
+    vpn_health_failed: t('nodeDetail.placementReason.vpnHealthFailed'),
+    overloaded: t('nodeDetail.placementReason.overloaded'),
+    low_24h_availability: t('nodeDetail.placementReason.lowAvailability'),
+    vpn_health_degraded: t('nodeDetail.placementReason.vpnHealthDegraded'),
   };
   return labels[reason] || reason.replace(/_/g, ' ');
 }
 
-function placementNextAction(reason: string | null | undefined) {
+function placementNextAction(reason: string | null | undefined, t: TranslateFn) {
   const actions: Record<string, string> = {
-    heartbeat_stale: 'Check Rust service heartbeat and command delivery before advertising this node.',
-    maintenance_mode: 'End maintenance after active sessions are drained and restart checks are clear.',
-    max_sessions_reached: 'Raise max_sessions in Node Settings or wait for active sessions to close.',
-    vpn_health_failed: 'Run diagnostics, inspect health checks, then restart under maintenance if needed.',
-    vpn_health_degraded: 'Review failed checks and recent events before increasing placement traffic.',
-    overloaded: 'Lower load, raise capacity, or keep this node behind healthier candidates.',
-    low_24h_availability: 'Wait for more healthy samples or inspect heartbeat/service stability.',
+    heartbeat_stale: t('nodeDetail.placementAction.heartbeatStale'),
+    maintenance_mode: t('nodeDetail.placementAction.maintenanceMode'),
+    max_sessions_reached: t('nodeDetail.placementAction.maxSessionsReached'),
+    vpn_health_failed: t('nodeDetail.placementAction.vpnHealthFailed'),
+    vpn_health_degraded: t('nodeDetail.placementAction.vpnHealthDegraded'),
+    overloaded: t('nodeDetail.placementAction.overloaded'),
+    low_24h_availability: t('nodeDetail.placementAction.lowAvailability'),
   };
-  return reason ? actions[reason] || 'Review placement health, policy sync, and recent events for this node.' : 'Keep monitoring capacity and policy counters while this node receives clients.';
+  return reason ? actions[reason] || t('nodeDetail.placementAction.default') : t('nodeDetail.placementAction.monitor');
 }
 
 function readinessToneClass(status: 'ready' | 'attention' | 'blocked' | 'pending') {
@@ -782,10 +786,10 @@ function sessionCapacityValue(activeSessions: number, maxSessions: number, remai
   return `${activeSessions} / unlimited`;
 }
 
-function telemetrySourceLabel(source: string | null | undefined) {
-  if (source === 'cache') return 'fresh heartbeat';
-  if (source === 'sample') return 'sample fallback';
-  if (!source || source === 'missing') return 'missing telemetry';
+function telemetrySourceLabel(source: string | null | undefined, t: TranslateFn) {
+  if (source === 'cache') return t('nodeDetail.telemetry.cache');
+  if (source === 'sample') return t('nodeDetail.telemetry.sample');
+  if (!source || source === 'missing') return t('nodeDetail.telemetry.missing');
   return source.replace(/_/g, ' ');
 }
 
@@ -795,18 +799,18 @@ function telemetrySourceClass(source: string | null | undefined) {
   return 'border-yellow-500/25 bg-yellow-500/10 text-yellow-300';
 }
 
-function telemetrySourceDetail(source: string | null | undefined, lastSeenSeconds: number | null | undefined) {
-  const age = typeof lastSeenSeconds === 'number' ? `${formatDuration(lastSeenSeconds)} ago` : 'pending';
-  if (source === 'cache') return `Live heartbeat cache, last seen ${age}.`;
-  if (source === 'sample') return `Durable sample fallback, last seen ${age}. Treat counters as audit-grade until fresh heartbeat returns.`;
-  return 'Heartbeat telemetry is missing; verify backend ingestion before changing commercial placement.';
+function telemetrySourceDetail(source: string | null | undefined, lastSeenSeconds: number | null | undefined, t: TranslateFn) {
+  const age = typeof lastSeenSeconds === 'number' ? t('nodeDetail.telemetry.ageAgo', { age: formatDuration(lastSeenSeconds) }) : t('common.status.pending');
+  if (source === 'cache') return t('nodeDetail.telemetry.cacheDetail', { age });
+  if (source === 'sample') return t('nodeDetail.telemetry.sampleDetail', { age });
+  return t('nodeDetail.telemetry.missingDetail');
 }
 
-function policyImpactLabel(status: string | null | undefined) {
-  if (status === 'active') return 'active impact';
-  if (status === 'historical') return 'historical';
-  if (status === 'clear') return 'clear';
-  return 'pending';
+function policyImpactLabel(status: string | null | undefined, t: TranslateFn) {
+  if (status === 'active') return t('nodeDetail.policyImpact.active');
+  if (status === 'historical') return t('nodeDetail.policyImpact.historical');
+  if (status === 'clear') return t('nodeDetail.policyImpact.clear');
+  return t('common.status.pending');
 }
 
 function policyImpactClass(status: string | null | undefined) {
@@ -816,24 +820,24 @@ function policyImpactClass(status: string | null | undefined) {
   return 'border-gray-500/25 bg-gray-500/10 text-gray-300';
 }
 
-function policyImpactDetail(status: string | null | undefined, ageSeconds: number | null | undefined, windowSeconds: number | null | undefined) {
+function policyImpactDetail(status: string | null | undefined, ageSeconds: number | null | undefined, windowSeconds: number | null | undefined, t: TranslateFn) {
   const windowLabel = formatDuration(windowSeconds ?? 3600);
   if (status === 'active') {
-    return `Latest policy block is within ${windowLabel}; treat capacity or placement impact as current.`;
+    return t('nodeDetail.policyImpact.activeDetail', { window: windowLabel });
   }
   if (status === 'historical') {
-    const age = typeof ageSeconds === 'number' ? `${formatDuration(ageSeconds)} ago` : 'outside the recent window';
-    return `Last block was ${age}; counters remain for audit but are not current placement impact.`;
+    const age = typeof ageSeconds === 'number' ? t('nodeDetail.telemetry.ageAgo', { age: formatDuration(ageSeconds) }) : t('nodeDetail.policyImpact.outsideWindow');
+    return t('nodeDetail.policyImpact.historicalDetail', { age });
   }
-  if (status === 'clear') return 'No Rust node_policy block has been reported for this node.';
-  return 'Waiting for backend policy impact classification.';
+  if (status === 'clear') return t('nodeDetail.policyImpact.clearDetail');
+  return t('nodeDetail.policyImpact.pendingDetail');
 }
 
-function placementAdmissionLabel(readiness: VpnNodeHealth['system']['placement_readiness']) {
-  if (!readiness?.reported) return 'rollout pending';
-  if (readiness.accepting_new_sessions) return 'accepting';
-  if (readiness.status === 'watch') return 'watch';
-  return 'blocked';
+function placementAdmissionLabel(readiness: VpnNodeHealth['system']['placement_readiness'], t: TranslateFn) {
+  if (!readiness?.reported) return t('nodeDetail.admission.rolloutPending');
+  if (readiness.accepting_new_sessions) return t('nodeDetail.admission.accepting');
+  if (readiness.status === 'watch') return t('nodeDetail.admission.watch');
+  return t('common.status.blocked');
 }
 
 function placementAdmissionBadgeClass(readiness: VpnNodeHealth['system']['placement_readiness']) {
@@ -850,11 +854,11 @@ function placementAdmissionPanelClass(readiness: VpnNodeHealth['system']['placem
   return 'border-red-500/25 bg-red-500/[0.06]';
 }
 
-function placementAdmissionDetail(readiness: VpnNodeHealth['system']['placement_readiness']) {
+function placementAdmissionDetail(readiness: VpnNodeHealth['system']['placement_readiness'], t: TranslateFn) {
   if (!readiness?.reported) {
-    return 'Rust placement_readiness has not reached the backend yet; keep this node in rollout tracking.';
+    return t('nodeDetail.admission.rolloutPendingDetail');
   }
-  return readiness.detail || readiness.reason?.replace(/_/g, ' ') || 'Rust runtime admission snapshot is available.';
+  return readiness.detail || readiness.reason?.replace(/_/g, ' ') || t('nodeDetail.admission.snapshotAvailable');
 }
 
 type PlacementCutoverGuard = NonNullable<
@@ -910,11 +914,11 @@ function operatorCheckClass(status: OperatorCheckStatus) {
   return 'border-white/10 bg-white/[0.03] text-gray-300';
 }
 
-function operatorCheckBadge(status: OperatorCheckStatus) {
-  if (status === 'pass') return 'OK';
-  if (status === 'fail') return 'Fix';
-  if (status === 'warn') return 'Watch';
-  return 'Pending';
+function operatorCheckBadge(status: OperatorCheckStatus, t: TranslateFn) {
+  if (status === 'pass') return t('nodeDetail.operatorBadge.ok');
+  if (status === 'fail') return t('nodeDetail.operatorBadge.fix');
+  if (status === 'warn') return t('nodeDetail.operatorBadge.watch');
+  return t('common.status.pending');
 }
 
 function commercialStatusClass(status: CommercialStatusKey) {
@@ -943,12 +947,12 @@ function aggregateHealthChecks(health: VpnNodeHealth, names: string[]): Operator
   return checks.every((check) => check.ok) ? 'pass' : 'fail';
 }
 
-function checkSummary(health: VpnNodeHealth, names: string[]) {
+function checkSummary(health: VpnNodeHealth, names: string[], t: TranslateFn) {
   const checks = names.map((name) => findHealthCheck(health, name)).filter(Boolean) as VpnNodeHealth['checks'];
-  if (checks.length === 0) return 'waiting for Rust health checks';
+  if (checks.length === 0) return t('nodeDetail.health.waitingRustChecks');
   const failed = checks.filter((check) => !check.ok);
-  if (failed.length === 0) return checks.map((check) => formatHealthCheckName(check.name)).join(', ');
-  return failed.map((check) => `${formatHealthCheckName(check.name)}: ${check.detail}`).join(' · ');
+  if (failed.length === 0) return checks.map((check) => formatHealthCheckName(check.name, t)).join(', ');
+  return failed.map((check) => `${formatHealthCheckName(check.name, t)}: ${check.detail}`).join(' · ');
 }
 
 function policySnapshotValue(snapshot: VpnPolicySnapshot | null | undefined, field: keyof VpnPolicySnapshot) {
@@ -1010,9 +1014,9 @@ function commercialStatusSummary({
       key: 'blocked',
       label: t('common.status.blocked'),
       detail: t('nodeDetail.commercial.summaryPlacementBlockedDetail', {
-        reason: formatPlacementReason(server?.unavailable_reason ?? placementReadiness.reason),
+        reason: formatPlacementReason(server?.unavailable_reason ?? placementReadiness.reason, t),
       }),
-      action: placementNextAction(server?.unavailable_reason ?? placementReadiness.reason),
+      action: placementNextAction(server?.unavailable_reason ?? placementReadiness.reason, t),
     };
   }
   if (runtimeMismatch || activePolicyImpact || failedChecks.length > 0 || placementReadiness.status === 'watch') {
@@ -1038,13 +1042,14 @@ function commercialStatusSummary({
 function configDriftItems(
   health: VpnNodeHealth,
   server: VpnServerCandidate | null,
-  policySync: VpnNodeHealth['system']['policy_sync']
+  policySync: VpnNodeHealth['system']['policy_sync'],
+  t: TranslateFn
 ): OperatorCheckItem[] {
   const mismatches = new Set(policySync?.mismatched_fields ?? []);
   const runtime = policySync?.runtime ?? null;
   const desired = policySync?.desired ?? null;
-  const endpoint = `${health.public_ip || 'pending'}:${health.port || 'pending'}`;
-  const placementEndpoint = server ? `${server.address || 'hidden'}:${server.port}` : 'not advertised';
+  const endpoint = `${health.public_ip || t('common.status.pending')}:${health.port || t('common.status.pending')}`;
+  const placementEndpoint = server ? `${server.address || t('nodeDetail.commercial.hiddenAddress')}:${server.port}` : t('nodeDetail.commercial.notAdvertised');
   const mtuKnown = typeof health.system.configured_mtu === 'number' || typeof health.system.running_mtu === 'number';
   const mtuMismatch = (
     typeof health.system.configured_mtu === 'number'
@@ -1054,38 +1059,38 @@ function configDriftItems(
 
   return [
     {
-      label: 'Max sessions',
+      label: t('nodeDetail.drift.maxSessions'),
       status: mismatches.has('max_sessions') ? 'fail' : policySync ? 'pass' : 'pending',
       detail: `nodeboard ${policySnapshotValue(desired, 'max_sessions')} · Rust ${policySnapshotValue(runtime, 'max_sessions')}`,
-      action: mismatches.has('max_sessions') ? 'Refresh config or apply policy before accepting more clients.' : 'Policy capacity is aligned.',
+      action: mismatches.has('max_sessions') ? t('nodeDetail.drift.maxSessionsAction') : t('nodeDetail.drift.capacityAligned'),
     },
     {
-      label: 'Bandwidth limit',
+      label: t('nodeDetail.drift.bandwidthLimit'),
       status: mismatches.has('bandwidth_limit_mbps') ? 'fail' : policySync ? 'pass' : 'pending',
       detail: `nodeboard ${policySnapshotValue(desired, 'bandwidth_limit_mbps')} Mbps · Rust ${policySnapshotValue(runtime, 'bandwidth_limit_mbps')} Mbps`,
-      action: mismatches.has('bandwidth_limit_mbps') ? 'Apply policy so Rust enforces the same commercial bandwidth cap.' : 'Bandwidth policy is aligned.',
+      action: mismatches.has('bandwidth_limit_mbps') ? t('nodeDetail.drift.bandwidthAction') : t('nodeDetail.drift.bandwidthAligned'),
     },
     {
-      label: 'Maintenance mode',
+      label: t('settings.policyEditor.maintenanceMode'),
       status: mismatches.has('maintenance_mode') ? 'fail' : policySync ? 'pass' : 'pending',
       detail: `nodeboard ${policySnapshotValue(desired, 'maintenance_mode')} · Rust ${policySnapshotValue(runtime, 'maintenance_mode')}`,
-      action: mismatches.has('maintenance_mode') ? 'Refresh config before relying on drain or placement state.' : 'Maintenance state is aligned.',
+      action: mismatches.has('maintenance_mode') ? t('nodeDetail.drift.maintenanceAction') : t('nodeDetail.drift.maintenanceAligned'),
     },
     {
-      label: 'Placement endpoint',
+      label: t('nodeDetail.drift.placementEndpoint'),
       status: !server ? 'warn' : endpoint === placementEndpoint ? 'pass' : 'warn',
       detail: `overview ${endpoint} · placement ${placementEndpoint}`,
       action: !server
-        ? 'Check visibility, region, VPN mode, and heartbeat if this node should be advertised.'
+        ? t('nodeDetail.drift.placementHiddenAction')
         : endpoint === placementEndpoint
-          ? 'Advertised endpoint matches node overview.'
-          : 'Verify backend node port and Rust public_endpoint before routing clients.',
+          ? t('nodeDetail.drift.placementAligned')
+          : t('nodeDetail.drift.placementMismatchAction'),
     },
     {
-      label: 'Tunnel MTU',
+      label: t('nodeDetail.health.tunnelMtu'),
       status: !mtuKnown ? 'pending' : mtuMismatch ? 'warn' : 'pass',
-      detail: `${formatTunnelMtu(health)} · ${tunnelMtuDetail(health)}`,
-      action: mtuMismatch ? 'Compare Rust config with the running TUN interface before debugging packet stalls.' : 'MTU telemetry is consistent.',
+      detail: `${formatTunnelMtu(health)} · ${tunnelMtuDetail(health, t)}`,
+      action: mtuMismatch ? t('nodeDetail.drift.mtuMismatchAction') : t('nodeDetail.drift.mtuAligned'),
     },
   ];
 }
@@ -1095,11 +1100,13 @@ function diagnosticItems({
   server,
   policySync,
   placementReadiness,
+  t,
 }: {
   health: VpnNodeHealth;
   server: VpnServerCandidate | null;
   policySync: VpnNodeHealth['system']['policy_sync'];
   placementReadiness: VpnNodeHealth['system']['placement_readiness'] | null;
+  t: TranslateFn;
 }): OperatorCheckItem[] {
   const heartbeatFresh = typeof health.last_seen_seconds !== 'number'
     ? 'pending'
@@ -1129,44 +1136,44 @@ function diagnosticItems({
 
   return [
     {
-      label: 'Heartbeat',
+      label: t('nodeDetail.diagnostics.heartbeat'),
       status: heartbeatFresh,
       detail: typeof health.last_seen_seconds === 'number'
-        ? `${formatDuration(health.last_seen_seconds)} since last signed heartbeat`
-        : 'waiting for signed heartbeat age',
-      action: heartbeatFresh === 'pass' ? 'Reporter freshness is healthy.' : 'Check Rust reporter logs and backend heartbeat ingestion.',
+        ? t('nodeDetail.diagnostics.heartbeatAge', { age: formatDuration(health.last_seen_seconds) })
+        : t('nodeDetail.diagnostics.waitingSignedHeartbeat'),
+      action: heartbeatFresh === 'pass' ? t('nodeDetail.diagnostics.heartbeatHealthy') : t('nodeDetail.diagnostics.heartbeatAction'),
     },
     {
-      label: 'UDP listener',
+      label: t('nodeDetail.diagnostics.udpListener'),
       status: udpStatus,
-      detail: checkSummary(health, ['udp_listener']),
-      action: udpStatus === 'pass' ? 'Handshake listener is reported healthy.' : 'Run Collect Logs, then restart under maintenance if the listener is down.',
+      detail: checkSummary(health, ['udp_listener'], t),
+      action: udpStatus === 'pass' ? t('nodeDetail.diagnostics.udpHealthy') : t('nodeDetail.diagnostics.udpAction'),
     },
     {
-      label: 'Tunnel routing',
+      label: t('nodeDetail.diagnostics.tunnelRouting'),
       status: routingStatus,
-      detail: checkSummary(health, ['tun_device', 'ip_forward', 'nat_masquerade', 'internet_egress']),
-      action: routingStatus === 'pass' ? 'Tunnel interface and routing checks are passing.' : 'Fix local TUN, forwarding, NAT, or provider egress before adding traffic.',
+      detail: checkSummary(health, ['tun_device', 'ip_forward', 'nat_masquerade', 'internet_egress'], t),
+      action: routingStatus === 'pass' ? t('nodeDetail.diagnostics.routingHealthy') : t('nodeDetail.diagnostics.routingAction'),
     },
     {
-      label: 'Service manager',
+      label: t('nodeDetail.diagnostics.serviceManager'),
       status: serviceStatus,
-      detail: serviceManagerRuntimeDetail(health),
-      action: serviceStatus === 'pass' ? 'System service control is available.' : 'Confirm systemd service state before queueing restarts.',
+      detail: serviceManagerRuntimeDetail(health, t),
+      action: serviceStatus === 'pass' ? t('nodeDetail.diagnostics.serviceHealthy') : t('nodeDetail.diagnostics.serviceAction'),
     },
     {
-      label: 'Policy sync',
+      label: t('nodeDetail.diagnostics.policySync'),
       status: policyStatus,
-      detail: policySync?.message || 'waiting for Rust policy snapshot',
-      action: policyStatus === 'pass' ? 'Commercial policy is enforced by Rust.' : 'Use Refresh Config or Apply Policy, then recheck drift.',
+      detail: policySync?.message || t('nodeDetail.diagnostics.waitingPolicySnapshot'),
+      action: policyStatus === 'pass' ? t('nodeDetail.diagnostics.policyHealthy') : t('nodeDetail.diagnostics.policyAction'),
     },
     {
-      label: 'Client placement',
+      label: t('nodeDetail.diagnostics.clientPlacement'),
       status: placementStatus,
       detail: server?.available
-        ? `advertised with rank ${server.failover_rank ?? '-'}`
-        : `not advertised: ${formatPlacementReason(server?.unavailable_reason ?? placementReadiness?.reason)}`,
-      action: placementStatus === 'pass' ? 'Node can receive new client placement.' : placementNextAction(server?.unavailable_reason ?? placementReadiness?.reason),
+        ? t('nodeDetail.diagnostics.advertisedRank', { rank: server.failover_rank ?? '-' })
+        : t('nodeDetail.diagnostics.notAdvertisedReason', { reason: formatPlacementReason(server?.unavailable_reason ?? placementReadiness?.reason, t) }),
+      action: placementStatus === 'pass' ? t('nodeDetail.diagnostics.placementHealthy') : placementNextAction(server?.unavailable_reason ?? placementReadiness?.reason, t),
     },
   ];
 }
@@ -1244,7 +1251,7 @@ function CommercialReadinessPanel({
   const placementReason = server?.unavailable_reason ?? (!server ? 'not_in_candidate_list' : null);
   const nextAction = !server
     ? t('nodeDetail.commercial.nextActionNoServer')
-    : placementNextAction(server.unavailable_reason);
+    : placementNextAction(server.unavailable_reason, t);
   const limitBps = bandwidthLimitBps(health.bandwidth_limit_mbps);
   const nearBandwidthCap = limitBps > 0 && typeof peakBps === 'number' && peakBps >= limitBps * 0.9;
   const telemetrySource = health.system.source || 'missing';
@@ -1259,12 +1266,13 @@ function CommercialReadinessPanel({
     failedChecks,
     t,
   });
-  const driftItems = configDriftItems(health, server, policySync);
+  const driftItems = configDriftItems(health, server, policySync, t);
   const diagnostics = diagnosticItems({
     health,
     server,
     policySync,
     placementReadiness,
+    t,
   });
 
   return (
@@ -1282,25 +1290,25 @@ function CommercialReadinessPanel({
               </span>
             ) : null}
             <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${telemetrySourceClass(telemetrySource)}`}>
-              {telemetrySourceLabel(telemetrySource)}
+              {telemetrySourceLabel(telemetrySource, t)}
             </span>
             <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${policyImpactClass(policyImpactStatus)}`}>
-              {policyImpactLabel(policyImpactStatus)}
+              {policyImpactLabel(policyImpactStatus, t)}
             </span>
             <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${placementAdmissionBadgeClass(placementReadiness)}`}>
-              {t('nodeDetail.commercial.rustAdmission', { status: placementAdmissionLabel(placementReadiness) })}
+              {t('nodeDetail.commercial.rustAdmission', { status: placementAdmissionLabel(placementReadiness, t) })}
             </span>
           </div>
           <p className="mt-1 text-xs leading-5 text-gray-500">
             {server?.available
               ? t('nodeDetail.commercial.availableCopy', { address: server.address || t('nodeDetail.commercial.hiddenAddress'), port: server.port })
-              : t('nodeDetail.commercial.hiddenCopy', { reason: formatPlacementReason(placementReason) })}
+              : t('nodeDetail.commercial.hiddenCopy', { reason: formatPlacementReason(placementReason, t) })}
           </p>
           <p className="mt-1 text-xs leading-5 text-gray-600">
-            {t('nodeDetail.commercial.policyTelemetry', { detail: telemetrySourceDetail(telemetrySource, health.last_seen_seconds) })}
+            {t('nodeDetail.commercial.policyTelemetry', { detail: telemetrySourceDetail(telemetrySource, health.last_seen_seconds, t) })}
           </p>
           <p className="mt-1 text-xs leading-5 text-gray-600">
-            {t('nodeDetail.commercial.policyImpact', { detail: policyImpactDetail(policyImpactStatus, enforcement?.last_rejection_age_seconds, enforcement?.recent_block_window_seconds) })}
+            {t('nodeDetail.commercial.policyImpact', { detail: policyImpactDetail(policyImpactStatus, enforcement?.last_rejection_age_seconds, enforcement?.recent_block_window_seconds, t) })}
           </p>
         </div>
         <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-400 lg:max-w-md">
@@ -1340,7 +1348,7 @@ function CommercialReadinessPanel({
                     <p className="mt-0.5 break-words text-[11px] leading-4 opacity-70">{item.detail}</p>
                   </div>
                   <span className="shrink-0 rounded-full border border-current/20 px-2 py-0.5 text-[10px]">
-                    {operatorCheckBadge(item.status)}
+                    {operatorCheckBadge(item.status, t)}
                   </span>
                 </div>
                 {(item.status === 'fail' || item.status === 'warn') && (
@@ -1367,7 +1375,7 @@ function CommercialReadinessPanel({
                     <p className="mt-0.5 break-words text-[11px] leading-4 opacity-70">{item.detail}</p>
                   </div>
                   <span className="shrink-0 rounded-full border border-current/20 px-2 py-0.5 text-[10px]">
-                    {operatorCheckBadge(item.status)}
+                    {operatorCheckBadge(item.status, t)}
                   </span>
                 </div>
                 {(item.status === 'fail' || item.status === 'warn' || item.status === 'pending') && (
@@ -1386,7 +1394,7 @@ function CommercialReadinessPanel({
             {server?.available ? t('nodeDetail.commercial.advertised') : t('nodeDetail.commercial.hidden')}
           </p>
           <p className="mt-0.5 truncate text-[11px] text-gray-600">
-            {server ? formatPlacementReason(server.unavailable_reason) : t('nodeDetail.commercial.notInCandidateList')}
+            {server ? formatPlacementReason(server.unavailable_reason, t) : t('nodeDetail.commercial.notInCandidateList')}
           </p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
@@ -1405,7 +1413,7 @@ function CommercialReadinessPanel({
           <p className={`mt-1 truncate text-base font-semibold ${
             placementReadiness?.reported && !placementReadiness.accepting_new_sessions ? 'text-yellow-200' : 'text-white'
           }`}>
-            {placementAdmissionLabel(placementReadiness)}
+            {placementAdmissionLabel(placementReadiness, t)}
           </p>
           <p className="mt-0.5 truncate text-[11px] text-gray-600">
             {placementReadiness?.reported ? placementReadiness.reason.replace(/_/g, ' ') : t('nodeDetail.commercial.missingRuntimeField')}
@@ -1449,11 +1457,11 @@ function CommercialReadinessPanel({
           <div className="min-w-0">
             <p className="text-[11px] uppercase tracking-wide text-gray-500">{t('nodeDetail.commercial.runtimeAdmission')}</p>
             <p className="mt-1 text-sm font-semibold text-white">
-              {placementAdmissionLabel(placementReadiness)}
+              {placementAdmissionLabel(placementReadiness, t)}
               {placementReadiness?.reported ? ` · ${placementReadiness.status}` : ''}
             </p>
             <p className="mt-1 text-xs leading-5 text-gray-500">
-              {placementAdmissionDetail(placementReadiness)}
+              {placementAdmissionDetail(placementReadiness, t)}
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs lg:min-w-[420px]">
@@ -1598,11 +1606,11 @@ function commandStatusClass(status: string) {
   return 'bg-white/5 text-gray-300 border-white/10';
 }
 
-function commandMessage(command: NodeCommand) {
+function commandMessage(command: NodeCommand, t: TranslateFn) {
   const message = command.result?.message;
   if (typeof message === 'string' && message.trim()) return message;
   if (command.error_message) return command.error_message;
-  return 'Waiting for the node heartbeat to pick up this command.';
+  return t('nodeDetail.commands.waitingHeartbeatPickup');
 }
 
 function commandActorLabel(command: NodeCommand) {
@@ -1621,8 +1629,8 @@ function commandSourceLabel(command: NodeCommand) {
   return source.replace(/_/g, ' ');
 }
 
-function parseCommandResult(command: NodeCommand) {
-  const text = commandMessage(command);
+function parseCommandResult(command: NodeCommand, t: TranslateFn) {
+  const text = commandMessage(command, t);
   const lines = text.split('\n');
   const firstLine = lines[0]?.trim() || '';
   const logMatch = firstLine.match(/^recent_logs\(([^)]+)\):$/);
@@ -1640,8 +1648,8 @@ function parseCommandResult(command: NodeCommand) {
 
     return {
       kind: 'logs' as const,
-      title: `Recent logs (${logMatch[1]})`,
-      summary: serviceManager || (command.status === 'completed' ? 'Log tail collected from the VPN service.' : firstLine),
+      title: t('nodeDetail.commands.recentLogsTitle', { service: logMatch[1] }),
+      summary: serviceManager || (command.status === 'completed' ? t('nodeDetail.commands.logTailCollected') : firstLine),
       pairs: [] as Array<{ key: string; value: string }>,
       body,
     };
@@ -1655,7 +1663,7 @@ function parseCommandResult(command: NodeCommand) {
     if (match) {
       pairs.push({
         key: match[1].replace(/_/g, ' ').trim(),
-        value: match[2].trim() || 'empty',
+        value: match[2].trim() || t('common.status.empty'),
       });
     } else if (line.trim()) {
       bodyLines.push(line);
@@ -1664,7 +1672,7 @@ function parseCommandResult(command: NodeCommand) {
 
   return {
     kind: pairs.length > 0 ? 'diagnostics' as const : 'message' as const,
-    title: pairs.length > 0 ? 'Diagnostic Result' : 'Command Result',
+    title: pairs.length > 0 ? t('nodeDetail.commands.diagnosticResult') : t('nodeDetail.commands.commandResult'),
     summary: firstLine,
     pairs,
     body: bodyLines.join('\n').trim(),
@@ -1672,10 +1680,11 @@ function parseCommandResult(command: NodeCommand) {
 }
 
 function CommandResultPanel({ command }: { command: NodeCommand }) {
-  const parsed = parseCommandResult(command);
+  const { t } = useI18n();
+  const parsed = parseCommandResult(command, t);
   const copyText = parsed.kind === 'logs'
     ? (parsed.body || parsed.summary)
-    : commandMessage(command);
+    : commandMessage(command, t);
 
   return (
     <div className="mt-3 rounded-xl border border-white/5 bg-black/20 overflow-hidden">
@@ -1684,7 +1693,7 @@ function CommandResultPanel({ command }: { command: NodeCommand }) {
         <div className="flex items-center gap-2">
           {command.result?.timestamp ? (
             <span className="text-[11px] text-gray-600">
-              node time {String(command.result.timestamp)}
+              {t('nodeDetail.commands.nodeTime', { time: String(command.result.timestamp) })}
             </span>
           ) : null}
           <CopyButton text={copyText} />
@@ -1695,7 +1704,7 @@ function CommandResultPanel({ command }: { command: NodeCommand }) {
         <div>
           <p className="px-3 pt-2 text-xs text-gray-500">{parsed.summary}</p>
           <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words px-3 pb-3 text-xs text-gray-400 font-mono">
-            {parsed.body || 'No log lines returned.'}
+            {parsed.body || t('nodeDetail.commands.noLogLines')}
           </pre>
         </div>
       ) : (
@@ -1724,16 +1733,16 @@ function CommandResultPanel({ command }: { command: NodeCommand }) {
   );
 }
 
-function commandLabel(command: NodeCommand) {
+function commandLabel(command: NodeCommand, t: TranslateFn) {
   const labels: Record<string, string> = {
-    system_info: 'System diagnostics',
-    collect_logs: 'Recent service logs',
-    refresh_config: 'Config refresh',
-    apply_policy: 'Policy acknowledgement',
-    restart_service: 'Service restart',
-    kick_session: 'Session kick',
-    ban_wallet: 'Wallet ban',
-    unban_wallet: 'Wallet unban',
+    system_info: t('events.command.systemInfo'),
+    collect_logs: t('events.command.collectLogs'),
+    refresh_config: t('events.command.refreshConfig'),
+    apply_policy: t('events.command.applyPolicy'),
+    restart_service: t('events.command.restartService'),
+    kick_session: t('events.command.kickSession'),
+    ban_wallet: t('events.command.banWallet'),
+    unban_wallet: t('events.command.unbanWallet'),
   };
   return labels[command.action] || command.action_display || command.action;
 }
@@ -1743,11 +1752,12 @@ function canCancelCommand(command: NodeCommand) {
 }
 
 function CommandLifecycle({ command }: { command: NodeCommand }) {
+  const { t, formatRelativeTime: i18nRelativeTime } = useI18n();
   const steps = [
-    { label: 'queued', value: command.created_at },
-    { label: 'sent', value: command.sent_at },
-    { label: 'acked', value: command.acked_at },
-    { label: 'done', value: command.completed_at },
+    { label: t('nodeDetail.commands.lifecycleQueued'), value: command.created_at },
+    { label: t('nodeDetail.commands.lifecycleSent'), value: command.sent_at },
+    { label: t('nodeDetail.commands.lifecycleAcked'), value: command.acked_at },
+    { label: t('nodeDetail.commands.lifecycleDone'), value: command.completed_at },
   ];
 
   return (
@@ -1756,7 +1766,7 @@ function CommandLifecycle({ command }: { command: NodeCommand }) {
         <div key={step.label} className="rounded-lg bg-white/[0.03] border border-white/5 px-2 py-1.5">
           <p className="text-[11px] uppercase text-gray-600">{step.label}</p>
           <p className={`text-xs mt-0.5 ${step.value ? 'text-gray-300' : 'text-gray-600'}`}>
-            {step.value ? formatRelativeTime(step.value) : 'pending'}
+            {step.value ? i18nRelativeTime(step.value) : t('common.status.pending')}
           </p>
         </div>
       ))}
@@ -2035,10 +2045,10 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${telemetrySourceClass(telemetrySource)}`}>
-            {telemetrySourceLabel(telemetrySource)}
+            {telemetrySourceLabel(telemetrySource, t)}
           </span>
           <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${policyImpactClass(impactStatus)}`}>
-            {policyImpactLabel(impactStatus)}
+            {policyImpactLabel(impactStatus, t)}
           </span>
           <span className={activeImpact ? 'text-sm font-semibold text-yellow-300' : total > 0 ? 'text-sm font-semibold text-sky-300' : 'text-sm font-semibold text-emerald-300'}>
             {t('nodeDetail.policy.blockedCount', { count: formatNumber(total) })}
@@ -2064,14 +2074,14 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
       </div>
 
       <div className={`mb-3 rounded-lg border px-3 py-2 text-xs ${telemetrySourceClass(telemetrySource)}`}>
-        <p className="font-semibold uppercase">{t('nodeDetail.policy.telemetrySource', { source: telemetrySourceLabel(telemetrySource) })}</p>
-        <p className="mt-1 opacity-80">{telemetrySourceDetail(telemetrySource, health.last_seen_seconds)}</p>
+        <p className="font-semibold uppercase">{t('nodeDetail.policy.telemetrySource', { source: telemetrySourceLabel(telemetrySource, t) })}</p>
+        <p className="mt-1 opacity-80">{telemetrySourceDetail(telemetrySource, health.last_seen_seconds, t)}</p>
       </div>
 
       <div className={`mb-3 rounded-lg border px-3 py-2 text-xs ${policyImpactClass(impactStatus)}`}>
-        <p className="font-semibold uppercase">{t('nodeDetail.policy.policyImpact', { impact: policyImpactLabel(impactStatus) })}</p>
+        <p className="font-semibold uppercase">{t('nodeDetail.policy.policyImpact', { impact: policyImpactLabel(impactStatus, t) })}</p>
         <p className="mt-1 opacity-80">
-          {policyImpactDetail(impactStatus, enforcement?.last_rejection_age_seconds, enforcement?.recent_block_window_seconds)}
+          {policyImpactDetail(impactStatus, enforcement?.last_rejection_age_seconds, enforcement?.recent_block_window_seconds, t)}
         </p>
       </div>
 
@@ -2114,7 +2124,7 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
           </div>
           <div>
             <p className="text-gray-600">{t('nodeDetail.policy.telemetry')}</p>
-            <p className="mt-0.5 text-gray-300">{telemetrySourceLabel(telemetrySource)}</p>
+            <p className="mt-0.5 text-gray-300">{telemetrySourceLabel(telemetrySource, t)}</p>
           </div>
           <div>
             <p className="text-gray-600">{t('nodeDetail.policy.counterScope')}</p>
@@ -2137,17 +2147,18 @@ function runtimeRecoveryClass(status: string) {
   return 'border-white/5 bg-white/[0.02]';
 }
 
-function runtimeRecoveryLabel(status: string) {
+function runtimeRecoveryLabel(status: string, t: TranslateFn) {
   const labels: Record<string, string> = {
-    stable: 'stable',
-    restarted_recently: 'restarted',
-    sessions_interrupted: 'recovered',
-    unknown: 'pending',
+    stable: t('nodeDetail.runtimeRecovery.status.stable'),
+    restarted_recently: t('nodeDetail.runtimeRecovery.status.restarted'),
+    sessions_interrupted: t('nodeDetail.runtimeRecovery.status.recovered'),
+    unknown: t('common.status.pending'),
   };
   return labels[status] || status.replace(/_/g, ' ');
 }
 
 function RuntimeRecoveryPanel({ health }: { health: VpnNodeHealth }) {
+  const { t, formatRelativeTime: i18nRelativeTime, formatNumber } = useI18n();
   const recovery = health.system.runtime_recovery;
   const status = recovery?.status || 'unknown';
   const runtimeId = recovery?.runtime_id || health.system.runtime_id || '';
@@ -2160,9 +2171,9 @@ function RuntimeRecoveryPanel({ health }: { health: VpnNodeHealth }) {
     <div className={`mt-5 rounded-xl border p-4 ${panelClass}`}>
       <div className="mb-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
         <div>
-          <h4 className="text-sm font-semibold text-white">Runtime Recovery</h4>
+          <h4 className="text-sm font-semibold text-white">{t('nodeDetail.runtimeRecovery.title')}</h4>
           <p className="text-xs text-gray-500 mt-1">
-            Rust process lifetime and stale-session cleanup from signed heartbeats.
+            {t('nodeDetail.runtimeRecovery.description')}
           </p>
         </div>
         <span className={`inline-flex self-start rounded-full border px-2.5 py-1 text-xs ${
@@ -2172,50 +2183,50 @@ function RuntimeRecoveryPanel({ health }: { health: VpnNodeHealth }) {
               ? 'border-emerald-500/25 bg-emerald-500/15 text-emerald-300'
               : 'border-sky-500/25 bg-sky-500/15 text-sky-300'
         }`}>
-          {runtimeRecoveryLabel(status)}
+          {runtimeRecoveryLabel(status, t)}
         </span>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2 min-w-0">
-          <p className="text-[11px] uppercase text-gray-600">Runtime ID</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.runtimeRecovery.runtimeId')}</p>
           <div className="mt-1 flex items-center gap-1 min-w-0">
             <p className="text-xs font-mono text-gray-300 truncate">
-              {runtimeId ? `${runtimeId.slice(0, 12)}...` : 'pending'}
+              {runtimeId ? `${runtimeId.slice(0, 12)}...` : t('common.status.pending')}
             </p>
             {runtimeId ? <CopyButton text={runtimeId} /> : null}
           </div>
-          <p className="text-[11px] text-gray-600 mt-0.5">process identity</p>
+          <p className="text-[11px] text-gray-600 mt-0.5">{t('nodeDetail.runtimeRecovery.processIdentity')}</p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-          <p className="text-[11px] uppercase text-gray-600">Process Uptime</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.runtimeRecovery.processUptime')}</p>
           <p className="text-base font-semibold text-white mt-1">
-            {uptimeSeconds === null ? 'pending' : formatDuration(uptimeSeconds)}
+            {uptimeSeconds === null ? t('common.status.pending') : formatDuration(uptimeSeconds)}
           </p>
           <p className="text-[11px] text-gray-600 mt-0.5">
-            {runtimeStartedAt ? `started ${formatRelativeTime(runtimeStartedAt)}` : 'waiting for heartbeat'}
+            {runtimeStartedAt ? t('nodeDetail.runtimeRecovery.started', { time: i18nRelativeTime(runtimeStartedAt) }) : t('nodeDetail.health.waitingHeartbeat')}
           </p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-          <p className="text-[11px] uppercase text-gray-600">24h Restart</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.runtimeRecovery.restart24h')}</p>
           <p className={`text-base font-semibold mt-1 ${recovery?.restarted_within_24h ? 'text-sky-200' : 'text-white'}`}>
-            {recovery?.restarted_within_24h ? 'yes' : status === 'unknown' ? 'pending' : 'no'}
+            {recovery?.restarted_within_24h ? t('common.yes') : status === 'unknown' ? t('common.status.pending') : t('common.no')}
           </p>
-          <p className="text-[11px] text-gray-600 mt-0.5">runtime start window</p>
+          <p className="text-[11px] text-gray-600 mt-0.5">{t('nodeDetail.runtimeRecovery.startWindow')}</p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-          <p className="text-[11px] uppercase text-gray-600">Interrupted Sessions</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.runtimeRecovery.interruptedSessions')}</p>
           <p className={`text-base font-semibold mt-1 ${interrupted > 0 ? 'text-yellow-200' : 'text-white'}`}>
-            {interrupted}
+            {formatNumber(interrupted)}
           </p>
           <p className="text-[11px] text-gray-600 mt-0.5">
-            {recovery?.last_interrupted_at ? `last ${formatRelativeTime(recovery.last_interrupted_at)}` : 'last 24h'}
+            {recovery?.last_interrupted_at ? t('nodeDetail.runtimeRecovery.last', { time: i18nRelativeTime(recovery.last_interrupted_at) }) : t('nodeDetail.runtimeRecovery.last24h')}
           </p>
         </div>
       </div>
 
       <p className={`mt-3 text-xs ${status === 'sessions_interrupted' ? 'text-yellow-200' : 'text-gray-500'}`}>
-        {recovery?.message || 'Waiting for Rust runtime recovery telemetry.'}
+        {recovery?.message || t('nodeDetail.runtimeRecovery.waitingTelemetry')}
       </p>
     </div>
   );
@@ -2493,7 +2504,7 @@ function drainActivityHealthClass(risk: string | undefined) {
   return 'border-sky-300/25 bg-sky-300/[0.08] text-sky-100';
 }
 
-function nodeCommandDelivery(health: VpnNodeHealth, readiness: VpnRestartReadiness | null | undefined) {
+function nodeCommandDelivery(health: VpnNodeHealth, readiness: VpnRestartReadiness | null | undefined, t: TranslateFn) {
   if (readiness?.command_delivery) {
     return {
       label: readiness.command_delivery.label,
@@ -2511,55 +2522,55 @@ function nodeCommandDelivery(health: VpnNodeHealth, readiness: VpnRestartReadine
 
   if (typeof age !== 'number') {
     return {
-      label: 'Heartbeat missing',
+      label: t('nodeDetail.commandDelivery.heartbeatMissing'),
       status: 'blocked',
       risk: 'critical',
-      detail: 'Rust heartbeat has not reached the backend.',
-      nextStep: 'Confirm the node is running and can reach the backend heartbeat API.',
+      detail: t('nodeDetail.commandDelivery.missingDetail'),
+      nextStep: t('nodeDetail.commandDelivery.missingNextStep'),
       source: 'data.nodes[].last_seen_seconds + data.nodes[].system.restart_readiness.operator_reporting',
       privacyBoundary: '',
     };
   }
   if (age > COMMAND_DELIVERY_DEGRADED_SECONDS) {
     return {
-      label: 'Heartbeat offline',
+      label: t('nodeDetail.commandDelivery.heartbeatOffline'),
       status: 'blocked',
       risk: 'critical',
-      detail: `Last heartbeat ${formatDuration(age)} ago.`,
-      nextStep: 'Check the Rust node process and backend heartbeat path before queueing commands.',
+      detail: t('nodeDetail.commandDelivery.lastHeartbeatAgo', { age: formatDuration(age) }),
+      nextStep: t('nodeDetail.commandDelivery.offlineNextStep'),
       source: 'data.nodes[].last_seen_seconds + data.nodes[].system.restart_readiness.operator_reporting',
       privacyBoundary: '',
     };
   }
   if (age > COMMAND_DELIVERY_FRESH_SECONDS) {
     return {
-      label: 'Heartbeat delayed',
+      label: t('nodeDetail.commandDelivery.heartbeatDelayed'),
       status: 'degraded',
       risk: 'warning',
-      detail: `Last heartbeat ${formatDuration(age)} ago.`,
-      nextStep: 'Wait for a fresh heartbeat or inspect Rust heartbeat latency before restart work.',
+      detail: t('nodeDetail.commandDelivery.lastHeartbeatAgo', { age: formatDuration(age) }),
+      nextStep: t('nodeDetail.commandDelivery.delayedNextStep'),
       source: 'data.nodes[].last_seen_seconds + data.nodes[].system.restart_readiness.operator_reporting',
       privacyBoundary: '',
     };
   }
   if (!operatorReporting) {
     return {
-      label: 'Operator reporting pending',
+      label: t('nodeDetail.commandDelivery.operatorReportingPending'),
       status: 'degraded',
       risk: 'warning',
-      detail: 'Heartbeat is fresh, but operator_status is not reported.',
-      nextStep: 'Confirm Rust reports system_stats.operator_status before relying on command delivery.',
+      detail: t('nodeDetail.commandDelivery.operatorReportingDetail'),
+      nextStep: t('nodeDetail.commandDelivery.operatorReportingNextStep'),
       source: 'data.nodes[].last_seen_seconds + data.nodes[].system.restart_readiness.operator_reporting',
       privacyBoundary: '',
     };
   }
 
   return {
-    label: 'Command-ready',
+    label: t('nodeDetail.commandDelivery.ready'),
     status: 'ready',
     risk: 'healthy',
-    detail: `Fresh heartbeat ${formatDuration(age)} ago with operator reporting.`,
-    nextStep: 'Restart commands can be delivered through the current heartbeat path.',
+    detail: t('nodeDetail.commandDelivery.readyDetail', { age: formatDuration(age) }),
+    nextStep: t('nodeDetail.commandDelivery.readyNextStep'),
     source: 'data.nodes[].last_seen_seconds + data.nodes[].system.restart_readiness.operator_reporting',
     privacyBoundary: '',
   };
@@ -2669,7 +2680,7 @@ function MaintenanceDrainPanel({
   const missedKeepalives = activeSessions.reduce((total, session) => total + (session.keepalive_missed ?? 0), 0);
   const cleanupTimeoutSeconds = health.system.session_cleanup?.client_liveness_timeout_seconds ?? null;
   const restartReadiness = health.system.restart_readiness ?? null;
-  const commandDelivery = nodeCommandDelivery(health, restartReadiness);
+  const commandDelivery = nodeCommandDelivery(health, restartReadiness, t);
   const operatorActionPlan = restartReadiness?.operator_action_plan ?? null;
   const backendDrainEta = restartReadiness?.drain_eta ?? null;
   const policySyncStatus = health.system.policy_sync?.status || 'unknown';
@@ -3155,7 +3166,7 @@ function MaintenanceDrainPanel({
             <div>
               <p className="text-[11px] uppercase text-gray-600">4. Verify</p>
               <p className="mt-1 text-sm font-semibold text-white">
-                {runtimeRecoveryLabel(recoveryStatus)}
+                {runtimeRecoveryLabel(recoveryStatus, t)}
               </p>
             </div>
             <span className={`text-xs ${verificationReady ? 'text-emerald-300' : 'text-yellow-300'}`}>
@@ -3565,7 +3576,7 @@ function VpnHealthPanel({
   const commandFilterActive = commandStatusFilter !== 'all' || commandActionFilter !== 'all';
   const commandFilterSummary = [
     commandStatusFilter !== 'all' ? `Status: ${commandStatusFilter}` : '',
-    commandActionFilter !== 'all' ? `Action: ${commandLabel({ action: commandActionFilter } as NodeCommand)}` : '',
+    commandActionFilter !== 'all' ? `Action: ${commandLabel({ action: commandActionFilter } as NodeCommand, t)}` : '',
   ].filter(Boolean).join(' · ');
   const applyCommandFilters = useCallback((nextStatus: string, nextAction: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -3692,7 +3703,7 @@ function VpnHealthPanel({
 
   const handleCancelCommand = async (command: NodeCommand) => {
     if (!canCancelCommand(command)) return;
-    if (!window.confirm(t('nodeDetail.commands.confirmCancel', { command: commandLabel(command) }))) return;
+    if (!window.confirm(t('nodeDetail.commands.confirmCancel', { command: commandLabel(command, t) }))) return;
 
     setCancellingCommandId(command.id);
     try {
@@ -3897,12 +3908,12 @@ function VpnHealthPanel({
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
           <p className="text-xs text-gray-500">{t('nodeDetail.health.tunnelMtu')}</p>
           <p className="text-lg font-semibold text-white mt-1">{formatTunnelMtu(health)}</p>
-          <p className="text-xs text-gray-600">{tunnelMtuDetail(health)}</p>
+          <p className="text-xs text-gray-600">{tunnelMtuDetail(health, t)}</p>
         </div>
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
           <p className="text-xs text-gray-500">{t('nodeDetail.health.serviceManager')}</p>
           <p className="text-lg font-semibold text-white mt-1 truncate">{formatServiceManagerName(health)}</p>
-          <p className="text-xs text-gray-600 truncate">{serviceManagerRuntimeDetail(health)}</p>
+          <p className="text-xs text-gray-600 truncate">{serviceManagerRuntimeDetail(health, t)}</p>
         </div>
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
           <p className="text-xs text-gray-500">{t('nodeDetail.health.lastHeartbeat')}</p>
@@ -3942,7 +3953,7 @@ function VpnHealthPanel({
             `}
           >
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-medium text-white">{formatHealthCheckName(check.name)}</span>
+              <span className="text-sm font-medium text-white">{formatHealthCheckName(check.name, t)}</span>
               <span className={check.ok ? 'text-xs text-emerald-300' : 'text-xs text-yellow-300'}>
                 {check.ok ? t('common.status.ok') : t('common.status.attention')}
               </span>
@@ -3951,7 +3962,7 @@ function VpnHealthPanel({
             {!check.ok && (
               <div className="mt-2 rounded-lg border border-yellow-500/20 bg-yellow-500/[0.05] px-2 py-1.5">
                 <p className="text-[11px] uppercase tracking-wide text-yellow-300">{t('nodeDetail.health.runbook')}</p>
-                <p className="text-xs text-gray-400 mt-1">{healthCheckRunbook(check.name)}</p>
+                <p className="text-xs text-gray-400 mt-1">{healthCheckRunbook(check.name, t)}</p>
               </div>
             )}
           </div>
@@ -4018,7 +4029,7 @@ function VpnHealthPanel({
             >
               {COMMAND_ACTION_FILTERS.map((action) => (
                 <option key={action} value={action} className="bg-[#111118]">
-                  {action === 'all' ? t('common.status.all') : commandLabel({ action } as NodeCommand)}
+                  {action === 'all' ? t('common.status.all') : commandLabel({ action } as NodeCommand, t)}
                 </option>
               ))}
             </select>
@@ -4052,7 +4063,7 @@ function VpnHealthPanel({
               <div key={command.id} className="rounded-xl bg-white/[0.03] border border-white/5 p-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-white">{commandLabel(command)}</p>
+                    <p className="text-sm font-medium text-white">{commandLabel(command, t)}</p>
                     <p className="text-xs text-gray-500 mt-0.5">
                       {t('nodeDetail.commands.queuedAt', { time: i18nRelativeTime(command.created_at) })}
                     </p>
@@ -4102,18 +4113,18 @@ function eventDetailNumber(details: Record<string, unknown>, key: string): numbe
   return 0;
 }
 
-function eventCommandLabel(action?: string | null) {
+function eventCommandLabel(action: string | null | undefined, t: TranslateFn) {
   const labels: Record<string, string> = {
-    system_info: 'System diagnostics',
-    collect_logs: 'Recent service logs',
-    refresh_config: 'Config refresh',
-    apply_policy: 'Policy acknowledgement',
-    restart_service: 'Service restart',
-    kick_session: 'Session kick',
-    ban_wallet: 'Wallet ban',
-    unban_wallet: 'Wallet unban',
+    system_info: t('events.command.systemInfo'),
+    collect_logs: t('events.command.collectLogs'),
+    refresh_config: t('events.command.refreshConfig'),
+    apply_policy: t('events.command.applyPolicy'),
+    restart_service: t('events.command.restartService'),
+    kick_session: t('events.command.kickSession'),
+    ban_wallet: t('events.command.banWallet'),
+    unban_wallet: t('events.command.unbanWallet'),
   };
-  return action ? labels[action] || action.replace(/_/g, ' ') : 'Command';
+  return action ? labels[action] || action.replace(/_/g, ' ') : t('events.command.generic');
 }
 
 function eventCommandAudit(details: Record<string, unknown>) {
@@ -4135,7 +4146,7 @@ function nodeEventCheckName(event: VpnEvent) {
   return '';
 }
 
-function eventReason(event: VpnEvent) {
+function eventReason(event: VpnEvent, t: TranslateFn) {
   const details = event.details || {};
   const checkName = nodeEventCheckName(event);
 
@@ -4147,25 +4158,25 @@ function eventReason(event: VpnEvent) {
     );
     const reason = typeof details.last_rejection_reason === 'string'
       ? details.last_rejection_reason.replace(/_/g, ' ')
-      : 'policy enforced';
-    return `${blocked} blocked · ${reason}`;
+      : t('nodeDetail.events.policyEnforced');
+    return t('events.preview.blocked', { count: blocked, reason });
   }
   if (event.type === 'node_policy_sync_pending') {
     const fields = Array.isArray(details.mismatched_fields)
       ? details.mismatched_fields.slice(0, 3).join(', ')
       : '';
-    const status = typeof details.policy_sync_status === 'string' ? details.policy_sync_status : 'pending';
+    const status = typeof details.policy_sync_status === 'string' ? details.policy_sync_status : t('common.status.pending');
     return fields ? `${status} · ${fields}` : status;
   }
   if (event.type === 'client_placement_unavailable') {
-    return `hidden from clients · ${formatPlacementReason(
-      typeof details.unavailable_reason === 'string' ? details.unavailable_reason : null
-    )}`;
+    return t('nodeDetail.events.hiddenFromClients', {
+      reason: formatPlacementReason(typeof details.unavailable_reason === 'string' ? details.unavailable_reason : null, t),
+    });
   }
   if (event.type === 'session_keepalive_timeout') {
     const missed = eventDetailNumber(details, 'keepalive_missed');
     const pending = eventDetailNumber(details, 'keepalive_pending');
-    return `keepalive missed ${missed} · pending ${pending}`;
+    return t('nodeDetail.events.keepaliveMissed', { missed, pending });
   }
   if (event.source === 'node_command') {
     const audit = eventCommandAudit(details);
@@ -4184,43 +4195,43 @@ function eventReason(event: VpnEvent) {
     return details.changed_fields.slice(0, 3).join(', ');
   }
   if (event.session_id) return `session ${event.session_id}`;
-  if (event.command_id) return `${eventCommandLabel(event.action)} · command ${event.command_id.slice(0, 8)}`;
+  if (event.command_id) return `${eventCommandLabel(event.action, t)} · ${t('nodeDetail.events.commandShort', { id: event.command_id.slice(0, 8) })}`;
   return event.type.replace(/_/g, ' ');
 }
 
-function eventImpact(event: VpnEvent) {
+function eventImpact(event: VpnEvent, t: TranslateFn) {
   const details = event.details || {};
 
   if (event.type === 'node_policy_enforced') {
     const bandwidthDrops = eventDetailNumber(details, 'bandwidth_drops');
     const maxSessionRejects = eventDetailNumber(details, 'max_sessions_rejections');
     const maintenanceRejects = eventDetailNumber(details, 'maintenance_rejections');
-    if (bandwidthDrops > 0) return `${bandwidthDrops} bandwidth drops`;
-    if (maxSessionRejects > 0) return `${maxSessionRejects} max-session rejects`;
-    if (maintenanceRejects > 0) return `${maintenanceRejects} maintenance rejects`;
+    if (bandwidthDrops > 0) return t('nodeDetail.events.bandwidthDrops', { count: bandwidthDrops });
+    if (maxSessionRejects > 0) return t('nodeDetail.events.maxSessionRejects', { count: maxSessionRejects });
+    if (maintenanceRejects > 0) return t('nodeDetail.events.maintenanceRejects', { count: maintenanceRejects });
   }
   if (event.type === 'node_policy_sync_pending') {
     const age = eventDetailNumber(details, 'heartbeat_age_seconds');
-    return age > 0 ? `heartbeat ${age}s old` : 'waiting for heartbeat';
+    return age > 0 ? t('nodeDetail.events.heartbeatAge', { age }) : t('nodeDetail.health.waitingHeartbeat');
   }
   if (event.type === 'client_placement_unavailable') {
     const availability = typeof details.availability_24h_percent === 'number'
-      ? `24h ${formatAvailability(details.availability_24h_percent)}`
+      ? t('nodeDetail.events.availability24h', { value: formatAvailability(details.availability_24h_percent) })
       : '';
     const capacity = eventDetailNumber(details, 'capacity_remaining');
-    if (capacity > 0) return availability ? `${availability} · ${capacity} slots` : `${capacity} slots`;
-    if (typeof details.load === 'number') return `load ${details.load}%${availability ? ` · ${availability}` : ''}`;
-    return availability || 'not advertised';
+    if (capacity > 0) return availability ? `${availability} · ${t('nodeDetail.events.slots', { count: capacity })}` : t('nodeDetail.events.slots', { count: capacity });
+    if (typeof details.load === 'number') return `${t('nodeDetail.events.load', { value: details.load })}${availability ? ` · ${availability}` : ''}`;
+    return availability || t('nodeDetail.commercial.notAdvertised');
   }
   if (event.type === 'health_check_failed') {
     const runningMtu = eventDetailNumber(details, 'running_mtu');
     const configuredMtu = eventDetailNumber(details, 'configured_mtu');
     if (nodeEventCheckName(event) === 'mtu_config' && (runningMtu || configuredMtu)) {
-      return runningMtu && configuredMtu ? `MTU ${runningMtu} / ${configuredMtu}` : 'MTU metadata pending';
+      return runningMtu && configuredMtu ? `MTU ${runningMtu} / ${configuredMtu}` : t('nodeDetail.events.mtuMetadataPending');
     }
   }
   if (event.source === 'node_command' && event.action === 'apply_policy') {
-    return 'policy runtime acknowledgement';
+    return t('nodeDetail.events.policyRuntimeAcknowledgement');
   }
   if (event.source === 'node_command') {
     const source = typeof details.command_source === 'string' ? details.command_source.replace(/_/g, ' ') : '';
@@ -4234,21 +4245,22 @@ function eventImpact(event: VpnEvent) {
   }
   const keepaliveMissed = eventDetailNumber(details, 'keepalive_missed');
   if (keepaliveMissed > 0) {
-    return `${keepaliveMissed} missed ACKs`;
+    return t('nodeDetail.events.missedAcks', { count: keepaliveMissed });
   }
   if (typeof details.total_bytes === 'number') {
     return formatBytes(details.total_bytes, 1);
   }
   if (event.source) return event.source.replace(/_/g, ' ');
-  return 'node event';
+  return t('nodeDetail.events.nodeEvent');
 }
 
 function VpnEventSeverityBadge({ severity }: { severity: VpnEventSeverity }) {
+  const { t } = useI18n();
   const config = VPN_EVENT_SEVERITY_CONFIG[severity];
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium ${config.badgeClass}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${config.dotClass}`} />
-      {config.label}
+      {t(`events.severity.${severity}`)}
     </span>
   );
 }
@@ -4322,8 +4334,8 @@ function NodeVpnEventsPanel({
                   </div>
                   <p className="mt-2 text-sm text-gray-400">{event.message}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
-                    <span>{eventReason(event)}</span>
-                    <span>{eventImpact(event)}</span>
+                    <span>{eventReason(event, t)}</span>
+                    <span>{eventImpact(event, t)}</span>
                     {event.session_id ? <span className="font-mono">session {event.session_id}</span> : null}
                   </div>
                 </div>
