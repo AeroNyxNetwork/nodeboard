@@ -90,6 +90,10 @@
  *     distinguish active commercial blocking from historical process counters.
  *     counters_started_at is produced by Rust node_policy and shows the
  *     process-local counter scope after service restarts.
+ *     Exposes data.nodes[].system.placement_readiness from Rust
+ *     /api/vpn/health so Commercial Readiness can separate backend placement
+ *     eligibility from runtime-owned admission decisions:
+ *     accepting_new_sessions / reason / session capacity / bandwidth window.
  *   - GET /api/privacy_network/vpn/servers/
  *     /root/aeronyx/privacy_network/api/vpn_servers.py
  *     Exposes per-node placement eligibility, capacity_remaining,
@@ -117,6 +121,7 @@
  * Rust service readiness source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
+ *   - /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
  * Data contract:
  *   Rust heartbeat reports system_stats.operator_status.
@@ -139,7 +144,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.20 - Show Rust policy counter scope
+ * Last Modified: v1.6.21 - Show Rust placement admission readiness
+ * Previous: v1.6.20 - Show Rust policy counter scope
  * Previous: v1.6.19 - Show node policy block current impact
  * Previous: v1.6.18 - Show node telemetry source quality
  * Previous: v1.6.17 - Add commercial readiness panel
@@ -794,6 +800,39 @@ function policyImpactDetail(status: string | null | undefined, ageSeconds: numbe
   return 'Waiting for backend policy impact classification.';
 }
 
+function placementAdmissionLabel(readiness: VpnNodeHealth['system']['placement_readiness']) {
+  if (!readiness?.reported) return 'rollout pending';
+  if (readiness.accepting_new_sessions) return 'accepting';
+  if (readiness.status === 'watch') return 'watch';
+  return 'blocked';
+}
+
+function placementAdmissionBadgeClass(readiness: VpnNodeHealth['system']['placement_readiness']) {
+  if (!readiness?.reported) return 'border-gray-500/25 bg-gray-500/10 text-gray-300';
+  if (readiness.accepting_new_sessions) return 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300';
+  if (readiness.status === 'watch') return 'border-yellow-500/25 bg-yellow-500/10 text-yellow-300';
+  return 'border-red-500/25 bg-red-500/10 text-red-300';
+}
+
+function placementAdmissionPanelClass(readiness: VpnNodeHealth['system']['placement_readiness']) {
+  if (!readiness?.reported) return 'border-gray-500/20 bg-gray-500/[0.04]';
+  if (readiness.accepting_new_sessions) return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+  if (readiness.status === 'watch') return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  return 'border-red-500/25 bg-red-500/[0.06]';
+}
+
+function placementAdmissionDetail(readiness: VpnNodeHealth['system']['placement_readiness']) {
+  if (!readiness?.reported) {
+    return 'Rust placement_readiness has not reached the backend yet; keep this node in rollout tracking.';
+  }
+  return readiness.detail || readiness.reason?.replace(/_/g, ' ') || 'Rust runtime admission snapshot is available.';
+}
+
+function formatPercentOrPending(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'pending';
+  return `${Math.min(999, Math.max(0, value)).toFixed(value >= 99.95 ? 2 : 1)}%`;
+}
+
 function formatUnixSecondsRelative(seconds: number | null | undefined) {
   if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return 'pending';
   return formatRelativeTime(new Date(seconds * 1000).toISOString());
@@ -829,8 +868,8 @@ function CommercialReadinessPanel({
       <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.02] p-4">
         <div className="animate-pulse space-y-3">
           <div className="h-4 w-44 rounded bg-white/10" />
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            {[...Array(5)].map((_, index) => (
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+            {[...Array(6)].map((_, index) => (
               <div key={index} className="h-16 rounded-lg bg-white/5" />
             ))}
           </div>
@@ -853,7 +892,12 @@ function CommercialReadinessPanel({
   const syncStatus = policySync?.status || 'unknown';
   const runtimeMismatch = (policySync?.mismatched_fields?.length ?? 0) > 0;
   const placementBlocked = !server || !server.available;
-  const needsAttention = runtimeMismatch || activePolicyImpact;
+  const placementReadiness = health.system.placement_readiness ?? null;
+  const rustAdmissionAttention = Boolean(
+    placementReadiness?.reported
+    && (!placementReadiness.accepting_new_sessions || placementReadiness.status === 'watch')
+  );
+  const needsAttention = runtimeMismatch || activePolicyImpact || rustAdmissionAttention;
   const status = placementBlocked ? 'blocked' : needsAttention ? 'attention' : 'ready';
   const statusLabel = status === 'ready' ? 'ready for clients' : status === 'attention' ? 'watch policy' : 'not advertised';
   const placementReason = server?.unavailable_reason ?? (!server ? 'not_in_candidate_list' : null);
@@ -884,6 +928,9 @@ function CommercialReadinessPanel({
             <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${policyImpactClass(policyImpactStatus)}`}>
               {policyImpactLabel(policyImpactStatus)}
             </span>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${placementAdmissionBadgeClass(placementReadiness)}`}>
+              Rust admission {placementAdmissionLabel(placementReadiness)}
+            </span>
           </div>
           <p className="mt-1 text-xs leading-5 text-gray-500">
             {server?.available
@@ -903,7 +950,7 @@ function CommercialReadinessPanel({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="mt-4 grid grid-cols-2 lg:grid-cols-6 gap-3">
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2 min-w-0">
           <p className="text-[11px] uppercase text-gray-600">Placement</p>
           <p className="mt-1 truncate text-base font-semibold text-white">
@@ -920,6 +967,17 @@ function CommercialReadinessPanel({
           </p>
           <p className="mt-0.5 text-[11px] text-gray-600">
             {health.max_sessions > 0 ? `${remaining ?? 0} slots left` : 'unlimited policy'}
+          </p>
+        </div>
+        <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2 min-w-0">
+          <p className="text-[11px] uppercase text-gray-600">Rust Admission</p>
+          <p className={`mt-1 truncate text-base font-semibold ${
+            placementReadiness?.reported && !placementReadiness.accepting_new_sessions ? 'text-yellow-200' : 'text-white'
+          }`}>
+            {placementAdmissionLabel(placementReadiness)}
+          </p>
+          <p className="mt-0.5 truncate text-[11px] text-gray-600">
+            {placementReadiness?.reported ? placementReadiness.reason.replace(/_/g, ' ') : 'missing runtime field'}
           </p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
@@ -951,9 +1009,56 @@ function CommercialReadinessPanel({
         </div>
       </div>
 
+      <div className={`mt-3 rounded-lg border px-3 py-2 ${placementAdmissionPanelClass(placementReadiness)}`}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Rust Runtime Admission</p>
+            <p className="mt-1 text-sm font-semibold text-white">
+              {placementAdmissionLabel(placementReadiness)}
+              {placementReadiness?.reported ? ` · ${placementReadiness.status}` : ''}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-gray-500">
+              {placementAdmissionDetail(placementReadiness)}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs lg:min-w-[420px]">
+            <div className="rounded-md border border-white/5 bg-black/20 px-2 py-1.5">
+              <p className="text-gray-600">Session use</p>
+              <p className="mt-0.5 font-medium text-gray-300">
+                {formatPercentOrPending(placementReadiness?.session_capacity_used_percent)}
+              </p>
+            </div>
+            <div className="rounded-md border border-white/5 bg-black/20 px-2 py-1.5">
+              <p className="text-gray-600">Slots left</p>
+              <p className="mt-0.5 font-medium text-gray-300">
+                {typeof placementReadiness?.session_capacity_remaining === 'number'
+                  ? placementReadiness.session_capacity_remaining.toLocaleString()
+                  : 'pending'}
+              </p>
+            </div>
+            <div className="rounded-md border border-white/5 bg-black/20 px-2 py-1.5">
+              <p className="text-gray-600">Traffic status</p>
+              <p className="mt-0.5 truncate font-medium text-gray-300">
+                {placementReadiness?.traffic_capacity_status?.replace(/_/g, ' ') || 'pending'}
+              </p>
+            </div>
+            <div className="rounded-md border border-white/5 bg-black/20 px-2 py-1.5">
+              <p className="text-gray-600">Window use</p>
+              <p className="mt-0.5 font-medium text-gray-300">
+                {formatPercentOrPending(placementReadiness?.bandwidth_window_used_percent)}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <p className="mt-3 text-[11px] leading-5 text-gray-600">
         Backend: GET /api/privacy_network/vpn/overview/ from /root/aeronyx/privacy_network/api/vpn_observability.py
-        and GET /api/privacy_network/vpn/servers/ from /root/aeronyx/privacy_network/api/vpn_servers.py.
+        maps data.nodes[].system.placement_readiness from Rust
+        /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs and
+        /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs. GET
+        /api/privacy_network/vpn/servers/ from /root/aeronyx/privacy_network/api/vpn_servers.py
+        provides backend placement eligibility.
       </p>
     </div>
   );

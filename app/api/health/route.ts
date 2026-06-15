@@ -197,7 +197,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.57 - Documented Rust placement rollout restart safety
+ * Last Modified: v1.1.58 - Documented node detail Rust placement admission
+ * Previous: v1.1.57 - Documented Rust placement rollout restart safety
  * Previous: v1.1.56 - Documented Rust placement rollout missing nodes
  * Previous: v1.1.55 - Documented Rust placement rollout summary
  * Previous: v1.1.54 - Documented Rust placement readiness
@@ -379,7 +380,7 @@ const healthPayload = {
     {
       endpoint: 'data.nodes[].system.placement_readiness',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Mapped Rust runtime admission snapshot from /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs, including accepting_new_sessions, reason, session capacity, and bandwidth window coverage for commercial placement triage',
+      purpose: 'Node detail and Services mapped Rust runtime admission snapshot from /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs, including accepting_new_sessions, reason, session capacity, traffic_capacity_status, and bandwidth window coverage for commercial placement triage',
     },
     {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',
@@ -455,7 +456,11 @@ const healthPayload = {
   rust_producers: [
     {
       file: '/root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs',
-      purpose: 'Local node health, operator_status, runtime_rollout, session_cleanup',
+      purpose: 'Local node health, operator_status, runtime_rollout, session_cleanup, and placement_readiness API response',
+    },
+    {
+      file: '/root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs',
+      purpose: 'Runtime commercial policy source for max_sessions, bandwidth_limit_mbps, policy_enforcement counters, and placement_readiness accepting_new_sessions decisions',
     },
     {
       file: '/root/open/AeroNyx/crates/aeronyx-server/src/services/session.rs',

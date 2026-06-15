@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.21 - Added node-level Rust placement readiness snapshot.
  *   v1.5.20 - Added restart safety to Rust placement rollout targets.
  *   v1.5.19 - Added Rust placement rollout missing node list.
  *   v1.5.18 - Added Rust placement rollout summary.
@@ -60,7 +61,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.20 - Added restart safety to Rust placement rollout targets
+ * Last Modified: v1.5.21 - Added node-level Rust placement readiness snapshot
+ * Previous: v1.5.20 - Added restart safety to Rust placement rollout targets
  * Previous: v1.5.19 - Added Rust placement rollout missing node list
  * Previous: v1.5.18 - Added Rust placement rollout summary
  * Previous: v1.5.17 - Added Rust placement readiness fields
@@ -1575,6 +1577,41 @@ export interface NodeboardHealthRuntime {
 }
 
 /**
+ * Backend API:
+ *   GET /api/privacy_network/vpn/overview/
+ * Backend file:
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py
+ * Rust producer files:
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *
+ * This is the Rust process-owned admission snapshot for commercial placement.
+ * The backend maps heartbeat.system_stats.vpn_health.placement_readiness to
+ * data.nodes[].system.placement_readiness without exposing client public IPs,
+ * destinations, DNS contents, packet payloads, domains, URLs, browsing
+ * history, voucher secrets, or wallet-level traffic.
+ */
+export interface VpnPlacementReadiness {
+  reported: boolean;
+  accepting_new_sessions: boolean | null;
+  status: 'ready' | 'watch' | 'blocked' | 'missing' | string;
+  reason: string;
+  detail: string;
+  active_sessions: number | null;
+  max_sessions: number | null;
+  session_capacity_remaining: number | null;
+  session_capacity_used_percent: number | null;
+  maintenance_mode: boolean | null;
+  bandwidth_limit_mbps: number | null;
+  bandwidth_limit_bytes_per_second: number | null;
+  bandwidth_window_bytes: number | null;
+  bandwidth_window_used_percent: number | null;
+  traffic_capacity_status: 'ok' | 'watch' | 'limited' | 'unlimited' | 'missing' | string;
+  source: string;
+  privacy_boundary?: string;
+}
+
+/**
  * Local nodeboard runtime health response.
  *
  * Frontend endpoint:
@@ -1676,6 +1713,7 @@ export interface VpnNodeHealth {
      */
     session_cleanup?: VpnSessionCleanupStatus | null;
     restart_readiness?: VpnRestartReadiness | null;
+    placement_readiness?: VpnPlacementReadiness | null;
     policy_sync?: VpnPolicySync;
     policy_enforcement?: VpnPolicyEnforcement;
     runtime_recovery?: VpnRuntimeRecovery;
