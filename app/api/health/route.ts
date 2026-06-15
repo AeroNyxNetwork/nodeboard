@@ -33,6 +33,8 @@
  *     Provides data.nodes[].system.policy_enforcement.recent_block_active /
  *     impact_status so node detail can distinguish active commercial policy
  *     blocking from historical Rust process counters.
+ *     Provides data.nodes[].system.policy_enforcement.counters_started_at
+ *     so node detail can show when Rust process-local counters began.
  *     Provides data.summary.restart_readiness for owner-scoped fleet restart
  *     readiness monitoring, including blocked node drain/command status and
  *     backend-authored recommended_action plus drain_activity buckets.
@@ -175,7 +177,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.48 - Documented node policy block impact fields
+ * Last Modified: v1.1.49 - Documented Rust policy counter scope
+ * Previous: v1.1.48 - Documented node policy block impact fields
  * Previous: v1.1.47 - Documented node heartbeat source quality
  * Previous: v1.1.46 - Documented policy telemetry source quality
  * Previous: v1.1.45 - Documented recent policy block classification
@@ -269,6 +272,11 @@ const healthPayload = {
       endpoint: 'data.nodes[].system.policy_enforcement.recent_block_active|impact_status',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Backend-authored node-level current-impact classification for Policy Enforcement and Commercial Readiness, separating active commercial policy blocking from historical Rust process counters',
+    },
+    {
+      endpoint: 'data.nodes[].system.policy_enforcement.counters_started_at',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Rust node_policy process-local counter scope timestamp produced by /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs and displayed in node detail Policy Enforcement',
     },
     {
       endpoint: 'data.nodes[].last_seen_seconds + data.nodes[].system.restart_readiness.operator_reporting',

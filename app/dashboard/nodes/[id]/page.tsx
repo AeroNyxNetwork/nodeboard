@@ -88,6 +88,8 @@
  *     bandwidth_window_bytes for commercial limiter diagnostics, plus
  *     backend-authored recent_block_active / impact_status so the page can
  *     distinguish active commercial blocking from historical process counters.
+ *     counters_started_at is produced by Rust node_policy and shows the
+ *     process-local counter scope after service restarts.
  *   - GET /api/privacy_network/vpn/servers/
  *     /root/aeronyx/privacy_network/api/vpn_servers.py
  *     Exposes per-node placement eligibility, capacity_remaining,
@@ -137,7 +139,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.19 - Show node policy block current impact
+ * Last Modified: v1.6.20 - Show Rust policy counter scope
+ * Previous: v1.6.19 - Show node policy block current impact
  * Previous: v1.6.18 - Show node telemetry source quality
  * Previous: v1.6.17 - Add commercial readiness panel
  * Previous: v1.6.16 - Render backend recommended operator actions
@@ -789,6 +792,11 @@ function policyImpactDetail(status: string | null | undefined, ageSeconds: numbe
   }
   if (status === 'clear') return 'No Rust node_policy block has been reported for this node.';
   return 'Waiting for backend policy impact classification.';
+}
+
+function formatUnixSecondsRelative(seconds: number | null | undefined) {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return 'pending';
+  return formatRelativeTime(new Date(seconds * 1000).toISOString());
 }
 
 /**
@@ -1491,7 +1499,7 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
       </div>
 
       <div className="mt-3 rounded-lg border border-white/5 bg-black/20 px-3 py-2">
-        <div className="grid gap-2 sm:grid-cols-4 text-xs">
+        <div className="grid gap-2 sm:grid-cols-5 text-xs">
           <div>
             <p className="text-gray-600">Limiter Snapshot</p>
             <p className="mt-0.5 text-gray-300">
@@ -1505,6 +1513,10 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
           <div>
             <p className="text-gray-600">Telemetry</p>
             <p className="mt-0.5 text-gray-300">{telemetrySourceLabel(telemetrySource)}</p>
+          </div>
+          <div>
+            <p className="text-gray-600">Counter Scope</p>
+            <p className="mt-0.5 text-gray-300">{formatUnixSecondsRelative(enforcement?.counters_started_at)}</p>
           </div>
           <div>
             <p className="text-gray-600">Rust Source</p>

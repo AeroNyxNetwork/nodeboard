@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.12 - Added Rust policy counter scope timestamp.
  *   v1.5.11 - Added node policy block current-impact fields.
  *   v1.5.10 - Documented node heartbeat source quality.
  *   v1.5.9 - Added policy enforcement telemetry source quality fields.
@@ -51,7 +52,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.11 - Added node policy block current-impact fields
+ * Last Modified: v1.5.12 - Added Rust policy counter scope timestamp
+ * Previous: v1.5.11 - Added node policy block current-impact fields
  * Previous: v1.5.10 - Documented node heartbeat source quality
  * Previous: v1.5.9 - Added policy enforcement telemetry source quality
  * Previous: v1.5.8 - Added fleet policy enforcement health summary
@@ -370,6 +372,17 @@ export interface VpnNodeAvailability {
 }
 
 export interface VpnPolicyEnforcement {
+  /**
+   * Unix timestamp when Rust process-local policy counters started.
+   *
+   * Backend API:
+   *   GET /api/privacy_network/vpn/overview/
+   * Backend file:
+   *   /root/aeronyx/privacy_network/api/vpn_observability.py
+   * Rust source:
+   *   /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
+   */
+  counters_started_at?: number | null;
   maintenance_rejections: number;
   max_sessions_rejections: number;
   bandwidth_drops: number;
