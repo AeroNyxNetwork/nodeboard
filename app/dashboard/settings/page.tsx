@@ -89,16 +89,12 @@ type PolicySaveFollowUp = {
 };
 type PolicyPreset = {
   id: string;
-  name: string;
-  description: string;
   policy: PolicyForm;
 };
 
 const POLICY_PRESETS: PolicyPreset[] = [
   {
     id: 'public-standard',
-    name: 'Public Standard',
-    description: 'Open capacity pool with normal heartbeat and no hard session cap.',
     policy: {
       node_tier: 'public',
       maintenance_mode: false,
@@ -109,8 +105,6 @@ const POLICY_PRESETS: PolicyPreset[] = [
   },
   {
     id: 'premium-capacity',
-    name: 'Premium Capacity',
-    description: 'Premium routing pool with faster policy refresh for paid traffic.',
     policy: {
       node_tier: 'premium',
       maintenance_mode: false,
@@ -121,8 +115,6 @@ const POLICY_PRESETS: PolicyPreset[] = [
   },
   {
     id: 'maintenance-drain',
-    name: 'Maintenance Drain',
-    description: 'Stop new handshakes and keep telemetry fast while draining sessions.',
     policy: {
       node_tier: 'public',
       maintenance_mode: true,
@@ -133,8 +125,6 @@ const POLICY_PRESETS: PolicyPreset[] = [
   },
   {
     id: 'limited-recovery',
-    name: 'Limited Recovery',
-    description: 'Bring unstable nodes back gently with bounded sessions and bandwidth.',
     policy: {
       node_tier: 'public',
       maintenance_mode: false,
@@ -310,9 +300,9 @@ function ControlPlaneRuntimeContent({
 
       <div className="p-5 space-y-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <RuntimeValue label="Git SHA" value={runtime.git_sha} mono />
+          <RuntimeValue label={t('settings.runtime.gitSha')} value={runtime.git_sha} mono />
           <RuntimeValue label={t('settings.runtime.deployed')} value={formatRuntimeTime(runtime.deployed_at, i18nRelativeTime, pendingLabel)} />
-          <RuntimeValue label="API Base" value={health.api_base_url} mono />
+          <RuntimeValue label={t('settings.runtime.apiBase')} value={health.api_base_url} mono />
           <RuntimeValue label={t('settings.runtime.port')} value={runtime.port} mono />
         </div>
 
