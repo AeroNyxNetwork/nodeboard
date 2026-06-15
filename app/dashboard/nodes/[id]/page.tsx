@@ -1192,6 +1192,7 @@ function CommercialReadinessPanel({
   isPlacementLoading: boolean;
   isMetricsLoading: boolean;
 }) {
+  const { t, formatNumber } = useI18n();
   if (isPlacementLoading) {
     return (
       <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.02] p-4">
@@ -1231,10 +1232,14 @@ function CommercialReadinessPanel({
   );
   const needsAttention = runtimeMismatch || activePolicyImpact || rustAdmissionAttention;
   const status = placementBlocked ? 'blocked' : needsAttention ? 'attention' : 'ready';
-  const statusLabel = status === 'ready' ? 'ready for clients' : status === 'attention' ? 'watch policy' : 'not advertised';
+  const statusLabel = status === 'ready'
+    ? t('nodeDetail.commercial.status.ready')
+    : status === 'attention'
+      ? t('nodeDetail.commercial.status.attention')
+      : t('nodeDetail.commercial.status.blocked');
   const placementReason = server?.unavailable_reason ?? (!server ? 'not_in_candidate_list' : null);
   const nextAction = !server
-    ? 'Check visibility, region, VPN mode, and heartbeat before expecting public placement.'
+    ? t('nodeDetail.commercial.nextActionNoServer')
     : placementNextAction(server.unavailable_reason);
   const limitBps = bandwidthLimitBps(health.bandwidth_limit_mbps);
   const nearBandwidthCap = limitBps > 0 && typeof peakBps === 'number' && peakBps >= limitBps * 0.9;
@@ -1262,13 +1267,13 @@ function CommercialReadinessPanel({
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h4 className="text-sm font-semibold text-white">AeroNyx Client Readiness</h4>
+            <h4 className="text-sm font-semibold text-white">{t('nodeDetail.commercial.title')}</h4>
             <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${readinessBadgeClass(status)}`}>
               {statusLabel}
             </span>
             {server?.available ? (
               <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-gray-300">
-                failover rank {server.failover_rank ?? '-'}
+                {t('nodeDetail.commercial.failoverRank', { value: server.failover_rank ?? '-' })}
               </span>
             ) : null}
             <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${telemetrySourceClass(telemetrySource)}`}>
@@ -1278,23 +1283,23 @@ function CommercialReadinessPanel({
               {policyImpactLabel(policyImpactStatus)}
             </span>
             <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${placementAdmissionBadgeClass(placementReadiness)}`}>
-              Rust admission {placementAdmissionLabel(placementReadiness)}
+              {t('nodeDetail.commercial.rustAdmission', { status: placementAdmissionLabel(placementReadiness) })}
             </span>
           </div>
           <p className="mt-1 text-xs leading-5 text-gray-500">
             {server?.available
-              ? `Clients can receive ${server.address || 'hidden'}:${server.port} when policy counters stay clear.`
-              : `Hidden from client placement: ${formatPlacementReason(placementReason)}.`}
+              ? t('nodeDetail.commercial.availableCopy', { address: server.address || t('nodeDetail.commercial.hiddenAddress'), port: server.port })
+              : t('nodeDetail.commercial.hiddenCopy', { reason: formatPlacementReason(placementReason) })}
           </p>
           <p className="mt-1 text-xs leading-5 text-gray-600">
-            Policy telemetry: {telemetrySourceDetail(telemetrySource, health.last_seen_seconds)}
+            {t('nodeDetail.commercial.policyTelemetry', { detail: telemetrySourceDetail(telemetrySource, health.last_seen_seconds) })}
           </p>
           <p className="mt-1 text-xs leading-5 text-gray-600">
-            Policy impact: {policyImpactDetail(policyImpactStatus, enforcement?.last_rejection_age_seconds, enforcement?.recent_block_window_seconds)}
+            {t('nodeDetail.commercial.policyImpact', { detail: policyImpactDetail(policyImpactStatus, enforcement?.last_rejection_age_seconds, enforcement?.recent_block_window_seconds) })}
           </p>
         </div>
         <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-400 lg:max-w-md">
-          <p className="font-medium text-gray-300">Next operator action</p>
+          <p className="font-medium text-gray-300">{t('nodeDetail.commercial.nextOperatorAction')}</p>
           <p className="mt-1 leading-5 text-gray-500">{nextAction}</p>
         </div>
       </div>
@@ -1302,23 +1307,23 @@ function CommercialReadinessPanel({
       <div className="mt-4 grid gap-3 xl:grid-cols-[1.05fr_1.35fr_1.25fr]">
         <div className={`rounded-xl border p-3 ${commercialStatusClass(commercialSummary.key)}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[11px] uppercase tracking-wide text-gray-500">Commercial Status</p>
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">{t('nodeDetail.commercial.commercialStatus')}</p>
             <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${commercialStatusBadgeClass(commercialSummary.key)}`}>
               {commercialSummary.label}
             </span>
           </div>
           <p className="mt-3 text-sm leading-5 text-gray-300">{commercialSummary.detail}</p>
           <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <p className="text-[11px] uppercase tracking-wide text-gray-600">Next step</p>
+            <p className="text-[11px] uppercase tracking-wide text-gray-600">{t('nodeDetail.commercial.nextStep')}</p>
             <p className="mt-1 text-xs leading-5 text-gray-400">{commercialSummary.action}</p>
           </div>
         </div>
 
         <div className="rounded-xl border border-white/5 bg-black/20 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[11px] uppercase tracking-wide text-gray-500">Config Drift</p>
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">{t('nodeDetail.commercial.configDrift')}</p>
             <span className="text-xs text-gray-600">
-              {driftItems.filter((item) => item.status === 'fail' || item.status === 'warn').length} attention
+              {t('nodeDetail.commercial.attentionCount', { count: formatNumber(driftItems.filter((item) => item.status === 'fail' || item.status === 'warn').length) })}
             </span>
           </div>
           <div className="mt-3 space-y-2">
@@ -1343,9 +1348,9 @@ function CommercialReadinessPanel({
 
         <div className="rounded-xl border border-white/5 bg-black/20 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[11px] uppercase tracking-wide text-gray-500">Diagnostics</p>
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">{t('nodeDetail.commercial.diagnostics')}</p>
             <span className="text-xs text-gray-600">
-              {diagnostics.filter((item) => item.status === 'fail' || item.status === 'warn').length} action items
+              {t('nodeDetail.commercial.actionItems', { count: formatNumber(diagnostics.filter((item) => item.status === 'fail' || item.status === 'warn').length) })}
             </span>
           </div>
           <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
@@ -1371,59 +1376,65 @@ function CommercialReadinessPanel({
 
       <div className="mt-4 grid grid-cols-2 lg:grid-cols-6 gap-3">
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2 min-w-0">
-          <p className="text-[11px] uppercase text-gray-600">Placement</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.commercial.placement')}</p>
           <p className="mt-1 truncate text-base font-semibold text-white">
-            {server?.available ? 'Advertised' : 'Hidden'}
+            {server?.available ? t('nodeDetail.commercial.advertised') : t('nodeDetail.commercial.hidden')}
           </p>
           <p className="mt-0.5 truncate text-[11px] text-gray-600">
-            {server ? formatPlacementReason(server.unavailable_reason) : 'not in candidate list'}
+            {server ? formatPlacementReason(server.unavailable_reason) : t('nodeDetail.commercial.notInCandidateList')}
           </p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-          <p className="text-[11px] uppercase text-gray-600">Session Capacity</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.commercial.sessionCapacity')}</p>
           <p className="mt-1 text-base font-semibold text-white">
             {sessionCapacityValue(health.active_sessions, health.max_sessions, remaining)}
           </p>
           <p className="mt-0.5 text-[11px] text-gray-600">
-            {health.max_sessions > 0 ? `${remaining ?? 0} slots left` : 'unlimited policy'}
+            {health.max_sessions > 0
+              ? t('nodeDetail.commercial.slotsLeft', { count: formatNumber(remaining ?? 0) })
+              : t('nodeDetail.commercial.unlimitedPolicy')}
           </p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2 min-w-0">
-          <p className="text-[11px] uppercase text-gray-600">Rust Admission</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.commercial.rustAdmissionLabel')}</p>
           <p className={`mt-1 truncate text-base font-semibold ${
             placementReadiness?.reported && !placementReadiness.accepting_new_sessions ? 'text-yellow-200' : 'text-white'
           }`}>
             {placementAdmissionLabel(placementReadiness)}
           </p>
           <p className="mt-0.5 truncate text-[11px] text-gray-600">
-            {placementReadiness?.reported ? placementReadiness.reason.replace(/_/g, ' ') : 'missing runtime field'}
+            {placementReadiness?.reported ? placementReadiness.reason.replace(/_/g, ' ') : t('nodeDetail.commercial.missingRuntimeField')}
           </p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-          <p className="text-[11px] uppercase text-gray-600">Bandwidth Policy</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.commercial.bandwidthPolicy')}</p>
           <p className={`mt-1 text-base font-semibold ${activePolicyImpact || nearBandwidthCap ? 'text-yellow-200' : 'text-white'}`}>
             {formatBandwidthLimit(health.bandwidth_limit_mbps)}
           </p>
           <p className="mt-0.5 text-[11px] text-gray-600">
-            {isMetricsLoading ? 'loading peak' : `${formatBitsPerSecond(peakBps)} peak`}
+            {isMetricsLoading ? t('nodeDetail.commercial.loadingPeak') : t('nodeDetail.commercial.peakValue', { value: formatBitsPerSecond(peakBps) })}
           </p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2 min-w-0">
-          <p className="text-[11px] uppercase text-gray-600">Policy Sync</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.commercial.policySync')}</p>
           <p className={`mt-1 truncate text-base font-semibold ${runtimeMismatch ? 'text-yellow-200' : 'text-white'}`}>
             {syncStatus}
           </p>
           <p className="mt-0.5 truncate text-[11px] text-gray-600">
-            {runtimeMismatch ? policySync?.mismatched_fields?.map((field) => field.replace(/_/g, ' ')).join(', ') : 'nodeboard vs Rust'}
+            {runtimeMismatch ? policySync?.mismatched_fields?.map((field) => field.replace(/_/g, ' ')).join(', ') : t('nodeDetail.commercial.nodeboardVsRust')}
           </p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-          <p className="text-[11px] uppercase text-gray-600">Runtime Blocks</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.commercial.runtimeBlocks')}</p>
           <p className={`mt-1 text-base font-semibold ${activePolicyImpact ? 'text-yellow-200' : drops + maxSessionRejects > 0 ? 'text-sky-200' : 'text-white'}`}>
-            {drops + maxSessionRejects}
+            {formatNumber(drops + maxSessionRejects)}
           </p>
           <p className="mt-0.5 text-[11px] text-gray-600">
-            {maxSessionRejects} session · {drops} packet · {formatBytes(droppedBytes)}
+            {t('nodeDetail.commercial.runtimeBlockBreakdown', {
+              sessions: formatNumber(maxSessionRejects),
+              packets: formatNumber(drops),
+              bytes: formatBytes(droppedBytes),
+            })}
           </p>
         </div>
       </div>
@@ -1431,7 +1442,7 @@ function CommercialReadinessPanel({
       <div className={`mt-3 rounded-lg border px-3 py-2 ${placementAdmissionPanelClass(placementReadiness)}`}>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-wide text-gray-500">Rust Runtime Admission</p>
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">{t('nodeDetail.commercial.runtimeAdmission')}</p>
             <p className="mt-1 text-sm font-semibold text-white">
               {placementAdmissionLabel(placementReadiness)}
               {placementReadiness?.reported ? ` · ${placementReadiness.status}` : ''}
@@ -1442,27 +1453,27 @@ function CommercialReadinessPanel({
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs lg:min-w-[420px]">
             <div className="rounded-md border border-white/5 bg-black/20 px-2 py-1.5">
-              <p className="text-gray-600">Session use</p>
+              <p className="text-gray-600">{t('nodeDetail.commercial.sessionUse')}</p>
               <p className="mt-0.5 font-medium text-gray-300">
                 {formatPercentOrPending(placementReadiness?.session_capacity_used_percent)}
               </p>
             </div>
             <div className="rounded-md border border-white/5 bg-black/20 px-2 py-1.5">
-              <p className="text-gray-600">Slots left</p>
+              <p className="text-gray-600">{t('nodeDetail.commercial.slotsLeftLabel')}</p>
               <p className="mt-0.5 font-medium text-gray-300">
                 {typeof placementReadiness?.session_capacity_remaining === 'number'
-                  ? placementReadiness.session_capacity_remaining.toLocaleString()
-                  : 'pending'}
+                  ? formatNumber(placementReadiness.session_capacity_remaining)
+                  : t('common.status.pending')}
               </p>
             </div>
             <div className="rounded-md border border-white/5 bg-black/20 px-2 py-1.5">
-              <p className="text-gray-600">Traffic status</p>
+              <p className="text-gray-600">{t('nodeDetail.commercial.trafficStatus')}</p>
               <p className="mt-0.5 truncate font-medium text-gray-300">
-                {placementReadiness?.traffic_capacity_status?.replace(/_/g, ' ') || 'pending'}
+                {placementReadiness?.traffic_capacity_status?.replace(/_/g, ' ') || t('common.status.pending')}
               </p>
             </div>
             <div className="rounded-md border border-white/5 bg-black/20 px-2 py-1.5">
-              <p className="text-gray-600">Window use</p>
+              <p className="text-gray-600">{t('nodeDetail.commercial.windowUse')}</p>
               <p className="mt-0.5 font-medium text-gray-300">
                 {formatPercentOrPending(placementReadiness?.bandwidth_window_used_percent)}
               </p>
@@ -1473,35 +1484,35 @@ function CommercialReadinessPanel({
           <div className={`mt-3 rounded-lg border px-3 py-2 ${placementCutoverClass(placementCutoverGuard)}`}>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
-                <p className="text-[11px] uppercase tracking-wide opacity-60">Rollout Cutover Safety</p>
+                <p className="text-[11px] uppercase tracking-wide opacity-60">{t('nodeDetail.commercial.cutoverSafety')}</p>
                 <p className="mt-1 text-sm font-semibold">
                   {placementCutoverLabel(placementCutoverGuard)}
                 </p>
                 <p className="mt-1 text-xs leading-5 opacity-75">
-                  {placementCutoverGuard?.detail || 'Backend cutover guard is still collecting restart safety metadata.'}
+                  {placementCutoverGuard?.detail || t('nodeDetail.commercial.cutoverCollecting')}
                 </p>
                 <p className="mt-1 text-xs leading-5 opacity-70">
-                  {placementCutoverGuard?.next_step || 'Wait for restart_readiness.drain_eta.cutover_guard before upgrading this Rust placement target.'}
+                  {placementCutoverGuard?.next_step || t('nodeDetail.commercial.cutoverWait')}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs sm:min-w-[280px]">
                 <div className="rounded-md border border-white/10 bg-black/20 px-2 py-1.5">
-                  <p className="opacity-55">Safe now</p>
+                  <p className="opacity-55">{t('nodeDetail.commercial.safeNow')}</p>
                   <p className="mt-0.5 font-medium">
-                    {placementCutoverGuard ? (placementCutoverGuard.safe_to_cutover ? 'yes' : 'no') : 'pending'}
+                    {placementCutoverGuard ? (placementCutoverGuard.safe_to_cutover ? t('settings.policyEditor.yes') : t('settings.policyEditor.no')) : t('common.status.pending')}
                   </p>
                 </div>
                 <div className="rounded-md border border-white/10 bg-black/20 px-2 py-1.5">
-                  <p className="opacity-55">Risk</p>
+                  <p className="opacity-55">{t('nodeDetail.commercial.risk')}</p>
                   <p className="mt-0.5 truncate font-medium">
-                    {placementCutoverGuard?.risk || 'pending'}
+                    {placementCutoverGuard?.risk || t('common.status.pending')}
                   </p>
                 </div>
               </div>
             </div>
             {placementCutoverGuard?.user_impact_if_forced && (
               <p className="mt-2 text-[11px] leading-5 opacity-65">
-                Forced impact: {placementCutoverGuard.user_impact_if_forced}
+                {t('nodeDetail.commercial.forcedImpact', { impact: placementCutoverGuard.user_impact_if_forced })}
               </p>
             )}
             <div className="mt-3 flex flex-wrap gap-2">
@@ -1902,6 +1913,7 @@ function BandwidthLimitPanel({
   metrics: VpnNodeMetrics | null;
   isLoading: boolean;
 }) {
+  const { t, formatNumber } = useI18n();
   const enforcement = health.system.policy_enforcement;
   const policySync = health.system.policy_sync;
   const configuredLimit = health.bandwidth_limit_mbps;
@@ -1928,36 +1940,40 @@ function BandwidthLimitPanel({
     <div className={`mt-5 rounded-xl border p-4 ${pressureClass}`}>
       <div className="mb-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
         <div>
-          <h4 className="text-sm font-semibold text-white">Bandwidth Limit</h4>
+          <h4 className="text-sm font-semibold text-white">{t('nodeDetail.bandwidth.title')}</h4>
           <p className="text-xs text-gray-500 mt-1">
-            Node-wide cap from Settings, enforced by the Rust packet path when non-zero.
+            {t('nodeDetail.bandwidth.description')}
           </p>
         </div>
         <div className={drops > 0 || runtimeMismatch ? 'text-sm font-semibold text-yellow-300' : 'text-sm font-semibold text-emerald-300'}>
-          {drops > 0 ? `${drops} drops` : runtimeMismatch ? 'sync pending' : 'clear'}
+          {drops > 0
+            ? t('nodeDetail.bandwidth.drops', { count: formatNumber(drops) })
+            : runtimeMismatch
+              ? t('nodeDetail.bandwidth.syncPending')
+              : t('services.placement.clear')}
         </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-          <p className="text-[11px] uppercase text-gray-600">Configured Cap</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.bandwidth.configuredCap')}</p>
           <p className="text-base font-semibold text-white mt-1">{formatBandwidthLimit(configuredLimit)}</p>
-          <p className="text-[11px] text-gray-600 mt-0.5">nodeboard policy</p>
+          <p className="text-[11px] text-gray-600 mt-0.5">{t('nodeDetail.bandwidth.nodeboardPolicy')}</p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-          <p className="text-[11px] uppercase text-gray-600">Rust Runtime</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.bandwidth.rustRuntime')}</p>
           <p className={`text-base font-semibold mt-1 ${runtimeMismatch ? 'text-yellow-200' : 'text-white'}`}>
-            {runtimeLimit === null ? 'pending' : formatBandwidthLimit(runtimeLimit)}
+            {runtimeLimit === null ? t('common.status.pending') : formatBandwidthLimit(runtimeLimit)}
           </p>
-          <p className="text-[11px] text-gray-600 mt-0.5">policy {syncStatus}</p>
+          <p className="text-[11px] text-gray-600 mt-0.5">{t('nodeDetail.bandwidth.policyStatus', { status: syncStatus })}</p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-          <p className="text-[11px] uppercase text-gray-600">24h Peak</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.bandwidth.peak24h')}</p>
           <p className="text-base font-semibold text-white mt-1">{formatBitsPerSecond(peakBps)}</p>
-          <p className="text-[11px] text-gray-600 mt-0.5">{metrics?.sample_count ?? 0} samples</p>
+          <p className="text-[11px] text-gray-600 mt-0.5">{t('nodeDetail.bandwidth.samples', { count: formatNumber(metrics?.sample_count ?? 0) })}</p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-          <p className="text-[11px] uppercase text-gray-600">Peak / Cap</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.bandwidth.peakCap')}</p>
           <p className={`text-base font-semibold mt-1 ${
             drops > 0 || (bandwidthLimitBps(configuredLimit) > 0 && typeof peakBps === 'number' && peakBps >= bandwidthLimitBps(configuredLimit) * 0.9)
               ? 'text-yellow-200'
@@ -1965,13 +1981,13 @@ function BandwidthLimitPanel({
           }`}>
             {formatLimitUsage(peakBps, configuredLimit)}
           </p>
-          <p className="text-[11px] text-gray-600 mt-0.5">{drops} packet drops</p>
+          <p className="text-[11px] text-gray-600 mt-0.5">{t('nodeDetail.bandwidth.packetDrops', { count: formatNumber(drops) })}</p>
         </div>
       </div>
 
       {runtimeMismatch ? (
         <p className="mt-3 text-xs text-yellow-300">
-          Runtime bandwidth cap has not matched nodeboard policy yet. Wait for the next heartbeat or queue Refresh Config.
+          {t('nodeDetail.bandwidth.mismatchNotice')}
         </p>
       ) : null}
     </div>
@@ -1979,6 +1995,7 @@ function BandwidthLimitPanel({
 }
 
 function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const enforcement = health.system.policy_enforcement;
   const policySync = health.system.policy_sync;
   const maintenance = policyCount(enforcement?.maintenance_rejections);
@@ -2006,9 +2023,9 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
     <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.02] p-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
         <div>
-          <h4 className="text-sm font-semibold text-white">Policy Enforcement</h4>
+          <h4 className="text-sm font-semibold text-white">{t('nodeDetail.policy.title')}</h4>
           <p className="text-xs text-gray-500 mt-1">
-            Node-local policy counters from signed heartbeat health.
+            {t('nodeDetail.policy.description')}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -2019,7 +2036,7 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
             {policyImpactLabel(impactStatus)}
           </span>
           <span className={activeImpact ? 'text-sm font-semibold text-yellow-300' : total > 0 ? 'text-sm font-semibold text-sky-300' : 'text-sm font-semibold text-emerald-300'}>
-            {total} blocked
+            {t('nodeDetail.policy.blockedCount', { count: formatNumber(total) })}
           </span>
         </div>
       </div>
@@ -2027,27 +2044,27 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
       <div className={`mb-3 rounded-lg border px-3 py-2 ${syncClass}`}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
           <div>
-            <p className="text-xs font-semibold uppercase">Policy Sync: {syncStatus}</p>
+            <p className="text-xs font-semibold uppercase">{t('nodeDetail.policy.policySync', { status: syncStatus })}</p>
             <p className="mt-1 text-xs opacity-80">
-              {policySync?.message || 'Waiting for Rust node policy snapshot in heartbeat.'}
+              {policySync?.message || t('settings.policySync.waiting')}
             </p>
           </div>
           <div className="text-xs opacity-80">
-            heartbeat {policySync?.heartbeat_age_seconds ?? health.last_seen_seconds ?? 'pending'}s
+            {t('settings.policySync.heartbeat', { value: policySync?.heartbeat_age_seconds ?? health.last_seen_seconds ?? t('common.status.pending') })}
           </div>
         </div>
         {mismatched ? (
-          <p className="mt-1 text-xs opacity-80">Pending fields: {mismatched}</p>
+          <p className="mt-1 text-xs opacity-80">{t('nodeDetail.policy.pendingFields', { fields: mismatched })}</p>
         ) : null}
       </div>
 
       <div className={`mb-3 rounded-lg border px-3 py-2 text-xs ${telemetrySourceClass(telemetrySource)}`}>
-        <p className="font-semibold uppercase">Telemetry Source: {telemetrySourceLabel(telemetrySource)}</p>
+        <p className="font-semibold uppercase">{t('nodeDetail.policy.telemetrySource', { source: telemetrySourceLabel(telemetrySource) })}</p>
         <p className="mt-1 opacity-80">{telemetrySourceDetail(telemetrySource, health.last_seen_seconds)}</p>
       </div>
 
       <div className={`mb-3 rounded-lg border px-3 py-2 text-xs ${policyImpactClass(impactStatus)}`}>
-        <p className="font-semibold uppercase">Policy Impact: {policyImpactLabel(impactStatus)}</p>
+        <p className="font-semibold uppercase">{t('nodeDetail.policy.policyImpact', { impact: policyImpactLabel(impactStatus) })}</p>
         <p className="mt-1 opacity-80">
           {policyImpactDetail(impactStatus, enforcement?.last_rejection_age_seconds, enforcement?.recent_block_window_seconds)}
         </p>
@@ -2055,25 +2072,25 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-          <p className="text-[11px] uppercase text-gray-600">Maintenance</p>
-          <p className="text-base font-semibold text-white mt-1">{maintenance}</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('settings.policyEditor.maintenanceMode')}</p>
+          <p className="text-base font-semibold text-white mt-1">{formatNumber(maintenance)}</p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-          <p className="text-[11px] uppercase text-gray-600">Max Sessions</p>
-          <p className="text-base font-semibold text-white mt-1">{maxSessions}</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('settings.policyEditor.maxSessions')}</p>
+          <p className="text-base font-semibold text-white mt-1">{formatNumber(maxSessions)}</p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-          <p className="text-[11px] uppercase text-gray-600">Bandwidth Drops</p>
-          <p className={`text-base font-semibold mt-1 ${activeImpact && bandwidth > 0 ? 'text-yellow-200' : bandwidth > 0 ? 'text-sky-200' : 'text-white'}`}>{bandwidth}</p>
-          <p className="text-[11px] text-gray-600 mt-0.5">{formatBytes(bandwidthDropBytes)} rejected</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.policy.bandwidthDrops')}</p>
+          <p className={`text-base font-semibold mt-1 ${activeImpact && bandwidth > 0 ? 'text-yellow-200' : bandwidth > 0 ? 'text-sky-200' : 'text-white'}`}>{formatNumber(bandwidth)}</p>
+          <p className="text-[11px] text-gray-600 mt-0.5">{t('nodeDetail.policy.rejectedBytes', { bytes: formatBytes(bandwidthDropBytes) })}</p>
         </div>
         <div className="rounded-lg bg-black/20 border border-white/5 px-3 py-2 min-w-0">
-          <p className="text-[11px] uppercase text-gray-600">Last Rejection</p>
+          <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.policy.lastRejection')}</p>
           <p className="text-xs text-gray-300 mt-1 truncate">
             {formatPolicyReason(enforcement?.last_rejection_reason)}
           </p>
           <p className="text-[11px] text-gray-600 mt-0.5">
-            {lastAt ? formatRelativeTime(lastAt) : 'no recent block'}
+            {lastAt ? i18nRelativeTime(lastAt) : t('nodeDetail.policy.noRecentBlock')}
           </p>
         </div>
       </div>
@@ -2081,25 +2098,25 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
       <div className="mt-3 rounded-lg border border-white/5 bg-black/20 px-3 py-2">
         <div className="grid gap-2 sm:grid-cols-5 text-xs">
           <div>
-            <p className="text-gray-600">Limiter Snapshot</p>
+            <p className="text-gray-600">{t('nodeDetail.policy.limiterSnapshot')}</p>
             <p className="mt-0.5 text-gray-300">
-              {bandwidthLimitBpsSnapshot > 0 ? formatBitsPerSecond(bandwidthLimitBpsSnapshot * 8) : 'unlimited'}
+              {bandwidthLimitBpsSnapshot > 0 ? formatBitsPerSecond(bandwidthLimitBpsSnapshot * 8) : t('nodes.policy.unlimited')}
             </p>
           </div>
           <div>
-            <p className="text-gray-600">Current Window</p>
+            <p className="text-gray-600">{t('nodeDetail.policy.currentWindow')}</p>
             <p className="mt-0.5 text-gray-300">{formatBytes(bandwidthWindowBytes)}</p>
           </div>
           <div>
-            <p className="text-gray-600">Telemetry</p>
+            <p className="text-gray-600">{t('nodeDetail.policy.telemetry')}</p>
             <p className="mt-0.5 text-gray-300">{telemetrySourceLabel(telemetrySource)}</p>
           </div>
           <div>
-            <p className="text-gray-600">Counter Scope</p>
+            <p className="text-gray-600">{t('nodeDetail.policy.counterScope')}</p>
             <p className="mt-0.5 text-gray-300">{formatUnixSecondsRelative(enforcement?.counters_started_at)}</p>
           </div>
           <div>
-            <p className="text-gray-600">Rust Source</p>
+            <p className="text-gray-600">{t('nodeDetail.policy.rustSource')}</p>
             <p className="mt-0.5 text-gray-500 truncate">/root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs</p>
           </div>
         </div>
@@ -2623,6 +2640,7 @@ function MaintenanceDrainPanel({
   onRestartService: () => Promise<void>;
   onCancelRestartCommand: (command: VpnRestartCommandState) => Promise<void>;
 }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const { sessions: activeSessions, isLoading: activeSessionsLoading } = useNodeSessions(nodeId, {
     status: 'active',
     limit: 100,
@@ -2672,7 +2690,7 @@ function MaintenanceDrainPanel({
   const fallbackPlanActions: OperatorPlanAction[] = [
     {
       key: maintenanceMode ? 'end_maintenance' : 'start_maintenance',
-      label: maintenanceMode ? 'End Maintenance' : 'Start Maintenance',
+      label: maintenanceMode ? t('nodeDetail.maintenance.endMaintenance') : t('nodeDetail.maintenance.startMaintenance'),
       intent: 'node_policy',
       priority: 1,
       enabled: true,
@@ -2688,27 +2706,27 @@ function MaintenanceDrainPanel({
     },
     {
       key: 'system_info',
-      label: 'System Info',
+      label: t('nodeDetail.commands.systemInfo'),
       intent: 'node_commands',
       priority: 5,
       enabled: true,
-      detail: 'Collect system diagnostics.',
+      detail: t('nodeDetail.commands.systemInfoDetail'),
     },
     {
       key: 'collect_logs',
-      label: 'Collect Logs',
+      label: t('nodeDetail.commands.collectLogs'),
       intent: 'node_commands',
       priority: 6,
       enabled: true,
-      detail: 'Collect recent service logs.',
+      detail: t('nodeDetail.commands.collectLogsDetail'),
     },
     {
       key: 'restart_service',
-      label: 'Restart VPN',
+      label: t('nodeDetail.maintenance.restartService'),
       intent: 'node_commands',
       priority: 7,
       enabled: restartReady,
-      detail: 'Queue restart_service after gate checks pass.',
+      detail: t('nodeDetail.commands.restartDetail'),
     },
   ];
   const planActions = operatorActionPlan?.recommended_actions?.length
@@ -2812,10 +2830,10 @@ function MaintenanceDrainPanel({
     <div id="maintenance-drain" className="mt-5 scroll-mt-6 rounded-xl border border-white/5 bg-white/[0.02] p-4">
       <div className="mb-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
         <div>
-          <h4 className="text-sm font-semibold text-white">Maintenance Drain</h4>
+          <h4 className="text-sm font-semibold text-white">{t('nodeDetail.maintenance.title')}</h4>
           <p className="text-xs text-gray-500 mt-1">
-            Controlled restart path for commercial AeroNyx Privacy Protocol traffic.
-            {' '}Gate source: {restartReadinessSourceLabel(restartReadiness)}.
+            {t('nodeDetail.maintenance.description')}{' '}
+            {t('nodeDetail.maintenance.gateSource', { source: restartReadinessSourceLabel(restartReadiness) })}
           </p>
         </div>
         <span className={`inline-flex self-start rounded-full border px-2.5 py-1 text-xs ${restartReadinessClass(restartBlockers, restartCommandActive)}`}>
@@ -2828,7 +2846,7 @@ function MaintenanceDrainPanel({
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="text-xs font-semibold text-white">Operator Action Plan</p>
+                <p className="text-xs font-semibold text-white">{t('nodeDetail.maintenance.operatorActionPlan')}</p>
                 <span className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] ${operatorActionPlanBadgeClass(operatorActionPlan.risk)}`}>
                   {operatorActionPlan.label}
                 </span>
@@ -2862,7 +2880,7 @@ function MaintenanceDrainPanel({
             {planActions.map(renderPlanAction)}
           </div>
           <p className="mt-2 text-[10px] leading-4 text-gray-600">
-            Source: GET /api/privacy_network/vpn/overview/ -&gt; data.nodes[].system.restart_readiness.operator_action_plan
+            {t('nodeDetail.maintenance.sourceOperatorPlan')}
           </p>
           <p className="mt-1 text-[10px] leading-4 text-gray-600">{operatorActionPlan.privacy_boundary}</p>
         </div>
@@ -2871,7 +2889,7 @@ function MaintenanceDrainPanel({
       <div className={`mb-4 rounded-lg border px-3 py-2.5 ${drainActivityHealthClass(commandDelivery.risk)}`}>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-xs font-semibold">Command Delivery</p>
+            <p className="text-xs font-semibold">{t('nodeDetail.maintenance.commandDelivery')}</p>
             <p className="mt-1 text-[11px] leading-5 opacity-75">{commandDelivery.detail}</p>
           </div>
           <span className="inline-flex self-start rounded-md border border-white/10 px-2 py-0.5 text-[11px]">
@@ -2880,7 +2898,7 @@ function MaintenanceDrainPanel({
         </div>
         <p className="mt-1 text-[11px] leading-5 opacity-75">{commandDelivery.nextStep}</p>
         <p className="mt-1 text-[10px] leading-4 opacity-45">
-          Source: GET /api/privacy_network/vpn/overview/ -&gt; {commandDelivery.source}
+          {t('nodeDetail.maintenance.sourceValue', { source: commandDelivery.source })}
         </p>
         {commandDelivery.privacyBoundary && (
           <p className="mt-1 text-[10px] leading-4 opacity-45">{commandDelivery.privacyBoundary}</p>
@@ -2889,7 +2907,7 @@ function MaintenanceDrainPanel({
 
       {restartBlockers.length > 0 && (
         <div className="mb-4 rounded-lg border border-yellow-500/20 bg-yellow-500/[0.05] px-3 py-2.5">
-          <p className="text-xs font-medium text-yellow-200">Restart blockers</p>
+          <p className="text-xs font-medium text-yellow-200">{t('nodeDetail.maintenance.restartBlockers')}</p>
           <div className="mt-2 grid gap-1 text-xs text-gray-400">
             {restartBlockers.map((blocker) => (
               <p key={blocker}>{blocker}</p>
@@ -2907,9 +2925,9 @@ function MaintenanceDrainPanel({
         <div className={`rounded-lg border px-3 py-3 ${drainStepClass(maintenanceReady, !maintenanceMode)}`}>
           <div className="flex items-start justify-between gap-2">
             <div>
-              <p className="text-[11px] uppercase text-gray-600">1. Maintenance</p>
+              <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.maintenance.stepMaintenance')}</p>
               <p className="mt-1 text-sm font-semibold text-white">
-                {maintenanceMode ? 'New handshakes blocked' : 'Accepting new handshakes'}
+                {maintenanceMode ? t('nodeDetail.maintenance.newHandshakesBlocked') : t('nodeDetail.maintenance.acceptingHandshakes')}
               </p>
             </div>
             <span className={`text-xs ${maintenanceReady ? 'text-emerald-300' : 'text-yellow-300'}`}>
@@ -2924,16 +2942,16 @@ function MaintenanceDrainPanel({
             isLoading={isPolicySaving}
             onClick={onToggleMaintenance}
           >
-            {maintenanceMode ? 'End Maintenance' : 'Start Maintenance'}
+            {maintenanceMode ? t('nodeDetail.maintenance.endMaintenance') : t('nodeDetail.maintenance.startMaintenance')}
           </Button>
         </div>
 
         <div className={`rounded-lg border px-3 py-3 ${drainStepClass(drainReady, activeTunnels > 0)}`}>
           <div className="flex items-start justify-between gap-2">
             <div>
-              <p className="text-[11px] uppercase text-gray-600">2. Drain</p>
+              <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.maintenance.stepDrain')}</p>
               <p className="mt-1 text-sm font-semibold text-white">
-                {drainDisplaySessions} active tunnel{drainDisplaySessions === 1 ? '' : 's'}
+                {t('nodeDetail.maintenance.activeTunnels', { count: formatNumber(drainDisplaySessions) })}
               </p>
             </div>
             <span className={`text-xs ${drainReady ? 'text-emerald-300' : 'text-yellow-300'}`}>
@@ -2946,7 +2964,7 @@ function MaintenanceDrainPanel({
               <p className="text-[11px] opacity-75">{restartDrainEtaTiming(backendDrainEta)}</p>
             </div>
             <p className="mt-1 text-[11px] leading-5 opacity-75">
-              {backendDrainEta?.next_step || restartReadiness?.next_step || 'Waiting for backend restart drain status.'}
+              {backendDrainEta?.next_step || restartReadiness?.next_step || t('nodeDetail.maintenance.waitingDrainStatus')}
             </p>
             {backendDrainEta?.privacy_boundary && (
               <p className="mt-1 text-[10px] leading-4 opacity-50">{backendDrainEta.privacy_boundary}</p>
@@ -2955,7 +2973,7 @@ function MaintenanceDrainPanel({
           {drainActivityBuckets.length > 0 && (
             <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <p className="text-[11px] font-medium text-gray-300">Aggregate drain activity</p>
+                <p className="text-[11px] font-medium text-gray-300">{t('nodeDetail.maintenance.aggregateDrainActivity')}</p>
                 {drainActivityHealth && (
                   <span className={`inline-flex self-start rounded-md border px-2 py-0.5 text-[11px] font-medium ${drainActivityHealthClass(drainActivityHealth.risk)}`}>
                     {drainActivityHealth.label}
@@ -2993,42 +3011,52 @@ function MaintenanceDrainPanel({
             href={sessionsHref}
             className="mt-3 inline-flex text-xs font-medium text-sky-300 hover:text-sky-200"
           >
-            Open active sessions
+            {t('nodeDetail.maintenance.openActiveSessions')}
           </a>
           <div className="mt-3 space-y-1 text-[11px] text-gray-500">
             <p>
-              Session poll: {activeSessionsLoading ? 'loading' : `${listedActiveTunnels} listed`}
-              {listedActiveTunnels !== activeTunnels ? ` / ${activeTunnels} reported` : ''}
+              {t('nodeDetail.maintenance.sessionPoll', {
+                listed: activeSessionsLoading
+                  ? t('common.refreshing')
+                  : t('nodeDetail.maintenance.listedCount', { count: formatNumber(listedActiveTunnels) }),
+                reported: listedActiveTunnels !== activeTunnels
+                  ? t('nodeDetail.maintenance.reportedCount', { count: formatNumber(activeTunnels) })
+                  : '',
+              })}
             </p>
             <p>
-              Oldest active: {backendDrainEta?.oldest_started_at
-                ? formatRelativeTime(backendDrainEta.oldest_started_at)
-                : oldestStartedAt ? formatRelativeTime(oldestStartedAt) : 'none'}
+              {t('nodeDetail.maintenance.oldestActive', {
+                value: backendDrainEta?.oldest_started_at
+                  ? i18nRelativeTime(backendDrainEta.oldest_started_at)
+                  : oldestStartedAt ? i18nRelativeTime(oldestStartedAt) : t('nodeDetail.maintenance.none'),
+              })}
             </p>
             <p>
-              Latest client RX: {backendDrainEta?.latest_client_rx_at
-                ? formatRelativeTime(backendDrainEta.latest_client_rx_at)
-                : newestActivityAt ? formatRelativeTime(newestActivityAt) : 'none'}
+              {t('nodeDetail.maintenance.latestClientRx', {
+                value: backendDrainEta?.latest_client_rx_at
+                  ? i18nRelativeTime(backendDrainEta.latest_client_rx_at)
+                  : newestActivityAt ? i18nRelativeTime(newestActivityAt) : t('nodeDetail.maintenance.none'),
+              })}
             </p>
             {backendDrainEta?.latest_server_tx_at && (
-              <p>Latest server TX: {formatRelativeTime(backendDrainEta.latest_server_tx_at)}</p>
+              <p>{t('nodeDetail.maintenance.latestServerTx', { value: i18nRelativeTime(backendDrainEta.latest_server_tx_at) })}</p>
             )}
-            <p>Listed traffic: {formatBytes(listedTrafficBytes, 1)}</p>
+            <p>{t('nodeDetail.maintenance.listedTraffic', { value: formatBytes(listedTrafficBytes, 1) })}</p>
             <p>
-              Stale client cleanup: {backendDrainEta?.cleanup_timeout_seconds || cleanupTimeoutSeconds
+              {t('nodeDetail.maintenance.staleClientCleanup', { value: backendDrainEta?.cleanup_timeout_seconds || cleanupTimeoutSeconds
                 ? formatDuration(backendDrainEta?.cleanup_timeout_seconds || cleanupTimeoutSeconds || 0)
-                : 'pending Rust rollout'}
+                : t('nodeDetail.maintenance.pendingRustRollout') })}
             </p>
-            {missedKeepalives > 0 && <p>Missed keepalives: {missedKeepalives}</p>}
+            {missedKeepalives > 0 && <p>{t('nodeDetail.maintenance.missedKeepalives', { count: formatNumber(missedKeepalives) })}</p>}
           </div>
         </div>
 
         <div className={`rounded-lg border px-3 py-3 ${drainStepClass(restartReady, restartCommandActive || !restartSupported)}`}>
           <div className="flex items-start justify-between gap-2">
             <div>
-              <p className="text-[11px] uppercase text-gray-600">3. Restart</p>
+              <p className="text-[11px] uppercase text-gray-600">{t('nodeDetail.maintenance.stepRestart')}</p>
               <p className="mt-1 text-sm font-semibold text-white">
-                {restartSupported ? 'VPN service command' : 'Restart unavailable'}
+                {restartSupported ? t('nodeDetail.maintenance.serviceCommand') : t('nodeDetail.maintenance.restartUnavailable')}
               </p>
             </div>
             <span className={`text-xs ${restartReady ? 'text-emerald-300' : 'text-yellow-300'}`}>
@@ -3043,11 +3071,11 @@ function MaintenanceDrainPanel({
             isLoading={isCommandPending}
             onClick={onRestartService}
           >
-            Restart VPN
+            {t('nodeDetail.maintenance.restartService')}
           </Button>
           {!restartReady && (
             <p className="mt-2 text-[11px] text-yellow-200">
-              {restartReadiness?.next_step || 'Restart unlocks after active tunnels reach 0.'}
+              {restartReadiness?.next_step || t('nodeDetail.maintenance.restartUnlocks')}
             </p>
           )}
           {visibleRestartCommand && (
@@ -3515,6 +3543,7 @@ function VpnHealthPanel({
   onToggleMaintenance: () => Promise<void>;
   onToast: (message: string, variant?: 'success' | 'error') => void;
 }) {
+  const { t } = useI18n();
   const { overview, isLoading, isError, refetch } = useVpnOverview();
   const { servers, isLoading: placementLoading } = useVpnServers();
   const pathname = usePathname();
@@ -3574,10 +3603,10 @@ function VpnHealthPanel({
     const priority = action === 'collect_logs' ? 10 : action === 'refresh_config' ? 3 : 5;
     const successMessage =
       action === 'system_info'
-        ? 'System diagnostics queued'
+        ? t('nodeDetail.commands.systemDiagnosticsQueued')
         : action === 'collect_logs'
-          ? 'Log collection queued'
-          : 'Config refresh queued';
+          ? t('nodeDetail.commands.logCollectionQueued')
+          : t('nodeDetail.commands.configRefreshQueued');
 
     try {
       await runCommand.mutateAsync({
@@ -3589,13 +3618,13 @@ function VpnHealthPanel({
       });
       onToast(successMessage);
     } catch (error) {
-      onToast(error instanceof Error ? error.message : 'Failed to queue command', 'error');
+      onToast(error instanceof Error ? error.message : t('nodeDetail.commands.queueFailed'), 'error');
     }
   };
 
   const handleRestartService = async () => {
     if (!health) {
-      onToast('Live VPN health is not available yet. Refresh before restarting.', 'error');
+      onToast(t('nodeDetail.commands.healthUnavailableRestart'), 'error');
       return;
     }
 
@@ -3615,7 +3644,7 @@ function VpnHealthPanel({
       return;
     }
 
-    if (!window.confirm('Restart the VPN service on this node now? Maintenance mode is active and active tunnels are drained.')) {
+    if (!window.confirm(t('nodeDetail.commands.confirmRestart'))) {
       return;
     }
 
@@ -3630,15 +3659,15 @@ function VpnHealthPanel({
           priority: 1,
         },
       });
-      onToast('VPN service restart queued');
+      onToast(t('nodeDetail.commands.restartQueued'));
     } catch (error) {
-      onToast(error instanceof Error ? error.message : 'Failed to queue restart', 'error');
+      onToast(error instanceof Error ? error.message : t('nodeDetail.commands.restartQueueFailed'), 'error');
     }
   };
 
   const handleMaintenanceToggle = async () => {
-    const actionLabel = maintenanceMode ? 'end maintenance mode' : 'start maintenance mode';
-    if (!window.confirm(`Do you want to ${actionLabel} for this VPN node?`)) {
+    const actionLabel = maintenanceMode ? t('nodeDetail.maintenance.endMaintenance') : t('nodeDetail.maintenance.startMaintenance');
+    if (!window.confirm(t('nodeDetail.commands.confirmMaintenance', { action: actionLabel }))) {
       return;
     }
 
@@ -3652,14 +3681,14 @@ function VpnHealthPanel({
 
   const handleCancelCommand = async (command: NodeCommand) => {
     if (!canCancelCommand(command)) return;
-    if (!window.confirm(`Cancel queued ${commandLabel(command)}? Commands already executing on the node cannot be interrupted.`)) return;
+    if (!window.confirm(t('nodeDetail.commands.confirmCancel', { command: commandLabel(command) }))) return;
 
     setCancellingCommandId(command.id);
     try {
       await cancelCommand.mutateAsync({ nodeId, commandId: command.id });
-      onToast('Command cancelled');
+      onToast(t('nodeDetail.commands.commandCancelled'));
     } catch (error) {
-      onToast(error instanceof Error ? error.message : 'Failed to cancel command', 'error');
+      onToast(error instanceof Error ? error.message : t('nodeDetail.commands.cancelFailed'), 'error');
     } finally {
       setCancellingCommandId(null);
     }
@@ -3667,15 +3696,15 @@ function VpnHealthPanel({
 
   const handleCancelRestartCommand = async (command: VpnRestartCommandState) => {
     if (!restartCommandCanCancel(command)) return;
-    if (!window.confirm('Cancel the active restart_service command? Commands already executing on the node cannot be interrupted.')) return;
+    if (!window.confirm(t('nodeDetail.commands.confirmCancelRestart'))) return;
 
     setCancellingCommandId(command.id);
     try {
       await cancelCommand.mutateAsync({ nodeId, commandId: command.id });
-      onToast('Restart command cancellation requested');
+      onToast(t('nodeDetail.commands.restartCancelRequested'));
       await refetch();
     } catch (error) {
-      onToast(error instanceof Error ? error.message : 'Failed to cancel restart command', 'error');
+      onToast(error instanceof Error ? error.message : t('nodeDetail.commands.restartCancelFailed'), 'error');
     } finally {
       setCancellingCommandId(null);
     }
@@ -3794,7 +3823,7 @@ function VpnHealthPanel({
             isLoading={isPolicySaving}
             onClick={handleMaintenanceToggle}
           >
-            {maintenanceMode ? 'End Maintenance' : 'Start Maintenance'}
+            {maintenanceMode ? t('nodeDetail.maintenance.endMaintenance') : t('nodeDetail.maintenance.startMaintenance')}
           </Button>
           <Button
             variant="danger"
@@ -3802,11 +3831,11 @@ function VpnHealthPanel({
             disabled={runCommand.isPending || !restartReady}
             onClick={handleRestartService}
           >
-            Restart VPN
+            {t('nodeDetail.maintenance.restartService')}
           </Button>
           {restartBlockers.length > 0 && (
             <div className="basis-full text-xs text-yellow-300">
-              Restart blocked: {restartBlockers[0]}
+              {t('nodeDetail.commands.restartBlocked', { blocker: restartBlockers[0] })}
             </div>
           )}
         </div>
