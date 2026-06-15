@@ -860,20 +860,31 @@ function formatDataUpdatedAt(dataUpdatedAt: number) {
   return `last API sync ${formatRelativeTime(new Date(dataUpdatedAt).toISOString())}`;
 }
 
-function formatPlacementCapacity(capacity: number, unlimitedNodes: number) {
-  if (unlimitedNodes > 0 && capacity > 0) return `${capacity.toLocaleString()} slots + ${unlimitedNodes.toLocaleString()} unlimited`;
-  if (unlimitedNodes > 0) return `${unlimitedNodes.toLocaleString()} unlimited`;
-  return `${capacity.toLocaleString()} slots`;
+function formatPlacementCapacity(
+  capacity: number,
+  unlimitedNodes: number,
+  labels: { slots?: string; unlimited?: string } = {},
+) {
+  const slotsLabel = labels.slots ?? 'slots';
+  const unlimitedLabel = labels.unlimited ?? 'unlimited';
+  if (unlimitedNodes > 0 && capacity > 0) {
+    return `${capacity.toLocaleString()} ${slotsLabel} + ${unlimitedNodes.toLocaleString()} ${unlimitedLabel}`;
+  }
+  if (unlimitedNodes > 0) return `${unlimitedNodes.toLocaleString()} ${unlimitedLabel}`;
+  return `${capacity.toLocaleString()} ${slotsLabel}`;
 }
 
-function formatPlacementReason(reason: string | null | undefined) {
-  if (!reason) return 'clear';
+function formatPlacementReason(reason: string | null | undefined, t?: (key: string) => string) {
+  if (!reason) return t?.('services.placement.clear') ?? 'clear';
+  const key = `services.placement.reason.${reason}`;
+  const translated = t?.(key);
+  if (translated && translated !== key) return translated;
   return reason.replaceAll('_', ' ');
 }
 
-function topPlacementReason(reasons: Record<string, number>) {
+function topPlacementReason(reasons: Record<string, number>, t?: (key: string) => string) {
   const [reason, count] = Object.entries(reasons).sort((a, b) => b[1] - a[1])[0] || [];
-  return reason ? `${formatPlacementReason(reason)} ${count.toLocaleString()}` : 'clear';
+  return reason ? `${formatPlacementReason(reason, t)} ${count.toLocaleString()}` : (t?.('services.placement.clear') ?? 'clear');
 }
 
 function placementReasonEntries(reasons: Record<string, number>) {
@@ -883,7 +894,7 @@ function placementReasonEntries(reasons: Record<string, number>) {
     .slice(0, 4);
 }
 
-function placementBlockerAction(reason: string | null) {
+function placementBlockerAction(reason: string | null, t?: (key: string) => string) {
   const copy: Record<string, string> = {
     maintenance_mode: 'End maintenance after active sessions drain and restart work is complete.',
     max_sessions_reached: 'Raise max_sessions or wait for sessions to complete.',
@@ -894,15 +905,19 @@ function placementBlockerAction(reason: string | null) {
     heartbeat_stale: 'Restore fresh Rust heartbeats before exposing this node to clients.',
   };
 
+  const key = `services.placement.action.${reason || 'default'}`;
+  const translated = t?.(key);
+  if (translated && translated !== key) return translated;
   return copy[reason || ''] ?? 'Open node detail and review backend placement policy inputs.';
 }
 
-function placementSessionCopy(server: VpnServerCandidate) {
+function placementSessionCopy(server: VpnServerCandidate, t?: (key: string, params?: Record<string, string | number>) => string) {
   const sessions = server.current_sessions.toLocaleString();
   if (server.max_sessions > 0) {
-    return `${sessions}/${server.max_sessions.toLocaleString()} sessions`;
+    return t?.('services.placement.sessionsCapped', { sessions, max: server.max_sessions.toLocaleString() })
+      ?? `${sessions}/${server.max_sessions.toLocaleString()} sessions`;
   }
-  return `${sessions} sessions, unlimited cap`;
+  return t?.('services.placement.sessionsUnlimited', { sessions }) ?? `${sessions} sessions, unlimited cap`;
 }
 
 function failedPlacementChecks(node: VpnNodeHealth | undefined) {
@@ -2667,6 +2682,7 @@ function DetailModulesPanel({
 }
 
 function ServiceCard({ service }: { service: ServiceView }) {
+  const { t, formatNumber } = useI18n();
   return (
     <section className="min-h-[210px] rounded-2xl border border-white/10 bg-white/[0.04] p-5">
       <div className="flex items-start justify-between gap-3">
@@ -2681,21 +2697,21 @@ function ServiceCard({ service }: { service: ServiceView }) {
       <p className="mt-4 text-sm leading-6 text-gray-300">{service.summary}</p>
       <div className="mt-5 grid grid-cols-2 gap-3">
         <div>
-          <p className="text-xs text-gray-500">Enabled nodes</p>
+          <p className="text-xs text-gray-500">{t('services.card.enabledNodes')}</p>
           <p className="mt-1 text-xl font-semibold text-white">
-            {service.enabledCount.toLocaleString()}
+            {formatNumber(service.enabledCount)}
           </p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Observed nodes</p>
+          <p className="text-xs text-gray-500">{t('services.card.observedNodes')}</p>
           <p className="mt-1 text-xl font-semibold text-white">
-            {service.totalCount.toLocaleString()}
+            {formatNumber(service.totalCount)}
           </p>
         </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <span className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-xs text-gray-400">
-          reporting {service.reportingCount.toLocaleString()}
+          {t('services.card.reportingCount', { count: formatNumber(service.reportingCount) })}
         </span>
         {service.metricChips.map((chip) => (
           <span
@@ -2726,6 +2742,12 @@ function PlacementCapacityPanel({
   total: number;
   isLoading: boolean;
 }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
+  const placementLabels = {
+    slots: t('services.placement.slots'),
+    unlimited: t('services.placement.unlimited'),
+  };
+
   if (isLoading) {
     return (
       <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
@@ -2761,9 +2783,9 @@ function PlacementCapacityPanel({
     <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-white">Client Placement Capacity</h2>
+          <h2 className="text-lg font-semibold text-white">{t('services.placement.title')}</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-400">
-            Commercial capacity from the same backend failover policy used by VPN clients. Unavailable nodes hide addresses from clients before placement.
+            {t('services.placement.description')}
           </p>
         </div>
         <StatusPill status={status} />
@@ -2771,28 +2793,28 @@ function PlacementCapacityPanel({
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Available Nodes</p>
-          <p className="mt-2 text-2xl font-semibold text-white">{available.toLocaleString()} / {total.toLocaleString()}</p>
-          <p className="mt-1 text-xs text-gray-500">{unavailable.toLocaleString()} unavailable</p>
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{t('services.placement.availableNodes')}</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatNumber(available)} / {formatNumber(total)}</p>
+          <p className="mt-1 text-xs text-gray-500">{t('services.placement.unavailableCount', { count: formatNumber(unavailable) })}</p>
         </div>
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Capacity Remaining</p>
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{t('services.placement.capacityRemaining')}</p>
           <p className="mt-2 text-2xl font-semibold text-white">
-            {summary ? formatPlacementCapacity(summary.available_capacity_remaining, summary.unlimited_capacity_nodes) : 'pending'}
+            {summary ? formatPlacementCapacity(summary.available_capacity_remaining, summary.unlimited_capacity_nodes, placementLabels) : t('common.status.pending')}
           </p>
-          <p className="mt-1 text-xs text-gray-500">capped slots + unlimited nodes</p>
+          <p className="mt-1 text-xs text-gray-500">{t('services.placement.capacityHint')}</p>
         </div>
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Top Blocker</p>
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{t('services.placement.topBlocker')}</p>
           <p className="mt-2 text-2xl font-semibold text-white">
-            {summary ? topPlacementReason(summary.unavailable_reasons) : 'pending'}
+            {summary ? topPlacementReason(summary.unavailable_reasons, t) : t('common.status.pending')}
           </p>
-          <p className="mt-1 text-xs text-gray-500">from backend placement policy</p>
+          <p className="mt-1 text-xs text-gray-500">{t('services.placement.backendPolicy')}</p>
         </div>
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Updated</p>
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{t('services.placement.updated')}</p>
           <p className="mt-2 text-2xl font-semibold text-white">
-            {summary?.generated_at ? formatRelativeTime(summary.generated_at) : 'pending'}
+            {summary?.generated_at ? i18nRelativeTime(summary.generated_at) : t('common.status.pending')}
           </p>
           <p className="mt-1 text-xs text-gray-500">GET /api/privacy_network/vpn/servers/</p>
         </div>
@@ -2802,9 +2824,9 @@ function PlacementCapacityPanel({
         <div className="mt-4 grid gap-3 lg:grid-cols-[1.3fr_1fr]">
           <div className="rounded-xl border border-white/10 bg-black/20 p-4">
             <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-white">Region Capacity</h3>
+              <h3 className="text-sm font-semibold text-white">{t('services.placement.regionCapacity')}</h3>
               <Link href="/dashboard/nodes" className="text-xs text-purple-300 hover:text-purple-200">
-                Manage nodes
+                {t('common.manageNodes')}
               </Link>
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -2814,13 +2836,13 @@ function PlacementCapacityPanel({
                     <span className="truncate font-medium text-gray-200">
                       {region.flag ? `${region.flag} ` : ''}{region.label}
                     </span>
-                    <span className="text-emerald-300">{region.available}/{region.total}</span>
+                    <span className="text-emerald-300">{formatNumber(region.available)}/{formatNumber(region.total)}</span>
                   </div>
                   <p className="mt-1 text-gray-500">
-                    {formatPlacementCapacity(region.capacity_remaining, region.unlimited_capacity_nodes)}
+                    {formatPlacementCapacity(region.capacity_remaining, region.unlimited_capacity_nodes, placementLabels)}
                   </p>
                   <p className="mt-1 text-gray-600">
-                    {region.unavailable > 0 ? topPlacementReason(region.unavailable_reasons) : 'all candidates clear'}
+                    {region.unavailable > 0 ? topPlacementReason(region.unavailable_reasons, t) : t('services.placement.allCandidatesClear')}
                   </p>
                 </div>
               ))}
@@ -2828,19 +2850,21 @@ function PlacementCapacityPanel({
           </div>
 
           <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-            <h3 className="text-sm font-semibold text-white">Tier Capacity</h3>
+            <h3 className="text-sm font-semibold text-white">{t('services.placement.tierCapacity')}</h3>
             <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
               {tiers.map((tier) => (
                 <div key={tier.key} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs">
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate font-medium text-gray-200">{tier.tier || tier.label}</span>
-                    <span className="text-emerald-300">{tier.available}/{tier.total}</span>
+                    <span className="text-emerald-300">{formatNumber(tier.available)}/{formatNumber(tier.total)}</span>
                   </div>
                   <p className="mt-1 text-gray-500">
-                    {formatPlacementCapacity(tier.capacity_remaining, tier.unlimited_capacity_nodes)}
+                    {formatPlacementCapacity(tier.capacity_remaining, tier.unlimited_capacity_nodes, placementLabels)}
                   </p>
                   <p className="mt-1 text-gray-600">
-                    {tier.average_load === null ? 'load pending' : `${tier.average_load}% avg load`}
+                    {tier.average_load === null
+                      ? t('services.placement.loadPending')
+                      : t('services.placement.avgLoad', { value: tier.average_load })}
                   </p>
                 </div>
               ))}
@@ -2853,22 +2877,22 @@ function PlacementCapacityPanel({
         <div className="mt-4 rounded-xl border border-yellow-300/15 bg-yellow-300/[0.04] p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-yellow-100">Placement Blockers</h3>
+              <h3 className="text-sm font-semibold text-yellow-100">{t('services.placement.blockersTitle')}</h3>
               <p className="mt-1 text-xs leading-5 text-yellow-100/60">
-                Nodes hidden from client placement by backend policy. Address is intentionally null while blocked.
+                {t('services.placement.blockersDescription')}
               </p>
             </div>
             <Link href="/dashboard/nodes" className="text-xs text-yellow-100/80 hover:text-yellow-100">
-              Manage nodes
+              {t('common.manageNodes')}
             </Link>
           </div>
           {blockerReasons.length > 0 && (
             <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               {blockerReasons.map(([reason, count]) => (
                 <div key={reason} className="rounded-md border border-yellow-100/10 bg-black/20 px-3 py-2 text-xs">
-                  <p className="uppercase tracking-[0.12em] text-yellow-100/35">{formatPlacementReason(reason)}</p>
-                  <p className="mt-1 font-semibold text-yellow-100">{count.toLocaleString()} node{count === 1 ? '' : 's'}</p>
-                  <p className="mt-1 leading-5 text-yellow-100/45">{placementBlockerAction(reason)}</p>
+                  <p className="uppercase tracking-[0.12em] text-yellow-100/35">{formatPlacementReason(reason, t)}</p>
+                  <p className="mt-1 font-semibold text-yellow-100">{t('services.placement.nodeCount', { count: formatNumber(count) })}</p>
+                  <p className="mt-1 leading-5 text-yellow-100/45">{placementBlockerAction(reason, t)}</p>
                 </div>
               ))}
             </div>
@@ -2887,20 +2911,20 @@ function PlacementCapacityPanel({
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-white">{server.name}</p>
                         <p className="mt-1 text-xs text-gray-500">
-                          {server.city || server.region_code || server.country_name || 'unknown region'} · {placementSessionCopy(server)}
+                          {server.city || server.region_code || server.country_name || t('services.placement.unknownRegion')} · {placementSessionCopy(server, t)}
                         </p>
                       </div>
                       <StatusPill status={server.health_status} />
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500">
                       <span className="rounded-md border border-white/10 px-2 py-1">
-                        {formatPlacementReason(server.unavailable_reason)}
+                        {formatPlacementReason(server.unavailable_reason, t)}
                       </span>
                       <span className="rounded-md border border-white/10 px-2 py-1">
-                        load {server.load === null ? 'pending' : `${server.load}%`}
+                        {server.load === null ? t('services.placement.loadPending') : t('services.placement.loadValue', { value: server.load })}
                       </span>
                       <span className="rounded-md border border-white/10 px-2 py-1">
-                        rank {server.failover_rank ?? 'pending'}
+                        {t('services.placement.rankValue', { value: server.failover_rank ?? t('common.status.pending') })}
                       </span>
                     </div>
                     {failedChecks.length > 0 && (
@@ -2913,7 +2937,7 @@ function PlacementCapacityPanel({
                       </div>
                     )}
                     <p className="mt-3 text-xs leading-5 text-yellow-100/65">
-                      {placementBlockerAction(server.unavailable_reason)}
+                      {placementBlockerAction(server.unavailable_reason, t)}
                     </p>
                   </Link>
                 );
@@ -2924,15 +2948,15 @@ function PlacementCapacityPanel({
       )}
 
       <p className="mt-4 text-xs leading-5 text-gray-600">
-        Backend contract: GET /api/privacy_network/vpn/servers/ from
-        /root/aeronyx/privacy_network/api/vpn_servers.py. summary.unavailable_reasons drives the Placement Blockers reason distribution.
-        {summary?.privacy_note ?? ' Placement summary is owner-scoped operational metadata only.'}
+        {t('services.placement.contractNote')}
+        {summary?.privacy_note ?? ` ${t('services.placement.privacyNote')}`}
       </p>
     </section>
   );
 }
 
 function NodeReadinessRow({ node }: { node: VpnNodeHealth }) {
+  const { t, formatRelativeTime: i18nRelativeTime } = useI18n();
   const operatorStatus = nodeOperatorStatus(node);
   const services = operatorStatus?.services ?? [];
   const serviceByKey = (key: ServiceKey) => services.find((service) => service.key === key);
@@ -2950,7 +2974,7 @@ function NodeReadinessRow({ node }: { node: VpnNodeHealth }) {
             {node.name}
           </Link>
           <p className="mt-1 truncate text-xs text-gray-500">
-            {node.city || node.region_code || 'unknown region'} · {node.public_ip ?? 'no public IP'}
+            {node.city || node.region_code || t('services.placement.unknownRegion')} · {node.public_ip ?? t('services.placement.noPublicIp')}
           </p>
         </div>
       </td>
@@ -2961,7 +2985,7 @@ function NodeReadinessRow({ node }: { node: VpnNodeHealth }) {
       <td className="px-4 py-4"><StatusPill status={operatorStatus?.status ?? 'pending'} /></td>
       <td className="px-4 py-4"><StatusPill status={rolloutStatus} /></td>
       <td className="px-4 py-4 text-sm text-gray-400">
-        {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : 'pending'}
+        {node.last_heartbeat ? i18nRelativeTime(node.last_heartbeat) : t('common.status.pending')}
       </td>
     </tr>
   );
@@ -4456,16 +4480,16 @@ function FleetRestartReadinessPanel({
 }
 
 function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   if (nodes.length === 0) return null;
 
   return (
     <section className="mb-6 rounded-2xl border border-yellow-500/20 bg-yellow-500/[0.07] p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-yellow-100">Controlled Restart Required</h2>
+          <h2 className="text-lg font-semibold text-yellow-100">{t('services.rollout.controlledRestartTitle')}</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-yellow-100/70">
-            These Rust nodes are running an executable that was replaced on disk. Drain active sessions,
-            keep maintenance mode on, then restart the node so the staged binary takes effect.
+            {t('services.rollout.controlledRestartDescription')}
           </p>
         </div>
         <StatusPill status="warning" />
@@ -4480,34 +4504,34 @@ function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
                   {node.name}
                 </Link>
                 <p className="mt-1 truncate text-xs text-yellow-100/50">
-                  {node.publicIp ?? 'no public IP'} · {node.rollout.executable_path ?? 'executable path pending'}
+                  {node.publicIp ?? t('services.placement.noPublicIp')} · {node.rollout.executable_path ?? t('services.rollout.executablePathPending')}
                 </p>
               </div>
               <StatusPill status={node.healthStatus} />
             </div>
             <div className="mt-4 grid gap-2 text-xs text-yellow-100/60 sm:grid-cols-2 xl:grid-cols-4">
               <div>
-                <p className="text-yellow-100/35">Active Sessions</p>
-                <p className="mt-1 text-yellow-100">{node.activeSessions.toLocaleString()}</p>
+                <p className="text-yellow-100/35">{t('services.rollout.activeSessions')}</p>
+                <p className="mt-1 text-yellow-100">{formatNumber(node.activeSessions)}</p>
               </div>
               <div>
-                <p className="text-yellow-100/35">Heartbeat</p>
+                <p className="text-yellow-100/35">{t('services.rollout.heartbeat')}</p>
                 <p className="mt-1 text-yellow-100">
-                  {node.lastHeartbeat ? formatRelativeTime(node.lastHeartbeat) : 'pending'}
+                  {node.lastHeartbeat ? i18nRelativeTime(node.lastHeartbeat) : t('common.status.pending')}
                 </p>
               </div>
               <div>
-                <p className="text-yellow-100/35">Next Step</p>
+                <p className="text-yellow-100/35">{t('services.rollout.nextStep')}</p>
                 <p className="mt-1 text-yellow-100">
-                  {node.activeSessions > 0 ? 'drain first' : 'restart node'}
+                  {node.activeSessions > 0 ? t('services.rollout.drainFirst') : t('services.rollout.restartNode')}
                 </p>
               </div>
               <div>
-                <p className="text-yellow-100/35">Systemd State</p>
+                <p className="text-yellow-100/35">{t('services.rollout.systemdState')}</p>
                 <p className="mt-1 text-yellow-100">
                   {node.serviceManager
-                    ? `${node.serviceManager.active_state ?? 'unknown'} / ${node.serviceManager.load_state}`
-                    : 'pending'}
+                    ? `${node.serviceManager.active_state ?? t('common.status.unknown')} / ${node.serviceManager.load_state}`
+                    : t('common.status.pending')}
                 </p>
               </div>
             </div>
@@ -4536,6 +4560,7 @@ function RuntimeRolloutPanel({ nodes }: { nodes: RuntimeRolloutNode[] }) {
 }
 
 function SessionCleanupRolloutPanel({ nodes }: { nodes: SessionCleanupRolloutNode[] }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   if (nodes.length === 0) return null;
 
   const readyCount = nodes.filter((node) => node.cleanup).length;
@@ -4545,10 +4570,9 @@ function SessionCleanupRolloutPanel({ nodes }: { nodes: SessionCleanupRolloutNod
     <section className="mb-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.05] p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-emerald-100">Session Cleanup Rollout</h2>
+          <h2 className="text-lg font-semibold text-emerald-100">{t('services.rollout.cleanupTitle')}</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-emerald-100/70">
-            Fleet view of the Rust drain-cleanup policy used by Maintenance Drain. Nodes reporting this field
-            can explain how stale client tunnels are expired before a controlled restart.
+            {t('services.rollout.cleanupDescription')}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -4561,10 +4585,10 @@ function SessionCleanupRolloutPanel({ nodes }: { nodes: SessionCleanupRolloutNod
         {nodes.map((node) => {
           const timeoutSeconds = node.cleanup?.client_liveness_timeout_seconds ?? null;
           const pendingReason = node.restartRequired
-            ? 'restart after drain'
+            ? t('services.rollout.restartAfterDrain')
             : node.operatorReporting
-              ? 'await next Rust heartbeat'
-              : 'operator rollout pending';
+              ? t('services.rollout.awaitRustHeartbeat')
+              : t('services.rollout.operatorRolloutPending');
 
           return (
             <div
@@ -4581,7 +4605,7 @@ function SessionCleanupRolloutPanel({ nodes }: { nodes: SessionCleanupRolloutNod
                     {node.name}
                   </Link>
                   <p className="mt-1 truncate text-xs text-emerald-100/50">
-                    {node.publicIp ?? 'no public IP'} · {node.cleanup?.source ?? pendingReason}
+                    {node.publicIp ?? t('services.placement.noPublicIp')} · {node.cleanup?.source ?? pendingReason}
                   </p>
                 </div>
                 <StatusPill status={node.cleanup ? 'ok' : 'pending'} />
@@ -4589,26 +4613,27 @@ function SessionCleanupRolloutPanel({ nodes }: { nodes: SessionCleanupRolloutNod
 
               <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-emerald-100/60">
                 <div>
-                  <p className="text-emerald-100/35">Cleanup Window</p>
+                  <p className="text-emerald-100/35">{t('services.rollout.cleanupWindow')}</p>
                   <p className="mt-1 text-emerald-100">
-                    {timeoutSeconds ? formatDuration(timeoutSeconds) : 'pending'}
+                    {timeoutSeconds ? formatDuration(timeoutSeconds) : t('common.status.pending')}
                   </p>
                 </div>
                 <div>
-                  <p className="text-emerald-100/35">Active Sessions</p>
-                  <p className="mt-1 text-emerald-100">{node.activeSessions.toLocaleString()}</p>
+                  <p className="text-emerald-100/35">{t('services.rollout.activeSessions')}</p>
+                  <p className="mt-1 text-emerald-100">{formatNumber(node.activeSessions)}</p>
                 </div>
                 <div>
-                  <p className="text-emerald-100/35">Next Step</p>
+                  <p className="text-emerald-100/35">{t('services.rollout.nextStep')}</p>
                   <p className="mt-1 text-emerald-100">
-                    {node.cleanup ? 'monitor drain' : pendingReason}
+                    {node.cleanup ? t('services.rollout.monitorDrain') : pendingReason}
                   </p>
                 </div>
               </div>
 
               <p className="mt-3 text-xs leading-5 text-emerald-100/50">
-                Heartbeat {node.lastHeartbeat ? formatRelativeTime(node.lastHeartbeat) : 'pending'} ·
-                privacy boundary: cleanup policy metadata only, no payloads, DNS contents, destinations, or wallet-level traffic.
+                {t('services.rollout.cleanupFooter', {
+                  heartbeat: node.lastHeartbeat ? i18nRelativeTime(node.lastHeartbeat) : t('common.status.pending'),
+                })}
               </p>
             </div>
           );
@@ -4626,17 +4651,18 @@ function SessionCleanupRolloutPanel({ nodes }: { nodes: SessionCleanupRolloutNod
 }
 
 function PendingOperatorRolloutPanel({ nodes }: { nodes: PendingOperatorNode[] }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   if (nodes.length === 0) return null;
 
   return (
     <section className="mb-6 rounded-2xl border border-sky-500/20 bg-sky-500/[0.06] p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-sky-100">Operator Status Rollout Pending</h2>
+          <h2 className="text-lg font-semibold text-sky-100">{t('services.rollout.operatorPendingTitle')}</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-sky-100/70">
-            These privacy protocol nodes are healthy enough to heartbeat, but they are not reporting
-            <span className="font-mono"> system_stats.operator_status</span>. In production this usually means the Rust
-            binary has not been upgraded or the process has not restarted after the operator-status build.
+            {t('services.rollout.operatorPendingDescriptionPrefix')}
+            <span className="font-mono"> system_stats.operator_status</span>
+            {t('services.rollout.operatorPendingDescriptionSuffix')}
           </p>
         </div>
         <StatusPill status="info" />
@@ -4651,26 +4677,26 @@ function PendingOperatorRolloutPanel({ nodes }: { nodes: PendingOperatorNode[] }
                   {node.name}
                 </Link>
                 <p className="mt-1 truncate text-xs text-sky-100/50">
-                  {node.publicIp ?? 'no public IP'} · v{node.version}
+                  {node.publicIp ?? t('services.placement.noPublicIp')} · v{node.version}
                 </p>
               </div>
               <StatusPill status={node.healthStatus} />
             </div>
             <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-sky-100/60">
               <div>
-                <p className="text-sky-100/35">Active Sessions</p>
-                <p className="mt-1 text-sky-100">{node.activeSessions.toLocaleString()}</p>
+                <p className="text-sky-100/35">{t('services.rollout.activeSessions')}</p>
+                <p className="mt-1 text-sky-100">{formatNumber(node.activeSessions)}</p>
               </div>
               <div>
-                <p className="text-sky-100/35">Heartbeat</p>
+                <p className="text-sky-100/35">{t('services.rollout.heartbeat')}</p>
                 <p className="mt-1 text-sky-100">
-                  {node.lastHeartbeat ? formatRelativeTime(node.lastHeartbeat) : 'pending'}
+                  {node.lastHeartbeat ? i18nRelativeTime(node.lastHeartbeat) : t('common.status.pending')}
                 </p>
               </div>
               <div>
-                <p className="text-sky-100/35">Next Step</p>
+                <p className="text-sky-100/35">{t('services.rollout.nextStep')}</p>
                 <p className="mt-1 text-sky-100">
-                  {node.activeSessions > 0 ? 'drain first' : 'restart node'}
+                  {node.activeSessions > 0 ? t('services.rollout.drainFirst') : t('services.rollout.restartNode')}
                 </p>
               </div>
             </div>
@@ -5067,12 +5093,12 @@ export default function NodeServicesPage() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className={`text-lg font-semibold ${risks.length > 0 ? 'text-yellow-100' : 'text-white'}`}>
-                Service Risks
+                {t('services.risks.title')}
               </h2>
               <p className={`mt-1 text-sm ${risks.length > 0 ? 'text-yellow-100/65' : 'text-gray-400'}`}>
                 {risks.length > 0
-                  ? `${risks.length} service-layer risk(s) need attention.`
-                  : 'No service-layer risks are currently reported.'}
+                  ? t('services.risks.summary', { count: risks.length })
+                  : t('services.risks.empty')}
               </p>
             </div>
             <StatusPill status={risks.length > 0 ? 'warning' : 'ok'} />
@@ -5099,23 +5125,23 @@ export default function NodeServicesPage() {
         <>
           <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
             <div className="border-b border-white/10 px-5 py-4">
-              <h2 className="text-lg font-semibold text-white">Node Readiness</h2>
+              <h2 className="text-lg font-semibold text-white">{t('services.nodeReadiness.title')}</h2>
               <p className="mt-1 text-sm text-gray-400">
-                Per-node service readiness from Django overview snapshots and Rust operator heartbeats.
+                {t('services.nodeReadiness.description')}
               </p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1080px] text-left">
                 <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.12em] text-gray-500">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Node</th>
-                    <th className="px-4 py-3 font-medium">Privacy</th>
+                    <th className="px-4 py-3 font-medium">{t('services.nodeReadiness.node')}</th>
+                    <th className="px-4 py-3 font-medium">{t('services.nodeReadiness.privacy')}</th>
                     <th className="px-4 py-3 font-medium">MemChain</th>
                     <th className="px-4 py-3 font-medium">ChatRelay</th>
-                    <th className="px-4 py-3 font-medium">Data Layer</th>
-                    <th className="px-4 py-3 font-medium">Operator</th>
-                    <th className="px-4 py-3 font-medium">Rollout</th>
-                    <th className="px-4 py-3 font-medium">Heartbeat</th>
+                    <th className="px-4 py-3 font-medium">{t('services.nodeReadiness.dataLayer')}</th>
+                    <th className="px-4 py-3 font-medium">{t('services.nodeReadiness.operator')}</th>
+                    <th className="px-4 py-3 font-medium">{t('services.nodeReadiness.rollout')}</th>
+                    <th className="px-4 py-3 font-medium">{t('services.nodeReadiness.heartbeat')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -5124,7 +5150,7 @@ export default function NodeServicesPage() {
                   ) : (
                     <tr>
                       <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
-                        No nodes are reporting yet.
+                        {t('services.nodeReadiness.empty')}
                       </td>
                     </tr>
                   )}
