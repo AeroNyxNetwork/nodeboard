@@ -794,6 +794,9 @@ export interface VpnRestartReadinessBlockedNode {
  *   bandwidth_drop_bytes / bandwidth_limit_bytes_per_second /
  *   bandwidth_window_bytes are aggregate limiter fields produced by
  *   /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs.
+ *   recent_problem_nodes / historical_problem_nodes are backend-authored
+ *   current-impact classification from last_rejection_at, because Rust
+ *   counters are cumulative for the current process.
  *   problem_panel_summary and problem_nodes[].primary_action are
  *   backend-authored remediation metadata for the Services Policy Blocks panel.
  * Maintenance recovery source:
@@ -945,6 +948,9 @@ export interface VpnRestartReadinessSummary {
     problem_node_count: number;
     critical_nodes: number;
     warning_nodes: number;
+    recent_problem_nodes?: number;
+    historical_problem_nodes?: number;
+    recent_block_window_seconds?: number;
     label: string;
     risk: 'healthy' | 'warning' | 'critical' | 'info' | string;
     detail: string;
@@ -963,6 +969,9 @@ export interface VpnRestartReadinessSummary {
       total_blocks: number;
       last_rejection_reason: string | null;
       last_rejection_at: number | null;
+      last_rejection_age_seconds?: number | null;
+      recent_block_active?: boolean;
+      recent_block_window_seconds?: number;
       severity: 'warning' | 'critical' | string;
       next_step: string;
       primary_action?: {
@@ -983,6 +992,9 @@ export interface VpnRestartReadinessSummary {
       hidden_count: number;
       critical_nodes: number;
       warning_nodes: number;
+      recent_problem_nodes?: number;
+      historical_problem_nodes?: number;
+      recent_block_window_seconds?: number;
       maintenance_rejections: number;
       max_sessions_rejections: number;
       bandwidth_drops: number;

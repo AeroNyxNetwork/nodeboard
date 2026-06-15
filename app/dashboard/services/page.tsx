@@ -560,6 +560,11 @@ function formatFleetBytes(value: number | null | undefined) {
   return `${Math.round(value).toLocaleString()} B`;
 }
 
+function formatPolicyBlockAge(seconds: number | null | undefined) {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return 'no recent timestamp';
+  return `${formatDuration(seconds)} ago`;
+}
+
 function buildServiceViews(nodes: VpnNodeHealth[], statuses: NodeOperatorStatus[]): ServiceView[] {
   const privacyNodes = nodes.filter((node) => node.is_vpn_node);
   const healthyPrivacyNodes = privacyNodes.filter((node) => node.health_status === 'healthy');
@@ -2709,6 +2714,10 @@ function FleetRestartReadinessPanel({
           <p className="mt-1 text-xs leading-5 opacity-75">
             Dropped {formatFleetBytes(policyEnforcementHealth?.bandwidth_drop_bytes)}
           </p>
+          <p className="mt-1 text-xs leading-5 opacity-75">
+            Recent {(policyEnforcementHealth?.recent_problem_nodes ?? 0).toLocaleString()} ·
+            Historical {(policyEnforcementHealth?.historical_problem_nodes ?? 0).toLocaleString()}
+          </p>
         </div>
       </div>
 
@@ -2732,7 +2741,7 @@ function FleetRestartReadinessPanel({
             <StatusPill status={policyEnforcementHealth.problem_panel_summary?.risk ?? policyEnforcementHealth.risk} />
           </div>
           {policyEnforcementHealth.problem_panel_summary && (
-            <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-5">
+            <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-3 lg:grid-cols-6">
               <div>
                 <p className="uppercase tracking-[0.14em] text-yellow-100/35">Nodes</p>
                 <p className="mt-1 font-semibold text-yellow-100">{policyEnforcementHealth.problem_panel_summary.count.toLocaleString()}</p>
@@ -2755,6 +2764,18 @@ function FleetRestartReadinessPanel({
                   {formatFleetBytes(policyEnforcementHealth.problem_panel_summary.bandwidth_drop_bytes)}
                 </p>
               </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Recent</p>
+                <p className="mt-1 font-semibold text-yellow-100">
+                  {(policyEnforcementHealth.problem_panel_summary.recent_problem_nodes ?? 0).toLocaleString()}
+                </p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Historical</p>
+                <p className="mt-1 font-semibold text-yellow-100">
+                  {(policyEnforcementHealth.problem_panel_summary.historical_problem_nodes ?? 0).toLocaleString()}
+                </p>
+              </div>
             </div>
           )}
           <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
@@ -2765,7 +2786,7 @@ function FleetRestartReadinessPanel({
                     {node.name}
                   </Link>
                   <span className={`shrink-0 rounded-md border px-2 py-0.5 ${statusClass(node.severity)}`}>
-                    {node.severity}
+                    {node.recent_block_active ? node.severity : 'historical'}
                   </span>
                 </div>
                 <p className="mt-2 leading-5 text-yellow-100/60">
@@ -2778,8 +2799,15 @@ function FleetRestartReadinessPanel({
                 </p>
                 <p className="mt-1 leading-5 text-yellow-100/50">
                   Last reason {node.last_rejection_reason ?? 'policy_enforced'} ·
+                  last block {formatPolicyBlockAge(node.last_rejection_age_seconds)} ·
                   heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
                 </p>
+                {!node.recent_block_active && (
+                  <p className="mt-1 leading-5 text-sky-100/55">
+                    Historical only: no rejection in the last{' '}
+                    {formatDuration(node.recent_block_window_seconds ?? policyEnforcementHealth.recent_block_window_seconds ?? 3600)}.
+                  </p>
+                )}
                 <p className="mt-1 leading-5 text-yellow-100/50">{node.next_step}</p>
                 {node.primary_action && (
                   <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
