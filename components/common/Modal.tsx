@@ -13,6 +13,7 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { IconButton } from './Button';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | 'full';
 
@@ -57,6 +58,7 @@ export default function Modal({
   children,
   footer,
 }: ModalProps) {
+  const { t } = useI18n();
   const [mounted, setMounted] = useState(false);
 
   // Handle client-side mounting
@@ -120,7 +122,7 @@ export default function Modal({
             {showCloseButton && (
               <IconButton
                 icon={<CloseIcon />}
-                aria-label="Close modal"
+                aria-label={t('common.closeModal')}
                 onClick={onClose}
                 variant="ghost"
                 className="absolute top-4 right-4"
@@ -168,11 +170,12 @@ export function ConfirmDialog({
   onConfirm,
   title,
   message,
-  confirmText = 'Confirm',
-  cancelText = 'Cancel',
+  confirmText,
+  cancelText,
   variant = 'danger',
   isLoading = false,
 }: ConfirmDialogProps) {
+  const { t } = useI18n();
   const iconColors = {
     danger: 'text-red-400 bg-red-500/10',
     warning: 'text-yellow-400 bg-yellow-500/10',
@@ -225,7 +228,7 @@ export function ConfirmDialog({
             disabled={isLoading}
             className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-gray-300 hover:bg-white/5 transition-colors disabled:opacity-50"
           >
-            {cancelText}
+            {cancelText || t('common.cancel')}
           </button>
           <button
             onClick={handleConfirm}
@@ -238,7 +241,7 @@ export function ConfirmDialog({
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
             )}
-            {confirmText}
+            {confirmText || t('common.confirm')}
           </button>
         </div>
       </div>

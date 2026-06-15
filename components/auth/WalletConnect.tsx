@@ -43,6 +43,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { WalletProvider, WalletInfo } from '@/types';
 import Button from '@/components/common/Button';
 import Card from '@/components/common/Card';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 // ============================================
 // Wallet Configuration
@@ -145,6 +146,7 @@ type ConnectionStep = 'select' | 'connecting' | 'signing' | 'success' | 'error';
 // ============================================
 
 export default function WalletConnect() {
+  const { t } = useI18n();
   const [step, setStep] = useState<ConnectionStep>('select');
   const [selectedWallet, setSelectedWallet] = useState<WalletOption | null>(null);
   const [availableWallets, setAvailableWallets] = useState<Record<string, boolean>>({});
@@ -220,8 +222,8 @@ export default function WalletConnect() {
             className="space-y-4"
           >
             <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold text-white mb-2">Connect Wallet</h2>
-              <p className="text-gray-400">Choose your preferred wallet to continue</p>
+              <h2 className="text-2xl font-bold text-white mb-2">{t('auth.connectWallet.title')}</h2>
+              <p className="text-gray-400">{t('auth.connectWallet.subtitle')}</p>
             </div>
 
             <div className="space-y-3">
@@ -254,7 +256,7 @@ export default function WalletConnect() {
                           {wallet.chain}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-400">{wallet.description}</p>
+                      <p className="text-sm text-gray-400">{t(`auth.wallet.${wallet.id}.description`)}</p>
                     </div>
                     {!isAvailable && (
                       <a
@@ -264,7 +266,7 @@ export default function WalletConnect() {
                         onClick={(e) => e.stopPropagation()}
                         className="text-xs text-purple-400 hover:text-purple-300"
                       >
-                        Install
+                        {t('auth.connectWallet.install')}
                       </a>
                     )}
                   </motion.button>
@@ -295,12 +297,12 @@ export default function WalletConnect() {
                 {/* Status */}
                 <div className="space-y-2">
                   <h3 className="text-xl font-semibold text-white">
-                    {step === 'connecting' ? 'Connecting...' : 'Waiting for Signature'}
+                    {step === 'connecting' ? t('auth.connectWallet.connecting') : t('auth.connectWallet.waitingSignature')}
                   </h3>
                   <p className="text-sm text-gray-400">
                     {step === 'connecting'
-                      ? `Opening ${selectedWallet?.name}...`
-                      : 'Please sign the message in your wallet'
+                      ? t('auth.connectWallet.opening', { wallet: selectedWallet?.name || t('auth.connectWallet.wallet') })
+                      : t('auth.connectWallet.signMessage')
                     }
                   </p>
                 </div>
@@ -312,7 +314,7 @@ export default function WalletConnect() {
 
                 {/* Cancel Button */}
                 <Button variant="ghost" onClick={handleRetry} className="mt-4">
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
               </div>
             </Card>
@@ -338,13 +340,13 @@ export default function WalletConnect() {
 
                 {/* Error Message */}
                 <div className="space-y-2">
-                  <h3 className="text-xl font-semibold text-white">Connection Failed</h3>
-                  <p className="text-sm text-gray-400">{error || 'Something went wrong. Please try again.'}</p>
+                  <h3 className="text-xl font-semibold text-white">{t('auth.connectWallet.failed')}</h3>
+                  <p className="text-sm text-gray-400">{error || t('auth.connectWallet.genericError')}</p>
                 </div>
 
                 {/* Retry Button */}
                 <Button variant="primary" onClick={handleRetry} fullWidth>
-                  Try Again
+                  {t('auth.connectWallet.tryAgain')}
                 </Button>
               </div>
             </Card>
@@ -367,8 +369,8 @@ export default function WalletConnect() {
                   </svg>
                 </div>
                 <div className="space-y-2">
-                  <h3 className="text-xl font-semibold text-white">Connected!</h3>
-                  <p className="text-sm text-gray-400">Welcome to AeroNyx</p>
+                  <h3 className="text-xl font-semibold text-white">{t('auth.connectWallet.connected')}</h3>
+                  <p className="text-sm text-gray-400">{t('auth.connectWallet.welcome')}</p>
                 </div>
               </div>
             </Card>

@@ -38,6 +38,7 @@ import React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Logo from '@/components/common/Logo';
 import WalletConnect from '@/components/auth/WalletConnect';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 // ============================================
 // Props Interface
@@ -53,6 +54,7 @@ interface AuthModalProps {
 // ============================================
 
 export default function AuthModal({ isOpen }: AuthModalProps) {
+  const { t } = useI18n();
   return (
     <AnimatePresence>
       {isOpen && (
@@ -101,7 +103,7 @@ export default function AuthModal({ isOpen }: AuthModalProps) {
 
             {/* Footer Note */}
             <p className="mt-6 text-center text-xs text-gray-500">
-              Connect your wallet to access the AeroNyx dashboard
+              {t('auth.modal.footer')}
             </p>
           </motion.div>
         </motion.div>

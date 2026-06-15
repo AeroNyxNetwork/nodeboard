@@ -15,6 +15,7 @@ import Modal from '@/components/common/Modal';
 import Button from '@/components/common/Button';
 import { useGenerateCode, getCodeTimeRemaining } from '@/hooks/useRegistrationCodes';
 import { RegistrationCode } from '@/types';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 // ============================================
 // Props Interface
@@ -35,6 +36,7 @@ interface CountdownProps {
 }
 
 function Countdown({ expiresAt, onExpire }: CountdownProps) {
+  const { t } = useI18n();
   const [timeLeft, setTimeLeft] = useState(getCodeTimeRemaining(expiresAt));
 
   useEffect(() => {
@@ -52,7 +54,7 @@ function Countdown({ expiresAt, onExpire }: CountdownProps) {
   }, [expiresAt, onExpire]);
 
   if (timeLeft.isExpired) {
-    return <span className="text-red-400">Expired</span>;
+    return <span className="text-red-400">{t('codes.expired')}</span>;
   }
 
   return (
@@ -72,6 +74,7 @@ interface CodeDisplayProps {
 }
 
 function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
@@ -96,7 +99,7 @@ function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
           {/* Code Header */}
           <div className="flex items-center justify-between">
             <p className="text-xs text-gray-400 uppercase tracking-wider">
-              Registration Code
+              {t('codes.table.code')}
             </p>
             <div className="flex items-center gap-2 text-xs">
               <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -144,7 +147,7 @@ function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
 
       {/* Instructions */}
       <div className="space-y-3">
-        <h4 className="text-sm font-medium text-white">Setup Instructions</h4>
+        <h4 className="text-sm font-medium text-white">{t('addNode.setup.title')}</h4>
         
         <div className="space-y-2">
           <div className="flex items-start gap-3 p-3 rounded-lg bg-white/5">
@@ -152,7 +155,7 @@ function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
               1
             </span>
             <div className="text-sm text-gray-400">
-              Download and install the AeroNyx node software on your server
+              {t('addNode.setup.download')}
             </div>
           </div>
           
@@ -161,7 +164,7 @@ function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
               2
             </span>
             <div className="text-sm text-gray-400">
-              Run the setup command with your registration code:
+              {t('addNode.setup.runCommand')}
               <code className="block mt-2 px-3 py-2 rounded bg-black/30 text-purple-300 font-mono text-xs">
                 aeronyx-node bind --code {code.code}
               </code>
@@ -173,7 +176,7 @@ function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
               3
             </span>
             <div className="text-sm text-gray-400">
-              Your node will appear in the dashboard once successfully bound
+              {t('addNode.setup.bound')}
             </div>
           </div>
         </div>
@@ -185,7 +188,7 @@ function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
         </svg>
         <p className="text-sm text-yellow-200/80">
-          This code expires in 15 minutes. Generate a new code if this one expires before you can use it.
+          {t('addNode.warning.expires')}
         </p>
       </div>
     </div>
@@ -197,6 +200,7 @@ function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
 // ============================================
 
 export default function AddNodeModal({ isOpen, onClose }: AddNodeModalProps) {
+  const { t } = useI18n();
   const { generateCode, isLoading, reset } = useGenerateCode();
   const [activeCode, setActiveCode] = useState<RegistrationCode | null>(null);
 
@@ -227,8 +231,8 @@ export default function AddNodeModal({ isOpen, onClose }: AddNodeModalProps) {
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Add New Node"
-      description="Generate a registration code to bind a new node to your account"
+      title={t('addNode.title')}
+      description={t('addNode.description')}
       size="lg"
     >
       {!activeCode ? (
@@ -252,8 +256,7 @@ export default function AddNodeModal({ isOpen, onClose }: AddNodeModalProps) {
           {/* Info */}
           <div className="text-center space-y-2">
             <p className="text-gray-400">
-              Generate a unique registration code to bind your node to this account.
-              The code will be valid for 15 minutes.
+              {t('addNode.intro')}
             </p>
           </div>
 
@@ -265,7 +268,7 @@ export default function AddNodeModal({ isOpen, onClose }: AddNodeModalProps) {
             onClick={handleGenerate}
             isLoading={isLoading}
           >
-            Generate Registration Code
+            {t('codes.generate.button')}
           </Button>
         </div>
       ) : (
