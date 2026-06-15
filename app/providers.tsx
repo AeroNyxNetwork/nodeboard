@@ -4,7 +4,8 @@
  * ============================================
  * File Path: app/providers.tsx
  * 
- * Last Modified: v1.0.1 - Fixed re-render issues
+ * Last Modified: v1.1.0 - Added nodeboard i18n provider
+ * Previous: v1.0.1 - Fixed re-render issues
  * ============================================
  */
 
@@ -13,6 +14,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
+import { I18nProvider } from '@/lib/i18n/I18nProvider';
 
 // ============================================
 // Create QueryClient outside component to prevent re-creation
@@ -90,9 +92,11 @@ export function Providers({ children }: ProvidersProps) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthInitializer>
-        {children}
-      </AuthInitializer>
+      <I18nProvider>
+        <AuthInitializer>
+          {children}
+        </AuthInitializer>
+      </I18nProvider>
     </QueryClientProvider>
   );
 }

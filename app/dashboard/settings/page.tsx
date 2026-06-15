@@ -38,7 +38,8 @@
  *   contents, traffic destinations, domains, URLs, browsing history, voucher
  *   secrets, wallet-level traffic, or plaintext social graph data.
  *
- * Last Modified: v1.6.1 - Control plane runtime panel
+ * Last Modified: v1.6.2 - Added dashboard language selector
+ * Previous: v1.6.1 - Control plane runtime panel
  * ============================================
  */
 
@@ -59,6 +60,8 @@ import {
 import { formatRelativeTime } from '@/lib/api';
 import Card, { EmptyState, LoadingCard } from '@/components/common/Card';
 import Button from '@/components/common/Button';
+import LanguageSelector from '@/components/common/LanguageSelector';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 const DEFAULT_POLICY = {
   node_tier: 'public' as NodeTier,
@@ -200,6 +203,23 @@ function RuntimeValue({
       <p className="text-[11px] uppercase text-gray-600">{label}</p>
       <p className={`mt-1 truncate text-sm text-gray-200 ${mono ? 'font-mono' : ''}`}>{value}</p>
     </div>
+  );
+}
+
+function LanguageSettingsPanel() {
+  const { t } = useI18n();
+  return (
+    <Card variant="default" padding="md">
+      <div className="grid gap-4 lg:grid-cols-[1fr_320px] lg:items-start">
+        <div>
+          <h2 className="text-base font-semibold text-white">{t('settings.languageTitle')}</h2>
+          <p className="mt-1 text-sm leading-6 text-gray-500">
+            {t('settings.languageDescription')}
+          </p>
+        </div>
+        <LanguageSelector showHelper />
+      </div>
+    </Card>
   );
 }
 
@@ -884,6 +904,7 @@ function FleetPresets({
 }
 
 export default function SettingsPage() {
+  const { t } = useI18n();
   const { nodes, isLoading, isError, error, refetch } = useNodes();
   const { overview, refetch: refetchVpnOverview } = useVpnOverview();
   const updateNode = useUpdateNode();
@@ -998,9 +1019,9 @@ export default function SettingsPage() {
     return (
       <EmptyState
         icon={<SettingsIcon />}
-        title="Settings Unavailable"
-        description={error?.message || 'Unable to load node settings.'}
-        action={<Button variant="secondary" onClick={() => refetch()}>Retry</Button>}
+        title={t('settings.unavailableTitle')}
+        description={error?.message || t('settings.unavailableDescription')}
+        action={<Button variant="secondary" onClick={() => refetch()}>{t('common.retry')}</Button>}
       />
     );
   }
@@ -1009,8 +1030,8 @@ export default function SettingsPage() {
     return (
       <EmptyState
         icon={<SettingsIcon />}
-        title="No Nodes"
-        description="Node settings will appear after a node is registered."
+        title={t('settings.noNodesTitle')}
+        description={t('settings.noNodesDescription')}
       />
     );
   }
@@ -1019,8 +1040,8 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Settings</h1>
-          <p className="text-sm text-gray-500 mt-1">Commercial VPN placement and policy per node</p>
+          <h1 className="text-2xl font-bold text-white">{t('settings.title')}</h1>
+          <p className="text-sm text-gray-500 mt-1">{t('settings.subtitle')}</p>
         </div>
         {message && (
           <div className={`text-sm ${messageTone === 'success' ? 'text-emerald-300' : 'text-red-300'}`}>
@@ -1028,6 +1049,8 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      <LanguageSettingsPanel />
 
       <ControlPlaneRuntimePanel />
 

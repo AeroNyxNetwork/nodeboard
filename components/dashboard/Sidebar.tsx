@@ -6,6 +6,7 @@
  *
  * Creation Reason: Main navigation sidebar for the dashboard layout.
  * Modification Reason:
+ *   v1.6.0 - Added i18n navigation labels and compact language selector.
  *   v1.5.1 - Removed public discovery nav entry to keep nodeboard
  *     focused on VPN operator management.
  *   v1.0.2 - Removed framer-motion, fixed store subscription
@@ -30,7 +31,8 @@
  *   - Mobile overlay click calls onClose to collapse the sidebar
  *   - Do NOT add auth guard here — AuthModal in layout handles that
  *
- * Last Modified: v1.5.1 - Removed public discovery nav item
+ * Last Modified: v1.6.0 - Added i18n navigation labels
+ * Previous: v1.5.1 - Removed public discovery nav item
  * Previous: v1.0.2 - Removed framer-motion, fixed store subscription
  * ============================================
  */
@@ -44,20 +46,22 @@ import { useAuthStore } from '@/stores/authStore';
 import Logo from '@/components/common/Logo';
 import { CopyButton } from '@/components/common/Button';
 import { truncateAddress } from '@/lib/api';
+import LanguageSelector from '@/components/common/LanguageSelector';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 // ============================================
 // Navigation Items
 // ============================================
 
 interface NavItem {
-  label: string;
+  labelKey: string;
   href: string;
   icon: React.ReactNode;
 }
 
 const navItems: NavItem[] = [
   {
-    label: 'Overview',
+    labelKey: 'nav.overview',
     href: '/dashboard',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -66,7 +70,7 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    label: 'Services',
+    labelKey: 'nav.services',
     href: '/dashboard/services',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -75,7 +79,7 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    label: 'Nodes',
+    labelKey: 'nav.nodes',
     href: '/dashboard/nodes',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -84,7 +88,7 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    label: 'Registration Codes',
+    labelKey: 'nav.codes',
     href: '/dashboard/codes',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -93,7 +97,7 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    label: 'Sessions',
+    labelKey: 'nav.sessions',
     href: '/dashboard/sessions',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -102,7 +106,7 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    label: 'Traffic & Billing',
+    labelKey: 'nav.billing',
     href: '/dashboard/billing',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -111,7 +115,7 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    label: 'Alerts / Events',
+    labelKey: 'nav.events',
     href: '/dashboard/events',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -120,7 +124,7 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    label: 'Settings',
+    labelKey: 'nav.settings',
     href: '/dashboard/settings',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -147,6 +151,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const walletAddress = useAuthStore((state) => state.walletAddress);
   const walletType = useAuthStore((state) => state.walletType);
   const logout = useAuthStore((state) => state.logout);
+  const { t } = useI18n();
 
   const handleLogout = useCallback(() => {
     logout();
@@ -216,7 +221,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                 <span className={isActive ? 'text-purple-400' : ''}>
                   {item.icon}
                 </span>
-                <span className="font-medium">{item.label}</span>
+                <span className="font-medium">{t(item.labelKey)}</span>
 
                 {isActive && (
                   <div className="ml-auto w-1.5 h-1.5 rounded-full bg-purple-400" />
@@ -232,10 +237,10 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           <div className="mb-4 p-4 rounded-xl bg-white/5 border border-white/10">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-gray-500 uppercase tracking-wider">
-                Connected Wallet
+                {t('common.connectedWallet')}
               </span>
               <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300">
-                {walletType || 'N/A'}
+                {walletType || t('common.notAvailable')}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -261,12 +266,13 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
-            <span className="font-medium">Disconnect</span>
+            <span className="font-medium">{t('common.disconnect')}</span>
           </button>
         </div>
 
         {/* Version */}
-        <div className="px-6 pb-4">
+        <div className="space-y-3 px-6 pb-4">
+          <LanguageSelector compact />
           <p className="text-xs text-gray-600 text-center">
             Privacy Network v1.4.0
           </p>

@@ -285,6 +285,7 @@ import Link from 'next/link';
 import { useCancelNodeCommand, useRunNodeCommand, useUpdateNode, useVpnOverview, useVpnServers } from '@/hooks/useNodes';
 import { formatDuration, formatRelativeTime } from '@/lib/api';
 import { POLLING_INTERVALS } from '@/lib/constants';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 import {
   NodeOperatorStatus,
   OperatorRisk,
@@ -2154,9 +2155,12 @@ function buildRestartActionQueues(
 
 function StatusPill({ status }: { status: string }) {
   const normalized = normalizeStatus(status);
+  const { t } = useI18n();
+  const key = `common.status.${normalized}`;
+  const translated = t(key);
   return (
     <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${statusClass(normalized)}`}>
-      {normalized.replaceAll('_', ' ')}
+      {translated === key ? normalized.replaceAll('_', ' ') : translated}
     </span>
   );
 }
@@ -2167,26 +2171,26 @@ function PageHeader({
   refreshIntervalMs,
   onRefresh,
 }: PageHeaderProps) {
+  const { t } = useI18n();
   return (
     <div className="mb-8 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
       <div>
         <p className="text-sm font-medium uppercase tracking-[0.18em] text-emerald-300">
-          Node Operator Console
+          {t('services.pageEyebrow')}
         </p>
-        <h1 className="mt-2 text-2xl font-bold text-white">AeroNyx Service Readiness</h1>
+        <h1 className="mt-2 text-2xl font-bold text-white">{t('services.pageTitle')}</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-400">
-          Privacy Protocol transport, MemChain memory, encrypted relay, sovereign data RPC,
-          and SuperNode worker status from signed Rust heartbeats.
+          {t('services.pageDescription')}
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">
           <span className="inline-flex items-center rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2 py-1 text-emerald-200">
-            Live refresh {formatRefreshInterval(refreshIntervalMs)}
+            {t('services.liveRefresh', { interval: formatRefreshInterval(refreshIntervalMs) })}
           </span>
           <span className="rounded-md border border-white/10 px-2 py-1">
             {isFetching ? 'updating backend overview' : formatDataUpdatedAt(dataUpdatedAt)}
           </span>
           <span className="rounded-md border border-white/10 px-2 py-1">
-            API GET /api/privacy_network/vpn/overview/
+            {t('services.apiOverview')}
           </span>
         </div>
       </div>
@@ -2197,13 +2201,13 @@ function PageHeader({
           disabled={isFetching}
           className="inline-flex items-center justify-center rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-200 transition hover:border-white/20 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isFetching ? 'Refreshing' : 'Refresh now'}
+          {isFetching ? t('common.refreshing') : t('common.refreshNow')}
         </button>
         <Link
           href="/dashboard/nodes"
           className="inline-flex items-center justify-center rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-200 transition hover:border-white/20 hover:bg-white/5"
         >
-          Manage nodes
+          {t('common.manageNodes')}
         </Link>
       </div>
     </div>
@@ -2549,6 +2553,7 @@ function DetailModulesPanel({
   riskCount: number;
   nodeCount: number;
 }) {
+  const { t, formatNumber } = useI18n();
   const modules: Array<{
     key: ServiceDetailSection;
     label: string;
@@ -2559,42 +2564,42 @@ function DetailModulesPanel({
   }> = [
     {
       key: 'placement',
-      label: 'Client Placement',
-      eyebrow: 'capacity',
-      count: `${placementAvailable.toLocaleString()} / ${placementTotal.toLocaleString()}`,
-      detail: 'Placement capacity, unavailable reasons, region and tier groups.',
+      label: t('services.modules.placement.label'),
+      eyebrow: t('services.modules.placement.eyebrow'),
+      count: `${formatNumber(placementAvailable)} / ${formatNumber(placementTotal)}`,
+      detail: t('services.modules.placement.detail'),
       status: placementAvailable > 0 ? 'ok' : 'warning',
     },
     {
       key: 'restart',
-      label: 'Restart & Rollout',
-      eyebrow: 'operations',
-      count: (restartAttention + rolloutAttention).toLocaleString(),
-      detail: 'Restart gates, drain risk, command delivery, Rust rollout gaps.',
+      label: t('services.modules.restart.label'),
+      eyebrow: t('services.modules.restart.eyebrow'),
+      count: formatNumber(restartAttention + rolloutAttention),
+      detail: t('services.modules.restart.detail'),
       status: restartAttention + rolloutAttention > 0 ? 'warning' : 'ok',
     },
     {
       key: 'layers',
-      label: 'Service Layers',
-      eyebrow: 'signals',
-      count: serviceCount.toLocaleString(),
-      detail: 'Privacy Protocol, MemChain, ChatRelay, data layer, and operator heartbeat.',
+      label: t('services.modules.layers.label'),
+      eyebrow: t('services.modules.layers.eyebrow'),
+      count: formatNumber(serviceCount),
+      detail: t('services.modules.layers.detail'),
       status: serviceCount > 0 ? 'ok' : 'pending',
     },
     {
       key: 'risks',
-      label: 'Service Risks',
-      eyebrow: 'alerts',
-      count: riskCount.toLocaleString(),
-      detail: 'Degraded service-layer risks and remediation notes.',
+      label: t('services.modules.risks.label'),
+      eyebrow: t('services.modules.risks.eyebrow'),
+      count: formatNumber(riskCount),
+      detail: t('services.modules.risks.detail'),
       status: riskCount > 0 ? 'warning' : 'ok',
     },
     {
       key: 'nodes',
-      label: 'Node Readiness',
-      eyebrow: 'table',
-      count: nodeCount.toLocaleString(),
-      detail: 'Full per-node readiness table and service cards.',
+      label: t('services.modules.nodes.label'),
+      eyebrow: t('services.modules.nodes.eyebrow'),
+      count: formatNumber(nodeCount),
+      detail: t('services.modules.nodes.detail'),
       status: nodeCount > 0 ? 'info' : 'pending',
     },
   ];
@@ -2603,9 +2608,9 @@ function DetailModulesPanel({
     <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-white">Detail Modules</h2>
+          <h2 className="text-lg font-semibold text-white">{t('services.detailModules.title')}</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-400">
-            Open secondary reports only when you need placement, rollout, policy, or node-level diagnostics.
+            {t('services.detailModules.description')}
           </p>
         </div>
         {activeSection && (
@@ -2614,7 +2619,7 @@ function DetailModulesPanel({
             onClick={() => onSelect(null)}
             className="inline-flex items-center justify-center rounded-lg border border-white/10 px-3 py-2 text-xs font-medium text-gray-200 transition hover:border-white/20 hover:bg-white/5"
           >
-            Collapse details
+            {t('common.collapseDetails')}
           </button>
         )}
       </div>
@@ -4724,6 +4729,7 @@ function NodeDetailCard({ node }: { node: VpnNodeHealth }) {
 }
 
 export default function NodeServicesPage() {
+  const { t } = useI18n();
   const refreshIntervalMs = POLLING_INTERVALS.SERVICE_READINESS;
   const {
     overview,
@@ -4922,15 +4928,15 @@ export default function NodeServicesPage() {
           onRefresh={handleRefresh}
         />
         <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-6">
-          <h2 className="text-lg font-semibold text-red-200">Service data unavailable</h2>
+          <h2 className="text-lg font-semibold text-red-200">{t('services.dataUnavailableTitle')}</h2>
           <p className="mt-2 text-sm text-red-100/70">
-            The operator console could not load service overview data from the backend.
+            {t('services.dataUnavailableDescription')}
           </p>
           <button
             onClick={handleRefresh}
             className="mt-4 rounded-lg border border-red-300/20 px-4 py-2 text-sm font-medium text-red-100 hover:bg-red-400/10"
           >
-            Retry
+            {t('common.retry')}
           </button>
         </div>
       </div>
@@ -5007,11 +5013,11 @@ export default function NodeServicesPage() {
           <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-white">Operator Signal</h2>
+                <h2 className="text-lg font-semibold text-white">{t('services.operatorSignal.title')}</h2>
                 <p className="mt-1 text-sm text-gray-400">
                   {operatorStatuses.length > 0
-                    ? `${operatorStatuses.length} node(s) reporting operator_status through signed Rust heartbeat`
-                    : 'Waiting for system_stats.operator_status from Rust heartbeats'}
+                    ? t('services.operatorSignal.reporting', { count: operatorStatuses.length })
+                    : t('services.operatorSignal.waiting')}
                 </p>
               </div>
               <StatusPill status={operatorStatuses.length > 0 ? 'ok' : 'pending'} />
@@ -5115,9 +5121,9 @@ export default function NodeServicesPage() {
         <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-white">Details collapsed</h2>
+              <h2 className="text-lg font-semibold text-white">{t('services.detailModules.collapsedTitle')}</h2>
               <p className="mt-1 text-sm leading-6 text-gray-400">
-                Select a detail module above to inspect placement, rollout, service-layer, risk, or node-table diagnostics.
+                {t('services.detailModules.collapsedDescription')}
               </p>
             </div>
             <StatusPill status="info" />
