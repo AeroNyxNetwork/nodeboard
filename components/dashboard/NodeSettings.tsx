@@ -47,7 +47,9 @@
  *       a) visibility is password_protected, AND
  *       b) the user has typed something in the password field
  *     Leaving the field blank = keep existing password (omit the key)
- *     Clicking "Clear Password" = send "" to clear it
+ *     Leaving password_protected = send "" to clear the stale hash
+ *     Backend rejects password_protected + access_password="" so operators
+ *     cannot leave a node password-protected with no usable password.
  *   - region_code is validated client-side (2 uppercase letters)
  *     Backend also validates — error will surface in errorMsg
  *   - NODE_VISIBILITY_CONFIG keys must match NodeVisibility type
@@ -57,7 +59,8 @@
  *     fields. 0 means unlimited/local default and is passed through exactly
  *     so the Rust node policy can enforce the same value nodeboard displays.
  *
- * Last Modified: v1.4.2 - Added commercial capacity policy controls
+ * Last Modified: v1.4.3 - Prevent password-protected nodes with empty passwords
+ * Previous: v1.4.2 - Added commercial capacity policy controls
  * Previous: v1.4.1 - Documented backend API and Rust policy consumers
  * ============================================
  */
@@ -231,9 +234,12 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
   }, [markDirty]);
 
   const handleClearPassword = useCallback(() => {
+    setVisibility('private');
     setPassword('');
     markDirty();
-    // Will send "" in payload to clear the hash
+    // Save will send access_password="" because visibility leaves
+    // password_protected, clearing the stored hash without leaving the node in
+    // an impossible password-protected/no-password state.
   }, [markDirty]);
 
   // ── Client-side validation ────────────────────────────────────────────────
@@ -264,7 +270,7 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
     //   a) password_protected AND user typed a new password → set it
     //   b) user explicitly cleared password (we send "")
     //   c) visibility changed AWAY from password_protected with existing password:
-    //      don't clear — password is preserved silently (backend behavior)
+    //      clear the hash so stale secrets are not kept after protection ends
     const payload: NodeUpdateRequest = {
       visibility,
       region_code: regionCode,
@@ -279,9 +285,9 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
         payload.access_password = password;
       }
       // else: leave key out → existing password unchanged
+    } else if (node.visibility === 'password_protected' && node.has_access_password) {
+      payload.access_password = '';
     }
-    // "Clear password" button sets password to special sentinel:
-    // We handle this via explicit button click in UI below
 
     try {
       await updateNode.mutateAsync({ nodeId: node.id, data: payload });
@@ -296,13 +302,13 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
     }
   }, [
     validate, visibility, regionCode, city, isVpnNode, maxSessions, bandwidthLimitMbps,
-    password, node.id, updateNode, onToast, onSaved,
+    password, node.id, node.visibility, node.has_access_password, updateNode, onToast, onSaved,
   ]);
 
   const handleClearPasswordAndSave = useCallback(async () => {
     setErrorMsg('');
     const payload: NodeUpdateRequest = {
-      visibility,
+      visibility: 'private',
       region_code: regionCode,
       city,
       is_vpn_node: isVpnNode,
@@ -314,7 +320,8 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
       await updateNode.mutateAsync({ nodeId: node.id, data: payload });
       setPassword('');
       setIsDirty(false);
-      onToast('Password cleared.');
+      setVisibility('private');
+      onToast('Password protection removed.');
       onSaved();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to clear password.';
@@ -322,7 +329,7 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
       onToast(msg, 'error');
     }
   }, [
-    visibility, regionCode, city, isVpnNode, maxSessions, bandwidthLimitMbps,
+    regionCode, city, isVpnNode, maxSessions, bandwidthLimitMbps,
     node.id, updateNode, onToast, onSaved,
   ]);
 
@@ -584,7 +591,7 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
 
         {/* ── Actions ──────────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between pt-2 border-t border-white/5">
-          {/* Clear password shortcut (only when password_protected + has existing password) */}
+          {/* Remove protection by switching to private and clearing the stale hash. */}
           {visibility === 'password_protected' && node.has_access_password && password === '' && (
             <button
               type="button"
@@ -592,7 +599,7 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
               disabled={isSaving}
               className="text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-40"
             >
-              Clear existing password
+              Remove password protection
             </button>
           )}
           <div className="ml-auto flex items-center gap-3">
