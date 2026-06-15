@@ -2764,6 +2764,31 @@ function FleetRestartReadinessPanel({
             </div>
             <StatusPill status={runtimeCapability.problemPanelSummary?.risk ?? runtimeCapability.risk} />
           </div>
+          {runtimeCapability.problemPanelSummary && (
+            <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-4">
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Gaps</p>
+                <p className="mt-1 font-semibold text-yellow-100">{runtimeCapability.problemPanelSummary.count.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Shown</p>
+                <p className="mt-1 font-semibold text-yellow-100">
+                  {runtimeCapability.problemPanelSummary.visible_count.toLocaleString()}
+                  {runtimeCapability.problemPanelSummary.hidden_count > 0
+                    ? ` / +${runtimeCapability.problemPanelSummary.hidden_count.toLocaleString()} hidden`
+                    : ''}
+                </p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Safe Upgrade</p>
+                <p className="mt-1 font-semibold text-yellow-100">{runtimeCapability.problemPanelSummary.safe_to_upgrade_nodes.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Blocked</p>
+                <p className="mt-1 font-semibold text-yellow-100">{runtimeCapability.problemPanelSummary.blocked_upgrade_nodes.toLocaleString()}</p>
+              </div>
+            </div>
+          )}
           <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
             {runtimeCapability.problemNodes.map((node) => (
               <div key={node.id} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
@@ -2809,9 +2834,18 @@ function FleetRestartReadinessPanel({
                 )}
                 <p className="mt-1 leading-5 text-yellow-100/50">{node.recommended_action}</p>
                 {node.primary_action && (
-                  <p className="mt-1 leading-5 text-yellow-100/45">
-                    Primary action {node.primary_action.label} · {node.primary_action.detail}
-                  </p>
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="leading-5 text-yellow-100/45">
+                      Primary action {node.primary_action.label} · {node.primary_action.detail}
+                    </p>
+                    {/* Backend primary_action.intent owns the remediation; nodeboard only maps it to a route. */}
+                    <Link
+                      href={runtimeCapabilityActionHref(node)}
+                      className="inline-flex shrink-0 items-center justify-center rounded-md border border-yellow-100/20 px-2.5 py-1.5 font-medium text-yellow-100 transition hover:border-yellow-100/40 hover:bg-yellow-100/10"
+                    >
+                      {node.primary_action.label}
+                    </Link>
+                  </div>
                 )}
               </div>
             ))}
