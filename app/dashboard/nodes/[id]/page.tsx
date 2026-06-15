@@ -79,6 +79,10 @@
  *     activity_health is backend-authored drain risk triage for operators.
  *     cleanup_policy_pending means Rust has not reported
  *     heartbeat.system_stats.vpn_health.session_cleanup yet.
+ *     data.nodes[].system.source tells the page whether node-level policy
+ *     and health counters came from fresh Redis heartbeat cache or durable
+ *     NodeHeartbeat sample fallback, so commercial operators do not confuse
+ *     stale audit counters with live enforcement impact.
  *     data.nodes[].system.policy_enforcement includes Rust node_policy
  *     aggregate bandwidth_drop_bytes / bandwidth_limit_bytes_per_second /
  *     bandwidth_window_bytes for commercial limiter diagnostics.
@@ -131,7 +135,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.17 - Add commercial readiness panel
+ * Last Modified: v1.6.18 - Show node telemetry source quality
+ * Previous: v1.6.17 - Add commercial readiness panel
  * Previous: v1.6.16 - Render backend recommended operator actions
  * Previous: v1.6.15 - Add operator action contextual controls
  * Previous: v1.6.14 - Show backend operator action plan
@@ -736,6 +741,26 @@ function sessionCapacityValue(activeSessions: number, maxSessions: number, remai
   return `${activeSessions} / unlimited`;
 }
 
+function telemetrySourceLabel(source: string | null | undefined) {
+  if (source === 'cache') return 'fresh heartbeat';
+  if (source === 'sample') return 'sample fallback';
+  if (!source || source === 'missing') return 'missing telemetry';
+  return source.replace(/_/g, ' ');
+}
+
+function telemetrySourceClass(source: string | null | undefined) {
+  if (source === 'cache') return 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300';
+  if (source === 'sample') return 'border-sky-500/25 bg-sky-500/10 text-sky-300';
+  return 'border-yellow-500/25 bg-yellow-500/10 text-yellow-300';
+}
+
+function telemetrySourceDetail(source: string | null | undefined, lastSeenSeconds: number | null | undefined) {
+  const age = typeof lastSeenSeconds === 'number' ? `${formatDuration(lastSeenSeconds)} ago` : 'pending';
+  if (source === 'cache') return `Live heartbeat cache, last seen ${age}.`;
+  if (source === 'sample') return `Durable sample fallback, last seen ${age}. Treat counters as audit-grade until fresh heartbeat returns.`;
+  return 'Heartbeat telemetry is missing; verify backend ingestion before changing commercial placement.';
+}
+
 /**
  * Commercial client-placement decision view.
  *
@@ -797,6 +822,7 @@ function CommercialReadinessPanel({
     : placementNextAction(server.unavailable_reason);
   const limitBps = bandwidthLimitBps(health.bandwidth_limit_mbps);
   const nearBandwidthCap = limitBps > 0 && typeof peakBps === 'number' && peakBps >= limitBps * 0.9;
+  const telemetrySource = health.system.source || 'missing';
 
   return (
     <div className={`mt-5 rounded-xl border p-4 ${readinessToneClass(status)}`}>
@@ -812,11 +838,17 @@ function CommercialReadinessPanel({
                 failover rank {server.failover_rank ?? '-'}
               </span>
             ) : null}
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${telemetrySourceClass(telemetrySource)}`}>
+              {telemetrySourceLabel(telemetrySource)}
+            </span>
           </div>
           <p className="mt-1 text-xs leading-5 text-gray-500">
             {server?.available
               ? `Clients can receive ${server.address || 'hidden'}:${server.port} when policy counters stay clear.`
               : `Hidden from client placement: ${formatPlacementReason(placementReason)}.`}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-gray-600">
+            Policy telemetry: {telemetrySourceDetail(telemetrySource, health.last_seen_seconds)}
           </p>
         </div>
         <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-400 lg:max-w-md">
@@ -1340,6 +1372,7 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
       ? 'border-yellow-500/25 bg-yellow-500/10 text-yellow-300'
       : 'border-gray-500/25 bg-gray-500/10 text-gray-300';
   const mismatched = policySync?.mismatched_fields?.map((field) => field.replace(/_/g, ' ')).join(', ') || '';
+  const telemetrySource = health.system.source || 'missing';
 
   return (
     <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.02] p-4">
@@ -1350,8 +1383,13 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
             Node-local policy counters from signed heartbeat health.
           </p>
         </div>
-        <div className={total > 0 ? 'text-sm font-semibold text-yellow-300' : 'text-sm font-semibold text-emerald-300'}>
-          {total} blocked
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${telemetrySourceClass(telemetrySource)}`}>
+            {telemetrySourceLabel(telemetrySource)}
+          </span>
+          <span className={total > 0 ? 'text-sm font-semibold text-yellow-300' : 'text-sm font-semibold text-emerald-300'}>
+            {total} blocked
+          </span>
         </div>
       </div>
 
@@ -1370,6 +1408,11 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
         {mismatched ? (
           <p className="mt-1 text-xs opacity-80">Pending fields: {mismatched}</p>
         ) : null}
+      </div>
+
+      <div className={`mb-3 rounded-lg border px-3 py-2 text-xs ${telemetrySourceClass(telemetrySource)}`}>
+        <p className="font-semibold uppercase">Telemetry Source: {telemetrySourceLabel(telemetrySource)}</p>
+        <p className="mt-1 opacity-80">{telemetrySourceDetail(telemetrySource, health.last_seen_seconds)}</p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1398,7 +1441,7 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
       </div>
 
       <div className="mt-3 rounded-lg border border-white/5 bg-black/20 px-3 py-2">
-        <div className="grid gap-2 sm:grid-cols-3 text-xs">
+        <div className="grid gap-2 sm:grid-cols-4 text-xs">
           <div>
             <p className="text-gray-600">Limiter Snapshot</p>
             <p className="mt-0.5 text-gray-300">
@@ -1408,6 +1451,10 @@ function PolicyEnforcementPanel({ health }: { health: VpnNodeHealth }) {
           <div>
             <p className="text-gray-600">Current Window</p>
             <p className="mt-0.5 text-gray-300">{formatBytes(bandwidthWindowBytes)}</p>
+          </div>
+          <div>
+            <p className="text-gray-600">Telemetry</p>
+            <p className="mt-0.5 text-gray-300">{telemetrySourceLabel(telemetrySource)}</p>
           </div>
           <div>
             <p className="text-gray-600">Rust Source</p>

@@ -27,6 +27,9 @@
  *     Provides data.nodes[].system.session_cleanup for drain timeout context.
  *     Provides data.nodes[].system.restart_readiness for controlled restart
  *     gate decisions shared by node detail and services fleet views.
+ *     Provides data.nodes[].system.source so node detail can label live
+ *     heartbeat cache versus durable sample fallback for node-level policy
+ *     and health counters.
  *     Provides data.summary.restart_readiness for owner-scoped fleet restart
  *     readiness monitoring, including blocked node drain/command status and
  *     backend-authored recommended_action plus drain_activity buckets.
@@ -169,7 +172,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.46 - Documented policy telemetry source quality
+ * Last Modified: v1.1.47 - Documented node heartbeat source quality
+ * Previous: v1.1.46 - Documented policy telemetry source quality
  * Previous: v1.1.45 - Documented recent policy block classification
  * Previous: v1.1.44 - Documented fleet bandwidth limiter bytes
  * Previous: v1.1.43 - Documented services placement capacity
@@ -251,6 +255,11 @@ const healthPayload = {
       endpoint: 'data.nodes[].system.restart_readiness',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Backend-authoritative controlled restart gate for node detail and services fleet views',
+    },
+    {
+      endpoint: 'data.nodes[].system.source',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Node-level telemetry source quality for node detail Commercial Readiness and Policy Enforcement, distinguishing fresh Redis heartbeat cache from durable NodeHeartbeat sample fallback',
     },
     {
       endpoint: 'data.nodes[].last_seen_seconds + data.nodes[].system.restart_readiness.operator_reporting',

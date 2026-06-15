@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.10 - Documented node heartbeat source quality.
  *   v1.5.9 - Added policy enforcement telemetry source quality fields.
  *   v1.5.8 - Added fleet policy enforcement health summary types.
  *   v1.5.7 - Added fleet policy sync health summary types.
@@ -49,7 +50,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.9 - Added policy enforcement telemetry source quality
+ * Last Modified: v1.5.10 - Documented node heartbeat source quality
+ * Previous: v1.5.9 - Added policy enforcement telemetry source quality
  * Previous: v1.5.8 - Added fleet policy enforcement health summary
  * Previous: v1.5.7 - Added fleet policy sync health summary
  * Previous: v1.5.6 - Documented commercial capacity policy fields
@@ -1394,6 +1396,19 @@ export interface VpnNodeHealth {
   traffic_in_mb: number;
   traffic_out_mb: number;
   system: {
+    /**
+     * Backend API:
+     *   GET /api/privacy_network/vpn/overview/
+     * Backend file:
+     *   /root/aeronyx/privacy_network/api/vpn_observability.py
+     *
+     * cache  = fresh Redis heartbeat cache from signed Rust heartbeat.
+     * sample = durable NodeHeartbeat fallback used for audit/history when
+     *          cache is unavailable.
+     *
+     * Node detail and Services use this to avoid treating fallback policy
+     * counters as live commercial enforcement impact.
+     */
     source: 'cache' | 'sample' | string | null;
     cpu_usage: number | null;
     memory_mb: number | null;
