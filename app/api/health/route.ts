@@ -59,6 +59,8 @@
  *     Includes telemetry_source_counts / telemetry_source_summary so Services
  *     can show whether policy counters came from fresh heartbeat cache,
  *     durable sample fallback, or missing heartbeat telemetry.
+ *     Includes counter_scope_started_at_min / counter_scope_started_at_max so
+ *     Services can show fleet Rust process-local counter scope.
  *     problem_panel_summary and problem_nodes[].primary_action are
  *     backend-authored remediation metadata for policy blocks.
  *     Provides data.summary.restart_readiness.drain_activity_health_counts
@@ -177,7 +179,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.49 - Documented Rust policy counter scope
+ * Last Modified: v1.1.50 - Documented fleet policy counter scope
+ * Previous: v1.1.49 - Documented Rust policy counter scope
  * Previous: v1.1.48 - Documented node policy block impact fields
  * Previous: v1.1.47 - Documented node heartbeat source quality
  * Previous: v1.1.46 - Documented policy telemetry source quality
@@ -341,7 +344,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.policy_enforcement_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level Rust node_policy enforcement counter summary for maintenance_rejections/max_sessions_rejections/bandwidth_drops plus aggregate bandwidth_drop_bytes/bandwidth_limit_bytes_per_second/bandwidth_window_bytes, recent_problem_nodes/historical_problem_nodes current-impact classification, telemetry_source_counts/telemetry_source_summary freshness quality, problem_panel_summary, and capped problem_nodes[].primary_action triage',
+      purpose: 'Fleet-level Rust node_policy enforcement counter summary for maintenance_rejections/max_sessions_rejections/bandwidth_drops plus aggregate bandwidth_drop_bytes/bandwidth_limit_bytes_per_second/bandwidth_window_bytes, recent_problem_nodes/historical_problem_nodes current-impact classification, telemetry_source_counts/telemetry_source_summary freshness quality, counter_scope_started_at_min/counter_scope_started_at_max Rust process counter scope, problem_panel_summary, and capped problem_nodes[].primary_action triage',
     },
     {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',

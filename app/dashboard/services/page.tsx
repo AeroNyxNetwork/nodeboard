@@ -110,6 +110,8 @@
  *     and problem_nodes[].primary_action drive the Policy Blocks panel.
  *     telemetry_source_counts / telemetry_source_summary show whether the
  *     counters are fresh heartbeat cache, durable sample fallback, or missing.
+ *     counter_scope_started_at_min / counter_scope_started_at_max summarize
+ *     Rust process-local counter age across the fleet.
  *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
@@ -179,7 +181,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.52 - Show policy telemetry source quality
+ * Last Modified: v1.1.53 - Show fleet policy counter scope
+ * Previous: v1.1.52 - Show policy telemetry source quality
  * Previous: v1.1.51 - Show fleet bandwidth limiter bytes
  * Previous: v1.1.50 - Link rollout blockers to active sessions
  * Previous: v1.1.49 - Add drain age chips
@@ -566,6 +569,11 @@ function formatFleetBytes(value: number | null | undefined) {
 function formatPolicyBlockAge(seconds: number | null | undefined) {
   if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return 'no recent timestamp';
   return `${formatDuration(seconds)} ago`;
+}
+
+function formatUnixSecondsRelative(seconds: number | null | undefined) {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return 'pending';
+  return formatRelativeTime(new Date(seconds * 1000).toISOString());
 }
 
 function telemetrySourceLabel(source: string | null | undefined) {
@@ -2733,6 +2741,10 @@ function FleetRestartReadinessPanel({
             Fallback {(policyEnforcementHealth?.telemetry_source_counts?.sample ?? 0).toLocaleString()} ·
             Missing {(policyEnforcementHealth?.telemetry_source_counts?.missing ?? 0).toLocaleString()}
           </p>
+          <p className="mt-1 text-xs leading-5 opacity-75">
+            Scope oldest {formatUnixSecondsRelative(policyEnforcementHealth?.counter_scope_started_at_min)} ·
+            newest {formatUnixSecondsRelative(policyEnforcementHealth?.counter_scope_started_at_max)}
+          </p>
         </div>
       </div>
 
@@ -2776,7 +2788,7 @@ function FleetRestartReadinessPanel({
             </div>
           )}
           {policyEnforcementHealth.problem_panel_summary && (
-            <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-3 lg:grid-cols-6">
+            <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-3 lg:grid-cols-7">
               <div>
                 <p className="uppercase tracking-[0.14em] text-yellow-100/35">Nodes</p>
                 <p className="mt-1 font-semibold text-yellow-100">{policyEnforcementHealth.problem_panel_summary.count.toLocaleString()}</p>
@@ -2811,6 +2823,18 @@ function FleetRestartReadinessPanel({
                   {(policyEnforcementHealth.problem_panel_summary.historical_problem_nodes ?? 0).toLocaleString()}
                 </p>
               </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Scope Nodes</p>
+                <p className="mt-1 font-semibold text-yellow-100">
+                  {(policyEnforcementHealth.problem_panel_summary.counter_scope_reporting_nodes ?? 0).toLocaleString()}
+                </p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Oldest Scope</p>
+                <p className="mt-1 font-semibold text-yellow-100">
+                  {formatUnixSecondsRelative(policyEnforcementHealth.problem_panel_summary.counter_scope_started_at_min)}
+                </p>
+              </div>
             </div>
           )}
           <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
@@ -2838,7 +2862,8 @@ function FleetRestartReadinessPanel({
                   heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
                 </p>
                 <p className="mt-1 leading-5 text-yellow-100/45">
-                  Telemetry source {telemetrySourceLabel(node.telemetry_source)}.
+                  Telemetry source {telemetrySourceLabel(node.telemetry_source)} ·
+                  counter scope {formatUnixSecondsRelative(node.counters_started_at)}.
                 </p>
                 {!node.recent_block_active && (
                   <p className="mt-1 leading-5 text-sky-100/55">
