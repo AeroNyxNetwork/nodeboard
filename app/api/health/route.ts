@@ -82,6 +82,9 @@
  *     data.nodes[].system.restart_readiness.drain_eta.cutover_guard so
  *     operators see backend-authored upgrade safety before restarting a Rust
  *     placement rollout target.
+ *     The cutover safety panel links to
+ *     /dashboard/sessions?node={id}&status=active&quality=all and the local
+ *     #maintenance-drain section for follow-up actions.
  *     Includes rust_placement_rollout_summary so Services can show backend
  *     coverage guidance for runtime-owned admission rollout.
  *     Includes rust_placement_rollout_summary.missing_node_list so Services
@@ -204,7 +207,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.60 - Documented placement rollout cutover safety
+ * Last Modified: v1.1.61 - Documented placement rollout action links
+ * Previous: v1.1.60 - Documented placement rollout cutover safety
  * Previous: v1.1.59 - Documented placement readiness durable fallback
  * Previous: v1.1.58 - Documented node detail Rust placement admission
  * Previous: v1.1.57 - Documented Rust placement rollout restart safety
@@ -399,7 +403,7 @@ const healthPayload = {
     {
       endpoint: 'data.nodes[].system.restart_readiness.drain_eta.cutover_guard',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Backend-authored node detail upgrade/restart safety shown beside missing Rust placement_readiness so operators do not restart a placement rollout target while active sessions or cleanup-policy gaps make cutover unsafe',
+      purpose: 'Backend-authored node detail upgrade/restart safety shown beside missing Rust placement_readiness so operators do not restart a placement rollout target while active sessions or cleanup-policy gaps make cutover unsafe; node detail links this state to /dashboard/sessions?node={id}&status=active&quality=all and #maintenance-drain for follow-up',
     },
     {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',

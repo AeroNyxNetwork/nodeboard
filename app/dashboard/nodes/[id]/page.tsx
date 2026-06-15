@@ -98,6 +98,10 @@
  *     so Rust Admission can show whether a placement_readiness rollout target
  *     may be safely upgraded/restarted now without React guessing cutover
  *     safety from active-session counts.
+ *     The same cutover guard panel links to
+ *     /dashboard/sessions?node={id}&status=active&quality=all and the local
+ *     #maintenance-drain section so operators can follow backend next_step
+ *     guidance without hunting through the page.
  *   - GET /api/privacy_network/vpn/servers/
  *     /root/aeronyx/privacy_network/api/vpn_servers.py
  *     Exposes per-node placement eligibility, capacity_remaining,
@@ -148,7 +152,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.22 - Show placement rollout cutover safety
+ * Last Modified: v1.6.23 - Add placement rollout action links
+ * Previous: v1.6.22 - Show placement rollout cutover safety
  * Previous: v1.6.21 - Show Rust placement admission readiness
  * Previous: v1.6.20 - Show Rust policy counter scope
  * Previous: v1.6.19 - Show node policy block current impact
@@ -919,6 +924,7 @@ function CommercialReadinessPanel({
   const placementReadiness = health.system.placement_readiness ?? null;
   const placementRolloutPending = !placementReadiness?.reported;
   const placementCutoverGuard = health.system.restart_readiness?.drain_eta?.cutover_guard ?? null;
+  const placementSessionsHref = `/dashboard/sessions?node=${encodeURIComponent(health.id)}&status=active&quality=all`;
   const rustAdmissionAttention = Boolean(
     placementReadiness?.reported
     && (!placementReadiness.accepting_new_sessions || placementReadiness.status === 'watch')
@@ -1111,6 +1117,20 @@ function CommercialReadinessPanel({
                 Forced impact: {placementCutoverGuard.user_impact_if_forced}
               </p>
             )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <a
+                href={placementSessionsHref}
+                className="inline-flex items-center justify-center rounded-lg border border-sky-400/20 bg-sky-400/[0.08] px-3 py-1.5 text-xs font-medium text-sky-200 transition-colors hover:bg-sky-400/[0.12]"
+              >
+                Open active sessions
+              </a>
+              <a
+                href="#maintenance-drain"
+                className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-gray-300 transition-colors hover:bg-white/[0.08]"
+              >
+                Maintenance drain
+              </a>
+            </div>
             <p className="mt-2 break-words text-[10px] leading-4 opacity-45">
               Source: GET /api/privacy_network/vpn/overview/ -&gt; data.nodes[].system.restart_readiness.drain_eta.cutover_guard
             </p>
@@ -2402,7 +2422,7 @@ function MaintenanceDrainPanel({
   };
 
   return (
-    <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.02] p-4">
+    <div id="maintenance-drain" className="mt-5 scroll-mt-6 rounded-xl border border-white/5 bg-white/[0.02] p-4">
       <div className="mb-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
         <div>
           <h4 className="text-sm font-semibold text-white">Maintenance Drain</h4>
