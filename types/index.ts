@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.22 - Documented durable placement readiness fallback.
  *   v1.5.21 - Added node-level Rust placement readiness snapshot.
  *   v1.5.20 - Added restart safety to Rust placement rollout targets.
  *   v1.5.19 - Added Rust placement rollout missing node list.
@@ -61,7 +62,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.21 - Added node-level Rust placement readiness snapshot
+ * Last Modified: v1.5.22 - Documented durable placement readiness fallback
+ * Previous: v1.5.21 - Added node-level Rust placement readiness snapshot
  * Previous: v1.5.20 - Added restart safety to Rust placement rollout targets
  * Previous: v1.5.19 - Added Rust placement rollout missing node list
  * Previous: v1.5.18 - Added Rust placement rollout summary
@@ -1581,15 +1583,19 @@ export interface NodeboardHealthRuntime {
  *   GET /api/privacy_network/vpn/overview/
  * Backend file:
  *   /root/aeronyx/privacy_network/api/vpn_observability.py
+ * Durable heartbeat fallback:
+ *   /root/aeronyx/privacy_network/services/heartbeat_service.py
+ *   Node.hardware_info["vpn_health"].placement_readiness
  * Rust producer files:
  *   /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
  *
  * This is the Rust process-owned admission snapshot for commercial placement.
- * The backend maps heartbeat.system_stats.vpn_health.placement_readiness to
- * data.nodes[].system.placement_readiness without exposing client public IPs,
- * destinations, DNS contents, packet payloads, domains, URLs, browsing
- * history, voucher secrets, or wallet-level traffic.
+ * The backend maps heartbeat.system_stats.vpn_health.placement_readiness first
+ * and falls back to the durable Node.hardware_info["vpn_health"] snapshot when
+ * heartbeat cache/sample payloads do not carry the nested field. Neither path
+ * exposes client public IPs, destinations, DNS contents, packet payloads,
+ * domains, URLs, browsing history, voucher secrets, or wallet-level traffic.
  */
 export interface VpnPlacementReadiness {
   reported: boolean;

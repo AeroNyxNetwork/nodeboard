@@ -75,6 +75,9 @@
  *     Includes Rust runtime data.nodes[].system.placement_readiness from
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *     and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
+ *     Falls back to durable Node.hardware_info["vpn_health"] written by
+ *     /root/aeronyx/privacy_network/services/heartbeat_service.py when live
+ *     heartbeat cache/sample payloads omit system_stats.vpn_health.
  *     Includes rust_placement_rollout_summary so Services can show backend
  *     coverage guidance for runtime-owned admission rollout.
  *     Includes rust_placement_rollout_summary.missing_node_list so Services
@@ -197,7 +200,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.58 - Documented node detail Rust placement admission
+ * Last Modified: v1.1.59 - Documented placement readiness durable fallback
+ * Previous: v1.1.58 - Documented node detail Rust placement admission
  * Previous: v1.1.57 - Documented Rust placement rollout restart safety
  * Previous: v1.1.56 - Documented Rust placement rollout missing nodes
  * Previous: v1.1.55 - Documented Rust placement rollout summary
@@ -380,7 +384,12 @@ const healthPayload = {
     {
       endpoint: 'data.nodes[].system.placement_readiness',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Node detail and Services mapped Rust runtime admission snapshot from /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs, including accepting_new_sessions, reason, session capacity, traffic_capacity_status, and bandwidth window coverage for commercial placement triage',
+      purpose: 'Node detail and Services mapped Rust runtime admission snapshot from /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs, with durable fallback from /root/aeronyx/privacy_network/services/heartbeat_service.py Node.hardware_info["vpn_health"].placement_readiness; includes accepting_new_sessions, reason, session capacity, traffic_capacity_status, and bandwidth window coverage for commercial placement triage',
+    },
+    {
+      endpoint: 'Node.hardware_info["vpn_health"].placement_readiness',
+      file: '/root/aeronyx/privacy_network/services/heartbeat_service.py',
+      purpose: 'Durable sanitized Rust placement_readiness snapshot used by backend /api/privacy_network/vpn/overview/ when live heartbeat cache or durable sample payloads omit system_stats.vpn_health during mixed Rust rollouts',
     },
     {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',
