@@ -951,6 +951,7 @@ function formatDrainStatus(status: string | undefined) {
 }
 
 function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; tone?: 'yellow' | 'neutral' }) {
+  const { t, formatNumber } = useI18n();
   const activeSessions = Math.max(0, eta.active_sessions ?? 0);
   const recentSessions = Math.max(0, eta.recent_activity_sessions ?? 0);
   const idleSessions = Math.max(0, eta.idle_activity_sessions ?? 0);
@@ -997,8 +998,8 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3 text-xs">
-        <span className={mutedClass}>Client RX composition</span>
-        <span className={textClass}>{activeSessions.toLocaleString()} active session{activeSessions === 1 ? '' : 's'}</span>
+        <span className={mutedClass}>{t('services.drain.clientRxComposition')}</span>
+        <span className={textClass}>{t('services.drain.activeSessions', { count: formatNumber(activeSessions) })}</span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-black/35">
         {segments.length === 0 ? (
@@ -1018,39 +1019,41 @@ function DrainComposition({ eta, tone = 'yellow' }: { eta: VpnRestartDrainEta; t
       </div>
       <div className="flex flex-wrap gap-2 text-[11px]">
         <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
-          {recentClientRxSessions.toLocaleString()} client RX recent
+          {t('services.drain.clientRxRecentCount', { count: formatNumber(recentClientRxSessions) })}
         </span>
         <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
-          {staleClientRxSessions.toLocaleString()} client RX stale
+          {t('services.drain.clientRxStaleCount', { count: formatNumber(staleClientRxSessions) })}
         </span>
         <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
-          {neverClientRxSessions.toLocaleString()} never RX
+          {t('services.drain.neverRxCount', { count: formatNumber(neverClientRxSessions) })}
         </span>
         <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
-          {pendingSessions.toLocaleString()} pending
+          {t('services.drain.pendingCount', { count: formatNumber(pendingSessions) })}
         </span>
         <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
-          {keepaliveIssueSessions.toLocaleString()} keepalive issue
+          {t('services.drain.keepaliveIssueCount', { count: formatNumber(keepaliveIssueSessions) })}
         </span>
         {eta.oldest_started_at && (
           <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
-            oldest {formatRelativeTime(eta.oldest_started_at)}
+            {t('services.drain.oldest', { time: formatRelativeTime(eta.oldest_started_at) })}
           </span>
         )}
         {eta.latest_activity_at && (
           <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
-            runtime latest {formatRelativeTime(eta.latest_activity_at)}
+            {t('services.drain.runtimeLatest', { time: formatRelativeTime(eta.latest_activity_at) })}
           </span>
         )}
         {eta.latest_client_rx_at && (
           <span className={`rounded-md border px-2 py-1 ${chipClass}`}>
-            client RX {formatRelativeTime(eta.latest_client_rx_at)}
+            {t('services.drain.clientRxTime', { time: formatRelativeTime(eta.latest_client_rx_at) })}
           </span>
         )}
       </div>
       <p className={`text-[11px] leading-5 ${mutedClass}`}>
-        Client RX window {formatDuration(eta.activity_window_seconds || 180)}
-        {typeof eta.estimated_seconds_remaining === 'number' ? ` · cleanup in ${formatDuration(Math.max(0, eta.estimated_seconds_remaining))}` : ''}
+        {t('services.drain.clientRxWindow', { duration: formatDuration(eta.activity_window_seconds || 180) })}
+        {typeof eta.estimated_seconds_remaining === 'number'
+          ? ` - ${t('services.drain.cleanupIn', { duration: formatDuration(Math.max(0, eta.estimated_seconds_remaining)) })}`
+          : ''}
       </p>
     </div>
   );
@@ -1063,7 +1066,7 @@ function drainGatePanelClass(risk: string | undefined) {
   return 'border-sky-200/15 bg-sky-200/[0.04]';
 }
 
-function clientRxGateCopy(eta: VpnRestartDrainEta) {
+function clientRxGateCopy(eta: VpnRestartDrainEta, t: ServicesTranslateFn, formatNumber: (value: number) => string) {
   const guard = eta.cutover_guard ?? null;
   const active = Math.max(0, eta.active_sessions ?? 0);
   const recent = Math.max(0, eta.recent_client_rx_sessions ?? eta.recent_activity_sessions ?? 0);
@@ -1086,8 +1089,8 @@ function clientRxGateCopy(eta: VpnRestartDrainEta) {
 
   if (active === 0) {
     return {
-      title: 'Client RX gate clear',
-      detail: 'No active client sessions are blocking this runtime change.',
+      title: t('services.drain.gateClear'),
+      detail: t('services.drain.gateClearDetail'),
       nextStep: eta.next_step,
       risk: health?.risk ?? 'healthy',
       status: health?.status ?? eta.status,
@@ -1098,8 +1101,14 @@ function clientRxGateCopy(eta: VpnRestartDrainEta) {
 
   if (health?.status === 'client_rx_stale' || stale + never > 0) {
     return {
-      title: health?.label ?? 'Client RX gate blocked',
-      detail: `${recent.toLocaleString()}/${active.toLocaleString()} active session${active === 1 ? '' : 's'} received client traffic inside ${windowLabel}; ${stale.toLocaleString()} stale and ${never.toLocaleString()} never reported client RX.`,
+      title: health?.label ?? t('services.drain.gateBlocked'),
+      detail: t('services.drain.gateBlockedDetail', {
+        recent: formatNumber(recent),
+        active: formatNumber(active),
+        window: windowLabel,
+        stale: formatNumber(stale),
+        never: formatNumber(never),
+      }),
       nextStep: health?.detail ?? eta.next_step,
       risk: health?.risk ?? 'warning',
       status: health?.status ?? eta.status,
@@ -1109,8 +1118,11 @@ function clientRxGateCopy(eta: VpnRestartDrainEta) {
   }
 
   return {
-    title: health?.label ?? 'Client RX gate passing',
-    detail: `All ${active.toLocaleString()} active session${active === 1 ? '' : 's'} have recent client RX inside ${windowLabel}.`,
+    title: health?.label ?? t('services.drain.gatePassing'),
+    detail: t('services.drain.gatePassingDetail', {
+      active: formatNumber(active),
+      window: windowLabel,
+    }),
     nextStep: health?.detail ?? eta.next_step,
     risk: health?.risk ?? 'healthy',
     status: health?.status ?? eta.status,
@@ -1120,13 +1132,14 @@ function clientRxGateCopy(eta: VpnRestartDrainEta) {
 }
 
 function RuntimeDrainGatePanel({ eta }: { eta: VpnRestartDrainEta }) {
-  const gate = clientRxGateCopy(eta);
+  const { t, formatNumber } = useI18n();
+  const gate = clientRxGateCopy(eta, t, formatNumber);
 
   return (
     <div className={`mt-3 rounded-lg border p-3 ${drainGatePanelClass(gate.risk)}`}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-yellow-100/45">Client RX Restart Gate</p>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-yellow-100/45">{t('services.drain.restartGate')}</p>
           <p className="mt-1 text-sm font-semibold text-yellow-100">{gate.title}</p>
           <p className="mt-1 text-xs leading-5 text-yellow-100/60">{gate.detail}</p>
         </div>
@@ -1137,29 +1150,31 @@ function RuntimeDrainGatePanel({ eta }: { eta: VpnRestartDrainEta }) {
       </div>
       <div className="mt-3 grid gap-2 text-xs text-yellow-100/60 sm:grid-cols-2 xl:grid-cols-4">
         <div>
-          <p className="text-yellow-100/35">Cutover Status</p>
+          <p className="text-yellow-100/35">{t('services.drain.cutoverStatus')}</p>
           <p className="mt-1 text-yellow-100">{gate.status.replaceAll('_', ' ')}</p>
         </div>
         <div>
-          <p className="text-yellow-100/35">Safe Cutover</p>
-          <p className="mt-1 text-yellow-100">{gate.safeToCutover ? 'yes' : 'no'}</p>
+          <p className="text-yellow-100/35">{t('services.drain.safeCutover')}</p>
+          <p className="mt-1 text-yellow-100">{gate.safeToCutover ? t('common.yes') : t('common.no')}</p>
         </div>
         <div>
-          <p className="text-yellow-100/35">Restart ETA</p>
+          <p className="text-yellow-100/35">{t('services.drain.restartEta')}</p>
           <p className="mt-1 text-yellow-100">
             {eta.estimated_seconds_remaining === null
-              ? 'pending'
+              ? t('common.status.pending')
               : formatDuration(eta.estimated_seconds_remaining)}
           </p>
         </div>
         <div>
-          <p className="text-yellow-100/35">Forced Impact</p>
+          <p className="text-yellow-100/35">{t('services.drain.forcedImpact')}</p>
           <p className="mt-1 text-yellow-100">{gate.forcedImpact.replaceAll('_', ' ')}</p>
         </div>
       </div>
       <p className="mt-2 text-xs leading-5 text-yellow-100/45">
-        Keepalive totals: {(eta.keepalive_missed_total ?? 0).toLocaleString()} missed · {(eta.keepalive_pending_total ?? 0).toLocaleString()} pending.
-        Source: data.nodes[].system.restart_readiness.drain_eta.cutover_guard from /root/aeronyx/privacy_network/api/vpn_observability.py.
+        {t('services.drain.keepaliveTotals', {
+          missed: formatNumber(eta.keepalive_missed_total ?? 0),
+          pending: formatNumber(eta.keepalive_pending_total ?? 0),
+        })}
       </p>
       {gate.nextStep && (
         <p className="mt-3 text-xs leading-5 text-yellow-100/55">{gate.nextStep}</p>
@@ -1272,40 +1287,41 @@ function RolloutGateStrip({ node }: { node: RuntimeRolloutNode }) {
 }
 
 function RolloutImpactCallout({ node }: { node: RuntimeRolloutNode }) {
+  const { t, formatNumber } = useI18n();
   const failedDnsCheck = node.dnsChecks.find((check) => !check.ok);
   const hasDnsGatewayBlocker = Boolean(failedDnsCheck);
   const restartWindowOpen = node.maintenanceMode && node.activeSessions === 0;
   const impactStatus = restartWindowOpen ? 'ready' : 'blocked';
   const primaryDetail = hasDnsGatewayBlocker
-    ? 'Restart applies the staged Rust binary that provides the gateway DNS listener required for client placement.'
-    : 'Restart applies the staged Rust binary and refreshes runtime health reported through signed heartbeats.';
+    ? t('services.rollout.restartImpactDns')
+    : t('services.rollout.restartImpactDefault');
   const nextStep = restartWindowOpen
-    ? 'Restart window open: queue restart_service from nodeboard or start the systemd-managed process.'
+    ? t('services.rollout.restartWindowOpen')
     : node.activeSessions > 0
-      ? `Drain ${node.activeSessions.toLocaleString()} active session${node.activeSessions === 1 ? '' : 's'} before restarting.`
+      ? t('services.rollout.drainActiveBeforeRestart', { count: formatNumber(node.activeSessions) })
       : !node.maintenanceMode
-        ? 'Enable maintenance mode before restarting.'
-        : 'Wait for backend restart readiness to become ready.';
+        ? t('services.rollout.enableMaintenanceBeforeRestart')
+        : t('services.rollout.waitRestartReadiness');
 
   return (
     <div className="mt-3 rounded-lg border border-yellow-100/10 bg-yellow-100/[0.04] p-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-yellow-100/45">Restart Impact</p>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-yellow-100/45">{t('services.rollout.restartImpact')}</p>
           <p className="mt-1 text-sm leading-6 text-yellow-100">{primaryDetail}</p>
         </div>
         <StatusPill status={impactStatus} />
       </div>
       <p className="mt-2 text-xs leading-5 text-yellow-100/55">
         {nextStep}
-        {failedDnsCheck ? ` Current DNS blocker: ${failedDnsCheck.name.replaceAll('_', ' ')}.` : ''}
+        {failedDnsCheck ? ` ${t('services.rollout.currentDnsBlocker', { name: failedDnsCheck.name.replaceAll('_', ' ') })}` : ''}
       </p>
       {node.activeSessions > 0 && (
         <Link
           href={`/dashboard/sessions?node=${node.id}&status=active&quality=all`}
           className="mt-3 inline-flex items-center justify-center rounded-lg border border-yellow-100/15 px-3 py-1.5 text-xs font-medium text-yellow-100 transition hover:border-yellow-100/30 hover:bg-yellow-100/[0.06]"
         >
-          Open active sessions
+          {t('nodeDetail.maintenance.openActiveSessions')}
         </Link>
       )}
     </div>
@@ -3482,12 +3498,6 @@ function FleetRestartReadinessPanel({
               </div>
             ))}
           </div>
-          <p className="mt-3 text-xs leading-5 text-sky-100/45">
-            Backend contract: GET /api/privacy_network/vpn/overview/ exposes
-            data.summary.restart_readiness.commercial_placement_health from
-            /root/aeronyx/privacy_network/api/vpn_observability.py. The backend combines
-            data.nodes[], policy_sync_health, and policy_enforcement_health; nodeboard does not infer paid-placement policy.
-          </p>
         </div>
       ) : null}
 
@@ -3496,11 +3506,11 @@ function FleetRestartReadinessPanel({
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h3 className="text-sm font-semibold text-yellow-100">
-                {policyEnforcementHealth.problem_panel_summary?.label ?? 'Policy Blocks'}
+                {policyEnforcementHealth.problem_panel_summary?.label ?? t('services.commercial.policyBlocks')}
               </h3>
               <p className="mt-1 text-xs leading-5 text-yellow-100/60">
                 {policyEnforcementHealth.problem_panel_summary?.detail
-                  ?? 'Rust node_policy is actively blocking handshakes or packets. Confirm whether this is expected protection or a commercial capacity shortage.'}
+                  ?? t('services.restartReadiness.policyBlocksFallback')}
               </p>
               {policyEnforcementHealth.problem_panel_summary?.next_step && (
                 <p className="mt-1 text-xs leading-5 text-yellow-100/50">
@@ -3555,12 +3565,16 @@ function FleetRestartReadinessPanel({
               <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="font-semibold text-yellow-100">
-                    Main policy reason: {policyEnforcementHealth.dominant_block_reason.label}
+                    {t('services.restartReadiness.mainPolicyReason', {
+                      reason: policyEnforcementHealth.dominant_block_reason.label,
+                    })}
                   </p>
                   <p className="mt-1 leading-5 text-yellow-100/55">
-                    {policyEnforcementHealth.dominant_block_reason.count.toLocaleString()} blocks ·
-                    {policyEnforcementHealth.dominant_block_reason.share_percent.toFixed(1)}% ·
-                    {policyEnforcementHealth.dominant_block_reason.detail}
+                    {t('services.restartReadiness.mainPolicyReasonDetail', {
+                      count: formatNumber(policyEnforcementHealth.dominant_block_reason.count),
+                      share: policyEnforcementHealth.dominant_block_reason.share_percent.toFixed(1),
+                      detail: policyEnforcementHealth.dominant_block_reason.detail,
+                    })}
                   </p>
                 </div>
                 <span className="shrink-0 rounded-md border border-white/10 px-2 py-0.5 text-yellow-100/70">
@@ -3575,47 +3589,47 @@ function FleetRestartReadinessPanel({
           {policyEnforcementHealth.problem_panel_summary && (
             <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-3 lg:grid-cols-7">
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Nodes</p>
-                <p className="mt-1 font-semibold text-yellow-100">{policyEnforcementHealth.problem_panel_summary.count.toLocaleString()}</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.restartReadiness.nodesLabel')}</p>
+                <p className="mt-1 font-semibold text-yellow-100">{formatNumber(policyEnforcementHealth.problem_panel_summary.count)}</p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Critical</p>
-                <p className="mt-1 font-semibold text-yellow-100">{policyEnforcementHealth.problem_panel_summary.critical_nodes.toLocaleString()}</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('common.status.critical')}</p>
+                <p className="mt-1 font-semibold text-yellow-100">{formatNumber(policyEnforcementHealth.problem_panel_summary.critical_nodes)}</p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Max Sessions</p>
-                <p className="mt-1 font-semibold text-yellow-100">{policyEnforcementHealth.problem_panel_summary.max_sessions_rejections.toLocaleString()}</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.restartReadiness.maxSessions')}</p>
+                <p className="mt-1 font-semibold text-yellow-100">{formatNumber(policyEnforcementHealth.problem_panel_summary.max_sessions_rejections)}</p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Bandwidth</p>
-                <p className="mt-1 font-semibold text-yellow-100">{policyEnforcementHealth.problem_panel_summary.bandwidth_drops.toLocaleString()}</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.restartReadiness.bandwidth')}</p>
+                <p className="mt-1 font-semibold text-yellow-100">{formatNumber(policyEnforcementHealth.problem_panel_summary.bandwidth_drops)}</p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Dropped Bytes</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.restartReadiness.droppedBytes')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">
                   {formatFleetBytes(policyEnforcementHealth.problem_panel_summary.bandwidth_drop_bytes)}
                 </p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Recent</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.restartReadiness.recent')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">
-                  {(policyEnforcementHealth.problem_panel_summary.recent_problem_nodes ?? 0).toLocaleString()}
+                  {formatNumber(policyEnforcementHealth.problem_panel_summary.recent_problem_nodes ?? 0)}
                 </p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Historical</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.restartReadiness.historical')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">
-                  {(policyEnforcementHealth.problem_panel_summary.historical_problem_nodes ?? 0).toLocaleString()}
+                  {formatNumber(policyEnforcementHealth.problem_panel_summary.historical_problem_nodes ?? 0)}
                 </p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Scope Nodes</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.restartReadiness.scopeNodes')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">
-                  {(policyEnforcementHealth.problem_panel_summary.counter_scope_reporting_nodes ?? 0).toLocaleString()}
+                  {formatNumber(policyEnforcementHealth.problem_panel_summary.counter_scope_reporting_nodes ?? 0)}
                 </p>
               </div>
               <div>
-                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Oldest Scope</p>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">{t('services.restartReadiness.oldestScope')}</p>
                 <p className="mt-1 font-semibold text-yellow-100">
                   {formatUnixSecondsRelative(policyEnforcementHealth.problem_panel_summary.counter_scope_started_at_min)}
                 </p>
@@ -3634,33 +3648,49 @@ function FleetRestartReadinessPanel({
                   </span>
                 </div>
                 <p className="mt-2 leading-5 text-yellow-100/60">
-                  Total {node.total_blocks.toLocaleString()} · maintenance {node.maintenance_rejections.toLocaleString()} ·
-                  max sessions {node.max_sessions_rejections.toLocaleString()} · bandwidth {node.bandwidth_drops.toLocaleString()}
+                  {t('services.restartReadiness.policyNodeTotals', {
+                    total: formatNumber(node.total_blocks),
+                    maintenance: formatNumber(node.maintenance_rejections),
+                    sessions: formatNumber(node.max_sessions_rejections),
+                    bandwidth: formatNumber(node.bandwidth_drops),
+                  })}
                 </p>
                 <p className="mt-1 leading-5 text-yellow-100/50">
-                  Dropped {formatFleetBytes(node.bandwidth_drop_bytes)} · limiter window{' '}
-                  {formatFleetBytes(node.bandwidth_window_bytes)}
+                  {t('services.restartReadiness.policyNodeDropped', {
+                    dropped: formatFleetBytes(node.bandwidth_drop_bytes),
+                    window: formatFleetBytes(node.bandwidth_window_bytes),
+                  })}
                 </p>
                 <p className="mt-1 leading-5 text-yellow-100/50">
-                  Last reason {node.last_rejection_reason ?? 'policy_enforced'} ·
-                  last block {formatPolicyBlockAge(node.last_rejection_age_seconds)} ·
-                  heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
+                  {t('services.restartReadiness.policyNodeLast', {
+                    reason: node.last_rejection_reason ?? 'policy_enforced',
+                    block: formatPolicyBlockAge(node.last_rejection_age_seconds),
+                    heartbeat: typeof node.last_seen_seconds === 'number'
+                      ? t('services.restartReadiness.durationAgo', { duration: formatDuration(node.last_seen_seconds) })
+                      : t('common.status.pending'),
+                  })}
                 </p>
                 <p className="mt-1 leading-5 text-yellow-100/45">
-                  Telemetry source {telemetrySourceLabel(node.telemetry_source)} ·
-                  counter scope {formatUnixSecondsRelative(node.counters_started_at)}.
+                  {t('services.restartReadiness.telemetryScope', {
+                    source: telemetrySourceLabel(node.telemetry_source),
+                    scope: formatUnixSecondsRelative(node.counters_started_at),
+                  })}
                 </p>
                 {!node.recent_block_active && (
                   <p className="mt-1 leading-5 text-sky-100/55">
-                    Historical only: no rejection in the last{' '}
-                    {formatDuration(node.recent_block_window_seconds ?? policyEnforcementHealth.recent_block_window_seconds ?? 3600)}.
+                    {t('services.restartReadiness.historicalOnly', {
+                      window: formatDuration(node.recent_block_window_seconds ?? policyEnforcementHealth.recent_block_window_seconds ?? 3600),
+                    })}
                   </p>
                 )}
                 <p className="mt-1 leading-5 text-yellow-100/50">{node.next_step}</p>
                 {node.primary_action && (
                   <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <p className="leading-5 text-yellow-100/45">
-                      Primary action {node.primary_action.label} · {node.primary_action.detail}
+                      {t('services.restartReadiness.primaryAction', {
+                        label: node.primary_action.label,
+                        detail: node.primary_action.detail,
+                      })}
                     </p>
                     {/* Backend primary_action.intent owns policy remediation; nodeboard only maps it to node detail. */}
                     <Link
@@ -3674,12 +3704,6 @@ function FleetRestartReadinessPanel({
               </div>
             ))}
           </div>
-          <p className="mt-3 text-xs leading-5 text-yellow-100/45">
-            Backend contract: GET /api/privacy_network/vpn/overview/ exposes
-            data.summary.restart_readiness.policy_enforcement_health from /root/aeronyx/privacy_network/api/vpn_observability.py.
-            Rust source: /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs and
-            /root/open/AeroNyx/crates/aeronyx-server/src/handlers/packet.rs.
-          </p>
         </div>
       ) : null}
 
@@ -3750,7 +3774,10 @@ function FleetRestartReadinessPanel({
                 {node.primary_action && (
                   <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <p className="leading-5 text-yellow-100/45">
-                      Primary action {node.primary_action.label} · {node.primary_action.detail}
+                      {t('services.restartReadiness.primaryAction', {
+                        label: node.primary_action.label,
+                        detail: node.primary_action.detail,
+                      })}
                     </p>
                     {/* Backend primary_action.intent owns policy sync remediation; nodeboard only maps it to node detail. */}
                     <Link
@@ -3764,11 +3791,6 @@ function FleetRestartReadinessPanel({
               </div>
             ))}
           </div>
-          <p className="mt-3 text-xs leading-5 text-yellow-100/45">
-            Backend contract: GET /api/privacy_network/vpn/overview/ exposes
-            data.summary.restart_readiness.policy_sync_health from /root/aeronyx/privacy_network/api/vpn_observability.py.
-            Rust source: /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs.
-          </p>
         </div>
       ) : null}
 
@@ -3863,7 +3885,10 @@ function FleetRestartReadinessPanel({
                 {node.primary_action && (
                   <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <p className="leading-5 text-yellow-100/45">
-                      Primary action {node.primary_action.label} · {node.primary_action.detail}
+                      {t('services.restartReadiness.primaryAction', {
+                        label: node.primary_action.label,
+                        detail: node.primary_action.detail,
+                      })}
                     </p>
                     {/* Backend primary_action.intent owns the remediation; nodeboard only maps it to a route. */}
                     <Link
@@ -3877,13 +3902,6 @@ function FleetRestartReadinessPanel({
               </div>
             ))}
           </div>
-          <p className="mt-3 text-xs leading-5 text-yellow-100/45">
-            Backend contract: GET /api/privacy_network/vpn/overview/ exposes
-            data.summary.restart_readiness.runtime_capability_health from /root/aeronyx/privacy_network/api/vpn_observability.py.
-            Rust source: /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs,
-            /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs, and
-            /root/open/AeroNyx/crates/aeronyx-server/src/services/session.rs.
-          </p>
         </div>
       )}
 
@@ -3950,7 +3968,10 @@ function FleetRestartReadinessPanel({
                 {node.primary_action && (
                   <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <p className="leading-5 text-yellow-100/45">
-                      Primary action {node.primary_action.label} · {node.primary_action.detail}
+                      {t('services.restartReadiness.primaryAction', {
+                        label: node.primary_action.label,
+                        detail: node.primary_action.detail,
+                      })}
                     </p>
                     {/* Backend primary_action.intent owns command-delivery triage; nodeboard only maps it to a route. */}
                     <Link
@@ -3964,12 +3985,6 @@ function FleetRestartReadinessPanel({
               </div>
             ))}
           </div>
-          <p className="mt-3 text-xs leading-5 text-yellow-100/45">
-            Backend contract: GET /api/privacy_network/vpn/overview/ exposes
-            data.summary.restart_readiness.command_delivery_health from /root/aeronyx/privacy_network/api/vpn_observability.py.
-            Rust source: /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs and
-            /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
-          </p>
         </div>
       )}
 
@@ -4069,12 +4084,6 @@ function FleetRestartReadinessPanel({
               Showing {maintenanceExitCandidates.length.toLocaleString()} of {maintenanceExitCandidateCount.toLocaleString()} candidates.
             </p>
           )}
-          <p className="mt-3 text-xs leading-5 text-emerald-100/45">
-            Backend contract: GET /api/privacy_network/vpn/overview/ exposes
-            data.summary.restart_readiness.maintenance_exit_summary and
-            maintenance_exit_candidates from /root/aeronyx/privacy_network/api/vpn_observability.py.
-            Action source: data.nodes[].system.restart_readiness.operator_action_plan.recommended_actions key=end_maintenance.
-          </p>
         </div>
       )}
 
@@ -4656,12 +4665,6 @@ function SessionCleanupRolloutPanel({ nodes }: { nodes: SessionCleanupRolloutNod
         })}
       </div>
 
-      <p className="mt-4 text-xs leading-5 text-emerald-100/45">
-        Backend contract: GET /api/privacy_network/vpn/overview/ exposes data.nodes[].system.session_cleanup from
-        /root/aeronyx/privacy_network/api/vpn_observability.py. Rust source:
-        /root/open/AeroNyx/crates/aeronyx-server/src/services/session.rs and
-        /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
-      </p>
     </section>
   );
 }
@@ -4720,12 +4723,6 @@ function PendingOperatorRolloutPanel({ nodes }: { nodes: PendingOperatorNode[] }
         ))}
       </div>
 
-      <p className="mt-4 text-xs leading-5 text-sky-100/45">
-        Backend contract: GET /api/privacy_network/vpn/overview/ from
-        /root/aeronyx/privacy_network/api/vpn_observability.py. Rust producer:
-        /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs and
-        /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
-      </p>
     </section>
   );
 }

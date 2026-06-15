@@ -968,6 +968,7 @@ function commercialStatusSummary({
   runtimeMismatch,
   activePolicyImpact,
   failedChecks,
+  t,
 }: {
   health: VpnNodeHealth;
   server: VpnServerCandidate | null;
@@ -976,58 +977,61 @@ function commercialStatusSummary({
   runtimeMismatch: boolean;
   activePolicyImpact: boolean;
   failedChecks: VpnNodeHealth['checks'];
+  t: (key: string, values?: Record<string, string | number>) => string;
 }): CommercialStatusSummary {
   if (health.maintenance_mode) {
     return {
       key: 'maintenance',
-      label: 'Maintenance',
-      detail: 'This node is intentionally removed from client placement while maintenance mode is active.',
+      label: t('settings.policyEditor.maintenanceMode'),
+      detail: t('nodeDetail.commercial.summaryMaintenanceDetail'),
       action: health.active_sessions > 0
-        ? 'Open active sessions and wait for drain before ending maintenance.'
-        : 'End maintenance after diagnostics and restart readiness are clear.',
+        ? t('nodeDetail.commercial.summaryMaintenanceDrainAction')
+        : t('nodeDetail.commercial.summaryMaintenanceEndAction'),
     };
   }
   if (health.health_status === 'offline' || (typeof health.last_seen_seconds === 'number' && health.last_seen_seconds > COMMAND_DELIVERY_DEGRADED_SECONDS)) {
     return {
       key: 'blocked',
-      label: 'Blocked',
-      detail: 'Heartbeat or live health is stale enough that new client placement should stay disabled.',
-      action: 'Check the Rust service, host networking, and signed heartbeat reporter before advertising this node.',
+      label: t('common.status.blocked'),
+      detail: t('nodeDetail.commercial.summaryStaleDetail'),
+      action: t('nodeDetail.commercial.summaryStaleAction'),
     };
   }
   if (!placementReadiness?.reported) {
     return {
       key: 'upgrade',
-      label: 'Needs Rust upgrade',
-      detail: 'Rust has not reported placement_readiness, so nodeboard cannot verify runtime admission decisions.',
-      action: 'Upgrade or restart Rust when cutover guard says it is safe, then confirm placement_readiness appears.',
+      label: t('services.commercial.needsRustUpgrade'),
+      detail: t('nodeDetail.commercial.summaryUpgradeDetail'),
+      action: t('nodeDetail.commercial.summaryUpgradeAction'),
     };
   }
   if (placementBlocked || !server?.available || placementReadiness.accepting_new_sessions === false) {
     return {
       key: 'blocked',
-      label: 'Blocked',
-      detail: `Client placement is blocked: ${formatPlacementReason(server?.unavailable_reason ?? placementReadiness.reason)}.`,
+      label: t('common.status.blocked'),
+      detail: t('nodeDetail.commercial.summaryPlacementBlockedDetail', {
+        reason: formatPlacementReason(server?.unavailable_reason ?? placementReadiness.reason),
+      }),
       action: placementNextAction(server?.unavailable_reason ?? placementReadiness.reason),
     };
   }
   if (runtimeMismatch || activePolicyImpact || failedChecks.length > 0 || placementReadiness.status === 'watch') {
     return {
       key: 'degraded',
-      label: 'Serving but degraded',
-      detail: 'The node can be visible to clients, but one or more runtime checks need operator attention.',
+      label: t('nodeDetail.commercial.summaryDegradedLabel'),
+      detail: t('nodeDetail.commercial.summaryDegradedDetail'),
       action: runtimeMismatch
-        ? 'Refresh config or apply policy, then verify nodeboard and Rust policy match.'
+        ? t('nodeDetail.commercial.summaryRuntimeMismatchAction')
         : activePolicyImpact
-          ? 'Review max session and bandwidth limiter counters before increasing placement traffic.'
-          : 'Run diagnostics and inspect failed health checks before scaling traffic.',
+          ? t('nodeDetail.commercial.summaryPolicyImpactAction')
+          : t('nodeDetail.commercial.summaryDiagnosticsAction'),
     };
   }
   return {
     key: 'ready',
-    label: 'Ready to serve',
-    detail: 'Placement, Rust admission, policy sync, and health checks are aligned for commercial traffic.',
-    action: 'Keep monitoring capacity, active sessions, and 24h availability.',
+    label: t('nodeDetail.commercial.summaryReadyLabel'),
+    detail: t('nodeDetail.commercial.summaryReadyDetail'),
+    action: t('nodeDetail.commercial.summaryReadyAction'),
   };
 }
 
@@ -1253,6 +1257,7 @@ function CommercialReadinessPanel({
     runtimeMismatch,
     activePolicyImpact,
     failedChecks,
+    t,
   });
   const driftItems = configDriftItems(health, server, policySync);
   const diagnostics = diagnosticItems({
@@ -1520,7 +1525,7 @@ function CommercialReadinessPanel({
                 href={placementSessionsHref}
                 className="inline-flex items-center justify-center rounded-lg border border-sky-400/20 bg-sky-400/[0.08] px-3 py-1.5 text-xs font-medium text-sky-200 transition-colors hover:bg-sky-400/[0.12]"
               >
-                Open active sessions
+                {t('nodeDetail.maintenance.openActiveSessions')}
               </a>
               <a
                 href="#maintenance-drain"
@@ -2400,7 +2405,12 @@ function legacyRuntimeDrainCopy(health: VpnNodeHealth | null | undefined) {
   };
 }
 
-function drainActivityBucketRows(eta: VpnRestartDrainEta | null | undefined) {
+function drainActivityBucketRows(eta: VpnRestartDrainEta | null | undefined): Array<{
+  labelKey: string;
+  values?: Record<string, string | number>;
+  value: number;
+  tone: string;
+}> {
   if (!eta) return [];
   const hasActivityBuckets = [
     eta.recent_client_rx_sessions,
@@ -2417,12 +2427,13 @@ function drainActivityBucketRows(eta: VpnRestartDrainEta | null | undefined) {
 
   return [
     {
-      label: `Client RX recent ${formatDuration(eta.activity_window_seconds || 180)}`,
+      labelKey: 'nodeDetail.drain.clientRxRecent',
+      values: { duration: formatDuration(eta.activity_window_seconds || 180) },
       value: eta.recent_client_rx_sessions ?? eta.recent_activity_sessions ?? 0,
       tone: 'text-emerald-200',
     },
     {
-      label: 'Client RX stale',
+      labelKey: 'nodeDetail.drain.clientRxStale',
       value: Math.max(
         0,
         (eta.stale_client_rx_sessions ?? eta.idle_activity_sessions ?? 0) - (eta.never_client_rx_sessions ?? 0),
@@ -2430,42 +2441,45 @@ function drainActivityBucketRows(eta: VpnRestartDrainEta | null | undefined) {
       tone: 'text-yellow-100',
     },
     {
-      label: 'Never client RX',
+      labelKey: 'nodeDetail.drain.neverClientRx',
       value: eta.never_client_rx_sessions ?? 0,
       tone: 'text-red-100',
     },
     {
-      label: `Runtime activity ${formatDuration(eta.activity_window_seconds || 180)}`,
+      labelKey: 'nodeDetail.drain.runtimeActivity',
+      values: { duration: formatDuration(eta.activity_window_seconds || 180) },
       value: eta.recent_activity_sessions ?? 0,
       tone: 'text-sky-100',
     },
     {
-      label: 'Idle or stale',
+      labelKey: 'nodeDetail.drain.idleOrStale',
       value: eta.idle_activity_sessions ?? 0,
       tone: 'text-yellow-100',
     },
     {
-      label: 'No activity stamp',
+      labelKey: 'nodeDetail.drain.noActivityStamp',
       value: eta.activity_pending_sessions ?? 0,
       tone: 'text-gray-300',
     },
     {
-      label: `Missed keepalive sessions (${(eta.keepalive_missed_total ?? 0).toLocaleString()} total)`,
+      labelKey: 'nodeDetail.drain.missedKeepaliveSessions',
+      values: { total: (eta.keepalive_missed_total ?? 0).toLocaleString() },
       value: eta.keepalive_missed_sessions ?? 0,
       tone: 'text-yellow-100',
     },
     {
-      label: `Pending keepalive sessions (${(eta.keepalive_pending_total ?? 0).toLocaleString()} total)`,
+      labelKey: 'nodeDetail.drain.pendingKeepaliveSessions',
+      values: { total: (eta.keepalive_pending_total ?? 0).toLocaleString() },
       value: eta.keepalive_pending_sessions ?? 0,
       tone: 'text-sky-100',
     },
     {
-      label: 'Missed keepalive total',
+      labelKey: 'nodeDetail.drain.missedKeepaliveTotal',
       value: eta.keepalive_missed_total ?? 0,
       tone: 'text-yellow-100',
     },
     {
-      label: 'Pending keepalive total',
+      labelKey: 'nodeDetail.drain.pendingKeepaliveTotal',
       value: eta.keepalive_pending_total ?? 0,
       tone: 'text-sky-100',
     },
@@ -2985,9 +2999,9 @@ function MaintenanceDrainPanel({
               )}
               <div className="mt-2 grid grid-cols-2 gap-2">
                 {drainActivityBuckets.map((bucket) => (
-                  <div key={bucket.label} className="rounded-md bg-white/[0.03] px-2 py-1.5">
-                    <p className={`text-sm font-semibold ${bucket.tone}`}>{bucket.value.toLocaleString()}</p>
-                    <p className="mt-0.5 text-[10px] leading-4 text-gray-500">{bucket.label}</p>
+                  <div key={bucket.labelKey} className="rounded-md bg-white/[0.03] px-2 py-1.5">
+                    <p className={`text-sm font-semibold ${bucket.tone}`}>{formatNumber(bucket.value)}</p>
+                    <p className="mt-0.5 text-[10px] leading-4 text-gray-500">{t(bucket.labelKey, bucket.values)}</p>
                   </div>
                 ))}
               </div>
