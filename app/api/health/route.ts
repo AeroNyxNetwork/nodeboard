@@ -78,6 +78,10 @@
  *     Falls back to durable Node.hardware_info["vpn_health"] written by
  *     /root/aeronyx/privacy_network/services/heartbeat_service.py when live
  *     heartbeat cache/sample payloads omit system_stats.vpn_health.
+ *     Node detail pairs missing placement_readiness with
+ *     data.nodes[].system.restart_readiness.drain_eta.cutover_guard so
+ *     operators see backend-authored upgrade safety before restarting a Rust
+ *     placement rollout target.
  *     Includes rust_placement_rollout_summary so Services can show backend
  *     coverage guidance for runtime-owned admission rollout.
  *     Includes rust_placement_rollout_summary.missing_node_list so Services
@@ -200,7 +204,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.59 - Documented placement readiness durable fallback
+ * Last Modified: v1.1.60 - Documented placement rollout cutover safety
+ * Previous: v1.1.59 - Documented placement readiness durable fallback
  * Previous: v1.1.58 - Documented node detail Rust placement admission
  * Previous: v1.1.57 - Documented Rust placement rollout restart safety
  * Previous: v1.1.56 - Documented Rust placement rollout missing nodes
@@ -390,6 +395,11 @@ const healthPayload = {
       endpoint: 'Node.hardware_info["vpn_health"].placement_readiness',
       file: '/root/aeronyx/privacy_network/services/heartbeat_service.py',
       purpose: 'Durable sanitized Rust placement_readiness snapshot used by backend /api/privacy_network/vpn/overview/ when live heartbeat cache or durable sample payloads omit system_stats.vpn_health during mixed Rust rollouts',
+    },
+    {
+      endpoint: 'data.nodes[].system.restart_readiness.drain_eta.cutover_guard',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Backend-authored node detail upgrade/restart safety shown beside missing Rust placement_readiness so operators do not restart a placement rollout target while active sessions or cleanup-policy gaps make cutover unsafe',
     },
     {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',

@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.23 - Documented placement rollout cutover safety coupling.
  *   v1.5.22 - Documented durable placement readiness fallback.
  *   v1.5.21 - Added node-level Rust placement readiness snapshot.
  *   v1.5.20 - Added restart safety to Rust placement rollout targets.
@@ -62,7 +63,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.22 - Documented durable placement readiness fallback
+ * Last Modified: v1.5.23 - Documented placement rollout cutover safety coupling
+ * Previous: v1.5.22 - Documented durable placement readiness fallback
  * Previous: v1.5.21 - Added node-level Rust placement readiness snapshot
  * Previous: v1.5.20 - Added restart safety to Rust placement rollout targets
  * Previous: v1.5.19 - Added Rust placement rollout missing node list
@@ -1596,6 +1598,11 @@ export interface NodeboardHealthRuntime {
  * heartbeat cache/sample payloads do not carry the nested field. Neither path
  * exposes client public IPs, destinations, DNS contents, packet payloads,
  * domains, URLs, browsing history, voucher secrets, or wallet-level traffic.
+ *
+ * Node detail pairs missing placement_readiness with:
+ *   data.nodes[].system.restart_readiness.drain_eta.cutover_guard
+ * from /root/aeronyx/privacy_network/api/vpn_observability.py so operators see
+ * backend-authored restart/upgrade safety before rolling out the Rust field.
  */
 export interface VpnPlacementReadiness {
   reported: boolean;

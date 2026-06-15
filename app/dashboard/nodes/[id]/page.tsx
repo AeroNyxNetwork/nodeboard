@@ -94,6 +94,10 @@
  *     /api/vpn/health so Commercial Readiness can separate backend placement
  *     eligibility from runtime-owned admission decisions:
  *     accepting_new_sessions / reason / session capacity / bandwidth window.
+ *     Exposes data.nodes[].system.restart_readiness.drain_eta.cutover_guard
+ *     so Rust Admission can show whether a placement_readiness rollout target
+ *     may be safely upgraded/restarted now without React guessing cutover
+ *     safety from active-session counts.
  *   - GET /api/privacy_network/vpn/servers/
  *     /root/aeronyx/privacy_network/api/vpn_servers.py
  *     Exposes per-node placement eligibility, capacity_remaining,
@@ -144,7 +148,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.21 - Show Rust placement admission readiness
+ * Last Modified: v1.6.22 - Show placement rollout cutover safety
+ * Previous: v1.6.21 - Show Rust placement admission readiness
  * Previous: v1.6.20 - Show Rust policy counter scope
  * Previous: v1.6.19 - Show node policy block current impact
  * Previous: v1.6.18 - Show node telemetry source quality
@@ -828,6 +833,25 @@ function placementAdmissionDetail(readiness: VpnNodeHealth['system']['placement_
   return readiness.detail || readiness.reason?.replace(/_/g, ' ') || 'Rust runtime admission snapshot is available.';
 }
 
+type PlacementCutoverGuard = NonNullable<
+  NonNullable<
+    NonNullable<VpnNodeHealth['system']['restart_readiness']>['drain_eta']
+  >['cutover_guard']
+>;
+
+function placementCutoverClass(guard: PlacementCutoverGuard | null | undefined) {
+  if (!guard) return 'border-white/10 bg-white/[0.03] text-gray-300';
+  if (guard.safe_to_cutover) return 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-100';
+  if (guard.risk === 'critical') return 'border-red-500/25 bg-red-500/[0.07] text-red-100';
+  return 'border-yellow-500/25 bg-yellow-500/[0.06] text-yellow-100';
+}
+
+function placementCutoverLabel(guard: PlacementCutoverGuard | null | undefined) {
+  if (!guard) return 'cutover pending';
+  if (guard.safe_to_cutover) return 'safe to upgrade';
+  return guard.label || guard.status.replace(/_/g, ' ');
+}
+
 function formatPercentOrPending(value: number | null | undefined) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 'pending';
   return `${Math.min(999, Math.max(0, value)).toFixed(value >= 99.95 ? 2 : 1)}%`;
@@ -893,6 +917,8 @@ function CommercialReadinessPanel({
   const runtimeMismatch = (policySync?.mismatched_fields?.length ?? 0) > 0;
   const placementBlocked = !server || !server.available;
   const placementReadiness = health.system.placement_readiness ?? null;
+  const placementRolloutPending = !placementReadiness?.reported;
+  const placementCutoverGuard = health.system.restart_readiness?.drain_eta?.cutover_guard ?? null;
   const rustAdmissionAttention = Boolean(
     placementReadiness?.reported
     && (!placementReadiness.accepting_new_sessions || placementReadiness.status === 'watch')
@@ -1050,6 +1076,46 @@ function CommercialReadinessPanel({
             </div>
           </div>
         </div>
+        {placementRolloutPending && (
+          <div className={`mt-3 rounded-lg border px-3 py-2 ${placementCutoverClass(placementCutoverGuard)}`}>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-[11px] uppercase tracking-wide opacity-60">Rollout Cutover Safety</p>
+                <p className="mt-1 text-sm font-semibold">
+                  {placementCutoverLabel(placementCutoverGuard)}
+                </p>
+                <p className="mt-1 text-xs leading-5 opacity-75">
+                  {placementCutoverGuard?.detail || 'Backend cutover guard is still collecting restart safety metadata.'}
+                </p>
+                <p className="mt-1 text-xs leading-5 opacity-70">
+                  {placementCutoverGuard?.next_step || 'Wait for restart_readiness.drain_eta.cutover_guard before upgrading this Rust placement target.'}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs sm:min-w-[280px]">
+                <div className="rounded-md border border-white/10 bg-black/20 px-2 py-1.5">
+                  <p className="opacity-55">Safe now</p>
+                  <p className="mt-0.5 font-medium">
+                    {placementCutoverGuard ? (placementCutoverGuard.safe_to_cutover ? 'yes' : 'no') : 'pending'}
+                  </p>
+                </div>
+                <div className="rounded-md border border-white/10 bg-black/20 px-2 py-1.5">
+                  <p className="opacity-55">Risk</p>
+                  <p className="mt-0.5 truncate font-medium">
+                    {placementCutoverGuard?.risk || 'pending'}
+                  </p>
+                </div>
+              </div>
+            </div>
+            {placementCutoverGuard?.user_impact_if_forced && (
+              <p className="mt-2 text-[11px] leading-5 opacity-65">
+                Forced impact: {placementCutoverGuard.user_impact_if_forced}
+              </p>
+            )}
+            <p className="mt-2 break-words text-[10px] leading-4 opacity-45">
+              Source: GET /api/privacy_network/vpn/overview/ -&gt; data.nodes[].system.restart_readiness.drain_eta.cutover_guard
+            </p>
+          </div>
+        )}
       </div>
 
       <p className="mt-3 text-[11px] leading-5 text-gray-600">
@@ -1058,7 +1124,9 @@ function CommercialReadinessPanel({
         /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs and
         /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs. GET
         /api/privacy_network/vpn/servers/ from /root/aeronyx/privacy_network/api/vpn_servers.py
-        provides backend placement eligibility.
+        provides backend placement eligibility. Missing rollout safety uses
+        data.nodes[].system.restart_readiness.drain_eta.cutover_guard from the same
+        backend overview file.
       </p>
     </div>
   );
