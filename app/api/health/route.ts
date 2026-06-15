@@ -48,6 +48,9 @@
  *     produced by /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs.
  *     Includes recent_problem_nodes / historical_problem_nodes so Services
  *     can distinguish current impact from cumulative Rust process counters.
+ *     Includes telemetry_source_counts / telemetry_source_summary so Services
+ *     can show whether policy counters came from fresh heartbeat cache,
+ *     durable sample fallback, or missing heartbeat telemetry.
  *     problem_panel_summary and problem_nodes[].primary_action are
  *     backend-authored remediation metadata for policy blocks.
  *     Provides data.summary.restart_readiness.drain_activity_health_counts
@@ -166,7 +169,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.45 - Documented recent policy block classification
+ * Last Modified: v1.1.46 - Documented policy telemetry source quality
+ * Previous: v1.1.45 - Documented recent policy block classification
  * Previous: v1.1.44 - Documented fleet bandwidth limiter bytes
  * Previous: v1.1.43 - Documented services placement capacity
  * Previous: v1.1.42 - Documented fleet policy enforcement health
@@ -311,7 +315,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.policy_enforcement_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level Rust node_policy enforcement counter summary for maintenance_rejections/max_sessions_rejections/bandwidth_drops plus aggregate bandwidth_drop_bytes/bandwidth_limit_bytes_per_second/bandwidth_window_bytes and recent_problem_nodes/historical_problem_nodes current-impact classification, problem_panel_summary, and capped problem_nodes[].primary_action triage',
+      purpose: 'Fleet-level Rust node_policy enforcement counter summary for maintenance_rejections/max_sessions_rejections/bandwidth_drops plus aggregate bandwidth_drop_bytes/bandwidth_limit_bytes_per_second/bandwidth_window_bytes, recent_problem_nodes/historical_problem_nodes current-impact classification, telemetry_source_counts/telemetry_source_summary freshness quality, problem_panel_summary, and capped problem_nodes[].primary_action triage',
     },
     {
       endpoint: 'data.summary.restart_readiness.blocked_nodes[].drain_activity',

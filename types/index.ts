@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.9 - Added policy enforcement telemetry source quality fields.
  *   v1.5.8 - Added fleet policy enforcement health summary types.
  *   v1.5.7 - Added fleet policy sync health summary types.
  *   v1.5.6 - Documented commercial capacity PATCH policy fields.
@@ -48,7 +49,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.8 - Added fleet policy enforcement health summary
+ * Last Modified: v1.5.9 - Added policy enforcement telemetry source quality
+ * Previous: v1.5.8 - Added fleet policy enforcement health summary
  * Previous: v1.5.7 - Added fleet policy sync health summary
  * Previous: v1.5.6 - Documented commercial capacity policy fields
  * Previous: v1.5.5 - Added maintenance exit placement context
@@ -797,6 +799,8 @@ export interface VpnRestartReadinessBlockedNode {
  *   recent_problem_nodes / historical_problem_nodes are backend-authored
  *   current-impact classification from last_rejection_at, because Rust
  *   counters are cumulative for the current process.
+ *   telemetry_source_counts / telemetry_source_summary tell Services whether
+ *   counters came from fresh Redis heartbeat cache or durable sample fallback.
  *   problem_panel_summary and problem_nodes[].primary_action are
  *   backend-authored remediation metadata for the Services Policy Blocks panel.
  * Maintenance recovery source:
@@ -951,6 +955,15 @@ export interface VpnRestartReadinessSummary {
     recent_problem_nodes?: number;
     historical_problem_nodes?: number;
     recent_block_window_seconds?: number;
+    enforcement_reporting_nodes?: number;
+    telemetry_source_counts?: Record<string, number>;
+    telemetry_source_summary?: {
+      status: string;
+      risk: 'healthy' | 'warning' | 'critical' | 'info' | string;
+      label: string;
+      detail: string;
+      next_step: string;
+    };
     label: string;
     risk: 'healthy' | 'warning' | 'critical' | 'info' | string;
     detail: string;
@@ -960,6 +973,7 @@ export interface VpnRestartReadinessSummary {
       name: string;
       health_status: string;
       last_seen_seconds: number | null;
+      telemetry_source?: string;
       maintenance_rejections: number;
       max_sessions_rejections: number;
       bandwidth_drops: number;
@@ -995,6 +1009,15 @@ export interface VpnRestartReadinessSummary {
       recent_problem_nodes?: number;
       historical_problem_nodes?: number;
       recent_block_window_seconds?: number;
+      enforcement_reporting_nodes?: number;
+      telemetry_source_counts?: Record<string, number>;
+      telemetry_source_summary?: {
+        status: string;
+        risk: 'healthy' | 'warning' | 'critical' | 'info' | string;
+        label: string;
+        detail: string;
+        next_step: string;
+      };
       maintenance_rejections: number;
       max_sessions_rejections: number;
       bandwidth_drops: number;

@@ -108,6 +108,8 @@
  *     whether maintenance, max_sessions, or bandwidth policy is actively
  *     blocking handshakes or packets in Rust node_policy. problem_panel_summary
  *     and problem_nodes[].primary_action drive the Policy Blocks panel.
+ *     telemetry_source_counts / telemetry_source_summary show whether the
+ *     counters are fresh heartbeat cache, durable sample fallback, or missing.
  *   - data.summary.restart_readiness.blocked_nodes[].drain_activity
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Mirrors node-level drain_eta activity buckets for fleet triage without
@@ -177,7 +179,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.51 - Show fleet bandwidth limiter bytes
+ * Last Modified: v1.1.52 - Show policy telemetry source quality
+ * Previous: v1.1.51 - Show fleet bandwidth limiter bytes
  * Previous: v1.1.50 - Link rollout blockers to active sessions
  * Previous: v1.1.49 - Add drain age chips
  * Previous: v1.1.48 - Show long-tail drain session age
@@ -563,6 +566,13 @@ function formatFleetBytes(value: number | null | undefined) {
 function formatPolicyBlockAge(seconds: number | null | undefined) {
   if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return 'no recent timestamp';
   return `${formatDuration(seconds)} ago`;
+}
+
+function telemetrySourceLabel(source: string | null | undefined) {
+  if (source === 'cache') return 'fresh cache';
+  if (source === 'sample') return 'durable fallback';
+  if (!source || source === 'missing') return 'missing telemetry';
+  return source.replaceAll('_', ' ');
 }
 
 function buildServiceViews(nodes: VpnNodeHealth[], statuses: NodeOperatorStatus[]): ServiceView[] {
@@ -2718,6 +2728,11 @@ function FleetRestartReadinessPanel({
             Recent {(policyEnforcementHealth?.recent_problem_nodes ?? 0).toLocaleString()} ·
             Historical {(policyEnforcementHealth?.historical_problem_nodes ?? 0).toLocaleString()}
           </p>
+          <p className="mt-1 text-xs leading-5 opacity-75">
+            Fresh {(policyEnforcementHealth?.telemetry_source_counts?.cache ?? 0).toLocaleString()} ·
+            Fallback {(policyEnforcementHealth?.telemetry_source_counts?.sample ?? 0).toLocaleString()} ·
+            Missing {(policyEnforcementHealth?.telemetry_source_counts?.missing ?? 0).toLocaleString()}
+          </p>
         </div>
       </div>
 
@@ -2740,6 +2755,26 @@ function FleetRestartReadinessPanel({
             </div>
             <StatusPill status={policyEnforcementHealth.problem_panel_summary?.risk ?? policyEnforcementHealth.risk} />
           </div>
+          {policyEnforcementHealth.telemetry_source_summary && (
+            <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="font-semibold text-yellow-100">
+                    {policyEnforcementHealth.telemetry_source_summary.label}
+                  </p>
+                  <p className="mt-1 leading-5 text-yellow-100/55">
+                    {policyEnforcementHealth.telemetry_source_summary.detail}
+                  </p>
+                </div>
+                <span className={`shrink-0 rounded-md border px-2 py-0.5 ${statusClass(policyEnforcementHealth.telemetry_source_summary.risk)}`}>
+                  {policyEnforcementHealth.telemetry_source_summary.status}
+                </span>
+              </div>
+              <p className="mt-1 leading-5 text-yellow-100/45">
+                {policyEnforcementHealth.telemetry_source_summary.next_step}
+              </p>
+            </div>
+          )}
           {policyEnforcementHealth.problem_panel_summary && (
             <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-3 lg:grid-cols-6">
               <div>
@@ -2801,6 +2836,9 @@ function FleetRestartReadinessPanel({
                   Last reason {node.last_rejection_reason ?? 'policy_enforced'} ·
                   last block {formatPolicyBlockAge(node.last_rejection_age_seconds)} ·
                   heartbeat {typeof node.last_seen_seconds === 'number' ? `${formatDuration(node.last_seen_seconds)} ago` : 'pending'}
+                </p>
+                <p className="mt-1 leading-5 text-yellow-100/45">
+                  Telemetry source {telemetrySourceLabel(node.telemetry_source)}.
                 </p>
                 {!node.recent_block_active && (
                   <p className="mt-1 leading-5 text-sky-100/55">
