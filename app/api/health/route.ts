@@ -33,7 +33,8 @@
  *     Provides data.summary.restart_readiness.command_delivery_health for
  *     Services Command Delivery health from Rust heartbeat freshness and
  *     backend operator_reporting. problem_nodes is a capped node-level triage
- *     list for command delivery blockers.
+ *     list for command delivery blockers; problem_panel_summary and
+ *     problem_nodes[].primary_action are backend-authored operator guidance.
  *     Provides data.summary.restart_readiness.policy_sync_health for Services
  *     Policy Sync health from data.nodes[].system.policy_sync so operators can
  *     verify max_sessions / bandwidth_limit_mbps reached Rust node_policy.
@@ -282,7 +283,7 @@ const healthPayload = {
     {
       endpoint: 'data.summary.restart_readiness.command_delivery_health',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
-      purpose: 'Fleet-level restart command delivery readiness plus capped problem_nodes triage list from Rust heartbeat freshness and backend operator_reporting for the Services Command Delivery card',
+      purpose: 'Fleet-level restart command delivery readiness plus problem_panel_summary and capped problem_nodes[].primary_action triage list from Rust heartbeat freshness and backend operator_reporting for the Services Command Delivery card and issue panel',
     },
     {
       endpoint: 'data.summary.restart_readiness.runtime_capability_health',

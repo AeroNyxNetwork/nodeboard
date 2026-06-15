@@ -75,8 +75,9 @@
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates Rust heartbeat freshness and backend operator_reporting so
  *     the Services page can show whether restart commands can be delivered
- *     before operators queue fleet actions. problem_nodes is a capped triage
- *     list for delivery blockers and links operators to node detail.
+ *     before operators queue fleet actions. problem_panel_summary and
+ *     problem_nodes[].primary_action are backend-authored delivery blocker
+ *     triage; nodeboard only maps the intent to operator navigation.
  *   - data.summary.restart_readiness.runtime_capability_health
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Aggregates Rust operator_status and session_cleanup capability reporting
@@ -1369,6 +1370,7 @@ function fleetCommandDelivery(summary: VpnRestartReadinessSummary | null) {
       count: 0,
       ready: 0,
       attention: 0,
+      problemPanelSummary: null,
       problemNodes: [],
       label: 'Pending',
       detail: 'waiting for backend command delivery summary',
@@ -1387,12 +1389,23 @@ function fleetCommandDelivery(summary: VpnRestartReadinessSummary | null) {
     count: delivery.command_ready_nodes,
     ready: delivery.command_ready_nodes,
     attention: delivery.attention_nodes,
+    problemPanelSummary: delivery.problem_panel_summary ?? null,
     problemNodes: delivery.problem_nodes ?? [],
     label: summaryCopy.label,
     detail: summaryCopy.detail,
     risk: summaryCopy.risk,
     next_step: summaryCopy.next_step,
   };
+}
+
+function commandDeliveryActionHref(
+  node: NonNullable<NonNullable<VpnRestartReadinessSummary['command_delivery_health']>['problem_nodes']>[number],
+) {
+  const intent = node.primary_action?.intent;
+  if (intent === 'node_commands') {
+    return `/dashboard/nodes/${node.id}?command_action=restart_service#vpn-commands`;
+  }
+  return `/dashboard/nodes/${node.id}`;
 }
 
 function fleetRuntimeCapability(summary: VpnRestartReadinessSummary | null) {
@@ -2864,13 +2877,46 @@ function FleetRestartReadinessPanel({
         <div className="mt-4 rounded-xl border border-yellow-300/20 bg-yellow-500/[0.04] p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-yellow-100">Command Delivery Issues</h3>
+              <h3 className="text-sm font-semibold text-yellow-100">
+                {commandDelivery.problemPanelSummary?.label ?? 'Command Delivery Issues'}
+              </h3>
               <p className="mt-1 text-xs leading-5 text-yellow-100/60">
-                Nodes below need fresh Rust heartbeat and operator reporting before restart commands are reliable.
+                {commandDelivery.problemPanelSummary?.detail
+                  ?? 'Nodes below need fresh Rust heartbeat and operator reporting before restart commands are reliable.'}
               </p>
+              {commandDelivery.problemPanelSummary?.next_step && (
+                <p className="mt-1 text-xs leading-5 text-yellow-100/50">
+                  {commandDelivery.problemPanelSummary.next_step}
+                </p>
+              )}
             </div>
-            <StatusPill status={commandDelivery.risk} />
+            <StatusPill status={commandDelivery.problemPanelSummary?.risk ?? commandDelivery.risk} />
           </div>
+          {commandDelivery.problemPanelSummary && (
+            <div className="mt-3 grid gap-x-4 gap-y-2 border-y border-yellow-100/10 py-3 text-xs sm:grid-cols-4">
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Attention</p>
+                <p className="mt-1 font-semibold text-yellow-100">{commandDelivery.problemPanelSummary.count.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Shown</p>
+                <p className="mt-1 font-semibold text-yellow-100">
+                  {commandDelivery.problemPanelSummary.visible_count.toLocaleString()}
+                  {commandDelivery.problemPanelSummary.hidden_count > 0
+                    ? ` / +${commandDelivery.problemPanelSummary.hidden_count.toLocaleString()} hidden`
+                    : ''}
+                </p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Offline</p>
+                <p className="mt-1 font-semibold text-yellow-100">{commandDelivery.problemPanelSummary.offline_nodes.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="uppercase tracking-[0.14em] text-yellow-100/35">Operator Pending</p>
+                <p className="mt-1 font-semibold text-yellow-100">{commandDelivery.problemPanelSummary.operator_pending_nodes.toLocaleString()}</p>
+              </div>
+            </div>
+          )}
           <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
             {commandDelivery.problemNodes.map((node) => (
               <div key={node.id} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
@@ -2887,9 +2933,29 @@ function FleetRestartReadinessPanel({
                   operator {node.operator_reporting ? 'reported' : 'pending'} · health {node.health_status}
                 </p>
                 <p className="mt-1 leading-5 text-yellow-100/50">{node.recommended_action}</p>
+                {node.primary_action && (
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="leading-5 text-yellow-100/45">
+                      Primary action {node.primary_action.label} · {node.primary_action.detail}
+                    </p>
+                    {/* Backend primary_action.intent owns command-delivery triage; nodeboard only maps it to a route. */}
+                    <Link
+                      href={commandDeliveryActionHref(node)}
+                      className="inline-flex shrink-0 items-center justify-center rounded-md border border-yellow-100/20 px-2.5 py-1.5 font-medium text-yellow-100 transition hover:border-yellow-100/40 hover:bg-yellow-100/10"
+                    >
+                      {node.primary_action.label}
+                    </Link>
+                  </div>
+                )}
               </div>
             ))}
           </div>
+          <p className="mt-3 text-xs leading-5 text-yellow-100/45">
+            Backend contract: GET /api/privacy_network/vpn/overview/ exposes
+            data.summary.restart_readiness.command_delivery_health from /root/aeronyx/privacy_network/api/vpn_observability.py.
+            Rust source: /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs and
+            /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs.
+          </p>
         </div>
       )}
 

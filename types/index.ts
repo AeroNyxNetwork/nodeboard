@@ -740,7 +740,9 @@ export interface VpnRestartReadinessBlockedNode {
  *   data.summary.restart_readiness.command_delivery_health aggregates Rust
  *   heartbeat freshness plus backend operator_reporting for the Services
  *   Command Delivery card. problem_nodes is a capped privacy-safe triage list
- *   for nodes that cannot receive restart commands promptly.
+ *   for nodes that cannot receive restart commands promptly. problem_nodes[]
+ *   primary_action and problem_panel_summary are backend-authored operator
+ *   guidance from /root/aeronyx/privacy_network/api/vpn_observability.py.
  * Runtime capability source:
  *   data.summary.restart_readiness.runtime_capability_health aggregates
  *   backend restart_readiness.operator_reporting, rollout_reported, and
@@ -921,7 +923,27 @@ export interface VpnRestartReadinessSummary {
       issue_code: string;
       issue_label: string;
       recommended_action: string;
+      primary_action?: {
+        key: string;
+        label: string;
+        intent: 'node_detail' | 'node_commands' | string;
+        detail: string;
+      };
     }>;
+    problem_panel_summary?: {
+      status?: string;
+      risk: 'healthy' | 'info' | 'warning' | 'critical' | string;
+      label: string;
+      detail: string;
+      next_step?: string;
+      count: number;
+      visible_count: number;
+      hidden_count: number;
+      offline_nodes: number;
+      delayed_nodes: number;
+      operator_pending_nodes: number;
+      source: string;
+    };
     fresh_seconds: number;
     degraded_seconds: number;
     summary?: {
