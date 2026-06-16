@@ -92,6 +92,17 @@ The script pulls `origin/main`, runs `npm ci`, builds Next.js, writes
 `/etc/nodeboard/nodeboard.env`, installs the systemd unit, restarts nodeboard,
 and checks `/api/health` plus the main dashboard routes.
 
+Deployment success requires the live `/api/health.runtime` metadata to match
+the freshly deployed source and build output:
+
+- `git_sha`: `git rev-parse --short=12 HEAD`
+- `git_branch`: `main`
+- `build_id`: `.next/BUILD_ID`
+- `source_dir`: `/root/open/nodeboard`
+
+If any value is stale after restart, the script exits non-zero so operators do
+not mistake a running old process for the newly deployed dashboard.
+
 The deploy script also runs `npm audit --audit-level=high` before building.
 High or critical dependency advisories block deployment. Lower-severity
 advisories should be triaged in a planned dependency update instead of using
@@ -108,7 +119,10 @@ mkdir -p /etc/nodeboard
 cat >/etc/nodeboard/nodeboard.env <<EOF
 NODE_ENV=production
 PORT=3000
-NODEBOARD_GIT_SHA=$(git rev-parse --short HEAD)
+NODEBOARD_GIT_SHA=$(git rev-parse --short=12 HEAD)
+NODEBOARD_GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+NODEBOARD_BUILD_ID=$(tr -d '\r\n' < .next/BUILD_ID)
+NODEBOARD_BUILD_TIME=$(node -e 'const fs = require("fs"); console.log(fs.statSync(".next/BUILD_ID").mtime.toISOString())')
 NODEBOARD_DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 NODEBOARD_SOURCE_DIR=/root/open/nodeboard
 EOF
@@ -130,10 +144,15 @@ curl -s https://api.aeronyx.network/api/privacy_network/vpn/overview/ \
   -H "Authorization: Bearer <operator-api-key>"
 ```
 
+For deployment audits, compare `/api/health.runtime.git_sha` with
+`git rev-parse --short=12 HEAD` and `/api/health.runtime.build_id` with
+`.next/BUILD_ID`. Both must match before announcing that `main` is live.
+
 `/api/health` is served by `app/api/health/route.ts` and returns deployment
 metadata only: nodeboard version, API base URL, backend source files, Rust
-producer files, `runtime.git_sha`, `runtime.deployed_at`, and the privacy
-boundary. It does not query node or user data.
+producer files, `runtime.git_sha`, `runtime.git_branch`, `runtime.build_id`,
+`runtime.build_time`, `runtime.deployed_at`, and the privacy boundary. It does
+not query node or user data.
 
 The API call should expose `data.nodes[].system.operator_status` for upgraded
 Rust nodes and `runtime_rollout` for nodes running the rollout-status build.

@@ -10,7 +10,9 @@
 #   console. This script updates the checked-out main branch, builds Next.js,
 #   installs the systemd unit, writes runtime version metadata, restarts the
 #   service, and verifies the health endpoint plus the operator dashboard
-#   routes used during controlled VPN service restart triage.
+#   routes used during controlled VPN service restart triage. The deployment
+#   metadata check must prove Git branch, commit, and Next.js BUILD_ID all
+#   match the live process before the script reports success.
 #
 # Frontend paths verified by this script:
 #   /root/open/nodeboard/app/api/health/route.ts
@@ -68,9 +70,40 @@ require_cmd() {
 }
 
 require_cmd git
+require_cmd node
 require_cmd npm
 require_cmd curl
 require_cmd systemctl
+
+verify_health_metadata() {
+  local response="$1"
+  printf '%s' "$response" | node -e '
+const fs = require("fs");
+const body = fs.readFileSync(0, "utf8");
+const data = JSON.parse(body);
+const runtime = data.runtime || {};
+const expected = {
+  git_sha: process.argv[1],
+  git_branch: process.argv[2],
+  build_id: process.argv[3],
+  source_dir: process.argv[4],
+};
+const errors = [];
+for (const [key, value] of Object.entries(expected)) {
+  if (String(runtime[key] ?? "") !== String(value)) {
+    errors.push(`${key}: expected ${value}, got ${runtime[key] ?? "null"}`);
+  }
+}
+if (!runtime.build_time) {
+  errors.push("build_time: missing from /api/health runtime metadata");
+}
+if (errors.length) {
+  console.error("[nodeboard-deploy] health metadata mismatch");
+  for (const error of errors) console.error(`- ${error}`);
+  process.exit(1);
+}
+' "$GIT_SHA" "$GIT_BRANCH" "$BUILD_ID" "$SOURCE_DIR"
+}
 
 cd "$SOURCE_DIR"
 
@@ -85,7 +118,8 @@ git fetch origin main
 git checkout main
 git pull --ff-only origin main
 
-GIT_SHA="$(git rev-parse --short HEAD)"
+GIT_SHA="$(git rev-parse --short=12 HEAD)"
+GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 DEPLOYED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 log "installing dependencies"
@@ -99,6 +133,14 @@ fi
 log "building Next.js app"
 npm run build
 
+BUILD_ID_FILE="${SOURCE_DIR}/.next/BUILD_ID"
+if [ ! -s "$BUILD_ID_FILE" ]; then
+  printf '[nodeboard-deploy] missing Next.js build id at %s\n' "$BUILD_ID_FILE" >&2
+  exit 1
+fi
+BUILD_ID="$(tr -d '\r\n' < "$BUILD_ID_FILE")"
+BUILD_TIME="$(node -e 'const fs = require("fs"); console.log(fs.statSync(process.argv[1]).mtime.toISOString())' "$BUILD_ID_FILE")"
+
 log "writing runtime metadata to ${ENV_FILE}"
 mkdir -p "$ENV_DIR"
 cat > "$ENV_FILE" <<EOF
@@ -107,6 +149,9 @@ cat > "$ENV_FILE" <<EOF
 NODE_ENV=production
 PORT=${PORT}
 NODEBOARD_GIT_SHA=${GIT_SHA}
+NODEBOARD_GIT_BRANCH=${GIT_BRANCH}
+NODEBOARD_BUILD_ID=${BUILD_ID}
+NODEBOARD_BUILD_TIME=${BUILD_TIME}
 NODEBOARD_DEPLOYED_AT=${DEPLOYED_AT}
 NODEBOARD_SOURCE_DIR=${SOURCE_DIR}
 EOF
@@ -126,7 +171,8 @@ sleep 3
 systemctl is-active --quiet "$SERVICE_NAME"
 
 log "checking ${HEALTH_URL}"
-curl --fail --silent --show-error "$HEALTH_URL" | grep -q "\"git_sha\":\"${GIT_SHA}\""
+HEALTH_RESPONSE="$(curl --fail --silent --show-error "$HEALTH_URL")"
+verify_health_metadata "$HEALTH_RESPONSE"
 
 log "checking dashboard routes"
 curl --fail --silent --show-error --output /dev/null "$SERVICES_URL"
@@ -137,4 +183,4 @@ else
 fi
 curl --fail --silent --show-error --output /dev/null "$NODE_DETAIL_URL"
 
-log "deployed ${SERVICE_NAME} at ${GIT_SHA}"
+log "deployed ${SERVICE_NAME} at ${GIT_SHA} build ${BUILD_ID}"
