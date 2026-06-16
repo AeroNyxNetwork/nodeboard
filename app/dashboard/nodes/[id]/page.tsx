@@ -6,6 +6,9 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.26 - Added commercial capacity risk summary for IP-pool/session
+ *     mismatches so operators can see paid-placement blockers directly in
+ *     nodeboard before scaling traffic.
  *   v1.6.25 - Added config-driven Network Rules cards to the capacity panel
  *     so operators can see virtual IP range, TUN device, forwarding, NAT, and
  *     egress checks from the same Rust /api/vpn/health contract.
@@ -158,7 +161,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.25 - Show config-driven Network Rules diagnostics
+ * Last Modified: v1.6.26 - Show commercial capacity risk summary
+ * Previous: v1.6.25 - Show config-driven Network Rules diagnostics
  * Previous: v1.6.24 - Add commercial status and diagnostics summary
  * Previous: v1.6.23 - Add placement rollout action links
  * Previous: v1.6.22 - Show placement rollout cutover safety
@@ -1730,6 +1734,104 @@ function capacityTone(percent: number | null) {
   return 'border-emerald-500/15 bg-emerald-500/[0.04]';
 }
 
+type CapacityRiskItem = {
+  tone: 'critical' | 'warning';
+  label: string;
+  detail: string;
+  action: string;
+};
+
+function capacityRiskItems(
+  capacity: VpnNodeHealth['system']['capacity'] | null | undefined,
+  t: TranslateFn,
+  formatNumber: CapacityFormatNumber,
+): CapacityRiskItem[] {
+  if (!capacity?.reported) return [];
+
+  const risks: CapacityRiskItem[] = [];
+  const ipPoolCapacity = capacity.ip_pool_capacity;
+  const ipPoolFree = capacity.ip_pool_free;
+  const maxConnections = capacity.max_connections;
+  const policyMaxSessions = capacity.policy_max_sessions;
+  const conntrackPercent = capacity.conntrack?.used_percent ?? capacityPercent(capacity.conntrack?.used, capacity.conntrack?.max);
+  const fdPercent = capacity.file_descriptors?.used_percent
+    ?? capacityPercent(capacity.file_descriptors?.used, capacity.file_descriptors?.soft_limit);
+  const packetDrops = capacity.packet_drops_total ?? capacity.interface?.packet_drops ?? null;
+
+  if (typeof ipPoolCapacity === 'number' && typeof maxConnections === 'number' && maxConnections > ipPoolCapacity) {
+    risks.push({
+      tone: 'warning',
+      label: t('nodeDetail.capacity.risk.ipPoolMismatch'),
+      detail: t('nodeDetail.capacity.risk.ipPoolMismatchDetail', {
+        max: formatNumber(maxConnections),
+        pool: formatNumber(ipPoolCapacity),
+      }),
+      action: t('nodeDetail.capacity.risk.ipPoolMismatchAction'),
+    });
+  }
+
+  if (
+    typeof ipPoolCapacity === 'number'
+    && typeof policyMaxSessions === 'number'
+    && policyMaxSessions > 0
+    && policyMaxSessions > ipPoolCapacity
+  ) {
+    risks.push({
+      tone: 'critical',
+      label: t('nodeDetail.capacity.risk.policyMismatch'),
+      detail: t('nodeDetail.capacity.risk.policyMismatchDetail', {
+        policy: formatNumber(policyMaxSessions),
+        pool: formatNumber(ipPoolCapacity),
+      }),
+      action: t('nodeDetail.capacity.risk.policyMismatchAction'),
+    });
+  }
+
+  if (typeof ipPoolFree === 'number' && ipPoolFree <= 0) {
+    risks.push({
+      tone: 'critical',
+      label: t('nodeDetail.capacity.risk.ipPoolExhausted'),
+      detail: t('nodeDetail.capacity.risk.ipPoolExhaustedDetail'),
+      action: t('nodeDetail.capacity.risk.ipPoolExhaustedAction'),
+    });
+  }
+
+  if (typeof conntrackPercent === 'number' && conntrackPercent >= 80) {
+    risks.push({
+      tone: conntrackPercent >= 90 ? 'critical' : 'warning',
+      label: t('nodeDetail.capacity.risk.conntrack'),
+      detail: t('nodeDetail.capacity.risk.conntrackDetail', {
+        value: formatNumber(conntrackPercent, { maximumFractionDigits: 1 }),
+      }),
+      action: t('nodeDetail.capacity.risk.conntrackAction'),
+    });
+  }
+
+  if (typeof fdPercent === 'number' && fdPercent >= 80) {
+    risks.push({
+      tone: fdPercent >= 90 ? 'critical' : 'warning',
+      label: t('nodeDetail.capacity.risk.fileDescriptors'),
+      detail: t('nodeDetail.capacity.risk.fileDescriptorsDetail', {
+        value: formatNumber(fdPercent, { maximumFractionDigits: 1 }),
+      }),
+      action: t('nodeDetail.capacity.risk.fileDescriptorsAction'),
+    });
+  }
+
+  if (typeof packetDrops === 'number' && packetDrops > 0) {
+    risks.push({
+      tone: 'warning',
+      label: t('nodeDetail.capacity.risk.packetDrops'),
+      detail: t('nodeDetail.capacity.risk.packetDropsDetail', {
+        count: formatNumber(packetDrops),
+      }),
+      action: t('nodeDetail.capacity.risk.packetDropsAction'),
+    });
+  }
+
+  return risks;
+}
+
 function CapacityMetric({
   label,
   value,
@@ -1794,6 +1896,10 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
   const routingTone = forwardingOk && natOk && egressOk
     ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
     : 'border-yellow-500/20 bg-yellow-500/[0.05]';
+  const riskItems = capacityRiskItems(capacity, t, formatNumber);
+  const riskTone = riskItems.some((item) => item.tone === 'critical')
+    ? 'border-red-500/25 bg-red-500/[0.07]'
+    : 'border-yellow-500/25 bg-yellow-500/[0.06]';
 
   return (
     <div className={`mt-5 rounded-xl border p-4 ${capacityReported ? 'border-white/5 bg-white/[0.02]' : 'border-yellow-500/20 bg-yellow-500/[0.05]'}`}>
@@ -1816,6 +1922,40 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
           <p className="mt-1 break-words [overflow-wrap:anywhere]">{capacity?.source || 'system_stats.vpn_health.capacity'}</p>
         </div>
       </div>
+
+      {riskItems.length > 0 && (
+        <div className={`mt-4 rounded-xl border p-3 ${riskTone}`}>
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wide text-yellow-100">
+                {t('nodeDetail.capacity.risk.title')}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-yellow-100/80">
+                {t('nodeDetail.capacity.risk.description')}
+              </p>
+            </div>
+            <span className="inline-flex w-fit rounded-full border border-yellow-300/25 bg-yellow-300/10 px-2 py-1 text-xs text-yellow-100">
+              {t('nodeDetail.capacity.risk.count', { count: riskItems.length })}
+            </span>
+          </div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-2">
+            {riskItems.map((item) => (
+              <div
+                key={`${item.label}:${item.detail}`}
+                className={`rounded-lg border p-3 ${
+                  item.tone === 'critical'
+                    ? 'border-red-300/20 bg-red-950/20'
+                    : 'border-yellow-300/20 bg-yellow-950/20'
+                }`}
+              >
+                <p className="text-sm font-medium text-white">{item.label}</p>
+                <p className="mt-1 text-xs leading-5 text-gray-300">{item.detail}</p>
+                <p className="mt-2 text-xs leading-5 text-gray-400">{item.action}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <CapacityMetric
