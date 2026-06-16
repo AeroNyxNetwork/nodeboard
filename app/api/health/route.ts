@@ -209,7 +209,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.63 - Exposed git/build deployment metadata fallback
+ * Last Modified: v1.1.64 - Prefer live repo/build metadata over stale env
+ * Previous: v1.1.63 - Exposed git/build deployment metadata fallback
  * Previous: v1.1.62 - Documented fleet placement rollout action links
  * Previous: v1.1.61 - Documented placement rollout action links
  * Previous: v1.1.60 - Documented placement rollout cutover safety
@@ -548,13 +549,13 @@ function gitMetadata(sourceDir: string) {
     const ref = head.slice(5).trim();
     const sha = readText(join(gitDir, ref));
     return {
-      git_sha: process.env.NODEBOARD_GIT_SHA || sha?.slice(0, 12) || 'unknown',
-      git_branch: process.env.NODEBOARD_GIT_BRANCH || ref.split('/').pop() || null,
+      git_sha: sha?.slice(0, 12) || process.env.NODEBOARD_GIT_SHA || 'unknown',
+      git_branch: ref.split('/').pop() || process.env.NODEBOARD_GIT_BRANCH || null,
     };
   }
 
   return {
-    git_sha: process.env.NODEBOARD_GIT_SHA || head.slice(0, 12) || 'unknown',
+    git_sha: head.slice(0, 12) || process.env.NODEBOARD_GIT_SHA || 'unknown',
     git_branch: process.env.NODEBOARD_GIT_BRANCH || 'detached',
   };
 }
@@ -562,8 +563,8 @@ function gitMetadata(sourceDir: string) {
 function buildMetadata(sourceDir: string) {
   const buildIdPath = join(sourceDir, '.next', 'BUILD_ID');
   return {
-    build_id: process.env.NODEBOARD_BUILD_ID || readText(buildIdPath),
-    build_time: process.env.NODEBOARD_BUILD_TIME || fileModifiedAt(buildIdPath),
+    build_id: readText(buildIdPath) || process.env.NODEBOARD_BUILD_ID || null,
+    build_time: fileModifiedAt(buildIdPath) || process.env.NODEBOARD_BUILD_TIME || null,
   };
 }
 
