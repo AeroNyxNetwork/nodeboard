@@ -22,7 +22,8 @@
  * - Only unused codes can be revoked
  * - Used codes show linked node info
  * 
- * Last Modified: v1.0.0 - Initial codes page
+ * Last Modified: v1.1.0 - Use Rust install.sh --quick setup commands
+ * Previous: v1.0.0 - Initial codes page
  * ============================================
  */
 
@@ -151,6 +152,12 @@ function GenerateCodeCard() {
   const { t } = useI18n();
   const { generateCode, isLoading, lastGeneratedCode, reset } = useGenerateCode();
   const [showCode, setShowCode] = useState(false);
+  const installCommand = lastGeneratedCode
+    ? `sudo AERONYX_REGISTRATION_CODE='${lastGeneratedCode.code}' ./deploy/node/install.sh --quick`
+    : '';
+  const previewCommand = lastGeneratedCode
+    ? `AERONYX_REGISTRATION_CODE='${lastGeneratedCode.code}' ./deploy/node/install.sh --quick --print-plan`
+    : '';
 
   const handleGenerate = async () => {
     try {
@@ -244,11 +251,36 @@ function GenerateCodeCard() {
               <p className="text-sm text-purple-200">
                 {t('codes.generated.commandHint')}
               </p>
-              <div className="mt-2 flex items-center gap-2">
-                <code className="flex-1 bg-black/30 px-3 py-2 rounded text-sm font-mono text-gray-300">
-                  aeronyx-node bind --code {lastGeneratedCode.code}
+              <div className="mt-3 space-y-3">
+                <div className="flex items-start gap-2">
+                  <code className="min-w-0 flex-1 overflow-x-auto rounded bg-black/30 px-3 py-2 font-mono text-xs leading-5 text-gray-300 sm:text-sm">
+                    {installCommand}
+                  </code>
+                  <CopyButton text={installCommand} />
+                </div>
+                <p className="text-xs leading-5 text-purple-100/70">
+                  {t('codes.generated.previewHint')}
+                </p>
+                <div className="flex items-start gap-2">
+                  <code className="min-w-0 flex-1 overflow-x-auto rounded bg-black/30 px-3 py-2 font-mono text-xs leading-5 text-gray-400">
+                    {previewCommand}
+                  </code>
+                  <CopyButton text={previewCommand} />
+                </div>
+                <p className="text-xs leading-5 text-purple-100/60">
+                  {t('codes.generated.quickNote')}
+                </p>
+              </div>
+            </div>
+            <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
+              <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
+                {t('codes.generated.repoStepTitle')}
+              </p>
+              <div className="mt-2 flex items-start gap-2">
+                <code className="min-w-0 flex-1 overflow-x-auto rounded bg-black/30 px-3 py-2 font-mono text-xs leading-5 text-gray-400">
+                  git clone https://github.com/AeroNyxNetwork/AeroNyx.git && cd AeroNyx
                 </code>
-                <CopyButton text={`aeronyx-node bind --code ${lastGeneratedCode.code}`} />
+                <CopyButton text="git clone https://github.com/AeroNyxNetwork/AeroNyx.git && cd AeroNyx" />
               </div>
             </div>
           </motion.div>
