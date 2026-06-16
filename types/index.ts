@@ -1578,6 +1578,9 @@ export interface NodeboardHealthContract {
 
 export interface NodeboardHealthRuntime {
   git_sha: string;
+  git_branch?: string | null;
+  build_id?: string | null;
+  build_time?: string | null;
   deployed_at: string | null;
   source_dir: string;
   port: string;

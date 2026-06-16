@@ -209,7 +209,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.62 - Documented fleet placement rollout action links
+ * Last Modified: v1.1.63 - Exposed git/build deployment metadata fallback
+ * Previous: v1.1.62 - Documented fleet placement rollout action links
  * Previous: v1.1.61 - Documented placement rollout action links
  * Previous: v1.1.60 - Documented placement rollout cutover safety
  * Previous: v1.1.59 - Documented placement readiness durable fallback
@@ -271,6 +272,8 @@
  * ============================================
  */
 
+import { existsSync, readFileSync, statSync } from 'fs';
+import { join } from 'path';
 import { NextResponse } from 'next/server';
 import packageJson from '@/package.json';
 import { API_BASE_URL } from '@/lib/constants';
@@ -516,14 +519,67 @@ const healthPayload = {
   ],
 };
 
+function readText(path: string) {
+  try {
+    if (!existsSync(path)) return null;
+    return readFileSync(path, 'utf8').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function fileModifiedAt(path: string) {
+  try {
+    if (!existsSync(path)) return null;
+    return statSync(path).mtime.toISOString();
+  } catch {
+    return null;
+  }
+}
+
+function gitMetadata(sourceDir: string) {
+  const gitDir = join(sourceDir, '.git');
+  const head = readText(join(gitDir, 'HEAD'));
+  if (!head) {
+    return { git_sha: process.env.NODEBOARD_GIT_SHA || 'unknown', git_branch: process.env.NODEBOARD_GIT_BRANCH || null };
+  }
+
+  if (head.startsWith('ref: ')) {
+    const ref = head.slice(5).trim();
+    const sha = readText(join(gitDir, ref));
+    return {
+      git_sha: process.env.NODEBOARD_GIT_SHA || sha?.slice(0, 12) || 'unknown',
+      git_branch: process.env.NODEBOARD_GIT_BRANCH || ref.split('/').pop() || null,
+    };
+  }
+
+  return {
+    git_sha: process.env.NODEBOARD_GIT_SHA || head.slice(0, 12) || 'unknown',
+    git_branch: process.env.NODEBOARD_GIT_BRANCH || 'detached',
+  };
+}
+
+function buildMetadata(sourceDir: string) {
+  const buildIdPath = join(sourceDir, '.next', 'BUILD_ID');
+  return {
+    build_id: process.env.NODEBOARD_BUILD_ID || readText(buildIdPath),
+    build_time: process.env.NODEBOARD_BUILD_TIME || fileModifiedAt(buildIdPath),
+  };
+}
+
 export async function GET() {
+  const sourceDir = process.env.NODEBOARD_SOURCE_DIR || process.cwd();
+  const git = gitMetadata(sourceDir);
+  const build = buildMetadata(sourceDir);
+
   return NextResponse.json(
     {
       ...healthPayload,
       runtime: {
-        git_sha: process.env.NODEBOARD_GIT_SHA || 'unknown',
+        ...git,
+        ...build,
         deployed_at: process.env.NODEBOARD_DEPLOYED_AT || null,
-        source_dir: process.env.NODEBOARD_SOURCE_DIR || '/root/open/nodeboard',
+        source_dir: sourceDir,
         port: process.env.PORT || '3000',
         env_file: '/etc/nodeboard/nodeboard.env',
       },
