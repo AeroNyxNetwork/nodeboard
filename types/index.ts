@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.26 - Documented nodeboard health contract for capacity.risks.
  *   v1.5.25 - Documented fleet placement rollout action links.
  *   v1.5.24 - Documented placement rollout action links.
  *   v1.5.23 - Documented placement rollout cutover safety coupling.
@@ -65,7 +66,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.25 - Documented fleet placement rollout action links
+ * Last Modified: v1.5.26 - Documented nodeboard health contract for capacity.risks
+ * Previous: v1.5.25 - Documented fleet placement rollout action links
  * Previous: v1.5.24 - Documented placement rollout action links
  * Previous: v1.5.23 - Documented placement rollout cutover safety coupling
  * Previous: v1.5.22 - Documented durable placement readiness fallback
@@ -1717,6 +1719,8 @@ export interface VpnCapacitySnapshot {
  *   /root/aeronyx/privacy_network/api/vpn_observability.py
  *   /root/aeronyx/privacy_network/services/heartbeat_service.py
  *   /root/aeronyx/privacy_network/api/vpn_commands.py
+ *   data.nodes[].system.capacity.risks is the backend-sanitized Rust-authored
+ *   capacity risk contract surfaced by /root/open/nodeboard/app/api/health/route.ts.
  *
  * Rust producer paths returned by this response:
  *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs

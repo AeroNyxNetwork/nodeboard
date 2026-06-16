@@ -128,6 +128,9 @@
  *     candidate, public entry, and region counts for the recovery panel.
  *     Candidate selection is sourced from node-level
  *     operator_action_plan.recommended_actions key=end_maintenance.
+ *     Provides data.nodes[].system.capacity.risks so node detail and Services
+ *     display Rust-authored capacity risks and exact remediation instead of
+ *     guessing fleet limits from partial counters.
  *   - GET /api/privacy_network/vpn/sessions/?node_id=&status=&quality_status=
  *     /root/aeronyx/privacy_network/api/vpn_observability.py
  *     Supports /dashboard/sessions?node={id}&status=active&quality=all deep links.
@@ -209,7 +212,8 @@
  *   payloads, domains, URLs, browsing history, voucher secrets, wallet-level
  *   traffic, or plaintext social graph data.
  *
- * Last Modified: v1.1.64 - Prefer live repo/build metadata over stale env
+ * Last Modified: v1.1.65 - Documented Rust-authored capacity risks contract
+ * Previous: v1.1.64 - Prefer live repo/build metadata over stale env
  * Previous: v1.1.63 - Exposed git/build deployment metadata fallback
  * Previous: v1.1.62 - Documented fleet placement rollout action links
  * Previous: v1.1.61 - Documented placement rollout action links
@@ -401,6 +405,11 @@ const healthPayload = {
       endpoint: 'data.nodes[].system.placement_readiness',
       file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
       purpose: 'Node detail and Services mapped Rust runtime admission snapshot from /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs and /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs, with durable fallback from /root/aeronyx/privacy_network/services/heartbeat_service.py Node.hardware_info["vpn_health"].placement_readiness; includes accepting_new_sessions, reason, session capacity, traffic_capacity_status, and bandwidth window coverage for commercial placement triage',
+    },
+    {
+      endpoint: 'data.nodes[].system.capacity.risks',
+      file: '/root/aeronyx/privacy_network/api/vpn_observability.py',
+      purpose: 'Sanitized Rust-authored capacity risk list from /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs, including severity/code/message/remediation so node detail, Services, healthcheck.sh, and backend automation share the same commercial capacity diagnosis without React re-deriving policy',
     },
     {
       endpoint: 'Node.hardware_info["vpn_health"].placement_readiness',
