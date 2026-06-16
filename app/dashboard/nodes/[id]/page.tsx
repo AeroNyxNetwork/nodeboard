@@ -6,6 +6,9 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.25 - Added config-driven Network Rules cards to the capacity panel
+ *     so operators can see virtual IP range, TUN device, forwarding, NAT, and
+ *     egress checks from the same Rust /api/vpn/health contract.
  *   v1.6.24 - Added node commercial status, config drift checks, and
  *     diagnostics checklist so operators can see whether a node is safe to
  *     serve clients before inspecting low-level telemetry.
@@ -155,7 +158,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.24 - Add commercial status and diagnostics summary
+ * Last Modified: v1.6.25 - Show config-driven Network Rules diagnostics
+ * Previous: v1.6.24 - Add commercial status and diagnostics summary
  * Previous: v1.6.23 - Add placement rollout action links
  * Previous: v1.6.22 - Show placement rollout cutover safety
  * Previous: v1.6.21 - Show Rust placement admission readiness
@@ -953,6 +957,20 @@ function checkSummary(health: VpnNodeHealth, names: string[], t: TranslateFn) {
   const failed = checks.filter((check) => !check.ok);
   if (failed.length === 0) return checks.map((check) => formatHealthCheckName(check.name, t)).join(', ');
   return failed.map((check) => `${formatHealthCheckName(check.name, t)}: ${check.detail}`).join(' · ');
+}
+
+function checkStatusValue(check: VpnNodeHealth['checks'][number] | null, t: TranslateFn) {
+  if (!check) return t('common.status.pending');
+  return check.ok ? t('common.status.ok') : t('common.status.error');
+}
+
+function checkStatusTone(check: VpnNodeHealth['checks'][number] | null) {
+  if (!check) return 'border-yellow-500/20 bg-yellow-500/[0.05]';
+  return check.ok ? 'border-emerald-500/15 bg-emerald-500/[0.04]' : 'border-red-500/20 bg-red-500/[0.06]';
+}
+
+function checkDetailValue(check: VpnNodeHealth['checks'][number] | null, pending: string) {
+  return check?.detail || pending;
 }
 
 function policySnapshotValue(snapshot: VpnPolicySnapshot | null | undefined, field: keyof VpnPolicySnapshot) {
@@ -1763,6 +1781,19 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
   const packetDrops = capacity?.packet_drops_total ?? capacity?.interface?.packet_drops ?? null;
   const pps = capacity?.interface?.total_pps;
   const bps = capacity?.interface?.total_bps;
+  const tunCheck = findHealthCheck(health, 'tun_device');
+  const forwardingCheck = findHealthCheck(health, 'ip_forward');
+  const natCheck = findHealthCheck(health, 'nat_masquerade');
+  const egressCheck = findHealthCheck(health, 'internet_egress');
+  const mtuCheck = findHealthCheck(health, 'mtu_config');
+  const configuredMtu = typeof health.system.configured_mtu === 'number' ? formatNumber(health.system.configured_mtu) : pending;
+  const runningMtu = typeof health.system.running_mtu === 'number' ? formatNumber(health.system.running_mtu) : pending;
+  const forwardingOk = forwardingCheck?.ok === true;
+  const natOk = natCheck?.ok === true;
+  const egressOk = egressCheck?.ok === true;
+  const routingTone = forwardingOk && natOk && egressOk
+    ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
+    : 'border-yellow-500/20 bg-yellow-500/[0.05]';
 
   return (
     <div className={`mt-5 rounded-xl border p-4 ${capacityReported ? 'border-white/5 bg-white/[0.02]' : 'border-yellow-500/20 bg-yellow-500/[0.05]'}`}>
@@ -1861,6 +1892,54 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
           })}
           tone="border-white/5 bg-black/20"
         />
+      </div>
+
+      <div className="mt-5 border-t border-white/5 pt-4">
+        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h5 className="text-xs font-semibold uppercase tracking-wide text-gray-400">{t('nodeDetail.networkRules.title')}</h5>
+            <p className="mt-1 text-xs leading-5 text-gray-500">{t('nodeDetail.networkRules.description')}</p>
+          </div>
+          <p className="text-[11px] text-gray-600">GET /api/privacy_network/vpn/overview/ - checks[]</p>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <CapacityMetric
+            label={t('nodeDetail.networkRules.ipRange')}
+            value={capacity?.virtual_ip_range || pending}
+            detail={t('nodeDetail.networkRules.ipRangeDetail', {
+              used: formatCapacityNumber(capacity?.ip_pool_used, formatNumber, pending),
+              free: formatCapacityNumber(capacity?.ip_pool_free, formatNumber, pending),
+            })}
+            tone="border-white/5 bg-black/20"
+          />
+          <CapacityMetric
+            label={t('nodeDetail.networkRules.tun')}
+            value={capacity?.interface?.interface || pending}
+            detail={t('nodeDetail.networkRules.tunDetail', {
+              status: checkStatusValue(tunCheck, t),
+              configured: configuredMtu,
+              running: runningMtu,
+              mtu: checkStatusValue(mtuCheck, t),
+            })}
+            tone={checkStatusTone(tunCheck)}
+          />
+          <CapacityMetric
+            label={t('nodeDetail.networkRules.forwarding')}
+            value={checkStatusValue(forwardingCheck, t)}
+            detail={checkDetailValue(forwardingCheck, pending)}
+            tone={checkStatusTone(forwardingCheck)}
+          />
+          <CapacityMetric
+            label={t('nodeDetail.networkRules.natEgress')}
+            value={natOk && egressOk ? t('common.status.ok') : natCheck || egressCheck ? t('common.status.attention') : pending}
+            detail={t('nodeDetail.networkRules.natEgressDetail', {
+              nat: checkDetailValue(natCheck, pending),
+              egress: checkDetailValue(egressCheck, pending),
+            })}
+            tone={routingTone}
+          />
+        </div>
       </div>
     </div>
   );
