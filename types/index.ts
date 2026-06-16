@@ -1634,6 +1634,63 @@ export interface VpnPlacementReadiness {
   privacy_boundary?: string;
 }
 
+export interface VpnCapacityNestedUsage {
+  used?: number | null;
+  max?: number | null;
+  soft_limit?: number | null;
+  hard_limit?: number | null;
+  used_percent?: number | null;
+}
+
+export interface VpnCapacityInterface {
+  interface?: string;
+  rx_bytes?: number | null;
+  tx_bytes?: number | null;
+  rx_packets?: number | null;
+  tx_packets?: number | null;
+  rx_dropped?: number | null;
+  tx_dropped?: number | null;
+  packet_drops?: number | null;
+  rx_pps?: number | null;
+  tx_pps?: number | null;
+  total_pps?: number | null;
+  rx_bps?: number | null;
+  tx_bps?: number | null;
+  total_bps?: number | null;
+}
+
+/**
+ * Rust capacity snapshot shown in node detail.
+ *
+ * Backend API:
+ *   GET /api/privacy_network/vpn/overview/
+ * Backend file:
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py
+ * Rust producer:
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *
+ * Privacy boundary: aggregate node capacity only. No client public IPs,
+ * destinations, DNS contents, packet payloads, domains, URLs, browsing
+ * history, voucher secrets, or wallet-level traffic.
+ */
+export interface VpnCapacitySnapshot {
+  reported: boolean;
+  source: string;
+  virtual_ip_range: string | null;
+  ip_pool_capacity: number | null;
+  ip_pool_used: number | null;
+  ip_pool_free: number | null;
+  max_connections: number | null;
+  policy_max_sessions: number | null;
+  active_sessions: number | null;
+  session_capacity_remaining: number | null;
+  conntrack: VpnCapacityNestedUsage;
+  file_descriptors: VpnCapacityNestedUsage;
+  interface: VpnCapacityInterface;
+  packet_drops_total: number | null;
+  privacy_boundary?: string;
+}
+
 /**
  * Local nodeboard runtime health response.
  *
@@ -1737,6 +1794,7 @@ export interface VpnNodeHealth {
     session_cleanup?: VpnSessionCleanupStatus | null;
     restart_readiness?: VpnRestartReadiness | null;
     placement_readiness?: VpnPlacementReadiness | null;
+    capacity?: VpnCapacitySnapshot | null;
     policy_sync?: VpnPolicySync;
     policy_enforcement?: VpnPolicyEnforcement;
     runtime_recovery?: VpnRuntimeRecovery;

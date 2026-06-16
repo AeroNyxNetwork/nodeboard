@@ -1679,6 +1679,193 @@ function parseCommandResult(command: NodeCommand, t: TranslateFn) {
   };
 }
 
+type CapacityFormatNumber = (value: number, options?: Intl.NumberFormatOptions) => string;
+
+function capacityPercent(used: number | null | undefined, total: number | null | undefined) {
+  if (typeof used !== 'number' || typeof total !== 'number' || total <= 0) return null;
+  return Math.max(0, Math.min(100, (used / total) * 100));
+}
+
+function formatCapacityNumber(
+  value: number | null | undefined,
+  formatNumber: CapacityFormatNumber,
+  fallback: string,
+) {
+  return typeof value === 'number' && Number.isFinite(value) ? formatNumber(value) : fallback;
+}
+
+function formatCapacityPair(
+  used: number | null | undefined,
+  total: number | null | undefined,
+  formatNumber: CapacityFormatNumber,
+  fallback: string,
+) {
+  if (typeof used !== 'number' || !Number.isFinite(used)) return fallback;
+  if (typeof total !== 'number' || !Number.isFinite(total) || total <= 0) return formatNumber(used);
+  return `${formatNumber(used)} / ${formatNumber(total)}`;
+}
+
+function capacityTone(percent: number | null) {
+  if (percent === null) return 'border-white/5 bg-white/[0.02]';
+  if (percent >= 90) return 'border-red-500/25 bg-red-500/[0.06]';
+  if (percent >= 75) return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+}
+
+function CapacityMetric({
+  label,
+  value,
+  detail,
+  percent,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  percent?: number | null;
+  tone?: string;
+}) {
+  const safePercent = typeof percent === 'number' && Number.isFinite(percent)
+    ? Math.max(0, Math.min(100, percent))
+    : null;
+  return (
+    <div className={`rounded-xl border p-3 min-w-0 ${tone || capacityTone(safePercent)}`}>
+      <p className="text-[11px] uppercase tracking-wide text-gray-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold leading-tight text-white break-words [overflow-wrap:anywhere]">
+        {value}
+      </p>
+      <p className="mt-1 text-[11px] leading-4 text-gray-500 break-words [overflow-wrap:anywhere]">{detail}</p>
+      {safePercent !== null && (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+          <div
+            className={`h-full rounded-full ${safePercent >= 90 ? 'bg-red-300' : safePercent >= 75 ? 'bg-yellow-300' : 'bg-emerald-300'}`}
+            style={{ width: `${safePercent}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CapacityPanel({ health }: { health: VpnNodeHealth }) {
+  const { t, formatNumber } = useI18n();
+  const capacity = health.system.capacity;
+  const pending = t('common.status.pending');
+  const capacityReported = Boolean(capacity?.reported);
+  const ipPercent = capacityPercent(capacity?.ip_pool_used, capacity?.ip_pool_capacity);
+  const sessionTotal = capacity?.policy_max_sessions && capacity.policy_max_sessions > 0
+    ? capacity.policy_max_sessions
+    : capacity?.max_connections;
+  const sessionPercent = capacityPercent(capacity?.active_sessions ?? health.active_sessions, sessionTotal);
+  const conntrackPercent = capacity?.conntrack?.used_percent ?? capacityPercent(capacity?.conntrack?.used, capacity?.conntrack?.max);
+  const fdPercent = capacity?.file_descriptors?.used_percent
+    ?? capacityPercent(capacity?.file_descriptors?.used, capacity?.file_descriptors?.soft_limit);
+  const packetDrops = capacity?.packet_drops_total ?? capacity?.interface?.packet_drops ?? null;
+  const pps = capacity?.interface?.total_pps;
+  const bps = capacity?.interface?.total_bps;
+
+  return (
+    <div className={`mt-5 rounded-xl border p-4 ${capacityReported ? 'border-white/5 bg-white/[0.02]' : 'border-yellow-500/20 bg-yellow-500/[0.05]'}`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-semibold text-white">{t('nodeDetail.capacity.title')}</h4>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${
+              capacityReported ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200' : 'border-yellow-500/25 bg-yellow-500/10 text-yellow-200'
+            }`}>
+              {capacityReported ? t('nodeDetail.capacity.reported') : t('nodeDetail.capacity.waiting')}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-gray-500">
+            {t('nodeDetail.capacity.description')}
+          </p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500 lg:max-w-md">
+          <p className="font-medium text-gray-300">{t('nodeDetail.capacity.source')}</p>
+          <p className="mt-1 break-words [overflow-wrap:anywhere]">{capacity?.source || 'system_stats.vpn_health.capacity'}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CapacityMetric
+          label={t('nodeDetail.capacity.ipPool')}
+          value={formatCapacityPair(capacity?.ip_pool_used, capacity?.ip_pool_capacity, formatNumber, pending)}
+          detail={t('nodeDetail.capacity.ipPoolDetail', {
+            free: formatCapacityNumber(capacity?.ip_pool_free, formatNumber, pending),
+            range: capacity?.virtual_ip_range || pending,
+          })}
+          percent={ipPercent}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.capacity.sessions')}
+          value={formatCapacityPair(capacity?.active_sessions ?? health.active_sessions, sessionTotal, formatNumber, pending)}
+          detail={t('nodeDetail.capacity.sessionsDetail', {
+            max: formatCapacityNumber(capacity?.max_connections, formatNumber, pending),
+            policy: capacity?.policy_max_sessions === 0
+              ? t('nodes.policy.unlimited')
+              : formatCapacityNumber(capacity?.policy_max_sessions, formatNumber, pending),
+          })}
+          percent={sessionPercent}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.capacity.conntrack')}
+          value={formatCapacityPair(capacity?.conntrack?.used, capacity?.conntrack?.max, formatNumber, pending)}
+          detail={conntrackPercent === null || conntrackPercent === undefined
+            ? t('nodeDetail.capacity.kernelPending')
+            : t('nodeDetail.capacity.usedPercent', { value: formatNumber(conntrackPercent, { maximumFractionDigits: 1 }) })}
+          percent={conntrackPercent}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.capacity.fileDescriptors')}
+          value={formatCapacityPair(capacity?.file_descriptors?.used, capacity?.file_descriptors?.soft_limit, formatNumber, pending)}
+          detail={t('nodeDetail.capacity.fdDetail', {
+            hard: formatCapacityNumber(capacity?.file_descriptors?.hard_limit, formatNumber, pending),
+          })}
+          percent={fdPercent}
+        />
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CapacityMetric
+          label={t('nodeDetail.capacity.throughput')}
+          value={formatBitsPerSecond(bps)}
+          detail={t('nodeDetail.capacity.throughputDetail', {
+            rx: formatBitsPerSecond(capacity?.interface?.rx_bps),
+            tx: formatBitsPerSecond(capacity?.interface?.tx_bps),
+          })}
+          tone="border-sky-500/15 bg-sky-500/[0.04]"
+        />
+        <CapacityMetric
+          label={t('nodeDetail.capacity.packetRate')}
+          value={typeof pps === 'number' ? t('nodeDetail.capacity.ppsValue', { value: formatNumber(pps, { maximumFractionDigits: 1 }) }) : pending}
+          detail={t('nodeDetail.capacity.packetRateDetail', {
+            rx: typeof capacity?.interface?.rx_pps === 'number' ? formatNumber(capacity.interface.rx_pps, { maximumFractionDigits: 1 }) : pending,
+            tx: typeof capacity?.interface?.tx_pps === 'number' ? formatNumber(capacity.interface.tx_pps, { maximumFractionDigits: 1 }) : pending,
+          })}
+          tone="border-sky-500/15 bg-sky-500/[0.04]"
+        />
+        <CapacityMetric
+          label={t('nodeDetail.capacity.packetDrops')}
+          value={formatCapacityNumber(packetDrops, formatNumber, pending)}
+          detail={t('nodeDetail.capacity.packetDropsDetail', {
+            iface: formatCapacityNumber(capacity?.interface?.packet_drops, formatNumber, pending),
+          })}
+          tone={packetDrops && packetDrops > 0 ? 'border-yellow-500/25 bg-yellow-500/[0.06]' : 'border-emerald-500/15 bg-emerald-500/[0.04]'}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.capacity.interface')}
+          value={capacity?.interface?.interface || pending}
+          detail={t('nodeDetail.capacity.interfaceDetail', {
+            rx: formatCapacityNumber(capacity?.interface?.rx_packets, formatNumber, pending),
+            tx: formatCapacityNumber(capacity?.interface?.tx_packets, formatNumber, pending),
+          })}
+          tone="border-white/5 bg-black/20"
+        />
+      </div>
+    </div>
+  );
+}
+
 function CommandResultPanel({ command }: { command: NodeCommand }) {
   const { t } = useI18n();
   const parsed = parseCommandResult(command, t);
@@ -3929,6 +4116,7 @@ function VpnHealthPanel({
         </div>
       </div>
 
+      <CapacityPanel health={health} />
       <NodeMetricsTrendPanel metrics={metrics} isLoading={metricsLoading} />
       <BandwidthLimitPanel health={health} metrics={metrics} isLoading={metricsLoading} />
       <PolicyEnforcementPanel health={health} />
