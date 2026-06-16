@@ -10,6 +10,10 @@
  * readiness.
  *
  * Modification Reason:
+ *   v1.1.64 - Added first-screen fleet capacity risk summary from
+ *     data.nodes[].system.capacity so commercial operators can see IP pool,
+ *     session ceiling, conntrack, fd, and packet-drop risks before opening
+ *     per-node detail pages.
  *   v1.1.63 - Collapsed secondary operational reports behind detail module
  *     buttons so the first-level Services page answers commercial readiness
  *     before exposing placement, rollout, policy, and node-table diagnostics.
@@ -190,6 +194,13 @@
  *     data.nodes[].system.restart_readiness.operator_action_plan.recommended_actions
  *     key=end_maintenance so Services and node detail share one backend
  *     action policy.
+ *   - data.nodes[].system.capacity
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py
+ *     Mirrors Rust /api/vpn/health aggregate capacity telemetry. Services
+ *     uses it only for fleet-level commercial capacity risk counts and
+ *     node-detail links; it does not expose client public IPs, destinations,
+ *     DNS contents, packet payloads, domains, URLs, browsing history,
+ *     voucher secrets, or wallet-level traffic.
  *
  * Rust heartbeat source:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -213,7 +224,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.63 - Collapse secondary detail modules
+ * Last Modified: v1.1.64 - Show fleet capacity risk summary
+ * Previous: v1.1.63 - Collapse secondary detail modules
  * Previous: v1.1.62 - Add fleet commercial operations summary
  * Previous: v1.1.61 - Add placement rollout fleet action links
  * Previous: v1.1.60 - Show Rust placement rollout restart safety
@@ -340,6 +352,16 @@ interface FleetSummary {
   rolloutRestartRequired: number;
   enabledServices: number;
   totalServiceSlots: number;
+}
+
+interface FleetCapacityRisk {
+  nodeId: string;
+  nodeName: string;
+  region: string;
+  tone: 'critical' | 'warning';
+  label: string;
+  detail: string;
+  action: string;
 }
 
 interface PageHeaderProps {
@@ -607,6 +629,121 @@ function buildFleetSummary(nodes: VpnNodeHealth[], statuses: NodeOperatorStatus[
     enabledServices: serviceSlots.filter((service) => service.enabled).length,
     totalServiceSlots: serviceSlots.length,
   };
+}
+
+function capacityPercent(used: number | null | undefined, total: number | null | undefined) {
+  if (typeof used !== 'number' || typeof total !== 'number' || total <= 0) return null;
+  return Math.max(0, Math.min(100, (used / total) * 100));
+}
+
+function collectFleetCapacityRisks(
+  nodes: VpnNodeHealth[],
+  t: ServicesTranslateFn,
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
+): FleetCapacityRisk[] {
+  const risks: FleetCapacityRisk[] = [];
+
+  nodes.forEach((node) => {
+    const capacity = node.system.capacity;
+    if (!capacity?.reported) return;
+
+    const base = {
+      nodeId: node.id,
+      nodeName: node.name,
+      region: nodeRegionLabel(node),
+    };
+    const ipPoolCapacity = capacity.ip_pool_capacity;
+    const ipPoolFree = capacity.ip_pool_free;
+    const maxConnections = capacity.max_connections;
+    const policyMaxSessions = capacity.policy_max_sessions;
+    const conntrackPercent = capacity.conntrack?.used_percent
+      ?? capacityPercent(capacity.conntrack?.used, capacity.conntrack?.max);
+    const fdPercent = capacity.file_descriptors?.used_percent
+      ?? capacityPercent(capacity.file_descriptors?.used, capacity.file_descriptors?.soft_limit);
+    const packetDrops = capacity.packet_drops_total ?? capacity.interface?.packet_drops ?? null;
+
+    if (typeof ipPoolCapacity === 'number' && typeof maxConnections === 'number' && maxConnections > ipPoolCapacity) {
+      risks.push({
+        ...base,
+        tone: 'warning',
+        label: t('nodeDetail.capacity.risk.ipPoolMismatch'),
+        detail: t('nodeDetail.capacity.risk.ipPoolMismatchDetail', {
+          max: formatNumber(maxConnections),
+          pool: formatNumber(ipPoolCapacity),
+        }),
+        action: t('nodeDetail.capacity.risk.ipPoolMismatchAction'),
+      });
+    }
+
+    if (
+      typeof ipPoolCapacity === 'number'
+      && typeof policyMaxSessions === 'number'
+      && policyMaxSessions > 0
+      && policyMaxSessions > ipPoolCapacity
+    ) {
+      risks.push({
+        ...base,
+        tone: 'critical',
+        label: t('nodeDetail.capacity.risk.policyMismatch'),
+        detail: t('nodeDetail.capacity.risk.policyMismatchDetail', {
+          policy: formatNumber(policyMaxSessions),
+          pool: formatNumber(ipPoolCapacity),
+        }),
+        action: t('nodeDetail.capacity.risk.policyMismatchAction'),
+      });
+    }
+
+    if (typeof ipPoolFree === 'number' && ipPoolFree <= 0) {
+      risks.push({
+        ...base,
+        tone: 'critical',
+        label: t('nodeDetail.capacity.risk.ipPoolExhausted'),
+        detail: t('nodeDetail.capacity.risk.ipPoolExhaustedDetail'),
+        action: t('nodeDetail.capacity.risk.ipPoolExhaustedAction'),
+      });
+    }
+
+    if (typeof conntrackPercent === 'number' && conntrackPercent >= 80) {
+      risks.push({
+        ...base,
+        tone: conntrackPercent >= 90 ? 'critical' : 'warning',
+        label: t('nodeDetail.capacity.risk.conntrack'),
+        detail: t('nodeDetail.capacity.risk.conntrackDetail', {
+          value: formatNumber(conntrackPercent, { maximumFractionDigits: 1 }),
+        }),
+        action: t('nodeDetail.capacity.risk.conntrackAction'),
+      });
+    }
+
+    if (typeof fdPercent === 'number' && fdPercent >= 80) {
+      risks.push({
+        ...base,
+        tone: fdPercent >= 90 ? 'critical' : 'warning',
+        label: t('nodeDetail.capacity.risk.fileDescriptors'),
+        detail: t('nodeDetail.capacity.risk.fileDescriptorsDetail', {
+          value: formatNumber(fdPercent, { maximumFractionDigits: 1 }),
+        }),
+        action: t('nodeDetail.capacity.risk.fileDescriptorsAction'),
+      });
+    }
+
+    if (typeof packetDrops === 'number' && packetDrops > 0) {
+      risks.push({
+        ...base,
+        tone: 'warning',
+        label: t('nodeDetail.capacity.risk.packetDrops'),
+        detail: t('nodeDetail.capacity.risk.packetDropsDetail', {
+          count: formatNumber(packetDrops),
+        }),
+        action: t('nodeDetail.capacity.risk.packetDropsAction'),
+      });
+    }
+  });
+
+  return risks.sort((a, b) => {
+    const severity = (risk: FleetCapacityRisk) => risk.tone === 'critical' ? 0 : 1;
+    return severity(a) - severity(b) || a.nodeName.localeCompare(b.nodeName);
+  });
 }
 
 function formatFleetBytes(value: number | null | undefined) {
@@ -2337,8 +2474,10 @@ function FleetSummaryGrid({
  *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
  */
 function FleetCommercialOperationsPanel({
+  nodes,
   summary,
 }: {
+  nodes: VpnNodeHealth[];
   summary: VpnRestartReadinessSummary | null;
 }) {
   const { t, formatNumber } = useI18n();
@@ -2360,6 +2499,10 @@ function FleetCommercialOperationsPanel({
   const total = commercial?.total_nodes ?? summary?.total_vpn_nodes ?? 0;
   const problemNodes = commercial?.problem_nodes ?? [];
   const primaryProblem = problemNodes[0] ?? null;
+  const capacityRisks = collectFleetCapacityRisks(nodes, t, formatNumber);
+  const capacityRiskNodes = new Set(capacityRisks.map((risk) => risk.nodeId));
+  const topCapacityRisk = capacityRisks[0] ?? null;
+  const capacityRiskTone = capacityRisks.some((risk) => risk.tone === 'critical') ? 'critical' : 'warning';
   const statusCards = [
     {
       label: t('services.commercial.ready'),
@@ -2455,6 +2598,53 @@ function FleetCommercialOperationsPanel({
           </div>
         </div>
       </div>
+
+      {capacityRisks.length > 0 && (
+        <div className={`mt-4 rounded-xl border p-4 ${capacityRiskTone === 'critical' ? 'border-red-500/25 bg-red-500/[0.07]' : 'border-yellow-500/25 bg-yellow-500/[0.06]'}`}>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold text-white">{t('services.commercial.capacityRisks')}</p>
+                <StatusPill status={capacityRiskTone} />
+                <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-xs text-gray-200">
+                  {t('services.commercial.capacityRiskCount', {
+                    risks: formatNumber(capacityRisks.length),
+                    nodes: formatNumber(capacityRiskNodes.size),
+                  })}
+                </span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-gray-300">
+                {t('services.commercial.capacityRiskDetail')}
+              </p>
+            </div>
+            {topCapacityRisk && (
+              <Link
+                href={`/dashboard/nodes/${topCapacityRisk.nodeId}`}
+                className="inline-flex w-fit items-center justify-center rounded-lg border border-white/10 px-3 py-2 text-xs font-medium text-white transition hover:border-white/20 hover:bg-white/5"
+              >
+                {t('services.commercial.openCapacityRisk')}
+              </Link>
+            )}
+          </div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-3">
+            {capacityRisks.slice(0, 3).map((risk) => (
+              <div key={`${risk.nodeId}:${risk.label}`} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <Link href={`/dashboard/nodes/${risk.nodeId}`} className="min-w-0 truncate font-medium text-white hover:text-purple-300">
+                    {risk.nodeName}
+                  </Link>
+                  <span className={`shrink-0 rounded-md border px-2 py-0.5 ${statusClass(risk.tone)}`}>
+                    {risk.tone}
+                  </span>
+                </div>
+                <p className="mt-1 text-gray-500">{risk.region}</p>
+                <p className="mt-2 leading-5 text-gray-200">{risk.label} · {risk.detail}</p>
+                <p className="mt-1 leading-5 text-gray-500">{risk.action}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {statusCards.map((card) => (
@@ -5031,7 +5221,7 @@ export default function NodeServicesPage() {
       )}
 
       <FleetSummaryGrid summary={fleetSummary} latestReportedAt={latestReportedAt} />
-      <FleetCommercialOperationsPanel summary={restartReadinessSummary} />
+      <FleetCommercialOperationsPanel nodes={nodes} summary={restartReadinessSummary} />
 
       <DetailModulesPanel
         activeSection={activeDetailSection}
