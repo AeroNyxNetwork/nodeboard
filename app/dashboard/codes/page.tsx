@@ -22,7 +22,8 @@
  * - Only unused codes can be revoked
  * - Used codes show linked node info
  * 
- * Last Modified: v1.1.0 - Use Rust install.sh --quick setup commands
+ * Last Modified: v1.2.0 - Show full preview/install one-line commands
+ * Previous: v1.1.0 - Use Rust install.sh --quick setup commands
  * Previous: v1.0.0 - Initial codes page
  * ============================================
  */
@@ -148,15 +149,21 @@ function CodeRow({ code, onRevoke }: CodeRowProps) {
 // Generate Code Card
 // ============================================
 
+function shellSingleQuote(value: string) {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 function GenerateCodeCard() {
   const { t } = useI18n();
   const { generateCode, isLoading, lastGeneratedCode, reset } = useGenerateCode();
   const [showCode, setShowCode] = useState(false);
+  const repoBootstrapCommand = 'git clone https://github.com/AeroNyxNetwork/AeroNyx.git AeroNyx && cd AeroNyx';
+  const quotedRegistrationCode = lastGeneratedCode ? shellSingleQuote(lastGeneratedCode.code) : '';
   const installCommand = lastGeneratedCode
-    ? `sudo AERONYX_REGISTRATION_CODE='${lastGeneratedCode.code}' ./deploy/node/install.sh --quick`
+    ? `${repoBootstrapCommand} && sudo env AERONYX_REGISTRATION_CODE=${quotedRegistrationCode} ./deploy/node/install.sh --quick`
     : '';
   const previewCommand = lastGeneratedCode
-    ? `AERONYX_REGISTRATION_CODE='${lastGeneratedCode.code}' ./deploy/node/install.sh --quick --print-plan`
+    ? `${repoBootstrapCommand} && AERONYX_REGISTRATION_CODE=${quotedRegistrationCode} ./deploy/node/install.sh --quick --print-plan`
     : '';
 
   const handleGenerate = async () => {
@@ -252,14 +259,8 @@ function GenerateCodeCard() {
                 {t('codes.generated.commandHint')}
               </p>
               <div className="mt-3 space-y-3">
-                <div className="flex items-start gap-2">
-                  <code className="min-w-0 flex-1 overflow-x-auto rounded bg-black/30 px-3 py-2 font-mono text-xs leading-5 text-gray-300 sm:text-sm">
-                    {installCommand}
-                  </code>
-                  <CopyButton text={installCommand} />
-                </div>
-                <p className="text-xs leading-5 text-purple-100/70">
-                  {t('codes.generated.previewHint')}
+                <p className="text-xs font-medium uppercase tracking-wider text-purple-100/60">
+                  {t('codes.generated.previewCommand')}
                 </p>
                 <div className="flex items-start gap-2">
                   <code className="min-w-0 flex-1 overflow-x-auto rounded bg-black/30 px-3 py-2 font-mono text-xs leading-5 text-gray-400">
@@ -267,20 +268,18 @@ function GenerateCodeCard() {
                   </code>
                   <CopyButton text={previewCommand} />
                 </div>
+                <p className="text-xs font-medium uppercase tracking-wider text-purple-100/60">
+                  {t('codes.generated.installCommand')}
+                </p>
+                <div className="flex items-start gap-2">
+                  <code className="min-w-0 flex-1 overflow-x-auto rounded bg-black/30 px-3 py-2 font-mono text-xs leading-5 text-gray-300 sm:text-sm">
+                    {installCommand}
+                  </code>
+                  <CopyButton text={installCommand} />
+                </div>
                 <p className="text-xs leading-5 text-purple-100/60">
                   {t('codes.generated.quickNote')}
                 </p>
-              </div>
-            </div>
-            <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
-                {t('codes.generated.repoStepTitle')}
-              </p>
-              <div className="mt-2 flex items-start gap-2">
-                <code className="min-w-0 flex-1 overflow-x-auto rounded bg-black/30 px-3 py-2 font-mono text-xs leading-5 text-gray-400">
-                  git clone https://github.com/AeroNyxNetwork/AeroNyx.git && cd AeroNyx
-                </code>
-                <CopyButton text="git clone https://github.com/AeroNyxNetwork/AeroNyx.git && cd AeroNyx" />
               </div>
             </div>
           </motion.div>

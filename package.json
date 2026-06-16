@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "node -e \"require('fs').rmSync('tsconfig.tsbuildinfo',{force:true})\" && tsc --noEmit"
   },
   "dependencies": {
     "@stablelib/random": "^1.0.2",

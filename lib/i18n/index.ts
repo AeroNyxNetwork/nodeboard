@@ -20,7 +20,8 @@
  *   public keys, wallet secrets, client IPs, destinations, DNS contents,
  *   packet payloads, browsing history, or traffic metadata.
  *
- * Last Modified: v1.0.1 - Added multilingual Rust quick install command copy
+ * Last Modified: v1.0.2 - Added preview/install command labels for node setup
+ * Previous: v1.0.1 - Added multilingual Rust quick install command copy
  * Previous: v1.0.0 - Initial nodeboard i18n base framework
  * ============================================
  */
@@ -1177,7 +1178,9 @@ const en: Dictionary = {
   'codes.generate.button': 'Generate Code',
   'codes.generated.title': 'Your New Registration Code',
   'codes.generated.expiresIn': 'Expires in:',
-  'codes.generated.commandHint': 'Run this command inside the AeroNyx repository to install, register, and start the node:',
+  'codes.generated.commandHint': 'Copy the preview command first, then run the install command when the plan looks correct:',
+  'codes.generated.previewCommand': 'Preview command',
+  'codes.generated.installCommand': 'Install command',
   'codes.generated.previewHint': 'Preview the resolved install plan without root access or host changes:',
   'codes.generated.quickNote': 'The quick installer keeps preflight checks, capacity warnings, network setup, release build, systemd verification, and registration safeguards enabled.',
   'codes.generated.repoStepTitle': 'Need the repository first?',
@@ -2677,7 +2680,9 @@ const zhCN: Dictionary = {
   'codes.generate.button': '生成代码',
   'codes.generated.title': '新的注册码',
   'codes.generated.expiresIn': '过期倒计时：',
-  'codes.generated.commandHint': '在 AeroNyx 仓库目录中运行此命令，完成安装、注册并启动节点：',
+  'codes.generated.commandHint': '先复制预检命令确认安装计划，再运行正式安装命令：',
+  'codes.generated.previewCommand': '预检命令',
+  'codes.generated.installCommand': '安装命令',
   'codes.generated.previewHint': '无需 root 权限、不会修改主机，先预览解析后的安装计划：',
   'codes.generated.quickNote': '快速安装仍会保留预检、容量告警、网络配置、release 构建、systemd 校验和注册保护。',
   'codes.generated.repoStepTitle': '还没有仓库？',
@@ -4138,7 +4143,9 @@ const zhTW: Dictionary = {
   'codes.generate.button': '生成代碼',
   'codes.generated.title': '新的註冊碼',
   'codes.generated.expiresIn': '過期倒數：',
-  'codes.generated.commandHint': '在 AeroNyx 倉庫目錄中執行此命令，完成安裝、註冊並啟動節點：',
+  'codes.generated.commandHint': '先複製預檢命令確認安裝計畫，再執行正式安裝命令：',
+  'codes.generated.previewCommand': '預檢命令',
+  'codes.generated.installCommand': '安裝命令',
   'codes.generated.previewHint': '無需 root 權限、也不會修改主機，先預覽解析後的安裝計畫：',
   'codes.generated.quickNote': '快速安裝仍會保留預檢、容量告警、網路設定、release 建置、systemd 校驗和註冊保護。',
   'codes.generated.repoStepTitle': '還沒有倉庫？',
@@ -5679,7 +5686,9 @@ const ja: Dictionary = {
   'codes.generate.button': 'コードを生成',
   'codes.generated.title': '新しい登録コード',
   'codes.generated.expiresIn': '期限まで:',
-  'codes.generated.commandHint': 'AeroNyx リポジトリ内でこのコマンドを実行し、ノードのインストール、登録、起動を行います:',
+  'codes.generated.commandHint': 'まずプレビューコマンドで計画を確認し、問題なければインストールコマンドを実行してください:',
+  'codes.generated.previewCommand': 'プレビューコマンド',
+  'codes.generated.installCommand': 'インストールコマンド',
   'codes.generated.previewHint': 'root 権限やホスト変更なしで、解決されたインストール計画を先に確認します:',
   'codes.generated.quickNote': 'Quick install でも preflight、容量警告、ネットワーク設定、release build、systemd 検証、登録保護は有効です。',
   'codes.generated.repoStepTitle': 'まだリポジトリがありませんか？',
@@ -7179,7 +7188,9 @@ const ko: Dictionary = {
   'codes.generate.button': '코드 생성',
   'codes.generated.title': '새 등록 코드',
   'codes.generated.expiresIn': '만료까지:',
-  'codes.generated.commandHint': 'AeroNyx 저장소 안에서 이 명령을 실행해 노드를 설치, 등록, 시작하세요:',
+  'codes.generated.commandHint': '먼저 미리보기 명령으로 설치 계획을 확인한 뒤 설치 명령을 실행하세요:',
+  'codes.generated.previewCommand': '미리보기 명령',
+  'codes.generated.installCommand': '설치 명령',
   'codes.generated.previewHint': 'root 권한이나 호스트 변경 없이 해석된 설치 계획을 먼저 확인하세요:',
   'codes.generated.quickNote': 'Quick install은 preflight, 용량 경고, 네트워크 설정, release build, systemd 검증, 등록 보호를 그대로 유지합니다.',
   'codes.generated.repoStepTitle': '저장소가 아직 없나요?',
@@ -8679,7 +8690,9 @@ const ru: Dictionary = {
   'codes.generate.button': 'Создать код',
   'codes.generated.title': 'Новый код регистрации',
   'codes.generated.expiresIn': 'Истекает через:',
-  'codes.generated.commandHint': 'Выполните эту команду внутри репозитория AeroNyx, чтобы установить, зарегистрировать и запустить узел:',
+  'codes.generated.commandHint': 'Сначала скопируйте команду проверки плана, затем выполните команду установки:',
+  'codes.generated.previewCommand': 'Команда проверки',
+  'codes.generated.installCommand': 'Команда установки',
   'codes.generated.previewHint': 'Сначала проверьте рассчитанный план установки без root-доступа и изменений на хосте:',
   'codes.generated.quickNote': 'Quick install сохраняет preflight-проверки, предупреждения емкости, настройку сети, release build, проверку systemd и защиту регистрации.',
   'codes.generated.repoStepTitle': 'Репозитория еще нет?',
