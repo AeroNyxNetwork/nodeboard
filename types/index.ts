@@ -1662,6 +1662,13 @@ export interface VpnCapacityInterface {
   total_bps?: number | null;
 }
 
+export interface VpnCapacityRiskSnapshot {
+  severity: 'critical' | 'warning' | string;
+  code: string;
+  message: string;
+  remediation: string;
+}
+
 /**
  * Rust capacity snapshot shown in node detail.
  *
@@ -1671,6 +1678,9 @@ export interface VpnCapacityInterface {
  *   /root/aeronyx/privacy_network/api/vpn_observability.py
  * Rust producer:
  *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *   Rust v2026-06-16+ provides capacity.risks[] as the authoritative
+ *   commercial placement risk list. Older Rust nodes may omit it, so
+ *   nodeboard keeps legacy client-side risk inference as a fallback only.
  *
  * Privacy boundary: aggregate node capacity only. No client public IPs,
  * destinations, DNS contents, packet payloads, domains, URLs, browsing
@@ -1691,6 +1701,7 @@ export interface VpnCapacitySnapshot {
   file_descriptors: VpnCapacityNestedUsage;
   interface: VpnCapacityInterface;
   packet_drops_total: number | null;
+  risks?: VpnCapacityRiskSnapshot[] | null;
   privacy_boundary?: string;
 }
 

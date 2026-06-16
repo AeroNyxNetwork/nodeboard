@@ -6,6 +6,9 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.27 - Prefer Rust-authored capacity.risks from /api/vpn/health so
+ *     node detail shows the same commercial placement blockers and
+ *     remediation text as the CLI healthcheck and backend automation.
  *   v1.6.26 - Added commercial capacity risk summary for IP-pool/session
  *     mismatches so operators can see paid-placement blockers directly in
  *     nodeboard before scaling traffic.
@@ -1739,6 +1742,7 @@ type CapacityRiskItem = {
   label: string;
   detail: string;
   action: string;
+  code?: string;
 };
 
 function capacityRiskItems(
@@ -1747,6 +1751,23 @@ function capacityRiskItems(
   formatNumber: CapacityFormatNumber,
 ): CapacityRiskItem[] {
   if (!capacity?.reported) return [];
+
+  if (Array.isArray(capacity.risks)) {
+    return capacity.risks.map((risk) => {
+      const code = typeof risk?.code === 'string' ? risk.code : '';
+      const message = typeof risk?.message === 'string' ? risk.message.trim() : '';
+      const remediation = typeof risk?.remediation === 'string' ? risk.remediation.trim() : '';
+      const severity = typeof risk?.severity === 'string' ? risk.severity : 'warning';
+      const tone: CapacityRiskItem['tone'] = severity === 'critical' ? 'critical' : 'warning';
+      return {
+        tone,
+        label: capacityRiskLabelFromCode(code, t),
+        detail: message || code || t('nodeDetail.capacity.risk.description'),
+        action: remediation || t('nodeDetail.capacity.risk.description'),
+        code,
+      };
+    }).filter((risk) => risk.detail || risk.action);
+  }
 
   const risks: CapacityRiskItem[] = [];
   const ipPoolCapacity = capacity.ip_pool_capacity;
@@ -1830,6 +1851,25 @@ function capacityRiskItems(
   }
 
   return risks;
+}
+
+function capacityRiskLabelFromCode(code: string, t: TranslateFn) {
+  switch (code) {
+    case 'vpn_ip_pool_below_max_connections':
+      return t('nodeDetail.capacity.risk.ipPoolMismatch');
+    case 'vpn_ip_pool_below_policy_max_sessions':
+      return t('nodeDetail.capacity.risk.policyMismatch');
+    case 'vpn_ip_pool_exhausted':
+      return t('nodeDetail.capacity.risk.ipPoolExhausted');
+    case 'conntrack_pressure':
+      return t('nodeDetail.capacity.risk.conntrack');
+    case 'file_descriptor_pressure':
+      return t('nodeDetail.capacity.risk.fileDescriptors');
+    case 'packet_drops_detected':
+      return t('nodeDetail.capacity.risk.packetDrops');
+    default:
+      return code ? code.replaceAll('_', ' ') : t('nodeDetail.capacity.risk.title');
+  }
 }
 
 function CapacityMetric({
@@ -1941,7 +1981,7 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
           <div className="mt-3 grid gap-2 lg:grid-cols-2">
             {riskItems.map((item) => (
               <div
-                key={`${item.label}:${item.detail}`}
+                key={`${item.code || item.label}:${item.detail}`}
                 className={`rounded-lg border p-3 ${
                   item.tone === 'critical'
                     ? 'border-red-300/20 bg-red-950/20'

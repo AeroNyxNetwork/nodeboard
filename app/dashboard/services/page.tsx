@@ -10,6 +10,9 @@
  * readiness.
  *
  * Modification Reason:
+ *   v1.1.65 - Prefer Rust-authored data.nodes[].system.capacity.risks so the
+ *     Services fleet summary uses the same commercial capacity blockers and
+ *     remediation text as node detail, healthcheck.sh, and backend automation.
  *   v1.1.64 - Added first-screen fleet capacity risk summary from
  *     data.nodes[].system.capacity so commercial operators can see IP pool,
  *     session ceiling, conntrack, fd, and packet-drop risks before opening
@@ -362,6 +365,7 @@ interface FleetCapacityRisk {
   label: string;
   detail: string;
   action: string;
+  code?: string;
 }
 
 interface PageHeaderProps {
@@ -652,6 +656,27 @@ function collectFleetCapacityRisks(
       nodeName: node.name,
       region: nodeRegionLabel(node),
     };
+
+    if (Array.isArray(capacity.risks)) {
+      capacity.risks.forEach((risk) => {
+        const code = typeof risk?.code === 'string' ? risk.code : '';
+        const message = typeof risk?.message === 'string' ? risk.message.trim() : '';
+        const remediation = typeof risk?.remediation === 'string' ? risk.remediation.trim() : '';
+        const severity = typeof risk?.severity === 'string' ? risk.severity : 'warning';
+        const tone: FleetCapacityRisk['tone'] = severity === 'critical' ? 'critical' : 'warning';
+        if (!message && !remediation && !code) return;
+        risks.push({
+          ...base,
+          tone,
+          label: capacityRiskLabelFromCode(code, t),
+          detail: message || code || t('services.commercial.capacityRiskDetail'),
+          action: remediation || t('services.commercial.capacityRiskDetail'),
+          code,
+        });
+      });
+      return;
+    }
+
     const ipPoolCapacity = capacity.ip_pool_capacity;
     const ipPoolFree = capacity.ip_pool_free;
     const maxConnections = capacity.max_connections;
@@ -744,6 +769,25 @@ function collectFleetCapacityRisks(
     const severity = (risk: FleetCapacityRisk) => risk.tone === 'critical' ? 0 : 1;
     return severity(a) - severity(b) || a.nodeName.localeCompare(b.nodeName);
   });
+}
+
+function capacityRiskLabelFromCode(code: string, t: ServicesTranslateFn) {
+  switch (code) {
+    case 'vpn_ip_pool_below_max_connections':
+      return t('nodeDetail.capacity.risk.ipPoolMismatch');
+    case 'vpn_ip_pool_below_policy_max_sessions':
+      return t('nodeDetail.capacity.risk.policyMismatch');
+    case 'vpn_ip_pool_exhausted':
+      return t('nodeDetail.capacity.risk.ipPoolExhausted');
+    case 'conntrack_pressure':
+      return t('nodeDetail.capacity.risk.conntrack');
+    case 'file_descriptor_pressure':
+      return t('nodeDetail.capacity.risk.fileDescriptors');
+    case 'packet_drops_detected':
+      return t('nodeDetail.capacity.risk.packetDrops');
+    default:
+      return code ? code.replaceAll('_', ' ') : t('services.commercial.capacityRisks');
+  }
 }
 
 function formatFleetBytes(value: number | null | undefined) {
