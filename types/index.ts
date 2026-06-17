@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.28 - Added VPN transport capability health metadata.
  *   v1.5.27 - Added VPN DNS ownership health metadata.
  *   v1.5.26 - Documented nodeboard health contract for capacity.risks.
  *   v1.5.25 - Documented fleet placement rollout action links.
@@ -67,7 +68,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.27 - Added VPN DNS ownership health metadata
+ * Last Modified: v1.5.28 - Added VPN transport capability health metadata
+ * Previous: v1.5.27 - Added VPN DNS ownership health metadata
  * Previous: v1.5.26 - Documented nodeboard health contract for capacity.risks
  * Previous: v1.5.25 - Documented fleet placement rollout action links
  * Previous: v1.5.24 - Documented placement rollout action links
@@ -1746,6 +1748,45 @@ export interface NodeboardHealthResponse {
   generated_at: string;
 }
 
+export type VpnTransportKey = 'udp' | 'tcp_tls' | 'websocket_https' | string;
+
+export interface VpnTransportCarrierStatus {
+  key: VpnTransportKey;
+  enabled: boolean;
+  implemented: boolean;
+  active: boolean;
+  endpoint?: string | null;
+  status: 'active' | 'planned' | 'configured_not_active' | 'degraded' | string;
+  detail: string;
+}
+
+/**
+ * Rust VPN transport capability metadata.
+ *
+ * Backend API:
+ *   GET /api/privacy_network/vpn/overview/
+ * Backend file:
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py
+ * Rust source:
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *
+ * Privacy boundary: node-level transport capability only. No client public
+ * IPs, destinations, DNS contents, packet payloads, domains, URLs, browsing
+ * history, voucher secrets, or wallet-level traffic.
+ */
+export interface VpnTransportHealthStatus {
+  supported_transports: VpnTransportKey[];
+  configured_transports: VpnTransportKey[];
+  preferred_transport: VpnTransportKey;
+  effective_transport: VpnTransportKey;
+  fallback_available: boolean;
+  udp?: VpnTransportCarrierStatus | null;
+  tcp_tls?: VpnTransportCarrierStatus | null;
+  websocket_https?: VpnTransportCarrierStatus | null;
+  source?: string | null;
+  privacy_boundary?: string | null;
+}
+
 export interface VpnNodeHealth {
   id: string;
   name: string;
@@ -1811,6 +1852,18 @@ export interface VpnNodeHealth {
      */
     dns_proxy_enabled?: boolean | null;
     dns_owner?: 'rust_dns_proxy' | 'external_gateway_dns' | string | null;
+    /**
+     * Rust source:
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+     * Backend pass-through:
+     *   /root/aeronyx/privacy_network/api/vpn_observability.py
+     *
+     * Transport capability metadata only. Phase 1 reports UDP as active and
+     * TCP/TLS/WebSocket as planned until those runtime carriers are deployed.
+     */
+    supported_transports?: VpnTransportKey[] | null;
+    preferred_transport?: VpnTransportKey | null;
+    transport_health?: VpnTransportHealthStatus | null;
     service_manager?: VpnServiceManagerStatus | null;
     /**
      * Backend API:

@@ -325,6 +325,7 @@ import {
   VpnServerCandidate,
   VpnServerPlacementSummary,
   VpnSessionCleanupStatus,
+  VpnTransportHealthStatus,
 } from '@/types';
 
 type ServiceKey =
@@ -337,6 +338,7 @@ type ServiceKey =
 type ServiceDetailSection =
   | 'placement'
   | 'capacity'
+  | 'transport'
   | 'dns'
   | 'restart'
   | 'layers'
@@ -392,6 +394,22 @@ interface FleetDnsNode {
   dnsStubDetail: string;
   dnsQueryDetail: string;
   checkedAt: number | null;
+}
+
+interface FleetTransportNode {
+  id: string;
+  name: string;
+  region: string;
+  supported: string[];
+  configured: string[];
+  preferred: string;
+  effective: string;
+  fallbackAvailable: boolean;
+  udpStatus: string;
+  tcpTlsStatus: string;
+  websocketStatus: string;
+  status: 'ok' | 'warning' | 'pending' | 'failed';
+  source: string;
 }
 
 interface PageHeaderProps {
@@ -907,6 +925,71 @@ function dnsOwnerView(node: VpnNodeHealth, t: ServicesTranslateFn) {
     label: t('services.dns.owner.unknown'),
     detail: t('services.dns.owner.unknownDetail'),
   };
+}
+
+function transportHealthView(node: VpnNodeHealth): VpnTransportHealthStatus {
+  const metrics = privacyProtocolMetrics(node);
+  const metricsTransport = metrics.transport_health && typeof metrics.transport_health === 'object'
+    ? metrics.transport_health as VpnTransportHealthStatus
+    : null;
+  return node.system.transport_health ?? metricsTransport ?? {
+    supported_transports: ['udp'],
+    configured_transports: ['udp'],
+    preferred_transport: 'udp',
+    effective_transport: 'udp',
+    fallback_available: false,
+    source: 'nodeboard_legacy_udp_default',
+  };
+}
+
+function transportLabel(key: string, t: ServicesTranslateFn) {
+  if (key === 'udp') return t('services.transport.carrier.udp');
+  if (key === 'tcp_tls') return t('services.transport.carrier.tcpTls');
+  if (key === 'websocket_https') return t('services.transport.carrier.websocket');
+  return key.replaceAll('_', ' ');
+}
+
+function formatTransportList(values: string[] | null | undefined, t: ServicesTranslateFn) {
+  const list = Array.isArray(values) && values.length > 0 ? values : ['udp'];
+  return list.map((item) => transportLabel(String(item), t));
+}
+
+function collectFleetTransportNodes(nodes: VpnNodeHealth[], t: ServicesTranslateFn): FleetTransportNode[] {
+  return nodes.map((node) => {
+    const transport = transportHealthView(node);
+    const supported = formatTransportList(transport.supported_transports, t);
+    const configured = formatTransportList(transport.configured_transports, t);
+    const fallbackAvailable = Boolean(transport.fallback_available);
+    const udpActive = transport.udp?.active === true || supported.includes(t('services.transport.carrier.udp'));
+    const configuredInactive = [transport.tcp_tls, transport.websocket_https]
+      .some((carrier) => carrier?.enabled && !carrier.active);
+    const status: FleetTransportNode['status'] = udpActive
+      ? fallbackAvailable
+        ? 'ok'
+        : configuredInactive
+          ? 'warning'
+          : 'pending'
+      : 'failed';
+
+    return {
+      id: node.id,
+      name: node.name,
+      region: nodeRegionLabel(node),
+      supported,
+      configured,
+      preferred: transportLabel(String(transport.preferred_transport || 'udp'), t),
+      effective: transportLabel(String(transport.effective_transport || 'udp'), t),
+      fallbackAvailable,
+      udpStatus: transport.udp?.status || (udpActive ? 'active' : 'pending'),
+      tcpTlsStatus: transport.tcp_tls?.status || 'planned',
+      websocketStatus: transport.websocket_https?.status || 'planned',
+      status,
+      source: transport.source || 'backend',
+    };
+  }).sort((a, b) => {
+    const severity = (item: FleetTransportNode) => item.status === 'failed' ? 0 : item.status === 'warning' ? 1 : item.status === 'pending' ? 2 : 3;
+    return severity(a) - severity(b) || a.name.localeCompare(b.name);
+  });
 }
 
 function collectFleetDnsNodes(nodes: VpnNodeHealth[], t: ServicesTranslateFn): FleetDnsNode[] {
@@ -3191,6 +3274,147 @@ function DnsCheckBadge({ ok }: { ok: boolean | null }) {
   return <StatusPill status="pending" />;
 }
 
+function FleetTransportPanel({ nodes }: { nodes: VpnNodeHealth[] }) {
+  const { t, formatNumber } = useI18n();
+  const transportNodes = useMemo(() => collectFleetTransportNodes(nodes, t), [nodes, t]);
+  const udpReady = transportNodes.filter((node) => node.udpStatus === 'active').length;
+  const fallbackReady = transportNodes.filter((node) => node.fallbackAvailable).length;
+  const attention = transportNodes.filter((node) => node.status !== 'ok').length;
+  const plannedOnly = Math.max(transportNodes.length - fallbackReady, 0);
+  const overallStatus = attention > 0 ? 'warning' : fallbackReady > 0 ? 'ok' : 'pending';
+  const summaryCards = [
+    {
+      label: t('services.transport.summary.udpReady'),
+      value: `${formatNumber(udpReady)} / ${formatNumber(transportNodes.length)}`,
+      detail: t('services.transport.summary.udpReadyDetail'),
+      status: udpReady > 0 ? 'ok' : 'failed',
+    },
+    {
+      label: t('services.transport.summary.fallbackReady'),
+      value: formatNumber(fallbackReady),
+      detail: t('services.transport.summary.fallbackReadyDetail'),
+      status: fallbackReady > 0 ? 'ok' : 'warning',
+    },
+    {
+      label: t('services.transport.summary.plannedOnly'),
+      value: formatNumber(plannedOnly),
+      detail: t('services.transport.summary.plannedOnlyDetail'),
+      status: plannedOnly > 0 ? 'warning' : 'ok',
+    },
+    {
+      label: t('services.transport.summary.attention'),
+      value: formatNumber(attention),
+      detail: t('services.transport.summary.attentionDetail'),
+      status: attention > 0 ? 'warning' : 'ok',
+    },
+  ];
+
+  return (
+    <section className="mb-6 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
+      <div className="border-b border-white/10 px-5 py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-white">{t('services.transport.title')}</h2>
+            <p className="mt-1 max-w-4xl text-sm leading-6 text-gray-400">
+              {t('services.transport.description')}
+            </p>
+          </div>
+          <StatusPill status={overallStatus} />
+        </div>
+      </div>
+
+      <div className="grid gap-3 border-b border-white/10 p-5 md:grid-cols-2 xl:grid-cols-4">
+        {summaryCards.map((card) => (
+          <div key={card.label} className="rounded-xl border border-white/10 bg-black/20 p-4">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{card.label}</p>
+              <StatusPill status={card.status} />
+            </div>
+            <p className="mt-3 text-xl font-semibold text-white">{card.value}</p>
+            <p className="mt-2 text-xs leading-5 text-gray-400">{card.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1120px] text-left">
+          <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.12em] text-gray-500">
+            <tr>
+              <th className="px-4 py-3 font-medium">{t('services.transport.table.node')}</th>
+              <th className="px-4 py-3 font-medium">{t('services.transport.table.supported')}</th>
+              <th className="px-4 py-3 font-medium">{t('services.transport.table.preferred')}</th>
+              <th className="px-4 py-3 font-medium">{t('services.transport.table.fallback')}</th>
+              <th className="px-4 py-3 font-medium">{t('services.transport.table.carriers')}</th>
+              <th className="px-4 py-3 font-medium">{t('services.transport.table.source')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {transportNodes.length > 0 ? (
+              transportNodes.map((node) => (
+                <tr key={node.id} className="border-t border-white/10 align-top text-sm">
+                  <td className="px-4 py-4">
+                    <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
+                      {node.name}
+                    </Link>
+                    <p className="mt-1 text-xs text-gray-500">{node.region}</p>
+                  </td>
+                  <td className="px-4 py-4">
+                    <p className="font-medium text-white">{node.supported.join(', ')}</p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {t('services.transport.configured', { value: node.configured.join(', ') })}
+                    </p>
+                  </td>
+                  <td className="px-4 py-4">
+                    <p className="font-medium text-white">{node.preferred}</p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {t('services.transport.effective', { value: node.effective })}
+                    </p>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-xs leading-5 text-gray-300">
+                        {node.fallbackAvailable
+                          ? t('services.transport.fallbackAvailable')
+                          : t('services.transport.fallbackPlanned')}
+                      </p>
+                      <StatusPill status={node.fallbackAvailable ? 'ok' : 'warning'} />
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-xs text-gray-300">
+                        UDP: {node.udpStatus}
+                      </span>
+                      <span className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-xs text-gray-300">
+                        TLS: {node.tcpTlsStatus}
+                      </span>
+                      <span className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-xs text-gray-300">
+                        WS: {node.websocketStatus}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-xs leading-5 text-gray-500">{node.source}</p>
+                      <StatusPill status={node.status} />
+                    </div>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
+                  {t('services.transport.empty')}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function FleetDnsPanel({ nodes }: { nodes: VpnNodeHealth[] }) {
   const { t, formatNumber } = useI18n();
   const dnsNodes = useMemo(() => collectFleetDnsNodes(nodes, t), [nodes, t]);
@@ -3323,6 +3547,9 @@ function DetailModulesPanel({
   placementTotal,
   capacityReporting,
   capacityRiskCount,
+  transportReady,
+  transportTotal,
+  transportAttention,
   dnsHealthy,
   dnsTotal,
   dnsAttention,
@@ -3338,6 +3565,9 @@ function DetailModulesPanel({
   placementTotal: number;
   capacityReporting: number;
   capacityRiskCount: number;
+  transportReady: number;
+  transportTotal: number;
+  transportAttention: number;
   dnsHealthy: number;
   dnsTotal: number;
   dnsAttention: number;
@@ -3371,6 +3601,14 @@ function DetailModulesPanel({
       count: `${formatNumber(capacityReporting)} / ${formatNumber(nodeCount)}`,
       detail: t('services.modules.capacity.detail'),
       status: capacityRiskCount > 0 ? 'warning' : capacityReporting > 0 ? 'ok' : 'pending',
+    },
+    {
+      key: 'transport',
+      label: t('services.modules.transport.label'),
+      eyebrow: t('services.modules.transport.eyebrow'),
+      count: `${formatNumber(transportReady)} / ${formatNumber(transportTotal)}`,
+      detail: t('services.modules.transport.detail'),
+      status: transportAttention > 0 ? 'warning' : transportReady > 0 ? 'ok' : 'pending',
     },
     {
       key: 'dns',
@@ -3434,7 +3672,7 @@ function DetailModulesPanel({
         )}
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-7">
         {modules.map((module) => {
           const active = activeSection === module.key;
           return (
@@ -5733,6 +5971,9 @@ export default function NodeServicesPage() {
   const runtimeRolloutNodes = useMemo(() => collectRuntimeRolloutNodes(nodes), [nodes]);
   const sessionCleanupRolloutNodes = useMemo(() => collectSessionCleanupRolloutNodes(nodes), [nodes]);
   const latestReportedAt = useMemo(() => latestReportTime(operatorStatuses), [operatorStatuses]);
+  const transportNodes = useMemo(() => collectFleetTransportNodes(nodes, t), [nodes, t]);
+  const transportReadyCount = transportNodes.filter((node) => node.udpStatus === 'active').length;
+  const transportAttentionCount = transportNodes.filter((node) => node.status !== 'ok').length;
   const dnsNodes = useMemo(() => collectFleetDnsNodes(nodes, t), [nodes, t]);
   const dnsHealthyCount = dnsNodes.filter((node) => node.status === 'ok').length;
   const dnsAttentionCount = dnsNodes.filter((node) => node.status !== 'ok').length;
@@ -5820,6 +6061,9 @@ export default function NodeServicesPage() {
         placementTotal={placementTotal}
         capacityReporting={capacityReportingCount}
         capacityRiskCount={capacityRiskCount}
+        transportReady={transportReadyCount}
+        transportTotal={transportNodes.length}
+        transportAttention={transportAttentionCount}
         dnsHealthy={dnsHealthyCount}
         dnsTotal={dnsNodes.length}
         dnsAttention={dnsAttentionCount}
@@ -5843,6 +6087,10 @@ export default function NodeServicesPage() {
 
       {activeDetailSection === 'capacity' && (
         <FleetCapacityPanel nodes={nodes} />
+      )}
+
+      {activeDetailSection === 'transport' && (
+        <FleetTransportPanel nodes={nodes} />
       )}
 
       {activeDetailSection === 'dns' && (
