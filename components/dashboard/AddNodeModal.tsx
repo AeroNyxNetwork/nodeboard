@@ -3,7 +3,32 @@
  * AeroNyx Add Node Modal Component
  * ============================================
  * File Path: components/dashboard/AddNodeModal.tsx
- * 
+ *
+ * Modification Reason:
+ *   v1.1.0 - Replace legacy bind command with production Rust privacy node
+ *   quick install and read-only preview commands. This aligns nodeboard
+ *   onboarding with deploy/node/install.sh --quick and --print-plan.
+ *
+ * Main Functionality:
+ *   - Generate a short-lived node registration code.
+ *   - Show a safe preview command that does not mutate the host.
+ *   - Show a one-command production install path for new Linux/systemd nodes.
+ *   - Allow copying the code or install commands without exposing private
+ *     keys, node secrets, traffic metadata, or user data.
+ *
+ * Dependencies:
+ *   - hooks/useRegistrationCodes.ts
+ *   - deploy/node/install.sh in AeroNyxNetwork/AeroNyx
+ *   - common Modal/Button components and nodeboard i18n dictionary
+ *
+ * ⚠️ Important Note for Next Developer:
+ * - Keep the registration code scoped to this modal and clipboard only.
+ * - Do not add node private keys, wallet secrets, DNS contents, packet
+ *   payloads, client IPs, or browsing destinations to setup commands.
+ * - If deploy/node/install.sh changes flags, update both preview and install
+ *   commands together.
+ *
+ * Last Modified: v1.1.0 - Production quick install onboarding
  * Last Modified: v1.0.1 - Removed framer-motion to fix re-render issues
  * ============================================
  */
@@ -16,6 +41,34 @@ import Button from '@/components/common/Button';
 import { useGenerateCode, getCodeTimeRemaining } from '@/hooks/useRegistrationCodes';
 import { RegistrationCode } from '@/types';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+
+const INSTALLER_URL =
+  'https://raw.githubusercontent.com/AeroNyxNetwork/AeroNyx/main/deploy/node/install.sh';
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function buildInstallerBootstrap(): string {
+  return [
+    `curl -fsSL ${INSTALLER_URL} -o /tmp/aeronyx-node-install.sh`,
+    'chmod +x /tmp/aeronyx-node-install.sh',
+  ].join(' && ');
+}
+
+function buildPreviewCommand(code: string): string {
+  return [
+    buildInstallerBootstrap(),
+    `AERONYX_REGISTRATION_CODE=${shellQuote(code)} /tmp/aeronyx-node-install.sh --quick --print-plan`,
+  ].join(' && ');
+}
+
+function buildInstallCommand(code: string): string {
+  return [
+    buildInstallerBootstrap(),
+    `sudo AERONYX_REGISTRATION_CODE=${shellQuote(code)} /tmp/aeronyx-node-install.sh --quick`,
+  ].join(' && ');
+}
 
 // ============================================
 // Props Interface
@@ -73,9 +126,73 @@ interface CodeDisplayProps {
   onExpire: () => void;
 }
 
+interface CopyCommandCardProps {
+  label: string;
+  helper?: string;
+  command: string;
+  accent?: 'purple' | 'emerald';
+}
+
+function CopyCommandCard({
+  label,
+  helper,
+  command,
+  accent = 'purple',
+}: CopyCommandCardProps) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy command:', err);
+    }
+  }, [command]);
+
+  const accentClass = accent === 'emerald'
+    ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-300'
+    : 'border-purple-500/20 bg-purple-500/5 text-purple-300';
+
+  return (
+    <div className={`rounded-xl border ${accentClass} overflow-hidden`}>
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-white">{label}</p>
+          {helper && (
+            <p className="mt-1 text-xs text-gray-400 leading-relaxed">{helper}</p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className={`
+            flex-shrink-0 px-3 py-1.5 rounded-lg border text-xs transition-all
+            ${copied
+              ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+              : 'bg-white/5 border-white/10 text-gray-200 hover:bg-white/10'
+            }
+          `}
+        >
+          {copied ? t('common.copied') : t('common.copyToClipboard')}
+        </button>
+      </div>
+      <pre className="p-4 overflow-x-auto bg-black/40">
+        <code className="block text-xs leading-relaxed font-mono text-gray-100 whitespace-pre-wrap break-all">
+          {command}
+        </code>
+      </pre>
+    </div>
+  );
+}
+
 function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
+  const previewCommand = buildPreviewCommand(code.code);
+  const installCommand = buildInstallCommand(code.code);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -148,7 +265,21 @@ function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
       {/* Instructions */}
       <div className="space-y-3">
         <h4 className="text-sm font-medium text-white">{t('addNode.setup.title')}</h4>
-        
+
+        <div className="space-y-3">
+          <CopyCommandCard
+            label={t('codes.generated.previewCommand')}
+            helper={t('codes.generated.previewHint')}
+            command={previewCommand}
+          />
+          <CopyCommandCard
+            label={t('codes.generated.installCommand')}
+            helper={t('codes.generated.quickNote')}
+            command={installCommand}
+            accent="emerald"
+          />
+        </div>
+
         <div className="space-y-2">
           <div className="flex items-start gap-3 p-3 rounded-lg bg-white/5">
             <span className="flex-shrink-0 w-6 h-6 rounded-full bg-purple-500/20 text-purple-300 text-xs flex items-center justify-center font-medium">
@@ -158,19 +289,19 @@ function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
               {t('addNode.setup.download')}
             </div>
           </div>
-          
+
           <div className="flex items-start gap-3 p-3 rounded-lg bg-white/5">
             <span className="flex-shrink-0 w-6 h-6 rounded-full bg-purple-500/20 text-purple-300 text-xs flex items-center justify-center font-medium">
               2
             </span>
             <div className="text-sm text-gray-400">
               {t('addNode.setup.runCommand')}
-              <code className="block mt-2 px-3 py-2 rounded bg-black/30 text-purple-300 font-mono text-xs">
-                aeronyx-node bind --code {code.code}
-              </code>
+              <span className="block mt-2 text-xs text-purple-300">
+                {t('codes.generated.commandHint')}
+              </span>
             </div>
           </div>
-          
+
           <div className="flex items-start gap-3 p-3 rounded-lg bg-white/5">
             <span className="flex-shrink-0 w-6 h-6 rounded-full bg-purple-500/20 text-purple-300 text-xs flex items-center justify-center font-medium">
               3
@@ -233,7 +364,7 @@ export default function AddNodeModal({ isOpen, onClose }: AddNodeModalProps) {
       onClose={onClose}
       title={t('addNode.title')}
       description={t('addNode.description')}
-      size="lg"
+      size="xl"
     >
       {!activeCode ? (
         <div className="space-y-6">
