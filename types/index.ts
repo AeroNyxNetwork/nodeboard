@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.27 - Added VPN DNS ownership health metadata.
  *   v1.5.26 - Documented nodeboard health contract for capacity.risks.
  *   v1.5.25 - Documented fleet placement rollout action links.
  *   v1.5.24 - Documented placement rollout action links.
@@ -66,7 +67,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.26 - Documented nodeboard health contract for capacity.risks
+ * Last Modified: v1.5.27 - Added VPN DNS ownership health metadata
+ * Previous: v1.5.26 - Documented nodeboard health contract for capacity.risks
  * Previous: v1.5.25 - Documented fleet placement rollout action links
  * Previous: v1.5.24 - Documented placement rollout action links
  * Previous: v1.5.23 - Documented placement rollout cutover safety coupling
@@ -1795,6 +1797,20 @@ export interface VpnNodeHealth {
     vpn_health_checked_at?: number | null;
     configured_mtu?: number | null;
     running_mtu?: number | null;
+    /**
+     * Rust source:
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+     * Backend pass-through:
+     *   /root/aeronyx/privacy_network/api/vpn_observability.py
+     *
+     * DNS ownership metadata only. `dns_owner` identifies whether Rust
+     * (`rust_dns_proxy`) or an external host resolver
+     * (`external_gateway_dns`) owns gateway_ip:53. It never contains DNS
+     * contents, domains, destinations, packet payloads, client public IPs,
+     * voucher secrets, browsing history, or wallet-level traffic.
+     */
+    dns_proxy_enabled?: boolean | null;
+    dns_owner?: 'rust_dns_proxy' | 'external_gateway_dns' | string | null;
     service_manager?: VpnServiceManagerStatus | null;
     /**
      * Backend API:

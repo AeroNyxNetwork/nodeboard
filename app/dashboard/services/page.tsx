@@ -10,6 +10,9 @@
  * readiness.
  *
  * Modification Reason:
+ *   v1.1.67 - Added a collapsible VPN DNS module so operators can inspect
+ *     gateway DNS ownership, dns_stub, and dns_query readiness per node
+ *     without expanding the first-level Services page.
  *   v1.1.66 - Added a collapsible fleet Node Capacity module so operators can
  *     inspect IP pool, session ceiling, conntrack, fd, packet drops, pps, and
  *     bps without crowding the first-level Services page.
@@ -230,7 +233,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.66 - Add fleet Node Capacity detail module
+ * Last Modified: v1.1.67 - Add VPN DNS ownership detail module
+ * Previous: v1.1.66 - Add fleet Node Capacity detail module
  * Previous: v1.1.65 - Prefer Rust-authored capacity risks
  * Previous: v1.1.64 - Show fleet capacity risk summary
  * Previous: v1.1.63 - Collapse secondary detail modules
@@ -333,6 +337,7 @@ type ServiceKey =
 type ServiceDetailSection =
   | 'placement'
   | 'capacity'
+  | 'dns'
   | 'restart'
   | 'layers'
   | 'risks'
@@ -372,6 +377,21 @@ interface FleetCapacityRisk {
   detail: string;
   action: string;
   code?: string;
+}
+
+interface FleetDnsNode {
+  id: string;
+  name: string;
+  region: string;
+  gateway: string;
+  ownerLabel: string;
+  ownerDetail: string;
+  status: 'ok' | 'warning' | 'pending' | 'failed';
+  dnsStubOk: boolean | null;
+  dnsQueryOk: boolean | null;
+  dnsStubDetail: string;
+  dnsQueryDetail: string;
+  checkedAt: number | null;
 }
 
 interface PageHeaderProps {
@@ -846,6 +866,86 @@ function capacityUsageTone(percent: number | null | undefined) {
   if (percent >= 90) return 'border-red-500/30 bg-red-500/[0.08]';
   if (percent >= 75) return 'border-yellow-500/30 bg-yellow-500/[0.08]';
   return 'border-emerald-500/20 bg-emerald-500/[0.06]';
+}
+
+function checkByName(node: VpnNodeHealth, name: string): VpnNodeHealth['checks'][number] | null {
+  return node.checks.find((check) => check.name === name) ?? null;
+}
+
+function privacyProtocolMetrics(node: VpnNodeHealth): Record<string, unknown> {
+  const service = node.system.operator_status?.services.find((item) => item.key === 'privacy_protocol');
+  return service?.metrics && typeof service.metrics === 'object'
+    ? service.metrics as Record<string, unknown>
+    : {};
+}
+
+function dnsOwnerView(node: VpnNodeHealth, t: ServicesTranslateFn) {
+  const metrics = privacyProtocolMetrics(node);
+  const owner = node.system.dns_owner
+    ?? (typeof metrics.dns_owner === 'string' ? metrics.dns_owner : null);
+  const proxyEnabled = typeof node.system.dns_proxy_enabled === 'boolean'
+    ? node.system.dns_proxy_enabled
+    : typeof metrics.dns_proxy_enabled === 'boolean'
+      ? metrics.dns_proxy_enabled
+      : null;
+
+  if (owner === 'rust_dns_proxy' || proxyEnabled === true) {
+    return {
+      label: t('services.dns.owner.rust'),
+      detail: t('services.dns.owner.rustDetail'),
+    };
+  }
+
+  if (owner === 'external_gateway_dns' || proxyEnabled === false) {
+    return {
+      label: t('services.dns.owner.external'),
+      detail: t('services.dns.owner.externalDetail'),
+    };
+  }
+
+  return {
+    label: t('services.dns.owner.unknown'),
+    detail: t('services.dns.owner.unknownDetail'),
+  };
+}
+
+function collectFleetDnsNodes(nodes: VpnNodeHealth[], t: ServicesTranslateFn): FleetDnsNode[] {
+  return nodes.map((node) => {
+    const metrics = privacyProtocolMetrics(node);
+    const dnsStub = checkByName(node, 'dns_stub');
+    const dnsQuery = checkByName(node, 'dns_query');
+    const owner = dnsOwnerView(node, t);
+    const gateway = typeof metrics.gateway_ip === 'string' && metrics.gateway_ip.trim()
+      ? metrics.gateway_ip
+      : '100.64.0.1';
+    const dnsStubOk = typeof dnsStub?.ok === 'boolean' ? dnsStub.ok : null;
+    const dnsQueryOk = typeof dnsQuery?.ok === 'boolean' ? dnsQuery.ok : null;
+    const status: FleetDnsNode['status'] = dnsStubOk === false || dnsQueryOk === false
+      ? 'failed'
+      : dnsStubOk === true && dnsQueryOk === true
+        ? 'ok'
+        : node.system.dns_owner || typeof node.system.dns_proxy_enabled === 'boolean'
+          ? 'warning'
+          : 'pending';
+
+    return {
+      id: node.id,
+      name: node.name,
+      region: nodeRegionLabel(node),
+      gateway,
+      ownerLabel: owner.label,
+      ownerDetail: owner.detail,
+      status,
+      dnsStubOk,
+      dnsQueryOk,
+      dnsStubDetail: dnsStub?.detail || t('services.dns.pendingCheck'),
+      dnsQueryDetail: dnsQuery?.detail || t('services.dns.pendingCheck'),
+      checkedAt: node.system.vpn_health_checked_at ?? null,
+    };
+  }).sort((a, b) => {
+    const severity = (item: FleetDnsNode) => item.status === 'failed' ? 0 : item.status === 'warning' ? 1 : item.status === 'pending' ? 2 : 3;
+    return severity(a) - severity(b) || a.name.localeCompare(b.name);
+  });
 }
 
 function formatPolicyBlockAge(seconds: number | null | undefined) {
@@ -3085,6 +3185,137 @@ function FleetCapacityPanel({ nodes }: { nodes: VpnNodeHealth[] }) {
   );
 }
 
+function DnsCheckBadge({ ok }: { ok: boolean | null }) {
+  if (ok === true) return <StatusPill status="ok" />;
+  if (ok === false) return <StatusPill status="failed" />;
+  return <StatusPill status="pending" />;
+}
+
+function FleetDnsPanel({ nodes }: { nodes: VpnNodeHealth[] }) {
+  const { t, formatNumber } = useI18n();
+  const dnsNodes = useMemo(() => collectFleetDnsNodes(nodes, t), [nodes, t]);
+  const healthy = dnsNodes.filter((node) => node.status === 'ok').length;
+  const failed = dnsNodes.filter((node) => node.status === 'failed').length;
+  const rustOwned = dnsNodes.filter((node) => node.ownerLabel === t('services.dns.owner.rust')).length;
+  const externalOwned = dnsNodes.filter((node) => node.ownerLabel === t('services.dns.owner.external')).length;
+  const unknownOwned = Math.max(dnsNodes.length - rustOwned - externalOwned, 0);
+  const overallStatus = failed > 0 ? 'failed' : healthy === dnsNodes.length && dnsNodes.length > 0 ? 'ok' : 'pending';
+  const summaryCards = [
+    {
+      label: t('services.dns.summary.healthy'),
+      value: `${formatNumber(healthy)} / ${formatNumber(dnsNodes.length)}`,
+      detail: t('services.dns.summary.healthyDetail'),
+      status: overallStatus,
+    },
+    {
+      label: t('services.dns.summary.rustOwned'),
+      value: formatNumber(rustOwned),
+      detail: t('services.dns.owner.rustDetail'),
+      status: rustOwned > 0 ? 'ok' : 'pending',
+    },
+    {
+      label: t('services.dns.summary.externalOwned'),
+      value: formatNumber(externalOwned),
+      detail: t('services.dns.owner.externalDetail'),
+      status: externalOwned > 0 ? 'info' : 'pending',
+    },
+    {
+      label: t('services.dns.summary.unknownOwned'),
+      value: formatNumber(unknownOwned),
+      detail: t('services.dns.owner.unknownDetail'),
+      status: unknownOwned > 0 ? 'warning' : 'ok',
+    },
+  ];
+
+  return (
+    <section className="mb-6 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
+      <div className="border-b border-white/10 px-5 py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-white">{t('services.dns.title')}</h2>
+            <p className="mt-1 max-w-4xl text-sm leading-6 text-gray-400">
+              {t('services.dns.description')}
+            </p>
+          </div>
+          <StatusPill status={overallStatus} />
+        </div>
+      </div>
+
+      <div className="grid gap-3 border-b border-white/10 p-5 md:grid-cols-2 xl:grid-cols-4">
+        {summaryCards.map((card) => (
+          <div key={card.label} className="rounded-xl border border-white/10 bg-black/20 p-4">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{card.label}</p>
+              <StatusPill status={card.status} />
+            </div>
+            <p className="mt-3 text-xl font-semibold text-white">{card.value}</p>
+            <p className="mt-2 text-xs leading-5 text-gray-400">{card.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1040px] text-left">
+          <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.12em] text-gray-500">
+            <tr>
+              <th className="px-4 py-3 font-medium">{t('services.dns.table.node')}</th>
+              <th className="px-4 py-3 font-medium">{t('services.dns.table.owner')}</th>
+              <th className="px-4 py-3 font-medium">{t('services.dns.table.stub')}</th>
+              <th className="px-4 py-3 font-medium">{t('services.dns.table.query')}</th>
+              <th className="px-4 py-3 font-medium">{t('services.dns.table.checked')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dnsNodes.length > 0 ? (
+              dnsNodes.map((node) => (
+                <tr key={node.id} className="border-t border-white/10 align-top text-sm">
+                  <td className="px-4 py-4">
+                    <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
+                      {node.name}
+                    </Link>
+                    <p className="mt-1 text-xs text-gray-500">{node.region}</p>
+                    <p className="mt-1 text-xs text-gray-600">{node.gateway}:53</p>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-white">{node.ownerLabel}</p>
+                        <p className="mt-1 text-xs leading-5 text-gray-500">{node.ownerDetail}</p>
+                      </div>
+                      <StatusPill status={node.status} />
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-xs leading-5 text-gray-300">{node.dnsStubDetail}</p>
+                      <DnsCheckBadge ok={node.dnsStubOk} />
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-xs leading-5 text-gray-300">{node.dnsQueryDetail}</p>
+                      <DnsCheckBadge ok={node.dnsQueryOk} />
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 text-xs text-gray-500">
+                    {node.checkedAt ? formatUnixSecondsRelative(node.checkedAt) : t('common.status.pending')}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-500">
+                  {t('services.dns.empty')}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function DetailModulesPanel({
   activeSection,
   onSelect,
@@ -3092,6 +3323,9 @@ function DetailModulesPanel({
   placementTotal,
   capacityReporting,
   capacityRiskCount,
+  dnsHealthy,
+  dnsTotal,
+  dnsAttention,
   restartAttention,
   rolloutAttention,
   serviceCount,
@@ -3104,6 +3338,9 @@ function DetailModulesPanel({
   placementTotal: number;
   capacityReporting: number;
   capacityRiskCount: number;
+  dnsHealthy: number;
+  dnsTotal: number;
+  dnsAttention: number;
   restartAttention: number;
   rolloutAttention: number;
   serviceCount: number;
@@ -3134,6 +3371,14 @@ function DetailModulesPanel({
       count: `${formatNumber(capacityReporting)} / ${formatNumber(nodeCount)}`,
       detail: t('services.modules.capacity.detail'),
       status: capacityRiskCount > 0 ? 'warning' : capacityReporting > 0 ? 'ok' : 'pending',
+    },
+    {
+      key: 'dns',
+      label: t('services.modules.dns.label'),
+      eyebrow: t('services.modules.dns.eyebrow'),
+      count: `${formatNumber(dnsHealthy)} / ${formatNumber(dnsTotal)}`,
+      detail: t('services.modules.dns.detail'),
+      status: dnsAttention > 0 ? 'warning' : dnsHealthy > 0 ? 'ok' : 'pending',
     },
     {
       key: 'restart',
@@ -5488,6 +5733,9 @@ export default function NodeServicesPage() {
   const runtimeRolloutNodes = useMemo(() => collectRuntimeRolloutNodes(nodes), [nodes]);
   const sessionCleanupRolloutNodes = useMemo(() => collectSessionCleanupRolloutNodes(nodes), [nodes]);
   const latestReportedAt = useMemo(() => latestReportTime(operatorStatuses), [operatorStatuses]);
+  const dnsNodes = useMemo(() => collectFleetDnsNodes(nodes, t), [nodes, t]);
+  const dnsHealthyCount = dnsNodes.filter((node) => node.status === 'ok').length;
+  const dnsAttentionCount = dnsNodes.filter((node) => node.status !== 'ok').length;
   const capacityReportingCount = nodes.filter((node) => node.system.capacity?.reported).length;
   const capacityRiskCount = useMemo(
     () => collectFleetCapacityRisks(nodes, t, formatNumber).length,
@@ -5572,6 +5820,9 @@ export default function NodeServicesPage() {
         placementTotal={placementTotal}
         capacityReporting={capacityReportingCount}
         capacityRiskCount={capacityRiskCount}
+        dnsHealthy={dnsHealthyCount}
+        dnsTotal={dnsNodes.length}
+        dnsAttention={dnsAttentionCount}
         restartAttention={restartAttentionCount}
         rolloutAttention={rolloutAttentionCount}
         serviceCount={operatorStatuses.length}
@@ -5592,6 +5843,10 @@ export default function NodeServicesPage() {
 
       {activeDetailSection === 'capacity' && (
         <FleetCapacityPanel nodes={nodes} />
+      )}
+
+      {activeDetailSection === 'dns' && (
+        <FleetDnsPanel nodes={nodes} />
       )}
 
       {activeDetailSection === 'restart' && (
