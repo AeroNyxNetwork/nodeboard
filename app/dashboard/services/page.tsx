@@ -10,6 +10,9 @@
  * readiness.
  *
  * Modification Reason:
+ *   v1.1.66 - Added a collapsible fleet Node Capacity module so operators can
+ *     inspect IP pool, session ceiling, conntrack, fd, packet drops, pps, and
+ *     bps without crowding the first-level Services page.
  *   v1.1.65 - Prefer Rust-authored data.nodes[].system.capacity.risks so the
  *     Services fleet summary uses the same commercial capacity blockers and
  *     remediation text as node detail, healthcheck.sh, and backend automation.
@@ -227,7 +230,9 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.64 - Show fleet capacity risk summary
+ * Last Modified: v1.1.66 - Add fleet Node Capacity detail module
+ * Previous: v1.1.65 - Prefer Rust-authored capacity risks
+ * Previous: v1.1.64 - Show fleet capacity risk summary
  * Previous: v1.1.63 - Collapse secondary detail modules
  * Previous: v1.1.62 - Add fleet commercial operations summary
  * Previous: v1.1.61 - Add placement rollout fleet action links
@@ -327,6 +332,7 @@ type ServiceKey =
 
 type ServiceDetailSection =
   | 'placement'
+  | 'capacity'
   | 'restart'
   | 'layers'
   | 'risks'
@@ -797,6 +803,49 @@ function formatFleetBytes(value: number | null | undefined) {
   if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(2)} MB`;
   if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${Math.round(value).toLocaleString()} B`;
+}
+
+function formatFleetBitsPerSecond(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return '0 bps';
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)} Gbps`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)} Mbps`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)} Kbps`;
+  return `${Math.round(value).toLocaleString()} bps`;
+}
+
+function formatFleetPacketsPerSecond(
+  value: number | null | undefined,
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
+) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${formatNumber(value, { maximumFractionDigits: 1 })} pps`
+    : 'pending';
+}
+
+function formatCapacityNumber(
+  value: number | null | undefined,
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
+  pending: string,
+) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? formatNumber(value)
+    : pending;
+}
+
+function formatCapacityPair(
+  used: number | null | undefined,
+  total: number | null | undefined,
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
+  pending: string,
+) {
+  return `${formatCapacityNumber(used, formatNumber, pending)} / ${formatCapacityNumber(total, formatNumber, pending)}`;
+}
+
+function capacityUsageTone(percent: number | null | undefined) {
+  if (typeof percent !== 'number' || !Number.isFinite(percent)) return 'border-white/10 bg-white/[0.03]';
+  if (percent >= 90) return 'border-red-500/30 bg-red-500/[0.08]';
+  if (percent >= 75) return 'border-yellow-500/30 bg-yellow-500/[0.08]';
+  return 'border-emerald-500/20 bg-emerald-500/[0.06]';
 }
 
 function formatPolicyBlockAge(seconds: number | null | undefined) {
@@ -2804,11 +2853,245 @@ function FleetCommercialOperationsPanel({
   );
 }
 
+function FleetCapacityPanel({ nodes }: { nodes: VpnNodeHealth[] }) {
+  const { t, formatNumber } = useI18n();
+  const pending = t('common.status.pending');
+  const reportingNodes = nodes.filter((node) => node.system.capacity?.reported);
+  const capacityRisks = collectFleetCapacityRisks(nodes, t, formatNumber);
+  const risksByNode = new Map<string, FleetCapacityRisk[]>();
+
+  capacityRisks.forEach((risk) => {
+    const existing = risksByNode.get(risk.nodeId) ?? [];
+    existing.push(risk);
+    risksByNode.set(risk.nodeId, existing);
+  });
+
+  const totals = reportingNodes.reduce((acc, node) => {
+    const capacity = node.system.capacity;
+    acc.ipPoolCapacity += capacity?.ip_pool_capacity ?? 0;
+    acc.ipPoolUsed += capacity?.ip_pool_used ?? 0;
+    acc.ipPoolFree += capacity?.ip_pool_free ?? 0;
+    acc.maxConnections += capacity?.max_connections ?? 0;
+    acc.policyMaxSessions += capacity?.policy_max_sessions && capacity.policy_max_sessions > 0
+      ? capacity.policy_max_sessions
+      : 0;
+    acc.activeSessions += capacity?.active_sessions ?? node.active_sessions ?? 0;
+    acc.conntrackUsed += capacity?.conntrack?.used ?? 0;
+    acc.conntrackMax += capacity?.conntrack?.max ?? 0;
+    acc.fdUsed += capacity?.file_descriptors?.used ?? 0;
+    acc.fdSoftLimit += capacity?.file_descriptors?.soft_limit ?? 0;
+    acc.packetDrops += capacity?.packet_drops_total ?? capacity?.interface?.packet_drops ?? 0;
+    acc.totalPps += capacity?.interface?.total_pps ?? 0;
+    acc.totalBps += capacity?.interface?.total_bps ?? 0;
+    return acc;
+  }, {
+    ipPoolCapacity: 0,
+    ipPoolUsed: 0,
+    ipPoolFree: 0,
+    maxConnections: 0,
+    policyMaxSessions: 0,
+    activeSessions: 0,
+    conntrackUsed: 0,
+    conntrackMax: 0,
+    fdUsed: 0,
+    fdSoftLimit: 0,
+    packetDrops: 0,
+    totalPps: 0,
+    totalBps: 0,
+  });
+
+  const sortedNodes = [...nodes].sort((a, b) => {
+    const aRisk = risksByNode.has(a.id) ? 0 : 1;
+    const bRisk = risksByNode.has(b.id) ? 0 : 1;
+    return aRisk - bRisk || a.name.localeCompare(b.name);
+  });
+  const conntrackPercent = capacityPercent(totals.conntrackUsed, totals.conntrackMax);
+  const fdPercent = capacityPercent(totals.fdUsed, totals.fdSoftLimit);
+  const hasReporting = reportingNodes.length > 0;
+  const summaryCards = [
+    {
+      label: t('services.capacity.reportingNodes'),
+      value: `${formatNumber(reportingNodes.length)} / ${formatNumber(nodes.length)}`,
+      detail: t('services.capacity.reportingDetail'),
+      status: hasReporting ? 'ok' : 'pending',
+    },
+    {
+      label: t('services.capacity.ipPool'),
+      value: formatCapacityPair(totals.ipPoolUsed, totals.ipPoolCapacity, formatNumber, pending),
+      detail: t('services.capacity.ipPoolDetail', { free: formatNumber(totals.ipPoolFree) }),
+      status: totals.ipPoolFree <= 0 && hasReporting ? 'critical' : 'ok',
+    },
+    {
+      label: t('services.capacity.sessions'),
+      value: formatCapacityPair(totals.activeSessions, totals.maxConnections, formatNumber, pending),
+      detail: t('services.capacity.sessionsDetail', { policy: formatNumber(totals.policyMaxSessions) }),
+      status: capacityRisks.some((risk) => risk.code?.includes('ip_pool')) ? 'warning' : 'ok',
+    },
+    {
+      label: t('services.capacity.kernel'),
+      value: `${conntrackPercent === null ? pending : `${formatNumber(conntrackPercent, { maximumFractionDigits: 1 })}%`} / ${fdPercent === null ? pending : `${formatNumber(fdPercent, { maximumFractionDigits: 1 })}%`}`,
+      detail: t('services.capacity.kernelDetail'),
+      status: (conntrackPercent ?? 0) >= 80 || (fdPercent ?? 0) >= 80 ? 'warning' : 'ok',
+    },
+    {
+      label: t('services.capacity.interface'),
+      value: formatFleetBitsPerSecond(totals.totalBps),
+      detail: t('services.capacity.interfaceDetail', {
+        pps: formatFleetPacketsPerSecond(totals.totalPps, formatNumber),
+        drops: formatNumber(totals.packetDrops),
+      }),
+      status: totals.packetDrops > 0 ? 'warning' : 'ok',
+    },
+  ];
+
+  return (
+    <section className="mb-6 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
+      <div className="border-b border-white/10 px-5 py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-white">{t('services.capacity.title')}</h2>
+            <p className="mt-1 max-w-4xl text-sm leading-6 text-gray-400">
+              {t('services.capacity.description')}
+            </p>
+          </div>
+          <StatusPill status={capacityRisks.length > 0 ? 'warning' : hasReporting ? 'ok' : 'pending'} />
+        </div>
+      </div>
+
+      <div className="grid gap-3 border-b border-white/10 p-5 md:grid-cols-2 xl:grid-cols-5">
+        {summaryCards.map((card) => (
+          <div key={card.label} className={`rounded-xl border p-4 ${capacityUsageTone(card.status === 'warning' ? 80 : card.status === 'critical' ? 95 : 0)}`}>
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{card.label}</p>
+              <StatusPill status={card.status} />
+            </div>
+            <p className="mt-3 break-words text-xl font-semibold text-white">{card.value}</p>
+            <p className="mt-2 text-xs leading-5 text-gray-400">{card.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1240px] text-left">
+          <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.12em] text-gray-500">
+            <tr>
+              <th className="px-4 py-3 font-medium">{t('services.capacity.table.node')}</th>
+              <th className="px-4 py-3 font-medium">{t('services.capacity.table.ipPool')}</th>
+              <th className="px-4 py-3 font-medium">{t('services.capacity.table.sessions')}</th>
+              <th className="px-4 py-3 font-medium">{t('services.capacity.table.kernel')}</th>
+              <th className="px-4 py-3 font-medium">{t('services.capacity.table.interface')}</th>
+              <th className="px-4 py-3 font-medium">{t('services.capacity.table.risk')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedNodes.length > 0 ? (
+              sortedNodes.map((node) => {
+                const capacity = node.system.capacity;
+                const nodeRisks = risksByNode.get(node.id) ?? [];
+                const nodeConntrackPercent = capacity?.conntrack?.used_percent
+                  ?? capacityPercent(capacity?.conntrack?.used, capacity?.conntrack?.max);
+                const nodeFdPercent = capacity?.file_descriptors?.used_percent
+                  ?? capacityPercent(capacity?.file_descriptors?.used, capacity?.file_descriptors?.soft_limit);
+                const packetDrops = capacity?.packet_drops_total ?? capacity?.interface?.packet_drops ?? null;
+                const policyMax = capacity?.policy_max_sessions === 0
+                  ? t('nodes.policy.unlimited')
+                  : formatCapacityNumber(capacity?.policy_max_sessions, formatNumber, pending);
+
+                return (
+                  <tr key={node.id} className="border-t border-white/10 align-top text-sm">
+                    <td className="px-4 py-4">
+                      <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
+                        {node.name}
+                      </Link>
+                      <p className="mt-1 text-xs text-gray-500">{node.city || node.region_code || t('services.placement.unknownRegion')}</p>
+                      <p className="mt-1 text-xs text-gray-600">{capacity?.reported ? capacity.source : t('services.capacity.waitingTelemetry')}</p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-white">
+                        {formatCapacityPair(capacity?.ip_pool_used, capacity?.ip_pool_capacity, formatNumber, pending)}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {t('services.capacity.freeRange', {
+                          free: formatCapacityNumber(capacity?.ip_pool_free, formatNumber, pending),
+                          range: capacity?.virtual_ip_range || pending,
+                        })}
+                      </p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-white">
+                        {formatCapacityPair(capacity?.active_sessions ?? node.active_sessions, capacity?.max_connections, formatNumber, pending)}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {t('services.capacity.policyMax', { value: policyMax })}
+                      </p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-white">
+                        {t('services.capacity.conntrackShort', {
+                          value: typeof nodeConntrackPercent === 'number'
+                            ? `${formatNumber(nodeConntrackPercent, { maximumFractionDigits: 1 })}%`
+                            : pending,
+                        })}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {t('services.capacity.fdShort', {
+                          value: typeof nodeFdPercent === 'number'
+                            ? `${formatNumber(nodeFdPercent, { maximumFractionDigits: 1 })}%`
+                            : pending,
+                        })}
+                      </p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-white">{formatFleetBitsPerSecond(capacity?.interface?.total_bps)}</p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {formatFleetPacketsPerSecond(capacity?.interface?.total_pps, formatNumber)} · {t('services.capacity.drops', {
+                          count: formatCapacityNumber(packetDrops, formatNumber, pending),
+                        })}
+                      </p>
+                    </td>
+                    <td className="px-4 py-4">
+                      {nodeRisks.length > 0 ? (
+                        <div className="space-y-2">
+                          {nodeRisks.slice(0, 2).map((risk) => (
+                            <div key={`${risk.nodeId}:${risk.label}:${risk.detail}`} className="rounded-lg border border-yellow-500/20 bg-yellow-500/[0.07] px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs font-medium text-yellow-100">{risk.label}</p>
+                                <StatusPill status={risk.tone} />
+                              </div>
+                              <p className="mt-1 text-xs leading-5 text-yellow-100/70">{risk.detail}</p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="inline-flex rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300">
+                          {t('services.capacity.noRisk')}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
+                  {t('services.capacity.empty')}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function DetailModulesPanel({
   activeSection,
   onSelect,
   placementAvailable,
   placementTotal,
+  capacityReporting,
+  capacityRiskCount,
   restartAttention,
   rolloutAttention,
   serviceCount,
@@ -2819,6 +3102,8 @@ function DetailModulesPanel({
   onSelect: (section: ServiceDetailSection | null) => void;
   placementAvailable: number;
   placementTotal: number;
+  capacityReporting: number;
+  capacityRiskCount: number;
   restartAttention: number;
   rolloutAttention: number;
   serviceCount: number;
@@ -2841,6 +3126,14 @@ function DetailModulesPanel({
       count: `${formatNumber(placementAvailable)} / ${formatNumber(placementTotal)}`,
       detail: t('services.modules.placement.detail'),
       status: placementAvailable > 0 ? 'ok' : 'warning',
+    },
+    {
+      key: 'capacity',
+      label: t('services.modules.capacity.label'),
+      eyebrow: t('services.modules.capacity.eyebrow'),
+      count: `${formatNumber(capacityReporting)} / ${formatNumber(nodeCount)}`,
+      detail: t('services.modules.capacity.detail'),
+      status: capacityRiskCount > 0 ? 'warning' : capacityReporting > 0 ? 'ok' : 'pending',
     },
     {
       key: 'restart',
@@ -2896,7 +3189,7 @@ function DetailModulesPanel({
         )}
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
         {modules.map((module) => {
           const active = activeSection === module.key;
           return (
@@ -5031,7 +5324,7 @@ function NodeDetailCard({ node }: { node: VpnNodeHealth }) {
 }
 
 export default function NodeServicesPage() {
-  const { t } = useI18n();
+  const { t, formatNumber } = useI18n();
   const refreshIntervalMs = POLLING_INTERVALS.SERVICE_READINESS;
   const {
     overview,
@@ -5195,6 +5488,11 @@ export default function NodeServicesPage() {
   const runtimeRolloutNodes = useMemo(() => collectRuntimeRolloutNodes(nodes), [nodes]);
   const sessionCleanupRolloutNodes = useMemo(() => collectSessionCleanupRolloutNodes(nodes), [nodes]);
   const latestReportedAt = useMemo(() => latestReportTime(operatorStatuses), [operatorStatuses]);
+  const capacityReportingCount = nodes.filter((node) => node.system.capacity?.reported).length;
+  const capacityRiskCount = useMemo(
+    () => collectFleetCapacityRisks(nodes, t, formatNumber).length,
+    [nodes, t, formatNumber],
+  );
   const restartAttentionCount = restartReadinessNodes.filter((node) => node.status !== 'current').length;
   const rolloutAttentionCount = (
     sessionCleanupRolloutNodes.length
@@ -5272,6 +5570,8 @@ export default function NodeServicesPage() {
         onSelect={setActiveDetailSection}
         placementAvailable={placementAvailable}
         placementTotal={placementTotal}
+        capacityReporting={capacityReportingCount}
+        capacityRiskCount={capacityRiskCount}
         restartAttention={restartAttentionCount}
         rolloutAttention={rolloutAttentionCount}
         serviceCount={operatorStatuses.length}
@@ -5288,6 +5588,10 @@ export default function NodeServicesPage() {
           total={placementTotal}
           isLoading={isPlacementLoading}
         />
+      )}
+
+      {activeDetailSection === 'capacity' && (
+        <FleetCapacityPanel nodes={nodes} />
       )}
 
       {activeDetailSection === 'restart' && (
