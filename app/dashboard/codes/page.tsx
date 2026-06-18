@@ -5,6 +5,11 @@
  * File Path: src/app/dashboard/codes/page.tsx
  * 
  * Creation Reason: Manage registration codes for node binding
+ * Modification Reason:
+ *   v1.5.0 - Connect completed install timeline rows to the linked node
+ *     detail/capacity/upgrade workflow panels using backend linked_node
+ *     summaries, without adding more first-level Services modules.
+ *
  * Main Functionality: Generate, view, copy, and revoke registration codes
  * Dependencies:
  *   - src/hooks/useRegistrationCodes.ts
@@ -22,7 +27,8 @@
  * - Only unused codes can be revoked
  * - Used codes show linked node info
  * 
- * Last Modified: v1.4.0 - Show commercial installer stage timeline
+ * Last Modified: v1.5.0 - Link install completion to node detail operations
+ * Previous: v1.4.0 - Show commercial installer stage timeline
  * Previous: v1.3.0 - Generate unified aeronyx-node.sh and AI assistant commands
  * Previous: v1.2.0 - Show full preview/install one-line commands
  * Previous: v1.1.0 - Use Rust install.sh --quick setup commands
@@ -156,6 +162,53 @@ function installNextActionKey(status: string, step: string) {
   return 'codes.installProgress.next.not_started';
 }
 
+function LinkedNodeActions({ code }: { code: RegistrationCode }) {
+  const { t, formatDateTime } = useI18n();
+  const node = code.linked_node;
+  if (!node) return null;
+
+  const detailHref = `/dashboard/nodes/${node.id}`;
+  const capacityHref = `${detailHref}#capacity-panel`;
+  const upgradeHref = `${detailHref}#upgrade-workflow`;
+  const statusKey = `codes.linkedNode.status.${node.status}`;
+  const translatedStatus = t(statusKey);
+
+  return (
+    <div className="mt-3 rounded-lg border border-emerald-500/15 bg-emerald-500/[0.05] p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-emerald-100">{t('codes.linkedNode.title')}</p>
+          <p className="mt-1 break-words text-xs leading-5 text-emerald-100/70 [overflow-wrap:anywhere]">
+            {t('codes.linkedNode.description', {
+              name: node.name || t('codes.linkedNode.unnamed'),
+              status: translatedStatus === statusKey ? String(node.status || '').replace(/_/g, ' ') : translatedStatus,
+            })}
+          </p>
+          <p className="mt-1 text-[11px] leading-4 text-emerald-100/45">
+            {node.last_heartbeat
+              ? t('codes.linkedNode.lastHeartbeat', { time: formatDateTime(node.last_heartbeat) })
+              : t('codes.linkedNode.waitingHeartbeat')}
+          </p>
+        </div>
+        <span className="w-fit shrink-0 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-1 text-[11px] uppercase tracking-wide text-emerald-100">
+          {node.is_vpn_node ? t('codes.linkedNode.privacyNode') : t('codes.linkedNode.boundNode')}
+        </span>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <a href={detailHref} className="rounded-lg border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-medium text-white transition hover:border-white/25 hover:bg-white/[0.06]">
+          {t('codes.linkedNode.openDetail')}
+        </a>
+        <a href={capacityHref} className="rounded-lg border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-medium text-gray-300 transition hover:border-white/25 hover:bg-white/[0.06]">
+          {t('codes.linkedNode.openCapacity')}
+        </a>
+        <a href={upgradeHref} className="rounded-lg border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-medium text-gray-300 transition hover:border-white/25 hover:bg-white/[0.06]">
+          {t('codes.linkedNode.openUpgrade')}
+        </a>
+      </div>
+    </div>
+  );
+}
+
 function InstallProgressCell({ code }: { code: RegistrationCode }) {
   const { t, formatDateTime } = useI18n();
   const status = code.install_status || 'not_started';
@@ -220,6 +273,7 @@ function InstallProgressCell({ code }: { code: RegistrationCode }) {
           {t('codes.installProgress.reportedAt', { time: formatDateTime(code.install_last_reported_at) })}
         </p>
       ) : null}
+      <LinkedNodeActions code={code} />
     </div>
   );
 }

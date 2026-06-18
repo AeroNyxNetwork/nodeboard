@@ -154,6 +154,14 @@ export interface AuthState {
 
 export type CodeStatus = 'unused' | 'used' | 'expired' | 'revoked';
 
+export interface RegistrationCodeLinkedNode {
+  id: string;
+  name: string;
+  status: NodeStatus | string;
+  is_vpn_node: boolean;
+  last_heartbeat?: string | null;
+}
+
 export interface RegistrationCode {
   id: string;
   code: string;
@@ -168,6 +176,7 @@ export interface RegistrationCode {
   install_message?: string;
   install_progress?: Record<string, unknown>;
   install_last_reported_at?: string | null;
+  linked_node?: RegistrationCodeLinkedNode | null;
 }
 
 export interface GenerateCodeResponse {
