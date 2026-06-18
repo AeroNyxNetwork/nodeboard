@@ -1891,6 +1891,8 @@ function capacityRiskLabelFromCode(code: string, t: TranslateFn) {
       return t('nodeDetail.capacity.risk.fileDescriptors');
     case 'disk_pressure':
       return t('nodeDetail.capacity.risk.diskPressure');
+    case 'bandwidth_limit_pressure':
+      return t('nodeDetail.capacity.risk.bandwidthLimit');
     case 'packet_drops_detected':
       return t('nodeDetail.capacity.risk.packetDrops');
     default:
@@ -1949,6 +1951,8 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
   const packetDrops = capacity?.packet_drops_total ?? capacity?.interface?.packet_drops ?? null;
   const pps = capacity?.interface?.total_pps;
   const bps = capacity?.interface?.total_bps;
+  const capacityLimitBps = capacity?.bandwidth_limit_bytes_per_second
+    ?? bandwidthLimitBps(capacity?.bandwidth_limit_mbps ?? health.bandwidth_limit_mbps);
   const diskPath = capacity?.disk?.state?.reported
     ? capacity.disk.state
     : capacity?.disk?.root?.reported
@@ -2073,10 +2077,17 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
         <CapacityMetric
           label={t('nodeDetail.capacity.throughput')}
           value={formatBitsPerSecond(bps)}
-          detail={t('nodeDetail.capacity.throughputDetail', {
-            rx: formatBitsPerSecond(capacity?.interface?.rx_bps),
-            tx: formatBitsPerSecond(capacity?.interface?.tx_bps),
-          })}
+          detail={capacityLimitBps > 0
+            ? t('nodeDetail.capacity.throughputDetailWithCap', {
+                rx: formatBitsPerSecond(capacity?.interface?.rx_bps),
+                tx: formatBitsPerSecond(capacity?.interface?.tx_bps),
+                cap: formatBitsPerSecond(capacityLimitBps * 8),
+                status: capacity?.traffic_capacity_status?.replace(/_/g, ' ') || pending,
+              })
+            : t('nodeDetail.capacity.throughputDetail', {
+                rx: formatBitsPerSecond(capacity?.interface?.rx_bps),
+                tx: formatBitsPerSecond(capacity?.interface?.tx_bps),
+              })}
           tone="border-sky-500/15 bg-sky-500/[0.04]"
         />
         <CapacityMetric

@@ -1747,6 +1747,11 @@ export interface VpnCapacitySnapshot {
   policy_max_sessions: number | null;
   active_sessions: number | null;
   session_capacity_remaining: number | null;
+  bandwidth_limit_mbps?: number | null;
+  bandwidth_limit_bytes_per_second?: number | null;
+  bandwidth_window_bytes?: number | null;
+  bandwidth_window_used_percent?: number | null;
+  traffic_capacity_status?: string | null;
   conntrack: VpnCapacityNestedUsage;
   file_descriptors: VpnCapacityNestedUsage;
   disk?: VpnCapacityDiskSnapshot | null;
