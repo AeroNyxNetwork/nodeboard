@@ -196,6 +196,19 @@ entrypoint:
 - Install: `sudo env AERONYX_REGISTRATION_CODE=... ./deploy/node/aeronyx-node.sh install --quick`
 - Verify: `./deploy/node/aeronyx-node.sh health --json`
 
+Generated commands must start by creating and entering the canonical source
+directory:
+
+```bash
+mkdir -p /root/open && cd /root/open
+```
+
+They then clone or update `AeroNyxNetwork/AeroNyx` into
+`/root/open/AeroNyx` before running `./deploy/node/aeronyx-node.sh`. This keeps
+fresh-server onboarding deterministic and prevents operators from scattering
+repositories under `/root`, `/tmp`, or whichever directory their terminal
+happened to start in.
+
 The preview command must include `--quick` whenever the install command includes
 `--quick`. Operators and AI assistants should approve the same first-install
 path that will actually run after approval. Do not show a generic plan in the

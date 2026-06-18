@@ -5,6 +5,9 @@
  * File Path: components/dashboard/AddNodeModal.tsx
  *
  * Modification Reason:
+ *   v1.4.0 - Make generated onboarding commands self-contained by creating
+ *   and entering /root/open before cloning/updating AeroNyx. Operators can
+ *   paste the command from any current directory on a fresh Linux server.
  *   v1.3.0 - Add --quick to the preview command so the read-only plan mirrors
  *   the exact first-install path shown by the install command.
  *   v1.2.0 - Replace the legacy raw install.sh bootstrap with the unified
@@ -36,7 +39,8 @@
  * - If deploy/node/aeronyx-node.sh changes flags, update preview, install,
  *   and healthcheck commands together.
  *
- * Last Modified: v1.3.0 - Align preview command with quick install
+ * Last Modified: v1.4.0 - Use self-contained /root/open bootstrap commands
+ * Previous: v1.3.0 - Align preview command with quick install
  * Previous: v1.2.0 - Unified node operator entrypoint onboarding
  * Previous: v1.1.0 - Production quick install onboarding
  * Previous: v1.0.1 - Removed framer-motion to fix re-render issues
@@ -53,7 +57,7 @@ import { RegistrationCode } from '@/types';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 
 const REPO_BOOTSTRAP_COMMAND =
-  'if [ -d AeroNyx/.git ]; then cd AeroNyx && git fetch origin main && git checkout main && git pull --ff-only origin main; else git clone https://github.com/AeroNyxNetwork/AeroNyx.git AeroNyx && cd AeroNyx; fi';
+  'mkdir -p /root/open && cd /root/open && if [ -d AeroNyx/.git ]; then cd AeroNyx && git fetch origin main && git checkout main && git pull --ff-only origin main; else git clone https://github.com/AeroNyxNetwork/AeroNyx.git AeroNyx && cd AeroNyx; fi';
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;

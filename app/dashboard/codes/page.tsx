@@ -6,6 +6,8 @@
  * 
  * Creation Reason: Manage registration codes for node binding
  * Modification Reason:
+ *   v1.9.0 - Make generated install/preview/health commands self-contained by
+ *     creating and entering /root/open before cloning/updating AeroNyx.
  *   v1.8.0 - Add --quick to generated preview and AI assistant plan commands
  *     so the read-only approval step matches the actual quick install command.
  *   v1.7.0 - Prioritize failed phase and exit code in installer detail chips
@@ -34,7 +36,8 @@
  * - Only unused codes can be revoked
  * - Used codes show linked node info
  * 
- * Last Modified: v1.8.0 - Align preview command with quick install
+ * Last Modified: v1.9.0 - Use self-contained /root/open bootstrap commands
+ * Previous: v1.8.0 - Align preview command with quick install
  * Previous: v1.7.0 - Prioritize failed installer detail chips
  * Previous: v1.6.0 - Show structured installer detail chips
  * Previous: v1.5.0 - Link install completion to node detail operations
@@ -467,7 +470,7 @@ function GenerateCodeCard() {
   const { t } = useI18n();
   const { generateCode, isLoading, lastGeneratedCode, reset } = useGenerateCode();
   const [showCode, setShowCode] = useState(false);
-  const repoBootstrapCommand = 'if [ -d AeroNyx/.git ]; then cd AeroNyx && git fetch origin main && git checkout main && git pull --ff-only origin main; else git clone https://github.com/AeroNyxNetwork/AeroNyx.git AeroNyx && cd AeroNyx; fi';
+  const repoBootstrapCommand = 'mkdir -p /root/open && cd /root/open && if [ -d AeroNyx/.git ]; then cd AeroNyx && git fetch origin main && git checkout main && git pull --ff-only origin main; else git clone https://github.com/AeroNyxNetwork/AeroNyx.git AeroNyx && cd AeroNyx; fi';
   const quotedRegistrationCode = lastGeneratedCode ? shellSingleQuote(lastGeneratedCode.code) : '';
   const installCommand = lastGeneratedCode
     ? `${repoBootstrapCommand} && sudo env AERONYX_REGISTRATION_CODE=${quotedRegistrationCode} ./deploy/node/aeronyx-node.sh install --repo-dir "$PWD" --branch main --quick`
