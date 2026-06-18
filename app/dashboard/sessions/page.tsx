@@ -5,6 +5,9 @@
  * File Path: app/dashboard/sessions/page.tsx
  *
  * Modification Reason:
+ *   v1.1.5 - Route restart drain context back to the Services Workbench
+ *     `section=restart` deep link so operators return to the exact recovery
+ *     module instead of the high-level Services landing page.
  *   Replace the aggregate-only sessions placeholder with an operator-grade VPN
  *   observability view backed by /vpn/overview/ and /vpn/sessions/.
  *
@@ -40,7 +43,8 @@
  *   - The UI intentionally shows operational metadata only. It must not display
  *     traffic destinations, DNS queries, packet payloads, or browsing history.
  *
- * Last Modified: v1.1.4 - Added cleanup and DNS blocker context
+ * Last Modified: v1.1.5 - Link restart context to Services restart module
+ * Previous: v1.1.4 - Added cleanup and DNS blocker context
  * Previous: v1.1.3 - Added drain health and age to deep-link context
  * Previous: v1.1.2 - Added restart drain deep-link context
  * Previous: v1.1.1 - Documented sessions deep-link contract
@@ -387,7 +391,7 @@ function RestartDrainContextPanel({
             {t('sessions.restart.openNode')}
           </Link>
           <Link
-            href="/dashboard/services"
+            href="/dashboard/services?section=restart"
             className="inline-flex items-center justify-center rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-gray-200 transition hover:border-white/20 hover:bg-white/5"
           >
             {t('sessions.restart.services')}

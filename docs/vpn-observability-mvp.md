@@ -111,6 +111,10 @@ queries.
     `?node=<node_id>&status=active|completed|error|all&quality=degraded|stale|error|healthy|pending|completed|all`.
     Alerts / Events uses this to open the affected session cohort directly from
     a session event.
+  - When a session view is opened from restart drain context, the return action
+    now links to `/dashboard/services?section=restart` so the operator lands in
+    the Services recovery module instead of the high-level Services landing
+    page.
   - Keeps node, status, quality, and `q` filters synchronized back to the URL,
     so operators can share the exact affected-session view after refining an
     investigation.
