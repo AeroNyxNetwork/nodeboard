@@ -13,7 +13,7 @@
  *   v1.1.68 - Grouped detail-module entry points into Overview, Triage, and
  *     Advanced Diagnostics so the first-level Services page stays scannable
  *     while preserving every existing drill-down report.
- *   v1.1.67 - Added a collapsible VPN DNS module so operators can inspect
+ *   v1.1.67 - Added a collapsible Gateway DNS module so operators can inspect
  *     gateway DNS ownership, dns_stub, and dns_query readiness per node
  *     without expanding the first-level Services page.
  *   v1.1.66 - Added a collapsible fleet Node Capacity module so operators can
@@ -237,7 +237,7 @@
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
  * Last Modified: v1.1.68 - Group Services detail modules by operator workflow
- * Previous: v1.1.67 - Add VPN DNS ownership detail module
+ * Previous: v1.1.67 - Add Gateway DNS ownership detail module
  * Previous: v1.1.66 - Add fleet Node Capacity detail module
  * Previous: v1.1.65 - Prefer Rust-authored capacity risks
  * Previous: v1.1.64 - Show fleet capacity risk summary
