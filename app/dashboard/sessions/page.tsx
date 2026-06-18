@@ -1,6 +1,6 @@
 /**
  * ============================================
- * AeroNyx VPN Operations Page
+ * AeroNyx Privacy Protocol Operations Page
  * ============================================
  * File Path: app/dashboard/sessions/page.tsx
  *

@@ -140,7 +140,7 @@ function StatsGrid() {
 }
 
 // ============================================
-// VPN Operations Snapshot
+// AeroNyx Privacy Protocol Operations Snapshot
 // ============================================
 
 const healthDotClass: Record<VpnHealthStatus, string> = {
@@ -631,7 +631,7 @@ export default function DashboardPage() {
       {/* Stats Grid */}
       <StatsGrid />
 
-      {/* VPN Operations Snapshot */}
+      {/* AeroNyx Privacy Protocol Operations Snapshot */}
       <VpnOperationsSnapshot />
 
       {/* Nodes Section */}
