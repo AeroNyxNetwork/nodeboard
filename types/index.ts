@@ -258,6 +258,35 @@ export interface Node {
   created_at: string;
 }
 
+/**
+ * Privacy-safe install workflow summary attached to NodeDetail.
+ *
+ * Backend API:
+ *   GET /api/privacy_network/nodes/{id}/
+ * Backend file:
+ *   /root/aeronyx/privacy_network/serializers.py
+ * Rust/deploy producer:
+ *   /root/open/AeroNyx/deploy/node/install.sh
+ *
+ * This links a consumed node registration code to the node detail page without
+ * exposing the registration code value, node private keys, client public IPs,
+ * destinations, DNS contents, packet payloads, chat plaintext, voucher
+ * secrets, or wallet-level traffic.
+ */
+export interface NodeInstallProgressSummary {
+  registration_code_id: string;
+  code_status: CodeStatus | string;
+  status: 'not_started' | 'planning' | 'running' | 'completed' | 'failed' | string;
+  step: string;
+  message: string;
+  progress: Record<string, unknown>;
+  last_reported_at: string | null;
+  used_at: string | null;
+  created_at: string | null;
+  source: string;
+  privacy_boundary?: string;
+}
+
 /** Owner-scoped node (detail view) — full fields including sensitive ones */
 export interface NodeDetail extends Node {
   owner_wallet: string;
@@ -268,6 +297,7 @@ export interface NodeDetail extends Node {
   total_uptime_seconds: number;
   total_data_bytes: number;
   hardware_info: HardwareInfo;
+  install_status?: NodeInstallProgressSummary | null;
   updated_at: string;
 }
 

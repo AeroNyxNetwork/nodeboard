@@ -6,6 +6,10 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.32 - Added node-level install workflow status from
+ *     NodeDetail.install_status so operators can see the registration-code
+ *     installer timeline after a node is bound, without returning the code
+ *     value or any user traffic data.
  *   v1.6.31 - Added privacy-safe Rust upgrade workflow status from
  *     system.upgrade_status with an Operator Actions shortcut and a dedicated
  *     node detail panel, keeping Services as a high-level readiness view.
@@ -178,7 +182,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.31 - Show Rust upgrade workflow status
+ * Last Modified: v1.6.32 - Show node install workflow status
+ * Previous: v1.6.31 - Show Rust upgrade workflow status
  * Previous: v1.6.30 - Add node operator action hub
  * Previous: v1.6.29 - Show sanitized recent Rust operational errors
  * Previous: v1.6.28 - Add node operator runbook commands
@@ -235,6 +240,7 @@ import {
 } from '@/hooks/useNodes';
 import {
   NodeCommand,
+  NodeInstallProgressSummary,
   NodeOperatorStatus,
   Session,
   NodeStatus,
@@ -2330,8 +2336,74 @@ function OperatorActionCard({
   );
 }
 
+function NodeInstallStatusPanel({
+  installStatus,
+}: {
+  installStatus?: NodeInstallProgressSummary | null;
+}) {
+  const { t, formatRelativeTime: i18nRelativeTime } = useI18n();
+  const status = installStatus?.status || 'not_started';
+  const step = installStatus?.step || '';
+  const message = installStatus?.message || t('codes.installProgress.noMessage');
+  const reported = Boolean(installStatus?.last_reported_at || installStatus?.used_at || status !== 'not_started');
+  const tone = installWorkflowTone(status, reported);
+  const recommendation = installRecommendation(status, step, t);
+
+  return (
+    <div id="install-workflow" className={`mb-6 scroll-mt-6 rounded-xl border p-4 ${operatorActionToneClass(tone)}`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-white">{t('nodeDetail.installWorkflow.title')}</p>
+          <p className="mt-1 text-xs leading-5 text-gray-500">{t('nodeDetail.installWorkflow.description')}</p>
+        </div>
+        <span className={`w-fit rounded-full border px-2 py-1 text-xs uppercase tracking-wide ${operatorActionBadgeClass(tone)}`}>
+          {installWorkflowMeta(status, reported, t)}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-gray-600">{t('nodeDetail.installWorkflow.step')}</p>
+          <p className="mt-1 text-sm font-medium text-white">{installStepLabel(step, t)}</p>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-gray-600">{t('nodeDetail.installWorkflow.codeStatus')}</p>
+          <p className="mt-1 text-sm font-medium text-white">
+            {installStatus?.code_status ? t(`codes.status.${installStatus.code_status}`) : t('common.status.pending')}
+          </p>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-gray-600">{t('nodeDetail.installWorkflow.lastReported')}</p>
+          <p className="mt-1 text-sm font-medium text-white">
+            {installStatus?.last_reported_at ? i18nRelativeTime(installStatus.last_reported_at) : t('common.status.pending')}
+          </p>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-gray-600">{t('nodeDetail.installWorkflow.source')}</p>
+          <p className="mt-1 truncate text-sm font-medium text-white">
+            {installStatus?.source || 'registration_code_install_progress'}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
+        <p className="text-xs leading-5 text-gray-300">{message}</p>
+        <p className="mt-2 text-xs leading-5 text-purple-100/70">{installNextAction(status, step, t)}</p>
+        {recommendation ? (
+          <p className="mt-2 text-xs leading-5 text-yellow-100/80">{recommendation}</p>
+        ) : null}
+      </div>
+
+      <p className="mt-3 text-[11px] leading-5 text-gray-600">
+        {installStatus?.privacy_boundary || t('nodeDetail.installWorkflow.privacyBoundary')}
+      </p>
+    </div>
+  );
+}
+
 function OperatorActionsPanel({
   health,
+  installStatus,
   failedChecksCount,
   activeCommandCount,
   failedCommandCount,
@@ -2339,6 +2411,7 @@ function OperatorActionsPanel({
   restartReady,
 }: {
   health: VpnNodeHealth;
+  installStatus?: NodeInstallProgressSummary | null;
   failedChecksCount: number;
   activeCommandCount: number;
   failedCommandCount: number;
@@ -2355,6 +2428,13 @@ function OperatorActionsPanel({
   const upgradeStatus = health.system.upgrade_status ?? null;
   const upgradeReported = Boolean(upgradeStatus?.reported);
   const upgradeStatusValue = upgradeStatus?.status ?? null;
+  const installStatusValue = installStatus?.status ?? null;
+  const installStep = installStatus?.step ?? '';
+  const installReported = Boolean(
+    installStatus?.last_reported_at
+    || installStatus?.used_at
+    || (installStatusValue && installStatusValue !== 'not_started')
+  );
   const runtimeReported = Boolean(
     health.system.runtime
     || health.system.runtime_version
@@ -2369,6 +2449,7 @@ function OperatorActionsPanel({
     ? (health.health_status === 'offline' || health.health_status === 'overloaded' ? 'critical' : 'warning')
     : 'ok';
   const runtimeTone: OperatorActionTone = restartRequired ? 'warning' : runtimeReported ? 'ok' : 'pending';
+  const installTone = installWorkflowTone(installStatusValue, installReported);
   const upgradeTone = upgradeWorkflowTone(upgradeStatusValue, upgradeReported);
   const eventsTone: OperatorActionTone = eventCount > 0 ? 'warning' : eventsReported ? 'ok' : 'pending';
   const commandTone: OperatorActionTone = failedCommandCount > 0 ? 'warning' : activeCommandCount > 0 ? 'info' : 'ok';
@@ -2385,6 +2466,20 @@ function OperatorActionsPanel({
       meta: t('nodeDetail.operatorActions.settings.meta'),
       href: '#node-settings',
       cta: t('nodeDetail.operatorActions.settings.cta'),
+    },
+    {
+      key: 'install',
+      tone: installTone,
+      title: t('nodeDetail.operatorActions.install.title'),
+      detail: installReported
+        ? t('nodeDetail.operatorActions.install.reportedDetail', {
+          status: installWorkflowMeta(installStatusValue, installReported, t),
+          step: installStepLabel(installStep, t),
+        })
+        : t('nodeDetail.operatorActions.install.waitingDetail'),
+      meta: installWorkflowMeta(installStatusValue, installReported, t),
+      href: '#install-workflow',
+      cta: t('nodeDetail.operatorActions.install.cta'),
     },
     {
       key: 'capacity',
@@ -2598,6 +2693,64 @@ function upgradeWorkflowAction(status: string | null | undefined, reported: bool
         ? t('nodeDetail.upgradeWorkflow.action.reported')
         : t('nodeDetail.upgradeWorkflow.action.waiting');
   }
+}
+
+function installWorkflowTone(status?: string | null, reported?: boolean): OperatorActionTone {
+  switch ((status || '').toLowerCase()) {
+    case 'failed':
+      return 'warning';
+    case 'running':
+    case 'planning':
+      return 'info';
+    case 'completed':
+      return 'ok';
+    default:
+      return reported ? 'info' : 'pending';
+  }
+}
+
+function installWorkflowMeta(status: string | null | undefined, reported: boolean, t: TranslateFn) {
+  const normalized = (status || 'not_started').toLowerCase();
+  const key = `codes.installProgress.status.${normalized}`;
+  const translated = t(key);
+  if (translated !== key) return translated;
+  return reported ? normalized.replace(/_/g, ' ') : t('nodeDetail.installWorkflow.meta.waiting');
+}
+
+function installStepLabel(step: string | null | undefined, t: TranslateFn) {
+  const normalized = (step || '').trim();
+  if (!normalized) return t('codes.installProgress.waiting');
+  const key = `codes.installProgress.stage.${normalized}`;
+  const translated = t(key);
+  return translated === key ? normalized.replace(/_/g, ' ') : translated;
+}
+
+function installNextAction(status: string | null | undefined, step: string | null | undefined, t: TranslateFn) {
+  const normalizedStatus = (status || 'not_started').toLowerCase();
+  const normalizedStep = (step || '').trim();
+  const keys = [
+    normalizedStatus === 'failed' ? 'codes.installProgress.next.failed' : '',
+    normalizedStep ? `codes.installProgress.next.${normalizedStep}` : '',
+    `codes.installProgress.next.${normalizedStatus}`,
+    'codes.installProgress.next.running',
+  ].filter(Boolean);
+
+  for (const key of keys) {
+    const translated = t(key);
+    if (translated !== key) return translated;
+  }
+  return t('codes.installProgress.next.running');
+}
+
+function installRecommendation(status: string | null | undefined, step: string | null | undefined, t: TranslateFn) {
+  if ((status || '').toLowerCase() !== 'failed') return '';
+  const normalizedStep = (step || '').trim();
+  const stepKey = normalizedStep ? `codes.installProgress.recommendation.${normalizedStep}` : '';
+  if (stepKey) {
+    const translated = t(stepKey);
+    if (translated !== stepKey) return translated;
+  }
+  return t('codes.installProgress.recommendation.default');
 }
 
 function inferRustRepoDir(health: VpnNodeHealth) {
@@ -4509,7 +4662,15 @@ function ServiceRiskCard({ risk }: { risk: OperatorRisk }) {
   );
 }
 
-function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNode: boolean }) {
+function ServiceReadinessPanel({
+  nodeId,
+  isVpnNode,
+  installStatus,
+}: {
+  nodeId: string;
+  isVpnNode: boolean;
+  installStatus?: NodeInstallProgressSummary | null;
+}) {
   const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const { overview, isLoading, isError, refetch } = useVpnOverview();
   const health = overview?.nodes.find((item) => item.id === nodeId) ?? null;
@@ -4791,6 +4952,7 @@ function ServiceReadinessPanel({ nodeId, isVpnNode }: { nodeId: string; isVpnNod
 function VpnHealthPanel({
   nodeId,
   isVpnNode,
+  installStatus,
   maintenanceMode,
   isPolicySaving,
   onToggleMaintenance,
@@ -4798,6 +4960,7 @@ function VpnHealthPanel({
 }: {
   nodeId: string;
   isVpnNode: boolean;
+  installStatus?: NodeInstallProgressSummary | null;
   maintenanceMode: boolean;
   isPolicySaving: boolean;
   onToggleMaintenance: () => Promise<void>;
@@ -5115,6 +5278,7 @@ function VpnHealthPanel({
 
       <OperatorActionsPanel
         health={health}
+        installStatus={installStatus}
         failedChecksCount={failedChecks.length}
         activeCommandCount={activeCommandCount}
         failedCommandCount={failedCommandCount}
@@ -5972,16 +6136,20 @@ export default function NodeDetailPage() {
         />
       </div>
 
+      <NodeInstallStatusPanel installStatus={node.install_status} />
+
       {/* 3. AeroNyx Service Readiness */}
       <ServiceReadinessPanel
         nodeId={nodeId}
         isVpnNode={node.is_vpn_node}
+        installStatus={node.install_status}
       />
 
       {/* 4. VPN Health Panel */}
       <VpnHealthPanel
         nodeId={nodeId}
         isVpnNode={node.is_vpn_node}
+        installStatus={node.install_status}
         maintenanceMode={node.maintenance_mode}
         isPolicySaving={updateNodeMutation.isPending}
         onToggleMaintenance={handleToggleMaintenance}
