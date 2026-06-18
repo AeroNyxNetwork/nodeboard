@@ -6,6 +6,10 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.28 - Added an operator runbook panel that derives the Rust repo path
+ *     from runtime rollout metadata and generates one-command health, status,
+ *     logs, no-restart upgrade, and AI maintenance prompts through
+ *     deploy/node/aeronyx-node.sh.
  *   v1.6.27 - Prefer Rust-authored capacity.risks from /api/vpn/health so
  *     node detail shows the same commercial placement blockers and
  *     remediation text as the CLI healthcheck and backend automation.
@@ -164,7 +168,9 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.26 - Show commercial capacity risk summary
+ * Last Modified: v1.6.28 - Add node operator runbook commands
+ * Previous: v1.6.27 - Prefer Rust-authored capacity risks
+ * Previous: v1.6.26 - Show commercial capacity risk summary
  * Previous: v1.6.25 - Show config-driven Network Rules diagnostics
  * Previous: v1.6.24 - Add commercial status and diagnostics summary
  * Previous: v1.6.23 - Add placement rollout action links
@@ -2140,10 +2146,148 @@ function runtimeStartedLabel(startedAt: number | string | null | undefined) {
   return 'pending';
 }
 
+function shellQuote(value: string) {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function runtimeRolloutForNode(health: VpnNodeHealth) {
+  return health.system.runtime?.rollout ?? health.system.operator_status?.runtime_rollout ?? null;
+}
+
+function inferRustRepoDir(health: VpnNodeHealth) {
+  const executablePath = runtimeRolloutForNode(health)?.executable_path?.replace(/\s+\(deleted\)$/, '').trim();
+  const suffix = '/target/release/aeronyx-server';
+  if (executablePath?.endsWith(suffix)) {
+    return executablePath.slice(0, -suffix.length);
+  }
+  return '/root/open/AeroNyx';
+}
+
+function OperatorCommandCard({
+  title,
+  detail,
+  command,
+}: {
+  title: string;
+  detail: string;
+  command: string;
+}) {
+  return (
+    <div className="rounded-lg border border-white/5 bg-black/20 p-3">
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-300">{title}</p>
+          <p className="mt-1 text-xs leading-5 text-gray-500">{detail}</p>
+        </div>
+        <CopyButton text={command} />
+      </div>
+      <code className="block max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-black/30 px-3 py-2 font-mono text-xs leading-5 text-gray-400">
+        {command}
+      </code>
+    </div>
+  );
+}
+
+function OperatorRunbookPanel({ health }: { health: VpnNodeHealth }) {
+  const { t } = useI18n();
+  const repoDir = inferRustRepoDir(health);
+  const repoParentDir = repoDir.split('/').slice(0, -1).join('/') || '/root/open';
+  const quotedRepoDir = shellQuote(repoDir);
+  const quotedRepoParentDir = shellQuote(repoParentDir);
+  const cdRepo = `cd ${quotedRepoDir}`;
+  const healthCommand = `${cdRepo} && ./deploy/node/aeronyx-node.sh health --repo-dir ${quotedRepoDir} --json`;
+  const statusCommand = `${cdRepo} && ./deploy/node/aeronyx-node.sh status --repo-dir ${quotedRepoDir}`;
+  const logsCommand = `${cdRepo} && ./deploy/node/aeronyx-node.sh logs --repo-dir ${quotedRepoDir} --lines 200`;
+  const upgradeCommand = `${cdRepo} && sudo ./deploy/node/aeronyx-node.sh upgrade --repo-dir ${quotedRepoDir} --branch main --no-restart`;
+  const aiPrompt = [
+    'You are helping me maintain an AeroNyx privacy protocol node.',
+    '',
+    'The operator script comes from the AeroNyx GitHub repository:',
+    'https://github.com/AeroNyxNetwork/AeroNyx',
+    'After cloning or updating the repository, the script path is:',
+    'AeroNyx/deploy/node/aeronyx-node.sh',
+    '',
+    'Rules:',
+    '1. Use deploy/node/aeronyx-node.sh as the only operator entrypoint.',
+    '2. Start with read-only status and health checks.',
+    '3. Do not print private keys, API secrets, registration codes, wallet-level data, DNS contents, destinations, packet payloads, chat plaintext, or client public IPs.',
+    '4. Use upgrade --no-restart for staged builds unless I approve a maintenance-window restart.',
+    '5. Do not use --force unless I explicitly approve disruption to active sessions.',
+    '',
+    `REPO_DIR=${repoDir}`,
+    'BRANCH=main',
+    '',
+    'Start with:',
+    `mkdir -p ${quotedRepoParentDir}`,
+    `cd ${quotedRepoParentDir}`,
+    `if [ -d ${quotedRepoDir}/.git ]; then cd ${quotedRepoDir} && git fetch origin main && git checkout main && git pull --ff-only origin main; else git clone https://github.com/AeroNyxNetwork/AeroNyx.git ${quotedRepoDir} && cd ${quotedRepoDir}; fi`,
+    `cd ${quotedRepoDir}`,
+    './deploy/node/aeronyx-node.sh health --repo-dir "$REPO_DIR" --json',
+    './deploy/node/aeronyx-node.sh status --repo-dir "$REPO_DIR"',
+  ].join('\n');
+
+  return (
+    <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.02] p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <h4 className="text-sm font-semibold text-white">{t('nodeDetail.operatorRunbook.title')}</h4>
+          <p className="mt-1 text-xs leading-5 text-gray-500">{t('nodeDetail.operatorRunbook.description')}</p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500 lg:max-w-md">
+          <p className="font-medium text-gray-300">{t('nodeDetail.operatorRunbook.repoPath')}</p>
+          <div className="mt-1 flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate font-mono text-gray-400">{repoDir}</code>
+            <CopyButton text={repoDir} />
+          </div>
+          <p className="mt-1 leading-5">{t('nodeDetail.operatorRunbook.repoDetail')}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <OperatorCommandCard
+          title={t('nodeDetail.operatorRunbook.healthTitle')}
+          detail={t('nodeDetail.operatorRunbook.healthDetail')}
+          command={healthCommand}
+        />
+        <OperatorCommandCard
+          title={t('nodeDetail.operatorRunbook.statusTitle')}
+          detail={t('nodeDetail.operatorRunbook.statusDetail')}
+          command={statusCommand}
+        />
+        <OperatorCommandCard
+          title={t('nodeDetail.operatorRunbook.logsTitle')}
+          detail={t('nodeDetail.operatorRunbook.logsDetail')}
+          command={logsCommand}
+        />
+        <OperatorCommandCard
+          title={t('nodeDetail.operatorRunbook.upgradeTitle')}
+          detail={t('nodeDetail.operatorRunbook.upgradeDetail')}
+          command={upgradeCommand}
+        />
+      </div>
+
+      <div className="mt-3 rounded-lg border border-purple-500/15 bg-purple-500/[0.05] p-3">
+        <div className="mb-2 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-purple-100">{t('nodeDetail.operatorRunbook.aiPromptTitle')}</p>
+            <p className="mt-1 text-xs leading-5 text-purple-100/60">{t('nodeDetail.operatorRunbook.aiPromptDetail')}</p>
+          </div>
+          <CopyButton text={aiPrompt} />
+        </div>
+        <code className="block max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/30 px-3 py-2 font-mono text-xs leading-5 text-gray-400">
+          {aiPrompt}
+        </code>
+      </div>
+
+      <p className="mt-3 text-xs leading-5 text-gray-600">{t('nodeDetail.operatorRunbook.privacyBoundary')}</p>
+    </div>
+  );
+}
+
 function RuntimeVersionPanel({ health }: { health: VpnNodeHealth }) {
   const { t, formatNumber } = useI18n();
   const runtime = health.system.runtime;
-  const rollout = runtime?.rollout ?? health.system.operator_status?.runtime_rollout ?? null;
+  const rollout = runtimeRolloutForNode(health);
   const version = runtime?.version ?? health.system.runtime_version ?? health.version;
   const gitCommit = runtime?.git_commit ?? health.system.runtime_git_commit ?? null;
   const buildProfile = runtime?.build_profile ?? health.system.runtime_build_profile ?? null;
@@ -4468,6 +4612,7 @@ function VpnHealthPanel({
 
       <CapacityPanel health={health} />
       <RuntimeVersionPanel health={health} />
+      <OperatorRunbookPanel health={health} />
       <NodeMetricsTrendPanel metrics={metrics} isLoading={metricsLoading} />
       <BandwidthLimitPanel health={health} metrics={metrics} isLoading={metricsLoading} />
       <PolicyEnforcementPanel health={health} />
