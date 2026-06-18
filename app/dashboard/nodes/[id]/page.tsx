@@ -6,6 +6,10 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.39 - Prioritized `aeronyx-node.sh status` in Operator Runbook and
+ *     AI maintenance prompts because status now includes service state,
+ *     local endpoints, upgrade state, and operator_next_step from the
+ *     privacy-safe healthcheck recommendation.
  *   v1.6.38 - Added Service Configuration shortcuts into the Services
  *     Workbench `section` deep links for fleet capacity, transport, and DNS
  *     review. Node Detail remains the per-node evidence view, while Services
@@ -209,7 +213,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.38 - Link service configuration to Services sections
+ * Last Modified: v1.6.39 - Prioritize status in operator runbook
+ * Previous: v1.6.38 - Link service configuration to Services sections
  * Previous: v1.6.37 - Show node service configuration panel
  * Previous: v1.6.36 - Show Rust operator action recommendation
  * Previous: v1.6.35 - Add resource load capacity signals
@@ -3059,7 +3064,7 @@ function OperatorRunbookPanel({ health }: { health: VpnNodeHealth }) {
     '',
     'Rules:',
     '1. Use deploy/node/aeronyx-node.sh as the only operator entrypoint.',
-    '2. Start with read-only status and health checks.',
+    '2. Start with read-only status. Summarize operator_status, operator_title, operator_detail, and operator_next_step before running deeper health JSON diagnostics.',
     '3. Do not print private keys, API secrets, registration codes, wallet-level data, DNS contents, destinations, packet payloads, chat plaintext, or client public IPs.',
     '4. Use upgrade --no-restart for staged builds unless I approve a maintenance-window restart.',
     '5. Do not use --force unless I explicitly approve disruption to active sessions.',
@@ -3072,8 +3077,8 @@ function OperatorRunbookPanel({ health }: { health: VpnNodeHealth }) {
     `cd ${quotedRepoParentDir}`,
     `if [ -d ${quotedRepoDir}/.git ]; then cd ${quotedRepoDir} && git fetch origin main && git checkout main && git pull --ff-only origin main; else git clone https://github.com/AeroNyxNetwork/AeroNyx.git ${quotedRepoDir} && cd ${quotedRepoDir}; fi`,
     `cd ${quotedRepoDir}`,
-    './deploy/node/aeronyx-node.sh health --repo-dir "$REPO_DIR" --json',
     './deploy/node/aeronyx-node.sh status --repo-dir "$REPO_DIR"',
+    './deploy/node/aeronyx-node.sh health --repo-dir "$REPO_DIR" --json',
   ].join('\n');
 
   return (
@@ -3095,14 +3100,14 @@ function OperatorRunbookPanel({ health }: { health: VpnNodeHealth }) {
 
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         <OperatorCommandCard
-          title={t('nodeDetail.operatorRunbook.healthTitle')}
-          detail={t('nodeDetail.operatorRunbook.healthDetail')}
-          command={healthCommand}
-        />
-        <OperatorCommandCard
           title={t('nodeDetail.operatorRunbook.statusTitle')}
           detail={t('nodeDetail.operatorRunbook.statusDetail')}
           command={statusCommand}
+        />
+        <OperatorCommandCard
+          title={t('nodeDetail.operatorRunbook.healthTitle')}
+          detail={t('nodeDetail.operatorRunbook.healthDetail')}
+          command={healthCommand}
         />
         <OperatorCommandCard
           title={t('nodeDetail.operatorRunbook.logsTitle')}

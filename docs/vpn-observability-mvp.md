@@ -176,6 +176,11 @@ queries.
     `/dashboard/services?section=dns`. Operators can compare the current
     node's service configuration with fleet-level capacity, carrier, and
     gateway DNS posture without turning Node Detail into a fleet report.
+  - Operator Runbook prioritizes `./deploy/node/aeronyx-node.sh status` before
+    `health --json` because status now combines service state, local
+    endpoints, upgrade status, and the privacy-safe `operator_next_step`
+    recommendation. Use health JSON when deeper machine-readable diagnostics
+    are needed after the first operator decision.
   - Uses only existing node metadata from
     `data.nodes[].system.service_manager`,
     `data.nodes[].system.upgrade_status`, `data.nodes[].system.runtime`,
