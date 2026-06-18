@@ -2125,6 +2125,97 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
   );
 }
 
+function shortRuntimeValue(value: string | null | undefined, maxLength = 18) {
+  if (!value) return 'pending';
+  return value.length > maxLength ? `${value.slice(0, maxLength)}` : value;
+}
+
+function runtimeStartedLabel(startedAt: number | string | null | undefined) {
+  if (typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt > 0) {
+    return formatUnixSecondsRelative(startedAt);
+  }
+  if (typeof startedAt === 'string' && startedAt.trim()) {
+    return formatRelativeTime(startedAt);
+  }
+  return 'pending';
+}
+
+function RuntimeVersionPanel({ health }: { health: VpnNodeHealth }) {
+  const { t, formatNumber } = useI18n();
+  const runtime = health.system.runtime;
+  const rollout = runtime?.rollout ?? health.system.operator_status?.runtime_rollout ?? null;
+  const version = runtime?.version ?? health.system.runtime_version ?? health.version;
+  const gitCommit = runtime?.git_commit ?? health.system.runtime_git_commit ?? null;
+  const buildProfile = runtime?.build_profile ?? health.system.runtime_build_profile ?? null;
+  const buildTarget = runtime?.build_target ?? health.system.runtime_build_target ?? null;
+  const processId = runtime?.process_id ?? health.system.runtime_process_id ?? null;
+  const startedAt = runtime?.started_at ?? health.system.runtime_started_at ?? null;
+  const uptimeSeconds = runtime?.uptime_seconds ?? health.system.runtime_uptime_seconds ?? null;
+  const restartRequired = Boolean(rollout?.restart_required);
+  const runtimeReported = Boolean(runtime || health.system.runtime_version || health.system.runtime_started_at || health.system.operator_status?.runtime_rollout);
+
+  return (
+    <div className={`mt-5 rounded-xl border p-4 ${restartRequired ? 'border-yellow-500/25 bg-yellow-500/[0.06]' : runtimeReported ? 'border-white/5 bg-white/[0.02]' : 'border-gray-500/20 bg-gray-500/[0.04]'}`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-semibold text-white">{t('nodeDetail.runtime.title')}</h4>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${
+              restartRequired
+                ? 'border-yellow-500/25 bg-yellow-500/10 text-yellow-200'
+                : runtimeReported
+                  ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200'
+                  : 'border-gray-500/25 bg-gray-500/10 text-gray-300'
+            }`}>
+              {restartRequired
+                ? t('nodeDetail.runtime.restartRequired')
+                : runtimeReported
+                  ? t('nodeDetail.runtime.reported')
+                  : t('common.status.pending')}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-gray-500">{t('nodeDetail.runtime.description')}</p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500 lg:max-w-md">
+          <p className="font-medium text-gray-300">{t('nodeDetail.runtime.operatorAction')}</p>
+          <p className="mt-1 leading-5">
+            {restartRequired
+              ? (rollout?.detail || t('nodeDetail.runtime.restartAction'))
+              : t('nodeDetail.runtime.monitorAction')}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CapacityMetric
+          label={t('nodeDetail.runtime.version')}
+          value={version || t('common.status.pending')}
+          detail={t('nodeDetail.runtime.gitCommit', { commit: shortRuntimeValue(gitCommit, 12) })}
+          tone="border-white/5 bg-black/20"
+        />
+        <CapacityMetric
+          label={t('nodeDetail.runtime.build')}
+          value={buildProfile || t('common.status.pending')}
+          detail={buildTarget || t('common.status.pending')}
+          tone="border-white/5 bg-black/20"
+        />
+        <CapacityMetric
+          label={t('nodeDetail.runtime.uptime')}
+          value={typeof uptimeSeconds === 'number' ? formatDuration(uptimeSeconds) : t('common.status.pending')}
+          detail={t('nodeDetail.runtime.started', { time: runtimeStartedLabel(startedAt) })}
+          tone="border-white/5 bg-black/20"
+        />
+        <CapacityMetric
+          label={t('nodeDetail.runtime.process')}
+          value={typeof processId === 'number' ? formatNumber(processId) : t('common.status.pending')}
+          detail={rollout?.executable_replaced ? t('nodeDetail.runtime.executableReplaced') : (rollout?.source || runtime?.source || 'runtime metadata')}
+          tone={restartRequired ? 'border-yellow-500/25 bg-yellow-500/[0.06]' : 'border-emerald-500/15 bg-emerald-500/[0.04]'}
+        />
+      </div>
+    </div>
+  );
+}
+
 function CommandResultPanel({ command }: { command: NodeCommand }) {
   const { t } = useI18n();
   const parsed = parseCommandResult(command, t);
@@ -4376,6 +4467,7 @@ function VpnHealthPanel({
       </div>
 
       <CapacityPanel health={health} />
+      <RuntimeVersionPanel health={health} />
       <NodeMetricsTrendPanel metrics={metrics} isLoading={metricsLoading} />
       <BandwidthLimitPanel health={health} metrics={metrics} isLoading={metricsLoading} />
       <PolicyEnforcementPanel health={health} />

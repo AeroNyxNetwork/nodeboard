@@ -1548,6 +1548,19 @@ export interface RuntimeRolloutStatus {
   privacy_boundary: string;
 }
 
+export interface RustRuntimeStatus {
+  version?: string | null;
+  git_commit?: string | null;
+  build_profile?: string | null;
+  build_target?: string | null;
+  process_id?: number | null;
+  started_at?: number | null;
+  uptime_seconds?: number | null;
+  rollout?: RuntimeRolloutStatus | null;
+  source?: string | null;
+  privacy_boundary?: string | null;
+}
+
 /**
  * Rust heartbeat source:
  * /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -1834,6 +1847,12 @@ export interface VpnNodeHealth {
     reported_active_sessions: number | null;
     runtime_id?: string | null;
     runtime_started_at?: string | null;
+    runtime_uptime_seconds?: number | null;
+    runtime_version?: string | null;
+    runtime_git_commit?: string | null;
+    runtime_build_profile?: string | null;
+    runtime_build_target?: string | null;
+    runtime_process_id?: number | null;
     vpn_health_status?: 'ok' | 'degraded' | 'failed' | string | null;
     vpn_health_checked_at?: number | null;
     configured_mtu?: number | null;
@@ -1879,6 +1898,7 @@ export interface VpnNodeHealth {
      * history, voucher secrets, or wallet-level traffic.
      */
     session_cleanup?: VpnSessionCleanupStatus | null;
+    runtime?: RustRuntimeStatus | null;
     restart_readiness?: VpnRestartReadiness | null;
     placement_readiness?: VpnPlacementReadiness | null;
     capacity?: VpnCapacitySnapshot | null;
