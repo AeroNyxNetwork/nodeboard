@@ -10,6 +10,9 @@
  * readiness.
  *
  * Modification Reason:
+ *   v1.1.68 - Grouped detail-module entry points into Overview, Triage, and
+ *     Advanced Diagnostics so the first-level Services page stays scannable
+ *     while preserving every existing drill-down report.
  *   v1.1.67 - Added a collapsible VPN DNS module so operators can inspect
  *     gateway DNS ownership, dns_stub, and dns_query readiness per node
  *     without expanding the first-level Services page.
@@ -233,7 +236,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.67 - Add VPN DNS ownership detail module
+ * Last Modified: v1.1.68 - Group Services detail modules by operator workflow
+ * Previous: v1.1.67 - Add VPN DNS ownership detail module
  * Previous: v1.1.66 - Add fleet Node Capacity detail module
  * Previous: v1.1.65 - Prefer Rust-authored capacity risks
  * Previous: v1.1.64 - Show fleet capacity risk summary
@@ -3580,6 +3584,7 @@ function DetailModulesPanel({
   const { t, formatNumber } = useI18n();
   const modules: Array<{
     key: ServiceDetailSection;
+    group: 'overview' | 'triage' | 'advanced';
     label: string;
     eyebrow: string;
     count: string;
@@ -3588,6 +3593,7 @@ function DetailModulesPanel({
   }> = [
     {
       key: 'placement',
+      group: 'overview',
       label: t('services.modules.placement.label'),
       eyebrow: t('services.modules.placement.eyebrow'),
       count: `${formatNumber(placementAvailable)} / ${formatNumber(placementTotal)}`,
@@ -3596,6 +3602,7 @@ function DetailModulesPanel({
     },
     {
       key: 'capacity',
+      group: 'overview',
       label: t('services.modules.capacity.label'),
       eyebrow: t('services.modules.capacity.eyebrow'),
       count: `${formatNumber(capacityReporting)} / ${formatNumber(nodeCount)}`,
@@ -3604,6 +3611,7 @@ function DetailModulesPanel({
     },
     {
       key: 'transport',
+      group: 'overview',
       label: t('services.modules.transport.label'),
       eyebrow: t('services.modules.transport.eyebrow'),
       count: `${formatNumber(transportReady)} / ${formatNumber(transportTotal)}`,
@@ -3612,6 +3620,7 @@ function DetailModulesPanel({
     },
     {
       key: 'dns',
+      group: 'triage',
       label: t('services.modules.dns.label'),
       eyebrow: t('services.modules.dns.eyebrow'),
       count: `${formatNumber(dnsHealthy)} / ${formatNumber(dnsTotal)}`,
@@ -3620,6 +3629,7 @@ function DetailModulesPanel({
     },
     {
       key: 'restart',
+      group: 'triage',
       label: t('services.modules.restart.label'),
       eyebrow: t('services.modules.restart.eyebrow'),
       count: formatNumber(restartAttention + rolloutAttention),
@@ -3628,6 +3638,7 @@ function DetailModulesPanel({
     },
     {
       key: 'layers',
+      group: 'advanced',
       label: t('services.modules.layers.label'),
       eyebrow: t('services.modules.layers.eyebrow'),
       count: formatNumber(serviceCount),
@@ -3636,6 +3647,7 @@ function DetailModulesPanel({
     },
     {
       key: 'risks',
+      group: 'triage',
       label: t('services.modules.risks.label'),
       eyebrow: t('services.modules.risks.eyebrow'),
       count: formatNumber(riskCount),
@@ -3644,11 +3656,37 @@ function DetailModulesPanel({
     },
     {
       key: 'nodes',
+      group: 'advanced',
       label: t('services.modules.nodes.label'),
       eyebrow: t('services.modules.nodes.eyebrow'),
       count: formatNumber(nodeCount),
       detail: t('services.modules.nodes.detail'),
       status: nodeCount > 0 ? 'info' : 'pending',
+    },
+  ];
+  const moduleGroups: Array<{
+    key: 'overview' | 'triage' | 'advanced';
+    title: string;
+    description: string;
+    columns: string;
+  }> = [
+    {
+      key: 'overview',
+      title: t('services.detailModules.groups.overview.title'),
+      description: t('services.detailModules.groups.overview.description'),
+      columns: 'xl:grid-cols-3',
+    },
+    {
+      key: 'triage',
+      title: t('services.detailModules.groups.triage.title'),
+      description: t('services.detailModules.groups.triage.description'),
+      columns: 'xl:grid-cols-3',
+    },
+    {
+      key: 'advanced',
+      title: t('services.detailModules.groups.advanced.title'),
+      description: t('services.detailModules.groups.advanced.description'),
+      columns: 'xl:grid-cols-2',
     },
   ];
 
@@ -3672,30 +3710,48 @@ function DetailModulesPanel({
         )}
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-7">
-        {modules.map((module) => {
-          const active = activeSection === module.key;
+      <div className="mt-5 space-y-4">
+        {moduleGroups.map((group) => {
+          const groupedModules = modules.filter((module) => module.group === group.key);
           return (
-            <button
-              key={module.key}
-              type="button"
-              onClick={() => onSelect(active ? null : module.key)}
-              className={`rounded-xl border p-4 text-left transition ${
-                active
-                  ? 'border-purple-400/40 bg-purple-500/[0.10]'
-                  : 'border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.06]'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-2">
+            <div key={group.key} className="rounded-xl border border-white/10 bg-black/20 p-4">
+              <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">{module.eyebrow}</p>
-                  <p className="mt-2 text-sm font-semibold text-white">{module.label}</p>
+                  <p className="text-sm font-semibold text-white">{group.title}</p>
+                  <p className="mt-1 text-xs leading-5 text-gray-500">{group.description}</p>
                 </div>
-                <StatusPill status={module.status} />
+                <span className="text-xs text-gray-500">
+                  {t('services.detailModules.groupCount', { count: formatNumber(groupedModules.length) })}
+                </span>
               </div>
-              <p className="mt-3 text-2xl font-semibold text-white">{module.count}</p>
-              <p className="mt-2 text-xs leading-5 text-gray-500">{module.detail}</p>
-            </button>
+              <div className={`grid gap-3 md:grid-cols-2 ${group.columns}`}>
+                {groupedModules.map((module) => {
+                  const active = activeSection === module.key;
+                  return (
+                    <button
+                      key={module.key}
+                      type="button"
+                      onClick={() => onSelect(active ? null : module.key)}
+                      className={`min-h-[156px] rounded-xl border p-4 text-left transition ${
+                        active
+                          ? 'border-purple-400/40 bg-purple-500/[0.10]'
+                          : 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">{module.eyebrow}</p>
+                          <p className="mt-2 text-sm font-semibold text-white">{module.label}</p>
+                        </div>
+                        <StatusPill status={module.status} />
+                      </div>
+                      <p className="mt-3 text-2xl font-semibold text-white">{module.count}</p>
+                      <p className="mt-2 text-xs leading-5 text-gray-500">{module.detail}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           );
         })}
       </div>
