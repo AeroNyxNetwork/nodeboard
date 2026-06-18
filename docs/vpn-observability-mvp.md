@@ -170,6 +170,12 @@ queries.
     anchors so operators can move from configuration evidence to capacity
     bottlenecks, process/version evidence, or one-command maintenance without
     returning to the first-level Services page.
+  - Adds fleet Workbench shortcuts from Service Configuration to
+    `/dashboard/services?section=capacity`,
+    `/dashboard/services?section=transport`, and
+    `/dashboard/services?section=dns`. Operators can compare the current
+    node's service configuration with fleet-level capacity, carrier, and
+    gateway DNS posture without turning Node Detail into a fleet report.
   - Uses only existing node metadata from
     `data.nodes[].system.service_manager`,
     `data.nodes[].system.upgrade_status`, `data.nodes[].system.runtime`,

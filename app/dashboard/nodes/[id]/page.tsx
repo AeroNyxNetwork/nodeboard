@@ -6,6 +6,10 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.38 - Added Service Configuration shortcuts into the Services
+ *     Workbench `section` deep links for fleet capacity, transport, and DNS
+ *     review. Node Detail remains the per-node evidence view, while Services
+ *     stays the fleet-level decision surface.
  *   v1.6.37 - Added a node-scoped Service Configuration panel so operators
  *     can inspect systemd/service name, config path, repository branch,
  *     runtime executable, TUN/IP/MTU, DNS ownership, and transport carriers
@@ -205,7 +209,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.37 - Show node service configuration panel
+ * Last Modified: v1.6.38 - Link service configuration to Services sections
+ * Previous: v1.6.37 - Show node service configuration panel
  * Previous: v1.6.36 - Show Rust operator action recommendation
  * Previous: v1.6.35 - Add resource load capacity signals
  * Previous: v1.6.34 - Add node detail section navigator
@@ -3346,6 +3351,21 @@ function ServiceConfigurationPanel({ health }: { health: VpnNodeHealth }) {
         <a href="#operator-runbook" className="rounded-lg border border-white/5 bg-black/20 p-3 text-xs leading-5 text-gray-400 transition hover:border-white/20 hover:bg-white/[0.04]">
           <span className="font-semibold text-gray-200">{t('nodeDetail.serviceConfig.openRunbook')}</span>
           <span className="mt-1 block text-gray-500">{t('nodeDetail.serviceConfig.openRunbookDetail')}</span>
+        </a>
+      </div>
+
+      <div className="mt-3 grid gap-3 lg:grid-cols-3">
+        <a href="/dashboard/services?section=capacity" className="rounded-lg border border-sky-500/15 bg-sky-500/[0.04] p-3 text-xs leading-5 text-sky-100/70 transition hover:border-sky-400/30 hover:bg-sky-500/[0.08]">
+          <span className="font-semibold text-sky-100">{t('nodeDetail.serviceConfig.openFleetCapacity')}</span>
+          <span className="mt-1 block text-sky-100/50">{t('nodeDetail.serviceConfig.openFleetCapacityDetail')}</span>
+        </a>
+        <a href="/dashboard/services?section=transport" className="rounded-lg border border-sky-500/15 bg-sky-500/[0.04] p-3 text-xs leading-5 text-sky-100/70 transition hover:border-sky-400/30 hover:bg-sky-500/[0.08]">
+          <span className="font-semibold text-sky-100">{t('nodeDetail.serviceConfig.openFleetTransport')}</span>
+          <span className="mt-1 block text-sky-100/50">{t('nodeDetail.serviceConfig.openFleetTransportDetail')}</span>
+        </a>
+        <a href="/dashboard/services?section=dns" className="rounded-lg border border-sky-500/15 bg-sky-500/[0.04] p-3 text-xs leading-5 text-sky-100/70 transition hover:border-sky-400/30 hover:bg-sky-500/[0.08]">
+          <span className="font-semibold text-sky-100">{t('nodeDetail.serviceConfig.openFleetDns')}</span>
+          <span className="mt-1 block text-sky-100/50">{t('nodeDetail.serviceConfig.openFleetDnsDetail')}</span>
         </a>
       </div>
 
