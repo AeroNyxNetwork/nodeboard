@@ -10,6 +10,10 @@
  * readiness.
  *
  * Modification Reason:
+ *   v1.1.70 - Reworked the Services detail entry into an Operations Workbench
+ *     with a primary task recommendation and Operate / Recover / Inspect
+ *     workflow lanes. This keeps first-level Services focused on commercial
+ *     decisions while preserving every existing detailed report and action.
  *   v1.1.69 - Changed Services detail modules from always-expanded groups to
  *     a workflow segmented control. Operators now see one module group at a
  *     time: Daily Operations, Triage & Recovery, or Advanced Diagnostics.
@@ -241,7 +245,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.69 - Add workflow segmented control for Services modules
+ * Last Modified: v1.1.70 - Add Services Operations Workbench primary task
+ * Previous: v1.1.69 - Add workflow segmented control for Services modules
  * Previous: v1.1.68 - Group Services detail modules by operator workflow
  * Previous: v1.1.67 - Add Gateway DNS ownership detail module
  * Previous: v1.1.66 - Add fleet Node Capacity detail module
@@ -3704,6 +3709,23 @@ function DetailModulesPanel({
   const activeGroupKey = activeSectionGroup ?? selectedGroup;
   const activeGroup = moduleGroups.find((group) => group.key === activeGroupKey) ?? moduleGroups[0];
   const groupedModules = modules.filter((module) => module.group === activeGroup.key);
+  const recommendedModuleKey: ServiceDetailSection = capacityRiskCount > 0
+    ? 'capacity'
+    : placementTotal > 0 && placementAvailable <= 0
+      ? 'placement'
+      : transportAttention > 0
+        ? 'transport'
+        : restartAttention + rolloutAttention > 0
+          ? 'restart'
+          : dnsAttention > 0
+            ? 'dns'
+            : riskCount > 0
+              ? 'risks'
+              : 'placement';
+  const recommendedModule = modules.find((module) => module.key === recommendedModuleKey) ?? modules[0];
+  const activeGroupModules = modules.filter((module) => module.group === activeGroup.key);
+  const attentionModules = modules.filter((module) => ['critical', 'failed', 'warning'].includes(module.status));
+  const clearModuleCount = Math.max(modules.length - attentionModules.length, 0);
 
   const handleSelectGroup = (group: ServiceModuleGroup) => {
     setSelectedGroup(group);
@@ -3732,72 +3754,123 @@ function DetailModulesPanel({
         )}
       </div>
 
-      <div className="mt-5">
-        <div className="grid gap-2 rounded-xl border border-white/10 bg-black/20 p-2 md:grid-cols-3">
-          {moduleGroups.map((group) => {
-            const active = activeGroup.key === group.key;
-            const count = modules.filter((module) => module.group === group.key).length;
-            return (
-              <button
-                key={group.key}
-                type="button"
-                onClick={() => handleSelectGroup(group.key)}
-                className={`rounded-lg border px-4 py-3 text-left transition ${
-                  active
-                    ? 'border-purple-400/40 bg-purple-500/[0.12]'
-                    : 'border-transparent hover:border-white/10 hover:bg-white/[0.04]'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-white">{group.title}</p>
-                  <span className="text-xs text-gray-500">
-                    {t('services.detailModules.groupCount', { count: formatNumber(count) })}
-                  </span>
-                </div>
-                <p className="mt-1 text-xs leading-5 text-gray-500">{group.description}</p>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
-          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-white">{activeGroup.title}</p>
-              <p className="mt-1 text-xs leading-5 text-gray-500">{activeGroup.description}</p>
+      <div className="mt-5 grid gap-3 xl:grid-cols-[1.15fr_0.85fr]">
+        <button
+          type="button"
+          onClick={() => onSelect(activeSection === recommendedModule.key ? null : recommendedModule.key)}
+          className={`rounded-xl border p-4 text-left transition ${
+            activeSection === recommendedModule.key
+              ? 'border-purple-400/40 bg-purple-500/[0.12]'
+              : 'border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.05]'
+          }`}
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-emerald-300">
+                {t('services.detailModules.primaryTask')}
+              </p>
+              <p className="mt-2 text-lg font-semibold text-white">{recommendedModule.label}</p>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-400">{recommendedModule.detail}</p>
             </div>
-            <span className="text-xs text-gray-500">
-              {t('services.detailModules.groupCount', { count: formatNumber(groupedModules.length) })}
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm font-semibold text-white">
+                {recommendedModule.count}
+              </span>
+              <StatusPill status={recommendedModule.status} />
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-gray-300">
+              {t('services.detailModules.openModule', { module: recommendedModule.label })}
+            </span>
+            <span className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-gray-500">
+              {t('services.detailModules.attentionSummary', {
+                attention: formatNumber(attentionModules.length),
+                clear: formatNumber(clearModuleCount),
+              })}
             </span>
           </div>
-          <div className={`grid gap-3 md:grid-cols-2 ${activeGroup.columns}`}>
-            {groupedModules.map((module) => {
-              const active = activeSection === module.key;
+        </button>
+
+        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-gray-500">
+            {t('services.detailModules.operatorFocus')}
+          </p>
+          <div className="mt-3 grid gap-2">
+            {moduleGroups.map((group) => {
+              const count = modules.filter((module) => module.group === group.key).length;
+              const groupAttention = modules.filter((module) => module.group === group.key && ['critical', 'failed', 'warning'].includes(module.status)).length;
               return (
                 <button
-                  key={module.key}
+                  key={group.key}
                   type="button"
-                  onClick={() => onSelect(active ? null : module.key)}
-                  className={`min-h-[156px] rounded-xl border p-4 text-left transition ${
-                    active
-                      ? 'border-purple-400/40 bg-purple-500/[0.10]'
+                  onClick={() => handleSelectGroup(group.key)}
+                  className={`rounded-lg border px-3 py-2 text-left transition ${
+                    activeGroup.key === group.key
+                      ? 'border-purple-400/40 bg-purple-500/[0.12]'
                       : 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">{module.eyebrow}</p>
-                      <p className="mt-2 text-sm font-semibold text-white">{module.label}</p>
-                    </div>
-                    <StatusPill status={module.status} />
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-white">{group.title}</p>
+                    <span className={groupAttention > 0 ? 'text-xs text-yellow-300' : 'text-xs text-gray-500'}>
+                      {groupAttention > 0
+                        ? t('services.detailModules.attentionCount', { count: formatNumber(groupAttention) })
+                        : t('services.detailModules.groupCount', { count: formatNumber(count) })}
+                    </span>
                   </div>
-                  <p className="mt-3 text-2xl font-semibold text-white">{module.count}</p>
-                  <p className="mt-2 text-xs leading-5 text-gray-500">{module.detail}</p>
+                  <p className="mt-1 text-xs leading-5 text-gray-500">{group.description}</p>
                 </button>
               );
             })}
           </div>
         </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
+        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-white">{activeGroup.title}</p>
+            <p className="mt-1 text-xs leading-5 text-gray-500">{activeGroup.description}</p>
+          </div>
+          <span className="text-xs text-gray-500">
+            {t('services.detailModules.groupCount', { count: formatNumber(activeGroupModules.length) })}
+          </span>
+        </div>
+        <div className={`grid gap-3 md:grid-cols-2 ${activeGroup.columns}`}>
+          {groupedModules.map((module) => {
+            const active = activeSection === module.key;
+            return (
+              <button
+                key={module.key}
+                type="button"
+                onClick={() => onSelect(active ? null : module.key)}
+                className={`min-h-[164px] rounded-xl border p-4 text-left transition ${
+                  active
+                    ? 'border-purple-400/40 bg-purple-500/[0.10]'
+                    : 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">{module.eyebrow}</p>
+                    <p className="mt-2 text-sm font-semibold text-white">{module.label}</p>
+                  </div>
+                  <StatusPill status={module.status} />
+                </div>
+                <p className="mt-3 text-2xl font-semibold text-white">{module.count}</p>
+                <p className="mt-2 text-xs leading-5 text-gray-500">{module.detail}</p>
+                <p className="mt-3 text-xs font-medium text-purple-200">
+                  {t('services.detailModules.openModule', { module: module.label })}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="sr-only" aria-live="polite">
+        {activeSection ? t('services.detailModules.selectedModule', { module: modules.find((module) => module.key === activeSection)?.label ?? '' }) : t('services.detailModules.moduleClosed')}
       </div>
     </section>
   );
