@@ -6,6 +6,10 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.34 - Added a node detail section navigator that groups the long
+ *     operator page into Overview, Capacity, Runtime, Install & Upgrade,
+ *     Events, and Commands. This keeps all existing diagnostic panels intact
+ *     while making the page usable as a commercial operator console.
  *   v1.6.33 - Fixed CapacityPanel bandwidth cap unit handling. Rust reports
  *     capacity.bandwidth_limit_bytes_per_second in bytes/sec, while
  *     throughput UI displays bits/sec. The panel now converts Mbps fallback
@@ -187,7 +191,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.33 - Fix capacity bandwidth cap units
+ * Last Modified: v1.6.34 - Add node detail section navigator
+ * Previous: v1.6.33 - Fix capacity bandwidth cap units
  * Previous: v1.6.32 - Show node install workflow status
  * Previous: v1.6.31 - Show Rust upgrade workflow status
  * Previous: v1.6.30 - Add node operator action hub
@@ -4959,6 +4964,66 @@ function ServiceReadinessPanel({
   );
 }
 
+type DetailSectionNavTone = 'ok' | 'warning' | 'critical' | 'info' | 'pending' | 'neutral';
+
+type DetailSectionNavItem = {
+  href: string;
+  label: string;
+  detail: string;
+  meta: string;
+  tone: DetailSectionNavTone;
+};
+
+function detailSectionToneClass(tone: DetailSectionNavTone) {
+  if (tone === 'ok') return 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-100';
+  if (tone === 'warning') return 'border-yellow-500/25 bg-yellow-500/[0.07] text-yellow-100';
+  if (tone === 'critical') return 'border-red-400/25 bg-red-400/[0.07] text-red-100';
+  if (tone === 'info') return 'border-sky-500/20 bg-sky-500/[0.06] text-sky-100';
+  if (tone === 'pending') return 'border-white/10 bg-white/[0.035] text-gray-300';
+  return 'border-white/10 bg-white/[0.025] text-gray-300';
+}
+
+function DetailSectionNavigator({ items }: { items: DetailSectionNavItem[] }) {
+  const { t } = useI18n();
+
+  return (
+    <nav
+      aria-label={t('nodeDetail.sectionNav.title')}
+      className="mt-5 rounded-xl border border-white/5 bg-black/20 p-3"
+    >
+      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-white">{t('nodeDetail.sectionNav.title')}</h4>
+          <p className="mt-1 text-xs leading-5 text-gray-500">{t('nodeDetail.sectionNav.description')}</p>
+        </div>
+        <span className="w-fit rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-xs text-gray-400">
+          {t('nodeDetail.sectionNav.scope')}
+        </span>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {items.map((item) => (
+          <a
+            key={item.href}
+            href={item.href}
+            className={`group rounded-lg border px-3 py-2.5 transition hover:border-white/25 hover:bg-white/[0.06] ${detailSectionToneClass(item.tone)}`}
+          >
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-white group-hover:text-purple-100">{item.label}</p>
+                <p className="mt-1 line-clamp-2 text-xs leading-5 opacity-75">{item.detail}</p>
+              </div>
+              <span className="shrink-0 rounded-full border border-current/20 px-2 py-0.5 text-[10px] uppercase opacity-80">
+                {item.meta}
+              </span>
+            </div>
+          </a>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
 function VpnHealthPanel({
   nodeId,
   isVpnNode,
@@ -5206,10 +5271,121 @@ function VpnHealthPanel({
     restartCommandActive,
   });
   const restartReady = restartBlockers.length === 0;
+  const capacityRisks = capacityRiskItems(health.system.capacity, t, formatNumber);
+  const capacityReported = Boolean(health.system.capacity?.reported);
+  const upgradeStatus = health.system.upgrade_status ?? null;
+  const upgradeReported = Boolean(upgradeStatus?.reported);
+  const installStatusValue = installStatus?.status ?? null;
+  const installReported = Boolean(
+    installStatus?.last_reported_at
+    || installStatus?.used_at
+    || (installStatusValue && installStatusValue !== 'not_started')
+  );
+  const upgradeStatusValue = upgradeStatus?.status ?? null;
+  const installMeta = installWorkflowMeta(installStatusValue, installReported, t);
+  const upgradeMeta = upgradeWorkflowMeta(upgradeStatusValue, upgradeReported, t);
+  const runtimeRollout = health.system.operator_status?.runtime_rollout ?? null;
+  const runtimeReported = Boolean(health.system.operator_status);
+  const restartRequired = Boolean(runtimeRollout?.restart_required);
+  const recentErrors = health.system.recent_errors;
+  const recentOperationalEventCount = Array.isArray(recentErrors?.events) ? recentErrors.events.length : 0;
+  const hasRecentOperationalEventTelemetry = Boolean(recentErrors?.reported);
+  const installUpgradeNeedsAttention = [installStatusValue, upgradeStatusValue]
+    .some((status) => ['failed', 'error', 'timeout'].includes((status || '').toLowerCase()));
+  const sectionNavItems: DetailSectionNavItem[] = [
+    {
+      href: '#overview-panel',
+      label: t('nodeDetail.sectionNav.overview'),
+      detail: t('nodeDetail.sectionNav.overviewDetail', { checks: formatNumber(failedChecks.length) }),
+      meta: `${health.health_score}/100`,
+      tone: health.health_status === 'offline'
+        ? 'critical'
+        : failedChecks.length > 0 || health.health_status === 'degraded' || health.health_status === 'overloaded'
+          ? 'warning'
+          : 'ok',
+    },
+    {
+      href: '#capacity-panel',
+      label: t('nodeDetail.operatorActions.capacity.title'),
+      detail: capacityRisks.length > 0
+        ? t('nodeDetail.operatorActions.capacity.riskDetail', { count: formatNumber(capacityRisks.length) })
+        : capacityReported
+          ? t('nodeDetail.operatorActions.capacity.clearDetail')
+          : t('nodeDetail.operatorActions.capacity.waitingDetail'),
+      meta: capacityRisks.length > 0
+        ? t('nodeDetail.operatorActions.capacity.riskMeta', { count: formatNumber(capacityRisks.length) })
+        : capacityReported
+          ? t('nodeDetail.operatorActions.meta.clear')
+          : t('nodeDetail.operatorActions.meta.waiting'),
+      tone: capacityRisks.some((risk) => risk.tone === 'critical')
+        ? 'critical'
+        : capacityRisks.length > 0
+          ? 'warning'
+          : capacityReported
+            ? 'ok'
+            : 'pending',
+    },
+    {
+      href: '#runtime-panel',
+      label: t('nodeDetail.operatorActions.runtime.title'),
+      detail: restartRequired
+        ? t('nodeDetail.operatorActions.runtime.restartDetail')
+        : runtimeReported
+          ? t('nodeDetail.operatorActions.runtime.clearDetail')
+          : t('nodeDetail.operatorActions.runtime.waitingDetail'),
+      meta: restartRequired
+        ? t('nodeDetail.operatorActions.runtime.restartMeta')
+        : runtimeReported
+          ? t('nodeDetail.operatorActions.meta.clear')
+          : t('nodeDetail.operatorActions.meta.waiting'),
+      tone: restartRequired ? 'warning' : runtimeReported ? 'ok' : 'pending',
+    },
+    {
+      href: '#install-workflow',
+      label: t('nodeDetail.sectionNav.installUpgrade'),
+      detail: t('nodeDetail.sectionNav.installUpgradeDetail', { install: installMeta, upgrade: upgradeMeta }),
+      meta: installUpgradeNeedsAttention
+        ? t('nodeDetail.operatorActions.commands.failedMeta', { count: 1 })
+        : installReported || upgradeReported
+          ? t('nodeDetail.operatorActions.meta.clear')
+          : t('nodeDetail.operatorActions.meta.waiting'),
+      tone: installUpgradeNeedsAttention ? 'critical' : installReported || upgradeReported ? 'info' : 'pending',
+    },
+    {
+      href: '#recent-operational-events',
+      label: t('nodeDetail.operatorActions.events.title'),
+      detail: recentOperationalEventCount > 0
+        ? t('nodeDetail.operatorActions.events.hasEventsDetail', { count: formatNumber(recentOperationalEventCount) })
+        : hasRecentOperationalEventTelemetry
+          ? t('nodeDetail.operatorActions.events.clearDetail')
+          : t('nodeDetail.operatorActions.events.waitingDetail'),
+      meta: recentOperationalEventCount > 0
+        ? t('nodeDetail.operatorActions.events.eventMeta', { count: formatNumber(recentOperationalEventCount) })
+        : hasRecentOperationalEventTelemetry
+          ? t('nodeDetail.operatorActions.meta.clear')
+          : t('nodeDetail.operatorActions.meta.waiting'),
+      tone: recentOperationalEventCount > 0 ? 'warning' : hasRecentOperationalEventTelemetry ? 'ok' : 'pending',
+    },
+    {
+      href: '#vpn-commands',
+      label: t('nodeDetail.operatorActions.commands.title'),
+      detail: failedCommandCount > 0
+        ? t('nodeDetail.operatorActions.commands.failedDetail', { count: formatNumber(failedCommandCount) })
+        : activeCommandCount > 0
+          ? t('nodeDetail.operatorActions.commands.activeDetail', { count: formatNumber(activeCommandCount) })
+          : t('nodeDetail.operatorActions.commands.clearDetail'),
+      meta: failedCommandCount > 0
+        ? t('nodeDetail.operatorActions.commands.failedMeta', { count: formatNumber(failedCommandCount) })
+        : activeCommandCount > 0
+          ? t('nodeDetail.operatorActions.commands.activeMeta', { count: formatNumber(activeCommandCount) })
+          : t('nodeDetail.operatorActions.meta.clear'),
+      tone: failedCommandCount > 0 ? 'critical' : activeCommandCount > 0 ? 'warning' : 'ok',
+    },
+  ];
 
   return (
     <Card variant="default" padding="md" className="mb-6">
-      <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-5">
+      <div id="overview-panel" className="scroll-mt-6 flex flex-col lg:flex-row lg:items-start justify-between gap-5">
         <div className="min-w-0">
           <div className="flex items-center gap-3 flex-wrap mb-2">
             <h3 className="font-semibold text-white">{t('nodeDetail.health.title')}</h3>
@@ -5277,6 +5453,8 @@ function VpnHealthPanel({
           )}
         </div>
       </div>
+
+      <DetailSectionNavigator items={sectionNavItems} />
 
       <CommercialReadinessPanel
         health={health}
