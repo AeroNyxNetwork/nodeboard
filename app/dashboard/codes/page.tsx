@@ -22,7 +22,8 @@
  * - Only unused codes can be revoked
  * - Used codes show linked node info
  * 
- * Last Modified: v1.3.0 - Generate unified aeronyx-node.sh and AI assistant commands
+ * Last Modified: v1.4.0 - Show commercial installer stage timeline
+ * Previous: v1.3.0 - Generate unified aeronyx-node.sh and AI assistant commands
  * Previous: v1.2.0 - Show full preview/install one-line commands
  * Previous: v1.1.0 - Use Rust install.sh --quick setup commands
  * Previous: v1.0.0 - Initial codes page
@@ -96,14 +97,79 @@ function installProgressTone(status: string | undefined) {
   }
 }
 
+const INSTALL_STAGE_ORDER = [
+  'plan',
+  'preflight',
+  'dependencies',
+  'repository',
+  'config',
+  'network',
+  'build',
+  'systemd',
+  'register',
+  'start',
+  'completed',
+] as const;
+
+type InstallStageKey = typeof INSTALL_STAGE_ORDER[number];
+type InstallStageState = 'complete' | 'active' | 'failed' | 'pending';
+
+function normalizeInstallStep(step: string | undefined): InstallStageKey | '' {
+  if (!step) return '';
+  if ((INSTALL_STAGE_ORDER as readonly string[]).includes(step)) {
+    return step as InstallStageKey;
+  }
+  return '';
+}
+
+function installStageState(stage: InstallStageKey, currentStep: InstallStageKey | '', status: string): InstallStageState {
+  if (status === 'not_started' || !currentStep) return 'pending';
+  if (status === 'completed') return 'complete';
+
+  const stageIndex = INSTALL_STAGE_ORDER.indexOf(stage);
+  const currentIndex = INSTALL_STAGE_ORDER.indexOf(currentStep);
+  if (currentIndex < 0) return 'pending';
+
+  if (stageIndex < currentIndex) return 'complete';
+  if (stageIndex === currentIndex) return status === 'failed' ? 'failed' : 'active';
+  return 'pending';
+}
+
+function installStageDotClass(state: InstallStageState) {
+  switch (state) {
+    case 'complete':
+      return 'border-emerald-400 bg-emerald-400 shadow-emerald-400/30';
+    case 'active':
+      return 'border-yellow-300 bg-yellow-300 shadow-yellow-300/30';
+    case 'failed':
+      return 'border-red-300 bg-red-300 shadow-red-300/30';
+    default:
+      return 'border-white/15 bg-white/[0.05]';
+  }
+}
+
+function installNextActionKey(status: string, step: string) {
+  if (status === 'completed') return 'codes.installProgress.next.completed';
+  if (status === 'failed') return 'codes.installProgress.next.failed';
+  if (status === 'planning') return 'codes.installProgress.next.planning';
+  if (status === 'running') return `codes.installProgress.next.${step || 'running'}`;
+  return 'codes.installProgress.next.not_started';
+}
+
 function InstallProgressCell({ code }: { code: RegistrationCode }) {
   const { t, formatDateTime } = useI18n();
   const status = code.install_status || 'not_started';
   const rawStep = code.install_step || '';
+  const normalizedStep = normalizeInstallStep(rawStep);
   const step = rawStep || t('codes.installProgress.waiting');
   const message = code.install_message || t('codes.installProgress.noMessage');
   const statusKey = `codes.installProgress.status.${status}`;
   const translatedStatus = t(statusKey);
+  const nextActionKey = installNextActionKey(status, rawStep);
+  const translatedNextAction = t(nextActionKey);
+  const nextAction = translatedNextAction === nextActionKey
+    ? t('codes.installProgress.next.running')
+    : translatedNextAction;
   const recommendationKey = rawStep ? `codes.installProgress.recommendation.${rawStep}` : '';
   const translatedRecommendation = recommendationKey ? t(recommendationKey) : '';
   const fallbackRecommendation = t('codes.installProgress.recommendation.default');
@@ -114,14 +180,38 @@ function InstallProgressCell({ code }: { code: RegistrationCode }) {
     : '';
 
   return (
-    <div className="min-w-[220px] max-w-xs">
+    <div className="min-w-[320px] max-w-md">
       <div className="flex flex-wrap items-center gap-2">
         <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${installProgressTone(status)}`}>
           {translatedStatus === statusKey ? status.replace(/_/g, ' ') : translatedStatus}
         </span>
         <span className="text-xs font-medium text-gray-300">{step}</span>
       </div>
+      <div className="mt-3 rounded-lg border border-white/5 bg-black/20 p-3">
+        <div className="grid grid-cols-11 gap-1">
+          {INSTALL_STAGE_ORDER.map((stage) => {
+            const state = installStageState(stage, normalizedStep, status);
+            return (
+              <div key={stage} className="flex min-w-0 flex-col items-center gap-1">
+                <span className={`h-2.5 w-2.5 rounded-full border shadow-sm ${installStageDotClass(state)}`} />
+                <span className={`max-w-full truncate text-[10px] leading-3 ${
+                  state === 'failed'
+                    ? 'text-red-200'
+                    : state === 'active'
+                      ? 'text-yellow-100'
+                      : state === 'complete'
+                        ? 'text-emerald-200'
+                        : 'text-gray-600'
+                }`}>
+                  {t(`codes.installProgress.stage.${stage}`)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
       <p className="mt-1 line-clamp-2 text-xs leading-5 text-gray-500">{message}</p>
+      <p className="mt-1 text-xs leading-5 text-purple-100/70">{nextAction}</p>
       {recommendation ? (
         <p className="mt-1 line-clamp-3 text-xs leading-5 text-red-200/80">{recommendation}</p>
       ) : null}
