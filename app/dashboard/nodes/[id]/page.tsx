@@ -6,6 +6,11 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.37 - Added a node-scoped Service Configuration panel so operators
+ *     can inspect systemd/service name, config path, repository branch,
+ *     runtime executable, TUN/IP/MTU, DNS ownership, and transport carriers
+ *     from existing Rust heartbeat metadata without expanding the first-level
+ *     Services page.
  *   v1.6.36 - Added Rust-authored operator_action recommendation to the
  *     node detail Operator Actions hub. The card consumes
  *     data.nodes[].system.operator_action and links operators to the detailed
@@ -69,7 +74,7 @@
  *   1. Node header with inline name editing and delete action
  *   2. NodeSettings — visibility / region / VPN / password config
  *   3. Service Readiness panel from /vpn/overview/ operator_status
- *   4. VPN Health panel from /vpn/overview/ for live heartbeat diagnostics
+ *   4. AeroNyx health panel from /vpn/overview/ for live heartbeat diagnostics
  *   5. Commercial readiness panel from /vpn/overview/ + /vpn/servers/
  *   6. Recent VPN Events for node-scoped health/session/command triage
  *   7. Wallet ban policies and VPN command history
@@ -200,7 +205,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.36 - Show Rust operator action recommendation
+ * Last Modified: v1.6.37 - Show node service configuration panel
+ * Previous: v1.6.36 - Show Rust operator action recommendation
  * Previous: v1.6.35 - Add resource load capacity signals
  * Previous: v1.6.34 - Add node detail section navigator
  * Previous: v1.6.33 - Fix capacity bandwidth cap units
@@ -782,6 +788,32 @@ function serviceManagerRuntimeDetail(health: VpnNodeHealth, t: TranslateFn) {
     .filter((state): state is string => Boolean(state));
   if (states.length > 0) return states.join(' · ');
   return manager.restart_supported ? t('nodeDetail.health.restartSupported') : manager.detail;
+}
+
+function serviceConfigValue(value: string | number | boolean | null | undefined, pending: string) {
+  if (typeof value === 'number' && Number.isFinite(value)) return `${value}`;
+  if (typeof value === 'boolean') return value ? 'enabled' : 'disabled';
+  if (typeof value === 'string' && value.trim()) return value;
+  return pending;
+}
+
+function formatTransportKey(value: string | null | undefined, t: TranslateFn) {
+  if (!value) return t('common.status.pending');
+  const key = `nodeDetail.serviceConfig.transport.${value}`;
+  const translated = t(key);
+  return translated === key ? value.replace(/_/g, ' ') : translated;
+}
+
+function formatTransportList(values: string[] | null | undefined, t: TranslateFn) {
+  if (!Array.isArray(values) || values.length === 0) return t('common.status.pending');
+  return values.map((value) => formatTransportKey(value, t)).join(', ');
+}
+
+function dnsOwnerLabel(value: string | null | undefined, t: TranslateFn) {
+  if (!value) return t('common.status.pending');
+  const key = `nodeDetail.serviceConfig.dnsOwner.${value}`;
+  const translated = t(key);
+  return translated === key ? value.replace(/_/g, ' ') : translated;
 }
 
 function policyCount(value: number | null | undefined) {
@@ -3173,6 +3205,155 @@ function RuntimeVersionPanel({ health }: { health: VpnNodeHealth }) {
   );
 }
 
+function ServiceConfigurationPanel({ health }: { health: VpnNodeHealth }) {
+  const { t, formatNumber } = useI18n();
+  const pending = t('common.status.pending');
+  const manager = health.system.service_manager ?? null;
+  const upgrade = health.system.upgrade_status ?? null;
+  const runtime = health.system.runtime ?? null;
+  const rollout = runtimeRolloutForNode(health);
+  const capacity = health.system.capacity ?? null;
+  const transport = health.system.transport_health ?? null;
+  const configuredMtu = typeof health.system.configured_mtu === 'number'
+    ? formatNumber(health.system.configured_mtu)
+    : pending;
+  const runningMtu = typeof health.system.running_mtu === 'number'
+    ? formatNumber(health.system.running_mtu)
+    : pending;
+  const repoDir = upgrade?.repo_dir || inferRustRepoDir(health);
+  const configPath = upgrade?.config || '/etc/aeronyx/server.toml';
+  const serviceName = upgrade?.service || manager?.service_name || 'aeronyx-server';
+  const executablePath = rollout?.executable_path?.replace(/\s+\(deleted\)$/, '').trim()
+    || t('common.status.pending');
+  const supportedTransports = transport?.supported_transports ?? health.system.supported_transports ?? [];
+  const configuredTransports = transport?.configured_transports ?? [];
+  const preferredTransport = transport?.preferred_transport ?? health.system.preferred_transport ?? null;
+  const effectiveTransport = transport?.effective_transport ?? null;
+  const dnsProxy = health.system.dns_proxy_enabled === true
+    ? t('nodeDetail.serviceConfig.enabled')
+    : health.system.dns_proxy_enabled === false
+      ? t('nodeDetail.serviceConfig.disabled')
+      : pending;
+  const serviceTone = manager?.active_state === 'active'
+    ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
+    : manager
+      ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
+      : 'border-gray-500/20 bg-gray-500/[0.04]';
+
+  return (
+    <div id="service-config-panel" className="mt-5 scroll-mt-6 rounded-xl border border-white/5 bg-white/[0.02] p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-semibold text-white">{t('nodeDetail.serviceConfig.title')}</h4>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${manager ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200' : 'border-gray-500/25 bg-gray-500/10 text-gray-300'}`}>
+              {manager ? t('nodeDetail.serviceConfig.reported') : t('nodeDetail.serviceConfig.waiting')}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-gray-500">
+            {t('nodeDetail.serviceConfig.description')}
+          </p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500 lg:max-w-md">
+          <p className="font-medium text-gray-300">{t('nodeDetail.serviceConfig.source')}</p>
+          <p className="mt-1 break-words [overflow-wrap:anywhere]">
+            {transport?.source || manager?.detail || upgrade?.source || 'system_stats.vpn_health'}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CapacityMetric
+          label={t('nodeDetail.serviceConfig.service')}
+          value={serviceName}
+          detail={manager
+            ? t('nodeDetail.serviceConfig.serviceDetail', {
+                manager: manager.manager || pending,
+                active: manager.active_state || pending,
+                load: manager.load_state || pending,
+              })
+            : t('nodeDetail.serviceConfig.waitingService')}
+          tone={serviceTone}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.serviceConfig.configPath')}
+          value={configPath}
+          detail={t('nodeDetail.serviceConfig.configDetail')}
+          tone="border-white/5 bg-black/20"
+        />
+        <CapacityMetric
+          label={t('nodeDetail.serviceConfig.repository')}
+          value={repoDir}
+          detail={t('nodeDetail.serviceConfig.repositoryDetail', {
+            branch: upgrade?.branch || pending,
+          })}
+          tone="border-white/5 bg-black/20"
+        />
+        <CapacityMetric
+          label={t('nodeDetail.serviceConfig.executable')}
+          value={shortRuntimeValue(executablePath, 42)}
+          detail={runtime?.source || rollout?.source || t('nodeDetail.serviceConfig.runtimeSource')}
+          tone={rollout?.restart_required ? 'border-yellow-500/25 bg-yellow-500/[0.06]' : 'border-white/5 bg-black/20'}
+        />
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CapacityMetric
+          label={t('nodeDetail.serviceConfig.virtualRange')}
+          value={capacity?.virtual_ip_range || pending}
+          detail={t('nodeDetail.serviceConfig.virtualRangeDetail', {
+            used: serviceConfigValue(capacity?.ip_pool_used, pending),
+            free: serviceConfigValue(capacity?.ip_pool_free, pending),
+          })}
+          tone="border-sky-500/15 bg-sky-500/[0.04]"
+        />
+        <CapacityMetric
+          label={t('nodeDetail.serviceConfig.tunMtu')}
+          value={capacity?.interface?.interface || pending}
+          detail={t('nodeDetail.serviceConfig.tunMtuDetail', {
+            configured: configuredMtu,
+            running: runningMtu,
+          })}
+          tone="border-sky-500/15 bg-sky-500/[0.04]"
+        />
+        <CapacityMetric
+          label={t('nodeDetail.serviceConfig.dns')}
+          value={dnsOwnerLabel(health.system.dns_owner, t)}
+          detail={t('nodeDetail.serviceConfig.dnsDetail', { proxy: dnsProxy })}
+          tone={health.system.dns_owner === 'rust_dns_proxy' ? 'border-emerald-500/15 bg-emerald-500/[0.04]' : 'border-white/5 bg-black/20'}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.serviceConfig.transports')}
+          value={formatTransportList(supportedTransports, t)}
+          detail={t('nodeDetail.serviceConfig.transportsDetail', {
+            configured: formatTransportList(configuredTransports, t),
+            preferred: formatTransportKey(preferredTransport, t),
+            effective: formatTransportKey(effectiveTransport, t),
+          })}
+          tone={transport?.fallback_available ? 'border-emerald-500/15 bg-emerald-500/[0.04]' : 'border-white/5 bg-black/20'}
+        />
+      </div>
+
+      <div className="mt-3 grid gap-3 lg:grid-cols-3">
+        <a href="#capacity-panel" className="rounded-lg border border-white/5 bg-black/20 p-3 text-xs leading-5 text-gray-400 transition hover:border-white/20 hover:bg-white/[0.04]">
+          <span className="font-semibold text-gray-200">{t('nodeDetail.serviceConfig.openCapacity')}</span>
+          <span className="mt-1 block text-gray-500">{t('nodeDetail.serviceConfig.openCapacityDetail')}</span>
+        </a>
+        <a href="#runtime-panel" className="rounded-lg border border-white/5 bg-black/20 p-3 text-xs leading-5 text-gray-400 transition hover:border-white/20 hover:bg-white/[0.04]">
+          <span className="font-semibold text-gray-200">{t('nodeDetail.serviceConfig.openRuntime')}</span>
+          <span className="mt-1 block text-gray-500">{t('nodeDetail.serviceConfig.openRuntimeDetail')}</span>
+        </a>
+        <a href="#operator-runbook" className="rounded-lg border border-white/5 bg-black/20 p-3 text-xs leading-5 text-gray-400 transition hover:border-white/20 hover:bg-white/[0.04]">
+          <span className="font-semibold text-gray-200">{t('nodeDetail.serviceConfig.openRunbook')}</span>
+          <span className="mt-1 block text-gray-500">{t('nodeDetail.serviceConfig.openRunbookDetail')}</span>
+        </a>
+      </div>
+
+      <p className="mt-3 text-[11px] leading-5 text-gray-600">{t('nodeDetail.serviceConfig.privacyBoundary')}</p>
+    </div>
+  );
+}
+
 function UpgradeWorkflowPanel({ health }: { health: VpnNodeHealth }) {
   const { t } = useI18n();
   const upgrade = health.system.upgrade_status ?? null;
@@ -5540,6 +5721,22 @@ function VpnHealthPanel({
       tone: restartRequired ? 'warning' : runtimeReported ? 'ok' : 'pending',
     },
     {
+      href: '#service-config-panel',
+      label: t('nodeDetail.serviceConfig.navLabel'),
+      detail: health.system.service_manager
+        ? t('nodeDetail.serviceConfig.navDetailReported', {
+            service: health.system.service_manager.service_name || 'aeronyx-server',
+            active: health.system.service_manager.active_state || t('common.status.pending'),
+          })
+        : t('nodeDetail.serviceConfig.navDetailWaiting'),
+      meta: health.system.service_manager
+        ? t('nodeDetail.operatorActions.meta.clear')
+        : t('nodeDetail.operatorActions.meta.waiting'),
+      tone: health.system.service_manager
+        ? health.system.service_manager.active_state === 'active' ? 'ok' : 'warning'
+        : 'pending',
+    },
+    {
       href: '#install-workflow',
       label: t('nodeDetail.sectionNav.installUpgrade'),
       detail: t('nodeDetail.sectionNav.installUpgradeDetail', { install: installMeta, upgrade: upgradeMeta }),
@@ -5725,6 +5922,7 @@ function VpnHealthPanel({
       <CapacityPanel health={health} />
       <RecentOperationalEventsPanel health={health} />
       <RuntimeVersionPanel health={health} />
+      <ServiceConfigurationPanel health={health} />
       <UpgradeWorkflowPanel health={health} />
       <OperatorRunbookPanel health={health} />
       <NodeMetricsTrendPanel metrics={metrics} isLoading={metricsLoading} />

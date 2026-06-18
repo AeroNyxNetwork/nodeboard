@@ -137,9 +137,33 @@ queries.
   - Adds a per-node VPN Health panel to the node detail page.
   - Removes non-VPN auxiliary entry points so Node Detail stays focused on VPN
     operations.
+  - Keeps `app/dashboard/services/page.tsx` as a fleet-level Operations
+    Workbench instead of expanding every diagnostic at once. Services should
+    answer "which operator task needs attention?" while Node Detail answers
+    "what exactly is configured on this node?"
   - Shows the same live heartbeat source, health score, checks, CPU, memory,
     Tunnel MTU, and tunnel counters without requiring the operator to leave the
     node page.
+  - Adds a node-scoped Service Configuration panel near Runtime, Upgrade, and
+    Operator Runbook. The panel displays systemd/service name, active/load
+    state, local config path, repository directory, branch, runtime executable,
+    virtual IP range, IP pool usage, TUN/MTU, DNS ownership, DNS proxy state,
+    supported transport carriers, configured carriers, preferred carrier, and
+    effective carrier from existing Rust heartbeat telemetry.
+  - Links Service Configuration to Capacity, Runtime, and Operator Runbook
+    anchors so operators can move from configuration evidence to capacity
+    bottlenecks, process/version evidence, or one-command maintenance without
+    returning to the first-level Services page.
+  - Uses only existing node metadata from
+    `data.nodes[].system.service_manager`,
+    `data.nodes[].system.upgrade_status`, `data.nodes[].system.runtime`,
+    `data.nodes[].system.capacity`, `data.nodes[].system.dns_owner`, and
+    `data.nodes[].system.transport_health`. It does not require a new backend
+    endpoint.
+  - Service Configuration is node operations metadata only. It must never show
+    node private keys, registration codes, voucher secrets, client public IPs,
+    destinations, DNS contents, packet payloads, chat plaintext, browsing
+    history, social graph plaintext, or wallet-level traffic.
   - Adds per-check runbook hints for failed heartbeat, resource load, traffic
     counter, UDP listener, TUN, MTU, forwarding, NAT, DNS, and egress checks so
     operators know the next action before opening SSH.

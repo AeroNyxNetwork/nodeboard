@@ -14,6 +14,9 @@ Protocol nodes. The deployed nodeboard must let an operator confirm:
 
 - Which nodes are reporting signed Rust heartbeats.
 - Which nodes have `system_stats.operator_status` available.
+- Which node service configuration is active without opening SSH: systemd
+  service name, config path, repository directory, branch, runtime executable,
+  virtual IP range, TUN/MTU, DNS ownership, and transport carriers.
 - Which nodes have staged Rust binaries that still require a controlled
   maintenance drain and restart.
 - Which backend API and Rust source files produce each status shown in the UI.
@@ -43,6 +46,12 @@ Backend API:
   `/root/aeronyx/privacy_network/api/nodes.py`
 - VPN overview, node health, metrics, and runtime rollout snapshots:
   `/root/aeronyx/privacy_network/api/vpn_observability.py`
+- Node Detail Service Configuration consumes the same overview payload fields:
+  `data.nodes[].system.service_manager`,
+  `data.nodes[].system.upgrade_status`, `data.nodes[].system.runtime`,
+  `data.nodes[].system.capacity`, `data.nodes[].system.dns_owner`,
+  `data.nodes[].system.dns_proxy_enabled`, and
+  `data.nodes[].system.transport_health`.
 - Heartbeat ingestion and `Node.hardware_info["operator_status"]` storage:
   `/root/aeronyx/privacy_network/services/heartbeat_service.py`
 - Node serializers:
@@ -156,6 +165,25 @@ not query node or user data.
 
 The API call should expose `data.nodes[].system.operator_status` for upgraded
 Rust nodes and `runtime_rollout` for nodes running the rollout-status build.
+
+## Operator Console Layout Rule
+
+Keep Services as the fleet-level workbench:
+
+- Operate: commercial readiness basics, capacity, and carrier health.
+- Recover: connection blockers, policy risks, DNS issues, rollout actions.
+- Inspect: service-layer signals and per-node tables for engineering review.
+
+Do not add every detailed diagnostic directly to the Services first viewport.
+Detailed node evidence belongs in Node Detail. For example, the Service
+Configuration panel lives in `app/dashboard/nodes/[id]/page.tsx` beside
+Runtime, Upgrade Workflow, Capacity, and Operator Runbook. It gives the
+operator exact service/config evidence after they choose a node, while Services
+stays readable for fleet triage.
+
+The Service Configuration panel must stay read-only. It is an inspection panel,
+not a config editor. Configuration changes continue through Node Settings,
+backend owner-scoped APIs, Rust policy sync, and the audited command queue.
 
 ## Dependency Security
 
