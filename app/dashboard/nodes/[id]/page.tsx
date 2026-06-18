@@ -2088,6 +2088,155 @@ function CapacityMetric({
   );
 }
 
+type CapacityDecisionStatus = 'ready' | 'watch' | 'blocked' | 'unknown';
+
+type CapacityDecision = {
+  status: CapacityDecisionStatus;
+  acceptLabel: string;
+  remainingLabel: string;
+  primaryBottleneck: string;
+  primaryAction: string;
+  detail: string;
+  bottlenecks: Array<{
+    label: string;
+    detail: string;
+    action: string;
+    tone: CapacityRiskItem['tone'] | 'pending';
+  }>;
+};
+
+function capacityDecisionClass(status: CapacityDecisionStatus) {
+  if (status === 'ready') return 'border-emerald-500/20 bg-emerald-500/[0.055]';
+  if (status === 'watch') return 'border-yellow-500/25 bg-yellow-500/[0.065]';
+  if (status === 'blocked') return 'border-red-500/25 bg-red-500/[0.07]';
+  return 'border-gray-500/20 bg-gray-500/[0.045]';
+}
+
+function capacityDecisionBadgeClass(status: CapacityDecisionStatus) {
+  if (status === 'ready') return 'border-emerald-400/30 bg-emerald-400/10 text-emerald-100';
+  if (status === 'watch') return 'border-yellow-300/30 bg-yellow-300/10 text-yellow-100';
+  if (status === 'blocked') return 'border-red-300/30 bg-red-300/10 text-red-100';
+  return 'border-gray-400/25 bg-gray-400/10 text-gray-200';
+}
+
+function finiteCapacityValue(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function minimumKnownCapacity(values: Array<number | null | undefined>) {
+  const known = values
+    .map(finiteCapacityValue)
+    .filter((value): value is number => value !== null)
+    .map((value) => Math.max(0, value));
+  return known.length > 0 ? Math.min(...known) : null;
+}
+
+function capacityDecisionSummary({
+  health,
+  capacity,
+  riskItems,
+  sessionTotal,
+  t,
+  formatNumber,
+}: {
+  health: VpnNodeHealth;
+  capacity: VpnNodeHealth['system']['capacity'] | null | undefined;
+  riskItems: CapacityRiskItem[];
+  sessionTotal: number | null | undefined;
+  t: TranslateFn;
+  formatNumber: CapacityFormatNumber;
+}): CapacityDecision {
+  const capacityReported = Boolean(capacity?.reported);
+  const placementReadiness = health.system.placement_readiness ?? null;
+  const serviceManager = health.system.service_manager ?? null;
+  const serviceState = serviceManager?.active_state ?? null;
+  const activeSessions = finiteCapacityValue(capacity?.active_sessions) ?? health.active_sessions;
+  const sessionRemaining = typeof sessionTotal === 'number' && Number.isFinite(sessionTotal) && sessionTotal > 0
+    ? Math.max(0, sessionTotal - activeSessions)
+    : null;
+  const remaining = minimumKnownCapacity([
+    capacity?.session_capacity_remaining,
+    capacity?.ip_pool_free,
+    placementReadiness?.session_capacity_remaining,
+    sessionRemaining,
+  ]);
+  const criticalRisk = riskItems.find((item) => item.tone === 'critical');
+  const firstRisk = criticalRisk ?? riskItems[0] ?? null;
+  const bottlenecks: CapacityDecision['bottlenecks'] = riskItems.map((item) => ({
+    label: item.label,
+    detail: item.detail,
+    action: item.action,
+    tone: item.tone,
+  }));
+
+  if (!capacityReported) {
+    bottlenecks.unshift({
+      label: t('nodeDetail.capacity.decision.telemetryMissing'),
+      detail: t('nodeDetail.capacity.decision.telemetryMissingDetail'),
+      action: t('nodeDetail.capacity.decision.telemetryMissingAction'),
+      tone: 'pending',
+    });
+  }
+
+  if (placementReadiness?.reported && !placementReadiness.accepting_new_sessions) {
+    bottlenecks.unshift({
+      label: t('nodeDetail.capacity.decision.rustAdmissionBlocked'),
+      detail: placementAdmissionDetail(placementReadiness, t),
+      action: t('nodeDetail.capacity.decision.rustAdmissionAction'),
+      tone: 'critical',
+    });
+  }
+
+  if (!placementReadiness?.reported) {
+    bottlenecks.push({
+      label: t('nodeDetail.commercial.missingRuntimeField'),
+      detail: t('nodeDetail.commercial.summaryUpgradeDetail'),
+      action: t('nodeDetail.commercial.summaryUpgradeAction'),
+      tone: 'pending',
+    });
+  }
+
+  if (serviceState && serviceState !== 'active') {
+    bottlenecks.unshift({
+      label: t('nodeDetail.capacity.decision.serviceInactive'),
+      detail: t('nodeDetail.capacity.decision.serviceInactiveDetail', { state: serviceState }),
+      action: t('nodeDetail.capacity.decision.serviceInactiveAction'),
+      tone: 'critical',
+    });
+  }
+
+  const hasCriticalBottleneck = bottlenecks.some((item) => item.tone === 'critical');
+  const hasWarningBottleneck = bottlenecks.some((item) => item.tone === 'warning');
+  const status: CapacityDecisionStatus = !capacityReported
+    ? 'unknown'
+    : hasCriticalBottleneck
+      ? 'blocked'
+      : hasWarningBottleneck || serviceState !== 'active' || !placementReadiness?.reported
+        ? 'watch'
+        : 'ready';
+  const primary = bottlenecks[0] ?? null;
+
+  return {
+    status,
+    acceptLabel: status === 'ready'
+      ? t('nodeDetail.capacity.decision.acceptYes')
+      : status === 'watch'
+        ? t('nodeDetail.capacity.decision.acceptWatch')
+        : status === 'blocked'
+          ? t('nodeDetail.capacity.decision.acceptNo')
+          : t('common.status.pending'),
+    remainingLabel: remaining === null ? t('common.status.pending') : formatNumber(remaining),
+    primaryBottleneck: primary?.label ?? t('nodeDetail.capacity.decision.noBottleneck'),
+    primaryAction: primary?.action ?? t('nodeDetail.capacity.decision.actionReady'),
+    detail: status === 'ready'
+      ? t('nodeDetail.capacity.decision.readyDetail')
+      : status === 'unknown'
+        ? t('nodeDetail.capacity.decision.unknownDetail')
+        : primary?.detail ?? firstRisk?.detail ?? t('nodeDetail.capacity.risk.description'),
+    bottlenecks,
+  };
+}
+
 function CapacityPanel({ health }: { health: VpnNodeHealth }) {
   const { t, formatNumber } = useI18n();
   const capacity = health.system.capacity;
@@ -2145,6 +2294,14 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
     ...capacityRiskItems(capacity, t, formatNumber),
     ...resourceLoadRiskItems(health, t, formatNumber),
   ];
+  const decision = capacityDecisionSummary({
+    health,
+    capacity,
+    riskItems,
+    sessionTotal,
+    t,
+    formatNumber,
+  });
   const riskTone = riskItems.some((item) => item.tone === 'critical')
     ? 'border-red-500/25 bg-red-500/[0.07]'
     : 'border-yellow-500/25 bg-yellow-500/[0.06]';
@@ -2169,6 +2326,82 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
           <p className="font-medium text-gray-300">{t('nodeDetail.capacity.source')}</p>
           <p className="mt-1 break-words [overflow-wrap:anywhere]">{capacity?.source || 'system_stats.vpn_health.capacity'}</p>
         </div>
+      </div>
+
+      <div className={`mt-4 rounded-xl border p-3 ${capacityDecisionClass(decision.status)}`}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-200">
+                {t('nodeDetail.capacity.decision.title')}
+              </p>
+              <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${capacityDecisionBadgeClass(decision.status)}`}>
+                {t(`nodeDetail.capacity.decision.status.${decision.status}`)}
+              </span>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-gray-400">{decision.detail}</p>
+          </div>
+          <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-400 lg:max-w-md">
+            <p className="font-medium text-gray-200">{t('nodeDetail.capacity.decision.recommendedAction')}</p>
+            <p className="mt-1 leading-5 text-gray-500">{decision.primaryAction}</p>
+          </div>
+        </div>
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <CapacityMetric
+            label={t('nodeDetail.capacity.decision.acceptNew')}
+            value={decision.acceptLabel}
+            detail={t('nodeDetail.capacity.decision.acceptDetail')}
+            tone={capacityDecisionClass(decision.status)}
+          />
+          <CapacityMetric
+            label={t('nodeDetail.capacity.decision.remainingUsers')}
+            value={decision.remainingLabel}
+            detail={t('nodeDetail.capacity.decision.remainingDetail')}
+            tone="border-sky-500/15 bg-sky-500/[0.04]"
+          />
+          <CapacityMetric
+            label={t('nodeDetail.capacity.decision.primaryBottleneck')}
+            value={decision.primaryBottleneck}
+            detail={decision.bottlenecks.length > 0
+              ? t('nodeDetail.capacity.decision.bottleneckCount', { count: formatNumber(decision.bottlenecks.length) })
+              : t('nodeDetail.capacity.decision.noBottleneckDetail')}
+            tone={decision.status === 'blocked'
+              ? 'border-red-500/25 bg-red-500/[0.07]'
+              : decision.status === 'watch'
+                ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
+                : 'border-emerald-500/15 bg-emerald-500/[0.04]'}
+          />
+          <CapacityMetric
+            label={t('nodeDetail.capacity.decision.serviceState')}
+            value={health.system.service_manager?.active_state || pending}
+            detail={t('nodeDetail.capacity.decision.serviceDetail')}
+            tone={health.system.service_manager?.active_state === 'active'
+              ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
+              : 'border-yellow-500/25 bg-yellow-500/[0.06]'}
+          />
+        </div>
+
+        {decision.bottlenecks.length > 0 && (
+          <div className="mt-3 grid gap-2 lg:grid-cols-2">
+            {decision.bottlenecks.slice(0, 4).map((item) => (
+              <div
+                key={`${item.label}:${item.detail}`}
+                className={`rounded-lg border px-3 py-2 ${
+                  item.tone === 'critical'
+                    ? 'border-red-300/20 bg-red-950/20'
+                    : item.tone === 'warning'
+                      ? 'border-yellow-300/20 bg-yellow-950/20'
+                      : 'border-gray-300/15 bg-gray-950/20'
+                }`}
+              >
+                <p className="text-xs font-medium text-white">{item.label}</p>
+                <p className="mt-1 text-[11px] leading-4 text-gray-400">{item.detail}</p>
+                <p className="mt-1 text-[11px] leading-4 text-gray-300">{item.action}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {riskItems.length > 0 && (
