@@ -81,6 +81,47 @@ interface CodeRowProps {
   onRevoke: (code: RegistrationCode) => void;
 }
 
+function installProgressTone(status: string | undefined) {
+  switch (status) {
+    case 'completed':
+      return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200';
+    case 'failed':
+      return 'border-red-500/20 bg-red-500/10 text-red-200';
+    case 'planning':
+      return 'border-sky-500/20 bg-sky-500/10 text-sky-200';
+    case 'running':
+      return 'border-yellow-500/20 bg-yellow-500/10 text-yellow-100';
+    default:
+      return 'border-white/10 bg-white/[0.03] text-gray-400';
+  }
+}
+
+function InstallProgressCell({ code }: { code: RegistrationCode }) {
+  const { t, formatDateTime } = useI18n();
+  const status = code.install_status || 'not_started';
+  const step = code.install_step || t('codes.installProgress.waiting');
+  const message = code.install_message || t('codes.installProgress.noMessage');
+  const statusKey = `codes.installProgress.status.${status}`;
+  const translatedStatus = t(statusKey);
+
+  return (
+    <div className="min-w-[220px] max-w-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${installProgressTone(status)}`}>
+          {translatedStatus === statusKey ? status.replace(/_/g, ' ') : translatedStatus}
+        </span>
+        <span className="text-xs font-medium text-gray-300">{step}</span>
+      </div>
+      <p className="mt-1 line-clamp-2 text-xs leading-5 text-gray-500">{message}</p>
+      {code.install_last_reported_at ? (
+        <p className="mt-1 text-[11px] text-gray-600">
+          {t('codes.installProgress.reportedAt', { time: formatDateTime(code.install_last_reported_at) })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function CodeRow({ code, onRevoke }: CodeRowProps) {
   const { t, formatDateTime } = useI18n();
   const statusConfig = CODE_STATUS_CONFIG[code.status];
@@ -127,6 +168,11 @@ function CodeRow({ code, onRevoke }: CodeRowProps) {
       {/* Created */}
       <td className="px-6 py-4 text-sm text-gray-400">
         {formatDateTime(code.created_at)}
+      </td>
+
+      {/* Install Progress */}
+      <td className="px-6 py-4">
+        <InstallProgressCell code={code} />
       </td>
 
       {/* Actions */}
@@ -403,6 +449,7 @@ export default function CodesPage() {
                   <th className="px-6 py-3 font-medium">{t('codes.table.status')}</th>
                   <th className="px-6 py-3 font-medium">{t('codes.table.expiresIn')}</th>
                   <th className="px-6 py-3 font-medium">{t('codes.table.created')}</th>
+                  <th className="px-6 py-3 font-medium">{t('codes.table.installProgress')}</th>
                   <th className="px-6 py-3 font-medium">{t('codes.table.actions')}</th>
                 </tr>
               </thead>

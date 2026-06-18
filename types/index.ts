@@ -160,8 +160,14 @@ export interface RegistrationCode {
   owner_wallet: string;
   status: CodeStatus;
   expires_at: string;
+  used_at?: string | null;
   created_at: string;
   is_valid: boolean;
+  install_status?: 'not_started' | 'planning' | 'running' | 'completed' | 'failed' | string;
+  install_step?: string;
+  install_message?: string;
+  install_progress?: Record<string, unknown>;
+  install_last_reported_at?: string | null;
 }
 
 export interface GenerateCodeResponse {
