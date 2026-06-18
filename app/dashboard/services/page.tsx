@@ -10,6 +10,11 @@
  * readiness.
  *
  * Modification Reason:
+ *   v1.1.69 - Changed Services detail modules from always-expanded groups to
+ *     a workflow segmented control. Operators now see one module group at a
+ *     time: Daily Operations, Triage & Recovery, or Advanced Diagnostics.
+ *     This keeps the first-level page closer to a mature commercial console
+ *     while preserving every existing drill-down report.
  *   v1.1.68 - Grouped detail-module entry points into Overview, Triage, and
  *     Advanced Diagnostics so the first-level Services page stays scannable
  *     while preserving every existing drill-down report.
@@ -236,7 +241,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.68 - Group Services detail modules by operator workflow
+ * Last Modified: v1.1.69 - Add workflow segmented control for Services modules
+ * Previous: v1.1.68 - Group Services detail modules by operator workflow
  * Previous: v1.1.67 - Add Gateway DNS ownership detail module
  * Previous: v1.1.66 - Add fleet Node Capacity detail module
  * Previous: v1.1.65 - Prefer Rust-authored capacity risks
@@ -348,6 +354,8 @@ type ServiceDetailSection =
   | 'layers'
   | 'risks'
   | 'nodes';
+
+type ServiceModuleGroup = 'overview' | 'triage' | 'advanced';
 
 type ServicesTranslateFn = (key: string, values?: Record<string, string | number>) => string;
 
@@ -3582,9 +3590,10 @@ function DetailModulesPanel({
   nodeCount: number;
 }) {
   const { t, formatNumber } = useI18n();
+  const [selectedGroup, setSelectedGroup] = useState<ServiceModuleGroup>('overview');
   const modules: Array<{
     key: ServiceDetailSection;
-    group: 'overview' | 'triage' | 'advanced';
+    group: ServiceModuleGroup;
     label: string;
     eyebrow: string;
     count: string;
@@ -3665,7 +3674,7 @@ function DetailModulesPanel({
     },
   ];
   const moduleGroups: Array<{
-    key: 'overview' | 'triage' | 'advanced';
+    key: ServiceModuleGroup;
     title: string;
     description: string;
     columns: string;
@@ -3689,6 +3698,19 @@ function DetailModulesPanel({
       columns: 'xl:grid-cols-2',
     },
   ];
+  const activeSectionGroup = activeSection
+    ? modules.find((module) => module.key === activeSection)?.group ?? null
+    : null;
+  const activeGroupKey = activeSectionGroup ?? selectedGroup;
+  const activeGroup = moduleGroups.find((group) => group.key === activeGroupKey) ?? moduleGroups[0];
+  const groupedModules = modules.filter((module) => module.group === activeGroup.key);
+
+  const handleSelectGroup = (group: ServiceModuleGroup) => {
+    setSelectedGroup(group);
+    if (activeSection && activeSectionGroup !== group) {
+      onSelect(null);
+    }
+  };
 
   return (
     <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
@@ -3710,50 +3732,72 @@ function DetailModulesPanel({
         )}
       </div>
 
-      <div className="mt-5 space-y-4">
-        {moduleGroups.map((group) => {
-          const groupedModules = modules.filter((module) => module.group === group.key);
-          return (
-            <div key={group.key} className="rounded-xl border border-white/10 bg-black/20 p-4">
-              <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-                <div>
+      <div className="mt-5">
+        <div className="grid gap-2 rounded-xl border border-white/10 bg-black/20 p-2 md:grid-cols-3">
+          {moduleGroups.map((group) => {
+            const active = activeGroup.key === group.key;
+            const count = modules.filter((module) => module.group === group.key).length;
+            return (
+              <button
+                key={group.key}
+                type="button"
+                onClick={() => handleSelectGroup(group.key)}
+                className={`rounded-lg border px-4 py-3 text-left transition ${
+                  active
+                    ? 'border-purple-400/40 bg-purple-500/[0.12]'
+                    : 'border-transparent hover:border-white/10 hover:bg-white/[0.04]'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-semibold text-white">{group.title}</p>
-                  <p className="mt-1 text-xs leading-5 text-gray-500">{group.description}</p>
+                  <span className="text-xs text-gray-500">
+                    {t('services.detailModules.groupCount', { count: formatNumber(count) })}
+                  </span>
                 </div>
-                <span className="text-xs text-gray-500">
-                  {t('services.detailModules.groupCount', { count: formatNumber(groupedModules.length) })}
-                </span>
-              </div>
-              <div className={`grid gap-3 md:grid-cols-2 ${group.columns}`}>
-                {groupedModules.map((module) => {
-                  const active = activeSection === module.key;
-                  return (
-                    <button
-                      key={module.key}
-                      type="button"
-                      onClick={() => onSelect(active ? null : module.key)}
-                      className={`min-h-[156px] rounded-xl border p-4 text-left transition ${
-                        active
-                          ? 'border-purple-400/40 bg-purple-500/[0.10]'
-                          : 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">{module.eyebrow}</p>
-                          <p className="mt-2 text-sm font-semibold text-white">{module.label}</p>
-                        </div>
-                        <StatusPill status={module.status} />
-                      </div>
-                      <p className="mt-3 text-2xl font-semibold text-white">{module.count}</p>
-                      <p className="mt-2 text-xs leading-5 text-gray-500">{module.detail}</p>
-                    </button>
-                  );
-                })}
-              </div>
+                <p className="mt-1 text-xs leading-5 text-gray-500">{group.description}</p>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
+          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-white">{activeGroup.title}</p>
+              <p className="mt-1 text-xs leading-5 text-gray-500">{activeGroup.description}</p>
             </div>
-          );
-        })}
+            <span className="text-xs text-gray-500">
+              {t('services.detailModules.groupCount', { count: formatNumber(groupedModules.length) })}
+            </span>
+          </div>
+          <div className={`grid gap-3 md:grid-cols-2 ${activeGroup.columns}`}>
+            {groupedModules.map((module) => {
+              const active = activeSection === module.key;
+              return (
+                <button
+                  key={module.key}
+                  type="button"
+                  onClick={() => onSelect(active ? null : module.key)}
+                  className={`min-h-[156px] rounded-xl border p-4 text-left transition ${
+                    active
+                      ? 'border-purple-400/40 bg-purple-500/[0.10]'
+                      : 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">{module.eyebrow}</p>
+                      <p className="mt-2 text-sm font-semibold text-white">{module.label}</p>
+                    </div>
+                    <StatusPill status={module.status} />
+                  </div>
+                  <p className="mt-3 text-2xl font-semibold text-white">{module.count}</p>
+                  <p className="mt-2 text-xs leading-5 text-gray-500">{module.detail}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </section>
   );
