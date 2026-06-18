@@ -6,6 +6,11 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.33 - Fixed CapacityPanel bandwidth cap unit handling. Rust reports
+ *     capacity.bandwidth_limit_bytes_per_second in bytes/sec, while
+ *     throughput UI displays bits/sec. The panel now converts Mbps fallback
+ *     values to bytes/sec before formatting, preventing an 8x inflated cap
+ *     when older telemetry lacks the Rust byte counter.
  *   v1.6.32 - Added node-level install workflow status from
  *     NodeDetail.install_status so operators can see the registration-code
  *     installer timeline after a node is bound, without returning the code
@@ -182,7 +187,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.32 - Show node install workflow status
+ * Last Modified: v1.6.33 - Fix capacity bandwidth cap units
+ * Previous: v1.6.32 - Show node install workflow status
  * Previous: v1.6.31 - Show Rust upgrade workflow status
  * Previous: v1.6.30 - Add node operator action hub
  * Previous: v1.6.29 - Show sanitized recent Rust operational errors
@@ -1631,6 +1637,10 @@ function bandwidthLimitBps(limitMbps: number | null | undefined) {
   return limitMbps * 1_000_000;
 }
 
+function bandwidthLimitBytesPerSecond(limitMbps: number | null | undefined) {
+  return bandwidthLimitBps(limitMbps) / 8;
+}
+
 function formatLimitUsage(peakBps: number | null | undefined, limitMbps: number | null | undefined) {
   const limitBps = bandwidthLimitBps(limitMbps);
   if (!limitBps) return 'no cap';
@@ -1957,8 +1967,8 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
   const packetDrops = capacity?.packet_drops_total ?? capacity?.interface?.packet_drops ?? null;
   const pps = capacity?.interface?.total_pps;
   const bps = capacity?.interface?.total_bps;
-  const capacityLimitBps = capacity?.bandwidth_limit_bytes_per_second
-    ?? bandwidthLimitBps(capacity?.bandwidth_limit_mbps ?? health.bandwidth_limit_mbps);
+  const capacityLimitBytesPerSecond = capacity?.bandwidth_limit_bytes_per_second
+    ?? bandwidthLimitBytesPerSecond(capacity?.bandwidth_limit_mbps ?? health.bandwidth_limit_mbps);
   const diskPath = capacity?.disk?.state?.reported
     ? capacity.disk.state
     : capacity?.disk?.root?.reported
@@ -2083,11 +2093,11 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
         <CapacityMetric
           label={t('nodeDetail.capacity.throughput')}
           value={formatBitsPerSecond(bps)}
-          detail={capacityLimitBps > 0
+          detail={capacityLimitBytesPerSecond > 0
             ? t('nodeDetail.capacity.throughputDetailWithCap', {
                 rx: formatBitsPerSecond(capacity?.interface?.rx_bps),
                 tx: formatBitsPerSecond(capacity?.interface?.tx_bps),
-                cap: formatBitsPerSecond(capacityLimitBps * 8),
+                cap: formatBitsPerSecond(capacityLimitBytesPerSecond * 8),
                 status: capacity?.traffic_capacity_status?.replace(/_/g, ' ') || pending,
               })
             : t('nodeDetail.capacity.throughputDetail', {
