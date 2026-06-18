@@ -141,6 +141,18 @@ queries.
     Workbench instead of expanding every diagnostic at once. Services should
     answer "which operator task needs attention?" while Node Detail answers
     "what exactly is configured on this node?"
+  - Persists the selected Services Workbench report in the `section` URL query
+    parameter, for example `/dashboard/services?section=capacity` or
+    `/dashboard/services?section=restart`. This keeps the first-level Services
+    page focused on health, capacity, traffic, and errors while allowing
+    alerts, runbooks, AI-generated instructions, and support notes to deep-link
+    into the exact capacity, recovery, transport, DNS, service-layer, risk, or
+    per-node inspection module.
+  - The first-level Services page is the operator decision surface for AeroNyx
+    Privacy Protocol nodes. Do not turn it into a full data dump. New detailed
+    diagnostics should be added as a selectable Workbench section or a node
+    detail panel unless they are required for the first 30-second operational
+    decision.
   - Shows the same live heartbeat source, health score, checks, CPU, memory,
     Tunnel MTU, and tunnel counters without requiring the operator to leave the
     node page.

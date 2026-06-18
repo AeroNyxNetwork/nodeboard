@@ -10,6 +10,10 @@
  * readiness.
  *
  * Modification Reason:
+ *   v1.1.71 - Persisted the selected Operations Workbench module in the
+ *     `section` URL query parameter. Services now behaves like a mature
+ *     operations console: the first-level page stays focused, while deep
+ *     reports can be shared, refreshed, and opened from external triage links.
  *   v1.1.70 - Reworked the Services detail entry into an Operations Workbench
  *     with a primary task recommendation and Operate / Recover / Inspect
  *     workflow lanes. This keeps first-level Services focused on commercial
@@ -245,7 +249,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.70 - Add Services Operations Workbench primary task
+ * Last Modified: v1.1.71 - Persist Services detail module in URL state
+ * Previous: v1.1.70 - Add Services Operations Workbench primary task
  * Previous: v1.1.69 - Add workflow segmented control for Services modules
  * Previous: v1.1.68 - Group Services detail modules by operator workflow
  * Previous: v1.1.67 - Add Gateway DNS ownership detail module
@@ -319,8 +324,9 @@
 
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCancelNodeCommand, useRunNodeCommand, useUpdateNode, useVpnOverview, useVpnServers } from '@/hooks/useNodes';
 import { formatDuration, formatRelativeTime } from '@/lib/api';
 import { POLLING_INTERVALS } from '@/lib/constants';
@@ -359,6 +365,24 @@ type ServiceDetailSection =
   | 'layers'
   | 'risks'
   | 'nodes';
+
+const serviceDetailSections: ServiceDetailSection[] = [
+  'placement',
+  'capacity',
+  'transport',
+  'dns',
+  'restart',
+  'layers',
+  'risks',
+  'nodes',
+];
+
+function parseServiceDetailSection(value: string | null): ServiceDetailSection | null {
+  if (!value) return null;
+  return serviceDetailSections.includes(value as ServiceDetailSection)
+    ? value as ServiceDetailSection
+    : null;
+}
 
 type ServiceModuleGroup = 'overview' | 'triage' | 'advanced';
 
@@ -3742,6 +3766,9 @@ function DetailModulesPanel({
           <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-400">
             {t('services.detailModules.description')}
           </p>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-gray-500">
+            {t('services.detailModules.deepLinkHint')}
+          </p>
         </div>
         {activeSection && (
           <button
@@ -5981,6 +6008,9 @@ function NodeDetailCard({ node }: { node: VpnNodeHealth }) {
 
 export default function NodeServicesPage() {
   const { t, formatNumber } = useI18n();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const refreshIntervalMs = POLLING_INTERVALS.SERVICE_READINESS;
   const {
     overview,
@@ -6006,7 +6036,18 @@ export default function NodeServicesPage() {
   const [restartingNodeId, setRestartingNodeId] = useState<string | null>(null);
   const [cancellingCommandId, setCancellingCommandId] = useState<string | null>(null);
   const [operationNotice, setOperationNotice] = useState<OperationNotice | null>(null);
-  const [activeDetailSection, setActiveDetailSection] = useState<ServiceDetailSection | null>(null);
+  const activeDetailSection = parseServiceDetailSection(searchParams.get('section'));
+  const setActiveDetailSection = useCallback((section: ServiceDetailSection | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (section) {
+      params.set('section', section);
+    } else {
+      params.delete('section');
+    }
+
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
 
   const refreshOperationalSnapshots = async () => {
     await refetch();
