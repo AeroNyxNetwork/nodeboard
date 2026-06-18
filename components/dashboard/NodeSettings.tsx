@@ -11,7 +11,8 @@
  *
  * Main Functionality:
  *   1. Visibility selector (private / public / password_protected / unlisted)
- *   2. Access password field (shown only when password_protected)
+ *   2. Access password field with secure generator and copy helper
+ *      (shown only when password_protected)
  *   3. Region code input (ISO 3166-1 alpha-2) + city input
  *   4. VPN node toggle
  *   5. Commercial capacity policy: max sessions and bandwidth cap
@@ -58,8 +59,11 @@
  *   - max_sessions and bandwidth_limit_mbps are backend/Rust operator policy
  *     fields. 0 means unlimited/local default and is passed through exactly
  *     so the Rust node policy can enforce the same value nodeboard displays.
+ *   - Generated private access codes use browser crypto where available and
+ *     are never sent anywhere until the operator clicks Save Changes.
  *
- * Last Modified: v1.4.3 - Prevent password-protected nodes with empty passwords
+ * Last Modified: v1.4.4 - Add secure private access code generation
+ * Previous: v1.4.3 - Prevent password-protected nodes with empty passwords
  * Previous: v1.4.2 - Added commercial capacity policy controls
  * Previous: v1.4.1 - Documented backend API and Rust policy consumers
  * ============================================
@@ -106,10 +110,34 @@ const REGIONS: { code: string; label: string; flag: string }[] = [
 
 const MAX_COMMERCIAL_SESSIONS = 100000;
 const MAX_BANDWIDTH_LIMIT_MBPS = 100000;
+const ACCESS_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const ACCESS_CODE_CHUNK_COUNT = 4;
+const ACCESS_CODE_CHUNK_LENGTH = 4;
 
 function clampWholeNumber(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, Math.floor(value)));
+}
+
+function secureRandomIndex(maxExclusive: number) {
+  if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
+    const buffer = new Uint32Array(1);
+    window.crypto.getRandomValues(buffer);
+    return buffer[0] % maxExclusive;
+  }
+  return Math.floor(Math.random() * maxExclusive);
+}
+
+function generatePrivateAccessCode() {
+  const chunks: string[] = [];
+  for (let chunkIndex = 0; chunkIndex < ACCESS_CODE_CHUNK_COUNT; chunkIndex += 1) {
+    let chunk = '';
+    for (let charIndex = 0; charIndex < ACCESS_CODE_CHUNK_LENGTH; charIndex += 1) {
+      chunk += ACCESS_CODE_ALPHABET[secureRandomIndex(ACCESS_CODE_ALPHABET.length)];
+    }
+    chunks.push(chunk);
+  }
+  return `ANX-${chunks.join('-')}`;
 }
 
 // ============================================
@@ -235,6 +263,28 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
     setPassword(e.target.value);
     markDirty();
   }, [markDirty]);
+
+  const handleGeneratePassword = useCallback(() => {
+    const generated = generatePrivateAccessCode();
+    setVisibility('password_protected');
+    setPassword(generated);
+    setShowPassword(true);
+    markDirty();
+    onToast(t('nodeSettings.password.generatedToast'));
+  }, [markDirty, onToast, t]);
+
+  const handleCopyPassword = useCallback(async () => {
+    if (!password) {
+      onToast(t('nodeSettings.password.copyEmpty'), 'error');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(password);
+      onToast(t('nodeSettings.password.copied'));
+    } catch {
+      onToast(t('nodeSettings.password.copyFailed'), 'error');
+    }
+  }, [onToast, password, t]);
 
   const handleClearPassword = useCallback(() => {
     setVisibility('private');
@@ -376,6 +426,23 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
               />
             ))}
           </div>
+          {visibility !== 'password_protected' && (
+            <div className="mt-3 rounded-xl border border-purple-500/15 bg-purple-500/[0.06] p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-purple-100">{t('nodeSettings.password.quickGenerateTitle')}</p>
+                  <p className="mt-1 text-xs leading-5 text-purple-100/60">{t('nodeSettings.password.quickGenerateDetail')}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleGeneratePassword}
+                  className="w-fit rounded-lg border border-purple-400/30 bg-purple-500/15 px-3 py-2 text-xs font-medium text-purple-100 transition-colors hover:bg-purple-500/20"
+                >
+                  {t('nodeSettings.password.generate')}
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* ── Access Password (only when password_protected) ───────────────── */}
@@ -423,6 +490,26 @@ export default function NodeSettings({ node, onSaved, onToast }: NodeSettingsPro
                   </svg>
                 )}
               </button>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleGeneratePassword}
+                className="rounded-lg border border-purple-500/25 bg-purple-500/10 px-3 py-1.5 text-xs font-medium text-purple-200 transition-colors hover:bg-purple-500/15"
+              >
+                {node.has_access_password ? t('nodeSettings.password.regenerate') : t('nodeSettings.password.generate')}
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyPassword}
+                disabled={!password}
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-200 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {t('nodeSettings.password.copy')}
+              </button>
+              <span className="text-xs leading-5 text-gray-600">
+                {t('nodeSettings.password.generatedHint')}
+              </span>
             </div>
             {node.has_access_password && (
               <button
