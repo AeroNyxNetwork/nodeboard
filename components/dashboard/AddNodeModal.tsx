@@ -5,6 +5,10 @@
  * File Path: components/dashboard/AddNodeModal.tsx
  *
  * Modification Reason:
+ *   v1.5.0 - Make generated post-install verification use
+ *   `aeronyx-node.sh status` first, because status now includes service
+ *   state, local endpoints, upgrade state, and the healthcheck
+ *   operator_next_step recommendation.
  *   v1.4.0 - Make generated onboarding commands self-contained by creating
  *   and entering /root/open before cloning/updating AeroNyx. Operators can
  *   paste the command from any current directory on a fresh Linux server.
@@ -13,7 +17,7 @@
  *   v1.2.0 - Replace the legacy raw install.sh bootstrap with the unified
  *   deploy/node/aeronyx-node.sh operator entrypoint. The modal now mirrors
  *   the Codes page: fetch/refresh the repo, run plan, run install, then offer
- *   a healthcheck command.
+ *   a verification command.
  *   v1.1.0 - Replace legacy bind command with production Rust privacy node
  *   quick install and read-only preview commands. This aligns nodeboard
  *   onboarding with deploy/node/install.sh --quick and --print-plan.
@@ -22,8 +26,8 @@
  *   - Generate a short-lived node registration code.
  *   - Show a safe preview command that does not mutate the host.
  *   - Show a one-command production install path for new Linux/systemd nodes.
- *   - Show the unified healthcheck command so operators can verify service
- *     readiness without hunting through documentation.
+ *   - Show the unified status command so operators can verify service
+ *     readiness and see the recommended next step.
  *   - Allow copying the code or install commands without exposing private
  *     keys, node secrets, traffic metadata, or user data.
  *
@@ -37,9 +41,10 @@
  * - Do not add node private keys, wallet secrets, DNS contents, packet
  *   payloads, client IPs, or browsing destinations to setup commands.
  * - If deploy/node/aeronyx-node.sh changes flags, update preview, install,
- *   and healthcheck commands together.
+ *   status, and healthcheck guidance together.
  *
- * Last Modified: v1.4.0 - Use self-contained /root/open bootstrap commands
+ * Last Modified: v1.5.0 - Verify installs with status recommendation
+ * Previous: v1.4.0 - Use self-contained /root/open bootstrap commands
  * Previous: v1.3.0 - Align preview command with quick install
  * Previous: v1.2.0 - Unified node operator entrypoint onboarding
  * Previous: v1.1.0 - Production quick install onboarding
@@ -77,10 +82,10 @@ function buildInstallCommand(code: string): string {
   ].join(' && ');
 }
 
-function buildHealthCommand(): string {
+function buildStatusCommand(): string {
   return [
     REPO_BOOTSTRAP_COMMAND,
-    './deploy/node/aeronyx-node.sh health --repo-dir "$PWD" --json',
+    './deploy/node/aeronyx-node.sh status --repo-dir "$PWD"',
   ].join(' && ');
 }
 
@@ -207,7 +212,7 @@ function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
   const [copied, setCopied] = useState(false);
   const previewCommand = buildPreviewCommand(code.code);
   const installCommand = buildInstallCommand(code.code);
-  const healthCommand = buildHealthCommand();
+  const statusCommand = buildStatusCommand();
 
   const handleCopy = useCallback(async () => {
     try {
@@ -294,9 +299,9 @@ function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
             accent="emerald"
           />
           <CopyCommandCard
-            label={t('codes.generated.healthCommand')}
+            label={t('codes.generated.statusCommand')}
             helper={t('codes.generated.commandHint')}
-            command={healthCommand}
+            command={statusCommand}
             accent="emerald"
           />
         </div>

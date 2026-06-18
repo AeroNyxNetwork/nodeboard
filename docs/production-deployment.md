@@ -194,7 +194,7 @@ entrypoint:
 
 - Preview: `./deploy/node/aeronyx-node.sh plan --quick`
 - Install: `sudo env AERONYX_REGISTRATION_CODE=... ./deploy/node/aeronyx-node.sh install --quick`
-- Verify: `./deploy/node/aeronyx-node.sh health --json`
+- Verify: `./deploy/node/aeronyx-node.sh status`
 
 Generated commands must start by creating and entering the canonical source
 directory:
@@ -213,6 +213,12 @@ The preview command must include `--quick` whenever the install command includes
 `--quick`. Operators and AI assistants should approve the same first-install
 path that will actually run after approval. Do not show a generic plan in the
 UI and then execute a quick install.
+
+The verify command should use `status` first because the Rust entrypoint
+combines systemd service state, local endpoints, local upgrade status, and the
+privacy-safe healthcheck `operator_action` recommendation. Use
+`./deploy/node/aeronyx-node.sh health --json` only when a support flow needs
+the full machine-readable diagnostic payload.
 
 ## Dependency Security
 
