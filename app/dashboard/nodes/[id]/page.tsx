@@ -6,6 +6,9 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.29 - Added recent Rust operational error events from sanitized
+ *     system_stats.vpn_health.recent_errors so operators can triage service
+ *     failures without collecting client traffic data.
  *   v1.6.28 - Added an operator runbook panel that derives the Rust repo path
  *     from runtime rollout metadata and generates one-command health, status,
  *     logs, no-restart upgrade, and AI maintenance prompts through
@@ -168,7 +171,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.28 - Add node operator runbook commands
+ * Last Modified: v1.6.29 - Show sanitized recent Rust operational errors
+ * Previous: v1.6.28 - Add node operator runbook commands
  * Previous: v1.6.27 - Prefer Rust-authored capacity risks
  * Previous: v1.6.26 - Show commercial capacity risk summary
  * Previous: v1.6.25 - Show config-driven Network Rules diagnostics
@@ -2134,6 +2138,94 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
 function shortRuntimeValue(value: string | null | undefined, maxLength = 18) {
   if (!value) return 'pending';
   return value.length > maxLength ? `${value.slice(0, maxLength)}` : value;
+}
+
+function recentErrorTone(severity: string | null | undefined) {
+  switch (severity) {
+    case 'critical':
+      return 'border-red-500/25 bg-red-500/[0.07] text-red-100';
+    case 'warning':
+      return 'border-yellow-500/25 bg-yellow-500/[0.06] text-yellow-100';
+    default:
+      return 'border-sky-500/20 bg-sky-500/[0.05] text-sky-100';
+  }
+}
+
+function RecentOperationalEventsPanel({ health }: { health: VpnNodeHealth }) {
+  const { t } = useI18n();
+  const recentErrors = health.system.recent_errors;
+  const events = Array.isArray(recentErrors?.events) ? recentErrors.events : [];
+  const reported = Boolean(recentErrors?.reported);
+
+  return (
+    <div className={`mt-5 rounded-xl border p-4 ${
+      events.length > 0
+        ? 'border-yellow-500/20 bg-yellow-500/[0.04]'
+        : reported
+          ? 'border-emerald-500/15 bg-emerald-500/[0.03]'
+          : 'border-white/5 bg-white/[0.02]'
+    }`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-semibold text-white">{t('nodeDetail.recentErrors.title')}</h4>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${
+              events.length > 0
+                ? 'border-yellow-500/25 bg-yellow-500/10 text-yellow-100'
+                : reported
+                  ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200'
+                  : 'border-white/10 bg-white/[0.03] text-gray-400'
+            }`}>
+              {events.length > 0
+                ? t('nodeDetail.recentErrors.count', { count: events.length })
+                : reported
+                  ? t('nodeDetail.recentErrors.clear')
+                  : t('nodeDetail.recentErrors.waiting')}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-gray-500">{t('nodeDetail.recentErrors.description')}</p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500 lg:max-w-md">
+          <p className="font-medium text-gray-300">{t('nodeDetail.recentErrors.source')}</p>
+          <p className="mt-1 break-words [overflow-wrap:anywhere]">{recentErrors?.source || 'system_stats.vpn_health.recent_errors'}</p>
+        </div>
+      </div>
+
+      {events.length > 0 ? (
+        <div className="mt-4 grid gap-2 lg:grid-cols-2">
+          {events.slice(0, 6).map((event, index) => (
+            <div
+              key={`${event.timestamp || index}:${event.message}`}
+              className={`rounded-lg border p-3 ${recentErrorTone(event.severity)}`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-current/20 px-2 py-0.5 text-[11px] uppercase">
+                  {event.severity || 'warning'}
+                </span>
+                <span className="text-[11px] text-gray-400">
+                  {event.timestamp ? formatRelativeTime(event.timestamp) : t('common.status.pending')}
+                </span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-gray-200 break-words [overflow-wrap:anywhere]">
+                {event.message}
+              </p>
+              {event.source ? (
+                <p className="mt-2 text-[11px] text-gray-500 break-words [overflow-wrap:anywhere]">{event.source}</p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-4 rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs leading-5 text-gray-500">
+          {reported ? t('nodeDetail.recentErrors.empty') : t('nodeDetail.recentErrors.notReported')}
+        </p>
+      )}
+
+      <p className="mt-3 text-[11px] leading-5 text-gray-600">
+        {recentErrors?.privacy_boundary || t('nodeDetail.recentErrors.privacy')}
+      </p>
+    </div>
+  );
 }
 
 function runtimeStartedLabel(startedAt: number | string | null | undefined) {
@@ -4611,6 +4703,7 @@ function VpnHealthPanel({
       </div>
 
       <CapacityPanel health={health} />
+      <RecentOperationalEventsPanel health={health} />
       <RuntimeVersionPanel health={health} />
       <OperatorRunbookPanel health={health} />
       <NodeMetricsTrendPanel metrics={metrics} isLoading={metricsLoading} />

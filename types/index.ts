@@ -1730,6 +1730,21 @@ export interface VpnCapacitySnapshot {
   privacy_boundary?: string;
 }
 
+export interface VpnRecentErrorEvent {
+  timestamp?: string | null;
+  severity: 'info' | 'warning' | 'critical' | string;
+  source?: string | null;
+  message: string;
+  privacy_boundary?: string | null;
+}
+
+export interface VpnRecentErrorsSnapshot {
+  reported: boolean;
+  source: string;
+  events: VpnRecentErrorEvent[];
+  privacy_boundary?: string;
+}
+
 /**
  * Local nodeboard runtime health response.
  *
@@ -1908,6 +1923,7 @@ export interface VpnNodeHealth {
     restart_readiness?: VpnRestartReadiness | null;
     placement_readiness?: VpnPlacementReadiness | null;
     capacity?: VpnCapacitySnapshot | null;
+    recent_errors?: VpnRecentErrorsSnapshot | null;
     policy_sync?: VpnPolicySync;
     policy_enforcement?: VpnPolicyEnforcement;
     runtime_recovery?: VpnRuntimeRecovery;
