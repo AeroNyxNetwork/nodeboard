@@ -99,10 +99,19 @@ function installProgressTone(status: string | undefined) {
 function InstallProgressCell({ code }: { code: RegistrationCode }) {
   const { t, formatDateTime } = useI18n();
   const status = code.install_status || 'not_started';
-  const step = code.install_step || t('codes.installProgress.waiting');
+  const rawStep = code.install_step || '';
+  const step = rawStep || t('codes.installProgress.waiting');
   const message = code.install_message || t('codes.installProgress.noMessage');
   const statusKey = `codes.installProgress.status.${status}`;
   const translatedStatus = t(statusKey);
+  const recommendationKey = rawStep ? `codes.installProgress.recommendation.${rawStep}` : '';
+  const translatedRecommendation = recommendationKey ? t(recommendationKey) : '';
+  const fallbackRecommendation = t('codes.installProgress.recommendation.default');
+  const recommendation = status === 'failed'
+    ? translatedRecommendation && translatedRecommendation !== recommendationKey
+      ? translatedRecommendation
+      : fallbackRecommendation
+    : '';
 
   return (
     <div className="min-w-[220px] max-w-xs">
@@ -113,6 +122,9 @@ function InstallProgressCell({ code }: { code: RegistrationCode }) {
         <span className="text-xs font-medium text-gray-300">{step}</span>
       </div>
       <p className="mt-1 line-clamp-2 text-xs leading-5 text-gray-500">{message}</p>
+      {recommendation ? (
+        <p className="mt-1 line-clamp-3 text-xs leading-5 text-red-200/80">{recommendation}</p>
+      ) : null}
       {code.install_last_reported_at ? (
         <p className="mt-1 text-[11px] text-gray-600">
           {t('codes.installProgress.reportedAt', { time: formatDateTime(code.install_last_reported_at) })}
