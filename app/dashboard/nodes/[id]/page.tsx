@@ -1802,6 +1802,8 @@ type CapacityRiskItem = {
   label: string;
   detail: string;
   action: string;
+  recommendedValue?: string;
+  recommendedCommand?: string;
   code?: string;
 };
 
@@ -1817,6 +1819,8 @@ function capacityRiskItems(
       const code = typeof risk?.code === 'string' ? risk.code : '';
       const message = typeof risk?.message === 'string' ? risk.message.trim() : '';
       const remediation = typeof risk?.remediation === 'string' ? risk.remediation.trim() : '';
+      const recommendedValue = typeof risk?.recommended_value === 'string' ? risk.recommended_value.trim() : '';
+      const recommendedCommand = typeof risk?.recommended_command === 'string' ? risk.recommended_command.trim() : '';
       const severity = typeof risk?.severity === 'string' ? risk.severity : 'warning';
       const tone: CapacityRiskItem['tone'] = severity === 'critical' ? 'critical' : 'warning';
       return {
@@ -1824,6 +1828,8 @@ function capacityRiskItems(
         label: capacityRiskLabelFromCode(code, t),
         detail: message || code || t('nodeDetail.capacity.risk.description'),
         action: remediation || t('nodeDetail.capacity.risk.description'),
+        recommendedValue: recommendedValue || undefined,
+        recommendedCommand: recommendedCommand || undefined,
         code,
       };
     }).filter((risk) => risk.detail || risk.action);
@@ -1848,6 +1854,9 @@ function capacityRiskItems(
         pool: formatNumber(ipPoolCapacity),
       }),
       action: t('nodeDetail.capacity.risk.ipPoolMismatchAction'),
+      recommendedValue: t('nodeDetail.capacity.risk.ipPoolMismatchRecommended', {
+        pool: formatNumber(ipPoolCapacity),
+      }),
     });
   }
 
@@ -1865,6 +1874,9 @@ function capacityRiskItems(
         pool: formatNumber(ipPoolCapacity),
       }),
       action: t('nodeDetail.capacity.risk.policyMismatchAction'),
+      recommendedValue: t('nodeDetail.capacity.risk.policyMismatchRecommended', {
+        pool: formatNumber(ipPoolCapacity),
+      }),
     });
   }
 
@@ -1874,6 +1886,7 @@ function capacityRiskItems(
       label: t('nodeDetail.capacity.risk.ipPoolExhausted'),
       detail: t('nodeDetail.capacity.risk.ipPoolExhaustedDetail'),
       action: t('nodeDetail.capacity.risk.ipPoolExhaustedAction'),
+      recommendedValue: t('nodeDetail.capacity.risk.ipPoolExhaustedRecommended'),
     });
   }
 
@@ -1885,6 +1898,7 @@ function capacityRiskItems(
         value: formatNumber(conntrackPercent, { maximumFractionDigits: 1 }),
       }),
       action: t('nodeDetail.capacity.risk.conntrackAction'),
+      recommendedValue: t('nodeDetail.capacity.risk.conntrackRecommended'),
     });
   }
 
@@ -1896,6 +1910,7 @@ function capacityRiskItems(
         value: formatNumber(fdPercent, { maximumFractionDigits: 1 }),
       }),
       action: t('nodeDetail.capacity.risk.fileDescriptorsAction'),
+      recommendedValue: t('nodeDetail.capacity.risk.fileDescriptorsRecommended'),
     });
   }
 
@@ -1907,6 +1922,7 @@ function capacityRiskItems(
         count: formatNumber(packetDrops),
       }),
       action: t('nodeDetail.capacity.risk.packetDropsAction'),
+      recommendedValue: t('nodeDetail.capacity.risk.packetDropsRecommended'),
     });
   }
 
@@ -2141,6 +2157,30 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
                 <p className="text-sm font-medium text-white">{item.label}</p>
                 <p className="mt-1 text-xs leading-5 text-gray-300">{item.detail}</p>
                 <p className="mt-2 text-xs leading-5 text-gray-400">{item.action}</p>
+                {(item.recommendedValue || item.recommendedCommand) && (
+                  <div className="mt-3 space-y-2 rounded-md border border-white/10 bg-black/20 p-2">
+                    {item.recommendedValue && (
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                          {t('nodeDetail.capacity.risk.recommendedValue')}
+                        </p>
+                        <p className="mt-1 break-words text-xs leading-5 text-gray-200 [overflow-wrap:anywhere]">
+                          {item.recommendedValue}
+                        </p>
+                      </div>
+                    )}
+                    {item.recommendedCommand && (
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                          {t('nodeDetail.capacity.risk.recommendedCommand')}
+                        </p>
+                        <code className="mt-1 block break-words rounded bg-black/30 px-2 py-1 font-mono text-[11px] leading-5 text-purple-100 [overflow-wrap:anywhere]">
+                          {item.recommendedCommand}
+                        </code>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

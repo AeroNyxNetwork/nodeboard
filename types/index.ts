@@ -1757,6 +1757,8 @@ export interface VpnCapacityRiskSnapshot {
   code: string;
   message: string;
   remediation: string;
+  recommended_value?: string | null;
+  recommended_command?: string | null;
 }
 
 /**
