@@ -5,6 +5,11 @@
  * File Path: components/dashboard/NodeCard.tsx
  *
  * Modification Reason:
+ *   v1.4.0 - Added first-level commercial operation chips for AeroNyx privacy
+ *     protocol capability, visibility/private access, maintenance placement
+ *     state, max session capacity, and bandwidth cap. This keeps node cards
+ *     useful as an operator overview without moving deep diagnostics out of
+ *     node detail.
  *   v1.3.0 - Replaced three-dot menu with hover-on-badge interaction.
  *     PC: hover status badge → dropdown with Copy IP / Copy Node ID.
  *     Mobile: no hover interaction, tap card → detail page.
@@ -33,7 +38,8 @@
  * - Delete is intentionally NOT on the card — it's in the detail page only
  * - onDelete prop kept for backward compatibility but no longer rendered
  *
- * Last Modified: v1.3.0 - Hover-on-badge dropdown (Copy IP / Copy ID)
+ * Last Modified: v1.4.0 - Show commercial operation chips on node cards
+ * Previous: v1.3.0 - Hover-on-badge dropdown (Copy IP / Copy ID)
  * Previous: v1.2.0 - Menu in footer, opens upward
  * ============================================
  */
@@ -92,6 +98,27 @@ function StatItem({ label, value, icon }: StatItemProps) {
   );
 }
 
+function OperationChip({
+  label,
+  tone = 'neutral',
+}: {
+  label: string;
+  tone?: 'neutral' | 'ok' | 'warning' | 'info';
+}) {
+  const toneClass = {
+    neutral: 'border-white/10 bg-white/[0.04] text-gray-300',
+    ok: 'border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-200',
+    warning: 'border-yellow-500/25 bg-yellow-500/[0.08] text-yellow-200',
+    info: 'border-sky-500/20 bg-sky-500/[0.08] text-sky-200',
+  }[tone];
+
+  return (
+    <span className={`inline-flex min-w-0 max-w-full items-center rounded-full border px-2 py-1 text-[11px] font-medium ${toneClass}`}>
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
 // ============================================
 // Node Card Component
 // ============================================
@@ -110,9 +137,20 @@ export default function NodeCard({ node }: NodeCardProps) {
 
   // Safe value getters
   const currentSessions = node.current_sessions ?? 0;
-  const totalSessions = node.total_sessions ?? 0;
   const totalTrafficGb = node.total_traffic_gb ?? 0;
   const onlineDuration = node.online_duration ?? 0;
+  const maxSessions = node.max_sessions ?? 0;
+  const bandwidthLimitMbps = node.bandwidth_limit_mbps ?? 0;
+  const capacityLabel = maxSessions > 0
+    ? `${formatNumber(currentSessions)} / ${formatNumber(maxSessions)}`
+    : t('nodes.policy.unlimited');
+  const visibilityKey = `nodeSettings.visibility.${node.visibility || 'private'}.label`;
+  const visibilityLabel = t(visibilityKey);
+  const accessLabel = visibilityLabel === visibilityKey ? node.visibility || t('nodes.card.private') : visibilityLabel;
+  const policyLabel = node.maintenance_mode ? t('nodes.policy.maintenance') : t('nodes.policy.accepting');
+  const bandwidthLabel = bandwidthLimitMbps > 0
+    ? `${t('nodes.policy.cap')} ${formatNumber(bandwidthLimitMbps)} ${t('nodes.policy.mbps')}`
+    : t('nodes.card.noBandwidthCap');
 
   // ============================================
   // Hover handlers — with small delay to prevent flicker
@@ -299,11 +337,35 @@ export default function NodeCard({ node }: NodeCardProps) {
                     `} />
                     <span className="text-xs font-medium">{statusLabel}</span>
                   </div>
+                  </div>
                 </div>
-              </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <OperationChip
+                    label={node.is_vpn_node ? t('nodes.card.privacyProtocol') : t('nodes.card.controlOnly')}
+                    tone={node.is_vpn_node ? 'info' : 'neutral'}
+                  />
+                  <OperationChip
+                    label={accessLabel}
+                    tone={node.visibility === 'password_protected' ? 'warning' : 'neutral'}
+                  />
+                  <OperationChip
+                    label={policyLabel}
+                    tone={node.maintenance_mode ? 'warning' : 'ok'}
+                  />
+                  {maxSessions > 0 && (
+                    <OperationChip
+                      label={`${t('nodes.policy.cap')} ${formatNumber(maxSessions)} ${t('nodes.policy.sessions')}`}
+                      tone="info"
+                    />
+                  )}
+                  {bandwidthLimitMbps > 0 && (
+                    <OperationChip label={bandwidthLabel} tone="info" />
+                  )}
+                </div>
 
               {/* Stats Grid */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="grid grid-cols-2 gap-4 mb-6 mt-6">
                 <StatItem
                   label={t('nodes.card.activeSessions')}
                   value={formatNumber(currentSessions)}
@@ -314,8 +376,8 @@ export default function NodeCard({ node }: NodeCardProps) {
                   }
                 />
                 <StatItem
-                  label={t('nodes.card.totalSessions')}
-                  value={formatNumber(totalSessions)}
+                  label={t('nodes.card.capacity')}
+                  value={capacityLabel}
                   icon={
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
