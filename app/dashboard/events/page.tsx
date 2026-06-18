@@ -1,5 +1,5 @@
 /**
- * AeroNyx VPN Alerts / Events page.
+ * AeroNyx Alerts / Events page.
  *
  * Source path:
  *   /root/open/nodeboard/app/dashboard/events/page.tsx
@@ -21,6 +21,21 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 
 type SeverityFilter = NonNullable<UseVpnEventsOptions['severity']>;
 type TranslateFn = (key: string, values?: Record<string, string | number>) => string;
+type EventClosureStatus = 'open' | 'watch' | 'recovered';
+
+interface EventClosureItem {
+  key: string;
+  latestEvent: VpnEvent;
+  status: EventClosureStatus;
+  severity: VpnEventSeverity;
+  repeatCount: number;
+  openCount: number;
+  firstSeenAt: string | null;
+  latestAt: string | null;
+  impact: string;
+  recommendedAction: string;
+  recovery: string;
+}
 
 const SEVERITY_OPTIONS: SeverityFilter[] = ['all', 'critical', 'warning', 'info'];
 const DAY_OPTIONS = [1, 7, 14, 30, 60, 90];
@@ -218,6 +233,64 @@ function detailNumber(details: Record<string, unknown>, key: string): number {
     return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
   }
   return 0;
+}
+
+function detailString(details: Record<string, unknown>, key: string): string {
+  const value = details[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function eventTimeMs(event: VpnEvent): number {
+  if (!event.created_at) return 0;
+  const time = new Date(event.created_at).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function severityRank(severity: VpnEventSeverity): number {
+  if (severity === 'critical') return 3;
+  if (severity === 'warning') return 2;
+  return 1;
+}
+
+function isRecoveryEvent(event: VpnEvent): boolean {
+  const status = String(event.status || '').toLowerCase();
+  if (
+    status.includes('resolved') ||
+    status.includes('closed') ||
+    status.includes('completed') ||
+    status.includes('success') ||
+    status.includes('recovered') ||
+    status === 'clear'
+  ) {
+    return true;
+  }
+
+  return event.type === 'runtime_recovery' || event.type.endsWith('_recovered');
+}
+
+function isActionableEvent(event: VpnEvent): boolean {
+  if (isRecoveryEvent(event)) return false;
+  if (event.severity === 'critical' || event.severity === 'warning') return true;
+
+  const status = String(event.status || '').toLowerCase();
+  return status === 'failed' || status === 'timeout';
+}
+
+function eventFingerprint(event: VpnEvent): string {
+  const details = event.details || {};
+  const check = eventCheckName(event);
+  const reason = (
+    detailString(details, 'degraded_reason') ||
+    detailString(details, 'unavailable_reason') ||
+    detailString(details, 'last_rejection_reason')
+  );
+  const command = event.source === 'node_command' ? event.action || '' : '';
+  const sessionBucket = event.session_id && event.type.startsWith('session_') ? 'session' : '';
+  return [
+    event.node_id || 'fleet',
+    event.type,
+    check || reason || command || sessionBucket || 'general',
+  ].join(':');
 }
 
 function policyEnforcementTotal(details: Record<string, unknown>): number {
@@ -632,6 +705,217 @@ function runbookHint(event: VpnEvent, t: TranslateFn): string {
   return '';
 }
 
+function eventImpactScope(event: VpnEvent, t: TranslateFn): string {
+  const details = event.details || {};
+  const nodeName = event.node_name || t('events.table.allNodes');
+
+  if (event.type === 'health_check_failed') {
+    return t('events.closure.impact.healthCheck', {
+      node: nodeName,
+      check: eventCheckName(event) || t('common.status.unknown'),
+    });
+  }
+
+  if (event.type === 'client_placement_unavailable') {
+    return t('events.closure.impact.placement', {
+      node: nodeName,
+      reason: placementReasonLabel(details.unavailable_reason, t),
+    });
+  }
+
+  if (event.type === 'placement_capacity_exhausted' || event.type === 'placement_capacity_pressure') {
+    return t('events.closure.impact.capacity', {
+      scope: shortValue(details.placement_label || details.placement_scope || nodeName, 48),
+    });
+  }
+
+  if (event.type === 'bandwidth_limit_pressure' || event.type === 'node_policy_enforced') {
+    return t('events.closure.impact.policy', { node: nodeName });
+  }
+
+  if (event.type.startsWith('session_')) {
+    return t('events.closure.impact.session', {
+      node: nodeName,
+      session: event.session_id ? event.session_id.slice(0, 8) : t('common.status.unknown'),
+    });
+  }
+
+  if (event.source === 'node_command') {
+    return t('events.closure.impact.command', {
+      node: nodeName,
+      action: commandActionLabel(event.action, t),
+    });
+  }
+
+  if (event.type === 'runtime_restarted' || event.type === 'runtime_recovery') {
+    return t('events.closure.impact.runtime', { node: nodeName });
+  }
+
+  return event.node_id
+    ? t('events.closure.impact.node', { node: nodeName })
+    : t('events.closure.impact.fleet');
+}
+
+function eventRecoveryCopy(status: EventClosureStatus, openCount: number, repeatCount: number, t: TranslateFn): string {
+  if (status === 'open') {
+    return t('events.closure.recovery.open', { count: openCount });
+  }
+  if (status === 'watch') {
+    return t('events.closure.recovery.watch', { count: repeatCount });
+  }
+  return t('events.closure.recovery.recovered');
+}
+
+function buildEventClosureItems(events: VpnEvent[], t: TranslateFn): EventClosureItem[] {
+  const grouped = new Map<string, VpnEvent[]>();
+
+  events.forEach((event) => {
+    const key = eventFingerprint(event);
+    const bucket = grouped.get(key) || [];
+    bucket.push(event);
+    grouped.set(key, bucket);
+  });
+
+  return Array.from(grouped.entries()).map(([key, group]) => {
+    const sorted = [...group].sort((a, b) => eventTimeMs(b) - eventTimeMs(a));
+    const latestEvent = sorted[0];
+    const openCount = group.filter(isActionableEvent).length;
+    const latestIsRecovery = isRecoveryEvent(latestEvent);
+    const status: EventClosureStatus = openCount > 0 && !latestIsRecovery
+      ? 'open'
+      : group.length > 1 && !latestIsRecovery
+        ? 'watch'
+        : 'recovered';
+    const highestSeverity = group.reduce<VpnEventSeverity>((current, event) => (
+      severityRank(event.severity) > severityRank(current) ? event.severity : current
+    ), latestEvent.severity);
+    const sortedAsc = [...group].sort((a, b) => eventTimeMs(a) - eventTimeMs(b));
+    const hint = runbookHint(latestEvent, t);
+
+    return {
+      key,
+      latestEvent,
+      status,
+      severity: highestSeverity,
+      repeatCount: group.length,
+      openCount,
+      firstSeenAt: sortedAsc[0]?.created_at || null,
+      latestAt: latestEvent.created_at,
+      impact: eventImpactScope(latestEvent, t),
+      recommendedAction: hint || t('events.closure.defaultAction'),
+      recovery: eventRecoveryCopy(status, openCount, group.length, t),
+    };
+  }).sort((a, b) => {
+    const statusRank = { open: 3, watch: 2, recovered: 1 } as const;
+    const statusDelta = statusRank[b.status] - statusRank[a.status];
+    if (statusDelta !== 0) return statusDelta;
+    const severityDelta = severityRank(b.severity) - severityRank(a.severity);
+    if (severityDelta !== 0) return severityDelta;
+    const repeatDelta = b.repeatCount - a.repeatCount;
+    if (repeatDelta !== 0) return repeatDelta;
+    return eventTimeMs(b.latestEvent) - eventTimeMs(a.latestEvent);
+  });
+}
+
+function closureStatusClass(status: EventClosureStatus) {
+  if (status === 'open') return 'border-red-500/25 bg-red-500/[0.07] text-red-100';
+  if (status === 'watch') return 'border-yellow-500/25 bg-yellow-500/[0.06] text-yellow-100';
+  return 'border-emerald-500/20 bg-emerald-500/[0.04] text-emerald-100';
+}
+
+function IncidentClosurePanel({ events, days }: { events: VpnEvent[]; days: number }) {
+  const { t, formatNumber, formatRelativeTime } = useI18n();
+  const items = useMemo(() => buildEventClosureItems(events, t), [events, t]);
+  const openCount = items.filter((item) => item.status === 'open').length;
+  const recoveredCount = items.filter((item) => item.status === 'recovered').length;
+  const repeatedCount = items.filter((item) => item.repeatCount > 1).length;
+  const affectedNodes = new Set(items.map((item) => item.latestEvent.node_id).filter(Boolean)).size;
+
+  return (
+    <Card variant="default" padding="md">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-white">{t('events.closure.title')}</h2>
+          <p className="mt-1 text-xs leading-5 text-gray-500">{t('events.closure.description', { days })}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[520px]">
+          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-[11px] text-gray-500">{t('events.closure.openIncidents')}</p>
+            <p className="mt-1 text-lg font-semibold text-red-200">{formatNumber(openCount)}</p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-[11px] text-gray-500">{t('events.closure.recoveredIncidents')}</p>
+            <p className="mt-1 text-lg font-semibold text-emerald-200">{formatNumber(recoveredCount)}</p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-[11px] text-gray-500">{t('events.closure.repeatedIncidents')}</p>
+            <p className="mt-1 text-lg font-semibold text-yellow-200">{formatNumber(repeatedCount)}</p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-[11px] text-gray-500">{t('events.closure.affectedNodes')}</p>
+            <p className="mt-1 text-lg font-semibold text-white">{formatNumber(affectedNodes)}</p>
+          </div>
+        </div>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="mt-4 grid gap-3 xl:grid-cols-2">
+          {items.slice(0, 6).map((item) => (
+            <div key={item.key} className="rounded-lg border border-white/10 bg-white/[0.02] p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${closureStatusClass(item.status)}`}>
+                  {t(`events.closure.status.${item.status}`)}
+                </span>
+                <SeverityBadge severity={item.severity} />
+                {item.repeatCount > 1 ? (
+                  <span className="inline-flex rounded-full border border-yellow-400/20 bg-yellow-400/10 px-2 py-1 text-xs text-yellow-100">
+                    {t('events.closure.repeatCount', { count: item.repeatCount })}
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-3 min-w-0">
+                <p className="text-sm font-semibold text-white">{item.latestEvent.title || item.latestEvent.type}</p>
+                <p className="mt-1 text-xs text-gray-500 break-words [overflow-wrap:anywhere]">{item.impact}</p>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                <div className="rounded-md border border-white/5 bg-black/20 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-gray-600">{t('events.closure.recommendedAction')}</p>
+                  <p className="mt-1 text-xs leading-5 text-gray-300">{item.recommendedAction}</p>
+                </div>
+                <div className="rounded-md border border-white/5 bg-black/20 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-gray-600">{t('events.closure.recoveryState')}</p>
+                  <p className="mt-1 text-xs leading-5 text-gray-300">{item.recovery}</p>
+                  <p className="mt-1 text-[11px] text-gray-600">
+                    {item.latestAt
+                      ? t('events.closure.latestAt', { time: formatRelativeTime(item.latestAt) })
+                      : t('events.table.now')}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-3">
+                {item.latestEvent.node_id ? (
+                  <Link href={`/dashboard/nodes/${item.latestEvent.node_id}`} className="text-xs font-medium text-emerald-300 hover:text-emerald-200">
+                    {t('events.table.nodeDetail')}
+                  </Link>
+                ) : null}
+                {item.latestEvent.session_id ? (
+                  <Link href={sessionsHref(item.latestEvent)} className="text-xs font-medium text-sky-300 hover:text-sky-200">
+                    {t('events.table.openSessions')}
+                  </Link>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-4 rounded-lg border border-emerald-500/15 bg-emerald-500/[0.04] px-3 py-2 text-xs leading-5 text-emerald-100">
+          {t('events.closure.empty')}
+        </p>
+      )}
+    </Card>
+  );
+}
+
 function EventDetailPanel({ event }: { event: VpnEvent }) {
   const { t } = useI18n();
   const rows = buildDetailRows(event, t);
@@ -887,6 +1171,8 @@ export default function VpnEventsPage() {
         <SummaryCard label={t('events.severity.warning')} value={summary.warning} tone="warning" />
         <SummaryCard label={t('events.severity.info')} value={summary.info} tone="info" />
       </div>
+
+      <IncidentClosurePanel events={events?.events ?? []} days={days} />
 
       <EventsTable events={events?.events ?? []} />
     </div>
