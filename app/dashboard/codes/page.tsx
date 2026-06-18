@@ -6,6 +6,9 @@
  * 
  * Creation Reason: Manage registration codes for node binding
  * Modification Reason:
+ *   v1.6.0 - Surface privacy-safe structured installer details as compact
+ *     operator chips so failed installs are debuggable without expanding the
+ *     Services first-level page.
  *   v1.5.0 - Connect completed install timeline rows to the linked node
  *     detail/capacity/upgrade workflow panels using backend linked_node
  *     summaries, without adding more first-level Services modules.
@@ -27,7 +30,8 @@
  * - Only unused codes can be revoked
  * - Used codes show linked node info
  * 
- * Last Modified: v1.5.0 - Link install completion to node detail operations
+ * Last Modified: v1.6.0 - Show structured installer detail chips
+ * Previous: v1.5.0 - Link install completion to node detail operations
  * Previous: v1.4.0 - Show commercial installer stage timeline
  * Previous: v1.3.0 - Generate unified aeronyx-node.sh and AI assistant commands
  * Previous: v1.2.0 - Show full preview/install one-line commands
@@ -162,6 +166,63 @@ function installNextActionKey(status: string, step: string) {
   return 'codes.installProgress.next.not_started';
 }
 
+const INSTALL_PROGRESS_DETAIL_KEYS = [
+  'command',
+  'repo_dir',
+  'branch',
+  'service',
+  'config',
+  'dry_run',
+  'no_restart',
+  'failed_phase',
+  'exit_code',
+  'script_version',
+  'host',
+  'os',
+  'arch',
+] as const;
+
+type InstallProgressDetailKey = typeof INSTALL_PROGRESS_DETAIL_KEYS[number];
+
+function installProgressDetailLabel(key: InstallProgressDetailKey, t: (key: string, params?: Record<string, string | number>) => string) {
+  const translationKey = `codes.installProgress.detail.${key}`;
+  const translated = t(translationKey);
+  if (translated !== translationKey) return translated;
+  return key.replace(/_/g, ' ');
+}
+
+function installProgressDetailValue(value: unknown) {
+  if (value === null || value === undefined || value === '') return '';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => item !== null && item !== undefined && item !== '')
+      .map((item) => String(item))
+      .join(', ');
+  }
+  return '';
+}
+
+function installProgressDetails(
+  progress: RegistrationCode['install_progress'],
+  t: (key: string, params?: Record<string, string | number>) => string,
+) {
+  if (!progress || typeof progress !== 'object') return [];
+
+  return INSTALL_PROGRESS_DETAIL_KEYS
+    .map((key) => {
+      const value = installProgressDetailValue(progress[key]);
+      if (!value) return null;
+      return {
+        key,
+        label: installProgressDetailLabel(key, t),
+        value,
+      };
+    })
+    .filter((item): item is { key: InstallProgressDetailKey; label: string; value: string } => Boolean(item));
+}
+
 function LinkedNodeActions({ code }: { code: RegistrationCode }) {
   const { t, formatDateTime } = useI18n();
   const node = code.linked_node;
@@ -231,6 +292,9 @@ function InstallProgressCell({ code }: { code: RegistrationCode }) {
       ? translatedRecommendation
       : fallbackRecommendation
     : '';
+  const details = installProgressDetails(code.install_progress, t);
+  const visibleDetails = details.slice(0, 6);
+  const hiddenDetailCount = details.length - visibleDetails.length;
 
   return (
     <div className="min-w-[320px] max-w-md">
@@ -267,6 +331,26 @@ function InstallProgressCell({ code }: { code: RegistrationCode }) {
       <p className="mt-1 text-xs leading-5 text-purple-100/70">{nextAction}</p>
       {recommendation ? (
         <p className="mt-1 line-clamp-3 text-xs leading-5 text-red-200/80">{recommendation}</p>
+      ) : null}
+      {visibleDetails.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-1.5" aria-label={t('codes.installProgress.details')}>
+          {visibleDetails.map((detail) => (
+            <span
+              key={detail.key}
+              className="max-w-full rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] leading-4 text-gray-300"
+              title={`${detail.label}: ${detail.value}`}
+            >
+              <span className="text-gray-500">{detail.label}</span>
+              <span className="mx-1 text-gray-600">/</span>
+              <span className="break-words text-gray-200 [overflow-wrap:anywhere]">{detail.value}</span>
+            </span>
+          ))}
+          {hiddenDetailCount > 0 ? (
+            <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-[11px] leading-4 text-gray-500">
+              {t('codes.installProgress.moreDetails', { count: hiddenDetailCount })}
+            </span>
+          ) : null}
+        </div>
       ) : null}
       {code.install_last_reported_at ? (
         <p className="mt-1 text-[11px] text-gray-600">
