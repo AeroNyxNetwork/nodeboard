@@ -1749,6 +1749,11 @@ function formatCapacityPair(
   return `${formatNumber(used)} / ${formatNumber(total)}`;
 }
 
+function formatCapacityBytes(value: number | null | undefined, fallback: string, decimals = 1) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return formatBytes(value, decimals);
+}
+
 function capacityTone(percent: number | null) {
   if (percent === null) return 'border-white/5 bg-white/[0.02]';
   if (percent >= 90) return 'border-red-500/25 bg-red-500/[0.06]';
@@ -1884,6 +1889,8 @@ function capacityRiskLabelFromCode(code: string, t: TranslateFn) {
       return t('nodeDetail.capacity.risk.conntrack');
     case 'file_descriptor_pressure':
       return t('nodeDetail.capacity.risk.fileDescriptors');
+    case 'disk_pressure':
+      return t('nodeDetail.capacity.risk.diskPressure');
     case 'packet_drops_detected':
       return t('nodeDetail.capacity.risk.packetDrops');
     default:
@@ -1942,6 +1949,13 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
   const packetDrops = capacity?.packet_drops_total ?? capacity?.interface?.packet_drops ?? null;
   const pps = capacity?.interface?.total_pps;
   const bps = capacity?.interface?.total_bps;
+  const diskPath = capacity?.disk?.state?.reported
+    ? capacity.disk.state
+    : capacity?.disk?.root?.reported
+      ? capacity.disk.root
+      : capacity?.disk?.state ?? capacity?.disk?.root ?? null;
+  const diskPercent = diskPath?.used_percent
+    ?? capacityPercent(diskPath?.used_bytes, diskPath?.total_bytes);
   const tunCheck = findHealthCheck(health, 'tun_device');
   const forwardingCheck = findHealthCheck(health, 'ip_forward');
   const natCheck = findHealthCheck(health, 'nat_masquerade');
@@ -2083,13 +2097,15 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
           tone={packetDrops && packetDrops > 0 ? 'border-yellow-500/25 bg-yellow-500/[0.06]' : 'border-emerald-500/15 bg-emerald-500/[0.04]'}
         />
         <CapacityMetric
-          label={t('nodeDetail.capacity.interface')}
-          value={capacity?.interface?.interface || pending}
-          detail={t('nodeDetail.capacity.interfaceDetail', {
-            rx: formatCapacityNumber(capacity?.interface?.rx_packets, formatNumber, pending),
-            tx: formatCapacityNumber(capacity?.interface?.tx_packets, formatNumber, pending),
+          label={t('nodeDetail.capacity.storage')}
+          value={typeof diskPath?.used_bytes === 'number' && typeof diskPath?.total_bytes === 'number'
+            ? `${formatCapacityBytes(diskPath.used_bytes, pending)} / ${formatCapacityBytes(diskPath.total_bytes, pending)}`
+            : pending}
+          detail={t('nodeDetail.capacity.storageDetail', {
+            free: formatCapacityBytes(diskPath?.available_bytes, pending),
+            path: diskPath?.path || pending,
           })}
-          tone="border-white/5 bg-black/20"
+          percent={diskPercent}
         />
       </div>
 

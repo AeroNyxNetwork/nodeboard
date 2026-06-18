@@ -1679,6 +1679,22 @@ export interface VpnCapacityNestedUsage {
   used_percent?: number | null;
 }
 
+export interface VpnCapacityDiskPath {
+  reported?: boolean;
+  path?: string;
+  total_bytes?: number | null;
+  used_bytes?: number | null;
+  available_bytes?: number | null;
+  used_percent?: number | null;
+}
+
+export interface VpnCapacityDiskSnapshot {
+  root?: VpnCapacityDiskPath | null;
+  state?: VpnCapacityDiskPath | null;
+  source?: string | null;
+  privacy_boundary?: string | null;
+}
+
 export interface VpnCapacityInterface {
   interface?: string;
   rx_bytes?: number | null;
@@ -1733,6 +1749,7 @@ export interface VpnCapacitySnapshot {
   session_capacity_remaining: number | null;
   conntrack: VpnCapacityNestedUsage;
   file_descriptors: VpnCapacityNestedUsage;
+  disk?: VpnCapacityDiskSnapshot | null;
   interface: VpnCapacityInterface;
   packet_drops_total: number | null;
   risks?: VpnCapacityRiskSnapshot[] | null;
