@@ -2097,8 +2097,83 @@ export interface VpnNodeHealth {
     policy_enforcement?: VpnPolicyEnforcement;
     runtime_recovery?: VpnRuntimeRecovery;
     operator_status?: NodeOperatorStatus | null;
+    /**
+     * Rust source:
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/management/client.rs
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/server.rs
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/services/peer_store.rs
+     * Backend pass-through:
+     *   /root/aeronyx/privacy_network/api/vpn_observability.py
+     *
+     * Aggregate AeroNyx node-discovery telemetry only. Contains peer counts,
+     * gossip timestamps, and rejected/stale counters. It never contains client
+     * public IPs, destinations, DNS contents, packet payloads, chat plaintext,
+     * voucher secrets, private keys, or wallet-level traffic.
+     */
+    discovery_status?: DiscoveryStatus | null;
   };
   checks: VpnHealthCheck[];
+}
+
+export interface DiscoveryPeerStoreSnapshot {
+  total_peers: number;
+  valid_peers: number;
+  public_peers: number;
+  public_exit_peers: number;
+}
+
+export interface DiscoveryRuntimeStats {
+  total_imported: number;
+  inserted: number;
+  unchanged: number;
+  stale: number;
+  rejected: number;
+  capacity_rejected: number;
+  policy_rejected: number;
+  rate_limited: number;
+  last_import_at: number | null;
+  last_gossip_at: number | null;
+  last_snapshot_at: number | null;
+}
+
+export interface DiscoveryPeerStoreStatus {
+  snapshot: DiscoveryPeerStoreSnapshot;
+  runtime: DiscoveryRuntimeStats;
+  max_peers: number | null;
+  recent_audit_events?: DiscoveryAuditEvent[];
+  bootstrap?: DiscoveryBootstrapStatus;
+}
+
+export interface DiscoveryAuditEvent {
+  at: number;
+  action: string;
+  outcome: string;
+  detail: string;
+}
+
+export interface DiscoveryBootstrapStatus {
+  enabled: boolean;
+  peer_cache_configured: boolean;
+  gossip_enabled: boolean;
+  last_source_kind: string | null;
+  last_source_status: string | null;
+  last_source_detail: string | null;
+  last_source_at: number | null;
+  self_descriptor_status: string | null;
+  self_descriptor_at: number | null;
+  last_cache_save_status: string | null;
+  last_cache_save_detail: string | null;
+  last_cache_save_at: number | null;
+  last_gossip_attempted: number;
+  last_gossip_succeeded: number;
+  last_gossip_round_at: number | null;
+}
+
+export interface DiscoveryStatus {
+  generated_at: number;
+  peer_store: DiscoveryPeerStoreStatus;
+  source?: string;
+  privacy_boundary?: string;
 }
 
 export interface VpnAlert {

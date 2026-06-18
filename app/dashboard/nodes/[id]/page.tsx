@@ -6,6 +6,13 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.40 - Added a node-scoped Discovery panel that consumes
+ *     data.nodes[].system.discovery_status from the backend overview API.
+ *     Rust reports this aggregate peer-store snapshot from
+ *     crates/aeronyx-server/src/management/reporter.rs and
+ *     crates/aeronyx-server/src/services/peer_store.rs so operators can see
+ *     peer count, valid peers, gossip freshness, stale/rejected imports, and
+ *     bootstrap readiness without exposing client traffic or chat plaintext.
  *   v1.6.39 - Prioritized `aeronyx-node.sh status` in Operator Runbook and
  *     AI maintenance prompts because status now includes service state,
  *     local endpoints, upgrade state, and operator_next_step from the
@@ -118,6 +125,11 @@
  *     command delivery readiness in the Maintenance Drain panel. Backend
  *     data.nodes[].system.restart_readiness.command_delivery is preferred so
  *     node detail shares the same policy as Services command_delivery_health.
+ *     Exposes data.nodes[].system.discovery_status for aggregate Rust node
+ *     discovery/gossip health. Backend path:
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py. Rust producers:
+ *     /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
+ *     and /root/open/AeroNyx/crates/aeronyx-server/src/services/peer_store.rs.
  *     Exposes data.nodes[].system.restart_readiness.active_restart_command
  *     and latest_restart_command for restart command SLA/outcome visibility
  *     without command params, result, or error_message payloads.
@@ -213,7 +225,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.39 - Prioritize status in operator runbook
+ * Last Modified: v1.6.40 - Show Rust discovery and gossip status
+ * Previous: v1.6.39 - Prioritize status in operator runbook
  * Previous: v1.6.38 - Link service configuration to Services sections
  * Previous: v1.6.37 - Show node service configuration panel
  * Previous: v1.6.36 - Show Rust operator action recommendation
@@ -278,6 +291,7 @@ import {
 } from '@/hooks/useNodes';
 import {
   NodeCommand,
+  DiscoveryStatus,
   NodeInstallProgressSummary,
   NodeOperatorStatus,
   Session,
@@ -3462,6 +3476,271 @@ function privacyProtocolStatusLabel(status: string | null | undefined, pending: 
   return translated === key ? status.replaceAll('_', ' ') : translated;
 }
 
+function discoveryWarningCount(discovery: DiscoveryStatus | null | undefined) {
+  const runtime = discovery?.peer_store?.runtime;
+  if (!runtime) return 0;
+  return (
+    (runtime.stale || 0)
+    + (runtime.rejected || 0)
+    + (runtime.capacity_rejected || 0)
+    + (runtime.policy_rejected || 0)
+    + (runtime.rate_limited || 0)
+  );
+}
+
+function discoveryPanelTone(discovery: DiscoveryStatus | null | undefined) {
+  if (!discovery?.peer_store) return 'border-gray-500/20 bg-gray-500/[0.04]';
+  if (discoveryWarningCount(discovery) > 0) return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  if (discovery.peer_store.snapshot.valid_peers > 0) return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+  return 'border-sky-500/15 bg-sky-500/[0.04]';
+}
+
+function discoveryStatusLabel(discovery: DiscoveryStatus | null | undefined, t: TranslateFn) {
+  if (!discovery?.peer_store) return t('nodeDetail.discovery.status.pending');
+  if (discoveryWarningCount(discovery) > 0) return t('nodeDetail.discovery.status.attention');
+  if (discovery.peer_store.snapshot.valid_peers > 0) return t('nodeDetail.discovery.status.ready');
+  return t('nodeDetail.discovery.status.pending');
+}
+
+function discoveryTimestampLabel(
+  value: number | null | undefined,
+  pending: string,
+  relativeTime: (value: string) => string,
+) {
+  return typeof value === 'number' && value > 0
+    ? relativeTime(new Date(value * 1000).toISOString())
+    : pending;
+}
+
+function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null | undefined }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
+  const pending = t('nodeDetail.discovery.pendingTime');
+  const peerStore = discovery?.peer_store ?? null;
+
+  if (!peerStore) {
+    return (
+      <div id="discovery-panel" className={`mt-5 scroll-mt-6 rounded-xl border p-4 ${discoveryPanelTone(discovery)}`}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="text-sm font-semibold text-white">{t('nodeDetail.discovery.title')}</h4>
+              <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${discoveryPanelTone(discovery)}`}>
+                {t('nodeDetail.discovery.status.pending')}
+              </span>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-gray-500">{t('nodeDetail.discovery.description')}</p>
+          </div>
+          <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500 lg:max-w-md">
+            <p className="font-medium text-gray-300">{t('nodeDetail.discovery.pendingTitle')}</p>
+            <p className="mt-1 leading-5">{t('nodeDetail.discovery.pendingDescription')}</p>
+          </div>
+        </div>
+        <p className="mt-3 text-[11px] leading-5 text-gray-600">{t('nodeDetail.discovery.backendPath')}</p>
+      </div>
+    );
+  }
+
+  const snapshot = peerStore.snapshot;
+  const runtime = peerStore.runtime;
+  const warnings = discoveryWarningCount(discovery);
+  const maxPeers = typeof peerStore.max_peers === 'number' ? formatNumber(peerStore.max_peers) : pending;
+  const totalPeers = formatNumber(snapshot.total_peers);
+  const validPeers = formatNumber(snapshot.valid_peers);
+  const publicPeers = formatNumber(snapshot.public_peers);
+  const auditEvents = peerStore.recent_audit_events ?? [];
+  const bootstrap = peerStore.bootstrap ?? null;
+  const telemetrySource = discovery?.source || 'system_stats.discovery_status';
+  const privacyBoundary = discovery?.privacy_boundary || t('nodeDetail.discovery.privacyBoundary');
+
+  return (
+    <div id="discovery-panel" className={`mt-5 scroll-mt-6 rounded-xl border p-4 ${discoveryPanelTone(discovery)}`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-semibold text-white">{t('nodeDetail.discovery.title')}</h4>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${discoveryPanelTone(discovery)}`}>
+              {discoveryStatusLabel(discovery, t)}
+            </span>
+            {warnings > 0 && (
+              <span className="inline-flex rounded-full border border-yellow-500/25 bg-yellow-500/10 px-2 py-1 text-xs text-yellow-200">
+                {t('nodeDetail.discovery.navWarnings', { count: formatNumber(warnings) })}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-xs leading-5 text-gray-500">{t('nodeDetail.discovery.description')}</p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500 lg:max-w-md">
+          <p className="font-medium text-gray-300">{t('nodeDetail.discovery.source')}</p>
+          <p className="mt-1 break-words [overflow-wrap:anywhere]">{telemetrySource}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CapacityMetric
+          label={t('nodeDetail.discovery.totalPeers')}
+          value={totalPeers}
+          detail={t('nodeDetail.discovery.maxPeersDetail', { max: maxPeers })}
+          tone="border-sky-500/15 bg-sky-500/[0.04]"
+        />
+        <CapacityMetric
+          label={t('nodeDetail.discovery.validPeers')}
+          value={validPeers}
+          detail={t('nodeDetail.discovery.publicPeersDetail', {
+            public: publicPeers,
+            exit: formatNumber(snapshot.public_exit_peers),
+          })}
+          tone={snapshot.valid_peers > 0 ? 'border-emerald-500/15 bg-emerald-500/[0.04]' : 'border-gray-500/20 bg-gray-500/[0.04]'}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.discovery.lastGossip')}
+          value={discoveryTimestampLabel(runtime.last_gossip_at, pending, i18nRelativeTime)}
+          detail={t('nodeDetail.discovery.lastImportDetail', {
+            time: discoveryTimestampLabel(runtime.last_import_at, pending, i18nRelativeTime),
+          })}
+          tone={runtime.last_gossip_at ? 'border-emerald-500/15 bg-emerald-500/[0.04]' : 'border-white/5 bg-black/20'}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.discovery.lastSnapshot')}
+          value={discoveryTimestampLabel(runtime.last_snapshot_at, pending, i18nRelativeTime)}
+          detail={t('nodeDetail.discovery.importedDetail', {
+            total: formatNumber(runtime.total_imported),
+          })}
+          tone="border-white/5 bg-black/20"
+        />
+      </div>
+
+      {bootstrap && (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <CapacityMetric
+            label={t('nodeDetail.discovery.bootstrapSource')}
+            value={bootstrap.last_source_status || (bootstrap.enabled ? pending : t('nodeDetail.discovery.disabled'))}
+            detail={t('nodeDetail.discovery.bootstrapSourceDetail', {
+              kind: bootstrap.last_source_kind || t('common.status.pending'),
+              time: discoveryTimestampLabel(bootstrap.last_source_at, pending, i18nRelativeTime),
+            })}
+            tone={bootstrap.last_source_status === 'failed'
+              ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
+              : bootstrap.last_source_status === 'success' || bootstrap.last_source_status === 'warning'
+                ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
+                : 'border-white/5 bg-black/20'}
+          />
+          <CapacityMetric
+            label={t('nodeDetail.discovery.selfDescriptor')}
+            value={bootstrap.self_descriptor_status || pending}
+            detail={bootstrap.self_descriptor_at
+              ? discoveryTimestampLabel(bootstrap.self_descriptor_at, pending, i18nRelativeTime)
+              : t('nodeDetail.discovery.selfDescriptorDetail')}
+            tone={bootstrap.self_descriptor_status === 'failed'
+              ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
+              : bootstrap.self_descriptor_status === 'success'
+                ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
+                : 'border-white/5 bg-black/20'}
+          />
+          <CapacityMetric
+            label={t('nodeDetail.discovery.peerCache')}
+            value={bootstrap.peer_cache_configured ? (bootstrap.last_cache_save_status || pending) : t('nodeDetail.discovery.disabled')}
+            detail={bootstrap.last_cache_save_detail || t('nodeDetail.discovery.peerCacheDetail')}
+            tone={bootstrap.last_cache_save_status === 'failed'
+              ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
+              : bootstrap.last_cache_save_status === 'success'
+                ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
+                : 'border-white/5 bg-black/20'}
+          />
+          <CapacityMetric
+            label={t('nodeDetail.discovery.outboundGossip')}
+            value={bootstrap.gossip_enabled ? t('nodeDetail.discovery.enabled') : t('nodeDetail.discovery.disabled')}
+            detail={bootstrap.last_gossip_round_at
+              ? t('nodeDetail.discovery.outboundGossipDetail', {
+                  attempted: formatNumber(bootstrap.last_gossip_attempted),
+                  succeeded: formatNumber(bootstrap.last_gossip_succeeded),
+                  time: discoveryTimestampLabel(bootstrap.last_gossip_round_at, pending, i18nRelativeTime),
+                })
+              : t('nodeDetail.discovery.outboundGossipWaiting')}
+            tone={bootstrap.gossip_enabled
+              ? bootstrap.last_gossip_attempted > bootstrap.last_gossip_succeeded
+                ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
+                : 'border-sky-500/15 bg-sky-500/[0.04]'
+              : 'border-white/5 bg-black/20'}
+          />
+        </div>
+      )}
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        {[
+          [t('nodeDetail.discovery.inserted'), runtime.inserted, 'text-emerald-200'],
+          [t('nodeDetail.discovery.unchanged'), runtime.unchanged, 'text-gray-200'],
+          [t('nodeDetail.discovery.stale'), runtime.stale, runtime.stale > 0 ? 'text-yellow-200' : 'text-gray-200'],
+          [t('nodeDetail.discovery.rejected'), runtime.rejected, runtime.rejected > 0 ? 'text-yellow-200' : 'text-gray-200'],
+          [t('nodeDetail.discovery.rateLimited'), runtime.rate_limited, runtime.rate_limited > 0 ? 'text-yellow-200' : 'text-gray-200'],
+        ].map(([label, value, tone]) => (
+          <div key={String(label)} className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-600">{label}</p>
+            <p className={`mt-1 text-sm font-semibold ${tone}`}>{formatNumber(Number(value))}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500">
+          <p className="font-medium text-gray-300">{t('nodeDetail.discovery.policyRejected')}</p>
+          <p className="mt-1">{formatNumber(runtime.policy_rejected)}</p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500">
+          <p className="font-medium text-gray-300">{t('nodeDetail.discovery.capacityRejected')}</p>
+          <p className="mt-1">{formatNumber(runtime.capacity_rejected)}</p>
+        </div>
+      </div>
+
+      {auditEvents.length > 0 && (
+        <div className="mt-3 rounded-lg border border-white/5 bg-black/20 p-3">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-medium text-gray-300">{t('nodeDetail.discovery.auditTitle')}</p>
+              <p className="mt-1 text-[11px] leading-4 text-gray-600">{t('nodeDetail.discovery.auditDescription')}</p>
+            </div>
+            <span className="w-fit rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] uppercase text-gray-400">
+              {t('nodeDetail.discovery.auditCount', { count: formatNumber(auditEvents.length) })}
+            </span>
+          </div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-2">
+            {auditEvents.slice(-6).map((event, index) => (
+              <div
+                key={`${event.at}-${event.action}-${index}`}
+                className="rounded-lg border border-white/5 bg-white/[0.025] px-3 py-2"
+              >
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-semibold text-white">
+                      {event.action.replaceAll('_', ' ')}
+                    </p>
+                    <p className="mt-1 break-words text-[11px] leading-4 text-gray-500 [overflow-wrap:anywhere]">
+                      {event.detail}
+                    </p>
+                  </div>
+                  <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase ${
+                    event.outcome === 'rejected' || event.outcome === 'limited' || event.outcome === 'warning'
+                      ? 'border-yellow-500/25 bg-yellow-500/10 text-yellow-200'
+                      : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200'
+                  }`}>
+                    {event.outcome}
+                  </span>
+                </div>
+                <p className="mt-2 text-[11px] text-gray-600">
+                  {discoveryTimestampLabel(event.at, pending, i18nRelativeTime)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="mt-3 text-[11px] leading-5 text-gray-600">
+        {privacyBoundary}
+      </p>
+    </div>
+  );
+}
+
 function PrivacyProtocolHealthPanel({ health }: { health: VpnNodeHealth }) {
   const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const protocol = health.system.privacy_protocol_health ?? null;
@@ -6013,6 +6292,8 @@ function VpnHealthPanel({
   const runtimeRollout = health.system.operator_status?.runtime_rollout ?? null;
   const runtimeReported = Boolean(health.system.operator_status);
   const restartRequired = Boolean(runtimeRollout?.restart_required);
+  const discoveryStatus = health.system.discovery_status ?? null;
+  const discoveryWarnings = discoveryWarningCount(discoveryStatus);
   const recentErrors = health.system.recent_errors;
   const recentOperationalEventCount = Array.isArray(recentErrors?.events) ? recentErrors.events.length : 0;
   const hasRecentOperationalEventTelemetry = Boolean(recentErrors?.reported);
@@ -6065,6 +6346,22 @@ function VpnHealthPanel({
           ? t('nodeDetail.operatorActions.meta.clear')
           : t('nodeDetail.operatorActions.meta.waiting'),
       tone: restartRequired ? 'warning' : runtimeReported ? 'ok' : 'pending',
+    },
+    {
+      href: '#discovery-panel',
+      label: t('nodeDetail.discovery.navLabel'),
+      detail: discoveryStatus
+        ? t('nodeDetail.discovery.navDetail', {
+            valid: formatNumber(discoveryStatus.peer_store.snapshot.valid_peers),
+            total: formatNumber(discoveryStatus.peer_store.snapshot.total_peers),
+          })
+        : t('nodeDetail.discovery.navPending'),
+      meta: discoveryWarnings > 0
+        ? t('nodeDetail.discovery.navWarnings', { count: formatNumber(discoveryWarnings) })
+        : discoveryStatus
+          ? t('nodeDetail.operatorActions.meta.clear')
+          : t('nodeDetail.operatorActions.meta.waiting'),
+      tone: discoveryWarnings > 0 ? 'warning' : discoveryStatus ? 'ok' : 'pending',
     },
     {
       href: '#service-config-panel',
@@ -6269,6 +6566,7 @@ function VpnHealthPanel({
       <RecentOperationalEventsPanel health={health} />
       <RuntimeVersionPanel health={health} />
       <PrivacyProtocolHealthPanel health={health} />
+      <DiscoveryStatusPanel discovery={health.system.discovery_status} />
       <ServiceConfigurationPanel health={health} />
       <UpgradeWorkflowPanel health={health} />
       <OperatorRunbookPanel health={health} />
