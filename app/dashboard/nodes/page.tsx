@@ -3,8 +3,38 @@
  * AeroNyx Nodes List Page
  * ============================================
  * File Path: app/dashboard/nodes/page.tsx
- * 
- * Last Modified: v1.0.1 - Removed motion animations to fix re-render loop
+ *
+ * Creation Reason: Show the operator's registered AeroNyx nodes and fleet
+ * operations summaries.
+ * Modification Reason:
+ *   v1.1.0 - Added a first-level Attention column to the AeroNyx Node
+ *     Operations table. The column summarizes privacy-safe Rust operator
+ *     action, capacity risks, recent sanitized events, failed health checks, or
+ *     health status so operators can decide whether to inspect detail without
+ *     expanding Services into a dense diagnostics page.
+ *
+ * Main Functionality:
+ * 1. Filter and search registered nodes.
+ * 2. Show placement capacity by region/tier.
+ * 3. Show first-level node operations health, policy, capacity, load, version,
+ *    heartbeat freshness, and recommended attention.
+ * 4. Link deep diagnostics to node detail pages.
+ *
+ * Dependencies:
+ * - hooks/useNodes.ts for node, overview, and placement data.
+ * - components/dashboard/NodeCard.tsx for grid cards.
+ * - lib/i18n/index.ts for six-language dashboard copy.
+ *
+ * Important Note for Next Developer:
+ * - Keep this page as a scan-friendly first-level console. Deep evidence such
+ *   as conntrack, fd, packet drops, runtime rollout, and event bodies belongs
+ *   on the node detail page.
+ * - Attention summaries must use aggregate node operations only. Do not expose
+ *   client public IPs, destinations, DNS contents, packet payloads, chat
+ *   plaintext, voucher secrets, private keys, or wallet-level traffic here.
+ *
+ * Last Modified: v1.1.0 - Added first-level node attention triage
+ * Previous: v1.0.1 - Removed motion animations to fix re-render loop
  * ============================================
  */
 
@@ -245,6 +275,104 @@ function topUnavailableReason(reasons: Record<string, number>, t: TranslateFn, f
   return reason ? `${formatPlacementReason(reason, t)} ${formatNumber(count)}` : t('nodes.placement.allCandidatesClear');
 }
 
+type AttentionTone = 'ok' | 'info' | 'warning' | 'critical';
+
+interface NodeAttentionSummary {
+  tone: AttentionTone;
+  label: string;
+  detail: string;
+  href: string;
+}
+
+function attentionToneClass(tone: AttentionTone) {
+  return {
+    ok: 'border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-200',
+    info: 'border-sky-500/20 bg-sky-500/[0.08] text-sky-200',
+    warning: 'border-yellow-500/25 bg-yellow-500/[0.08] text-yellow-200',
+    critical: 'border-red-500/25 bg-red-500/[0.08] text-red-200',
+  }[tone];
+}
+
+function statusToAttentionTone(status: string | null | undefined): AttentionTone {
+  const normalized = (status || '').toLowerCase();
+  if (['critical', 'failed', 'error', 'offline', 'overloaded'].includes(normalized)) return 'critical';
+  if (['warning', 'attention', 'degraded', 'blocked'].includes(normalized)) return 'warning';
+  if (['info', 'pending', 'running'].includes(normalized)) return 'info';
+  return 'ok';
+}
+
+function nodeDetailHref(node: VpnNodeHealth, hash: string) {
+  return `/dashboard/nodes/${node.id}${hash}`;
+}
+
+function nodeAttentionSummary(node: VpnNodeHealth, t: TranslateFn, formatNumber: FormatNumberFn): NodeAttentionSummary {
+  const operatorAction = node.system.operator_action;
+  if (operatorAction && statusToAttentionTone(operatorAction.status) !== 'ok') {
+    return {
+      tone: statusToAttentionTone(operatorAction.status),
+      label: t('nodes.operations.attentionOperatorAction'),
+      detail: operatorAction.next_step || operatorAction.detail || operatorAction.title,
+      href: nodeDetailHref(node, '#operator-actions'),
+    };
+  }
+
+  const capacityRisks = node.system.capacity?.risks ?? [];
+  if (capacityRisks.length > 0) {
+    const hasCritical = capacityRisks.some((risk) => statusToAttentionTone(risk.severity) === 'critical');
+    const firstRisk = capacityRisks[0];
+    return {
+      tone: hasCritical ? 'critical' : 'warning',
+      label: t('nodes.operations.attentionCapacity'),
+      detail: firstRisk?.remediation || firstRisk?.message || t('nodes.operations.attentionCapacityDetail', {
+        count: formatNumber(capacityRisks.length),
+      }),
+      href: nodeDetailHref(node, '#capacity-panel'),
+    };
+  }
+
+  const recentEvents = node.system.recent_errors?.events ?? [];
+  if (recentEvents.length > 0) {
+    const hasCritical = recentEvents.some((event) => statusToAttentionTone(event.severity) === 'critical');
+    const firstEvent = recentEvents[0];
+    return {
+      tone: hasCritical ? 'critical' : 'warning',
+      label: t('nodes.operations.attentionRecentEvents'),
+      detail: firstEvent?.message || t('nodes.operations.attentionRecentEventsDetail', {
+        count: formatNumber(recentEvents.length),
+      }),
+      href: nodeDetailHref(node, '#recent-operational-events'),
+    };
+  }
+
+  const failedChecks = node.checks.filter((check) => !check.ok);
+  if (failedChecks.length > 0) {
+    return {
+      tone: 'warning',
+      label: t('nodes.operations.attentionHealthChecks'),
+      detail: failedChecks[0]?.detail || t('nodes.operations.attentionHealthChecksDetail', {
+        count: formatNumber(failedChecks.length),
+      }),
+      href: nodeDetailHref(node, '#health-checks'),
+    };
+  }
+
+  if (node.health_status !== 'healthy') {
+    return {
+      tone: statusToAttentionTone(node.health_status),
+      label: t('nodes.operations.attentionHealthStatus'),
+      detail: t(`nodes.vpnHealth.${node.health_status}`),
+      href: nodeDetailHref(node, '#health-checks'),
+    };
+  }
+
+  return {
+    tone: 'ok',
+    label: t('nodes.operations.attentionClear'),
+    detail: t('nodes.operations.attentionClearDetail'),
+    href: nodeDetailHref(node, ''),
+  };
+}
+
 function ClientPlacementPanel({
   servers,
   summary,
@@ -458,7 +586,7 @@ function VpnNodeOperationsTable({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1180px] text-sm">
+        <table className="w-full min-w-[1360px] text-sm">
           <thead className="text-xs uppercase text-gray-500 bg-white/[0.02]">
             <tr>
               <th className="text-left font-medium px-5 py-3">{t('nodes.operations.node')}</th>
@@ -468,73 +596,87 @@ function VpnNodeOperationsTable({
               <th className="text-left font-medium px-4 py-3">{t('nodes.operations.availability')}</th>
               <th className="text-left font-medium px-4 py-3">{t('nodes.operations.sessions')}</th>
               <th className="text-left font-medium px-4 py-3">{t('nodes.operations.load')}</th>
+              <th className="text-left font-medium px-4 py-3">{t('nodes.operations.attention')}</th>
               <th className="text-left font-medium px-4 py-3">{t('nodes.operations.version')}</th>
               <th className="text-left font-medium px-5 py-3">{t('nodes.operations.lastHeartbeat')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
-            {sortedNodes.map((node) => (
-              <tr key={node.id} className="hover:bg-white/[0.03] transition-colors">
-                <td className="px-5 py-4">
-                  <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
-                    {node.name}
-                  </Link>
-                  <div className="text-xs text-gray-500 mt-1">
-                    {node.public_ip || t('nodes.noIp')}:{node.port}
-                  </div>
-                </td>
-                <td className="px-4 py-4 text-gray-300">
-                  {node.region_code || t('nodes.pending')}
-                  {node.city ? <div className="text-xs text-gray-500">{node.city}</div> : null}
-                </td>
-                <td className="px-4 py-4">
-                  <div className="flex flex-col gap-1.5">
-                    <VpnHealthBadge status={node.health_status} />
-                    <span className="text-xs text-gray-500">{t('nodes.score', { score: formatNumber(node.health_score) })}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-4 text-gray-300">
-                  <div className="flex flex-col gap-1.5">
-                    <div className="flex items-center gap-2">
-                      <PolicyBadge node={node} />
-                      <span className="text-xs text-gray-500">{node.node_tier || t('nodes.publicTier')}</span>
+            {sortedNodes.map((node) => {
+              const attention = nodeAttentionSummary(node, t, formatNumber);
+              return (
+                <tr key={node.id} className="hover:bg-white/[0.03] transition-colors">
+                  <td className="px-5 py-4">
+                    <Link href={`/dashboard/nodes/${node.id}`} className="font-medium text-white hover:text-purple-300">
+                      {node.name}
+                    </Link>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {node.public_ip || t('nodes.noIp')}:{node.port}
                     </div>
+                  </td>
+                  <td className="px-4 py-4 text-gray-300">
+                    {node.region_code || t('nodes.pending')}
+                    {node.city ? <div className="text-xs text-gray-500">{node.city}</div> : null}
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex flex-col gap-1.5">
+                      <VpnHealthBadge status={node.health_status} />
+                      <span className="text-xs text-gray-500">{t('nodes.score', { score: formatNumber(node.health_score) })}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 text-gray-300">
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <PolicyBadge node={node} />
+                        <span className="text-xs text-gray-500">{node.node_tier || t('nodes.publicTier')}</span>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {t('nodes.policy.cap')} {formatPolicyLimit(node.max_sessions, t('nodes.policy.sessions'), t, formatNumber)} ·{' '}
+                        {formatPolicyLimit(node.bandwidth_limit_mbps, t('nodes.policy.mbps'), t, formatNumber)}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 text-gray-300">
+                    <span className="text-white font-medium">{formatAvailability(node.availability_24h?.percent, t)}</span>
                     <div className="text-xs text-gray-500">
-                      {t('nodes.policy.cap')} {formatPolicyLimit(node.max_sessions, t('nodes.policy.sessions'), t, formatNumber)} ·{' '}
-                      {formatPolicyLimit(node.bandwidth_limit_mbps, t('nodes.policy.mbps'), t, formatNumber)}
+                      {t('nodes.samples', { count: formatNumber(node.availability_24h?.sample_count ?? 0) })}
                     </div>
-                  </div>
-                </td>
-                <td className="px-4 py-4 text-gray-300">
-                  <span className="text-white font-medium">{formatAvailability(node.availability_24h?.percent, t)}</span>
-                  <div className="text-xs text-gray-500">
-                    {t('nodes.samples', { count: formatNumber(node.availability_24h?.sample_count ?? 0) })}
-                  </div>
-                </td>
-                <td className="px-4 py-4 text-gray-300">
-                  <span className="text-white font-medium">{formatNumber(node.active_sessions)}</span>
-                  <span className="text-gray-500"> {t('nodes.active')}</span>
-                  <div className="text-xs text-gray-500">
-                    {formatCapacityLeft(node, t, formatNumber)}
-                  </div>
-                </td>
-                <td className="px-4 py-4 text-gray-300">
-                  {t('nodes.operations.cpu')} {formatMetric(node.system.cpu_usage, '%', t)}
-                  <div className="text-xs text-gray-500">
-                    {t('nodes.operations.memory')} {formatMemory(node.system.memory_mb, node.system.memory_total_mb, t, formatNumber)}
-                  </div>
-                </td>
-                <td className="px-4 py-4 text-gray-400">{node.version || t('nodes.unknown')}</td>
-                <td className="px-5 py-4 text-gray-400">
-                  {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : t('nodes.never')}
-                  <div className="text-xs text-gray-600">
-                    {node.last_seen_seconds === null
-                      ? t('nodes.agePending')
-                      : t('nodes.ageSeconds', { seconds: formatNumber(node.last_seen_seconds) })}
-                  </div>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="px-4 py-4 text-gray-300">
+                    <span className="text-white font-medium">{formatNumber(node.active_sessions)}</span>
+                    <span className="text-gray-500"> {t('nodes.active')}</span>
+                    <div className="text-xs text-gray-500">
+                      {formatCapacityLeft(node, t, formatNumber)}
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 text-gray-300">
+                    {t('nodes.operations.cpu')} {formatMetric(node.system.cpu_usage, '%', t)}
+                    <div className="text-xs text-gray-500">
+                      {t('nodes.operations.memory')} {formatMemory(node.system.memory_mb, node.system.memory_total_mb, t, formatNumber)}
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <Link href={attention.href} className="block max-w-[240px] rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2 transition hover:border-white/15 hover:bg-white/[0.04]">
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${attentionToneClass(attention.tone)}`}>
+                        {attention.label}
+                      </span>
+                      <span className="mt-1 block truncate text-xs text-gray-500" title={attention.detail}>
+                        {attention.detail}
+                      </span>
+                    </Link>
+                  </td>
+                  <td className="px-4 py-4 text-gray-400">{node.version || t('nodes.unknown')}</td>
+                  <td className="px-5 py-4 text-gray-400">
+                    {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : t('nodes.never')}
+                    <div className="text-xs text-gray-600">
+                      {node.last_seen_seconds === null
+                        ? t('nodes.agePending')
+                        : t('nodes.ageSeconds', { seconds: formatNumber(node.last_seen_seconds) })}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
