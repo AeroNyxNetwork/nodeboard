@@ -6,6 +6,8 @@
  * 
  * Creation Reason: Manage registration codes for node binding
  * Modification Reason:
+ *   v1.7.0 - Prioritize failed phase and exit code in installer detail chips
+ *     when Rust reports a failed install, while keeping normal rows compact.
  *   v1.6.0 - Surface privacy-safe structured installer details as compact
  *     operator chips so failed installs are debuggable without expanding the
  *     Services first-level page.
@@ -30,7 +32,8 @@
  * - Only unused codes can be revoked
  * - Used codes show linked node info
  * 
- * Last Modified: v1.6.0 - Show structured installer detail chips
+ * Last Modified: v1.7.0 - Prioritize failed installer detail chips
+ * Previous: v1.6.0 - Show structured installer detail chips
  * Previous: v1.5.0 - Link install completion to node detail operations
  * Previous: v1.4.0 - Show commercial installer stage timeline
  * Previous: v1.3.0 - Generate unified aeronyx-node.sh and AI assistant commands
@@ -184,6 +187,21 @@ const INSTALL_PROGRESS_DETAIL_KEYS = [
 
 type InstallProgressDetailKey = typeof INSTALL_PROGRESS_DETAIL_KEYS[number];
 
+const FAILED_INSTALL_PROGRESS_DETAIL_KEYS: readonly InstallProgressDetailKey[] = [
+  'failed_phase',
+  'exit_code',
+  'command',
+  'service',
+  'repo_dir',
+  'branch',
+  'config',
+  'dry_run',
+  'script_version',
+  'host',
+  'os',
+  'arch',
+];
+
 function installProgressDetailLabel(key: InstallProgressDetailKey, t: (key: string, params?: Record<string, string | number>) => string) {
   const translationKey = `codes.installProgress.detail.${key}`;
   const translated = t(translationKey);
@@ -207,10 +225,12 @@ function installProgressDetailValue(value: unknown) {
 function installProgressDetails(
   progress: RegistrationCode['install_progress'],
   t: (key: string, params?: Record<string, string | number>) => string,
+  status: string,
 ) {
   if (!progress || typeof progress !== 'object') return [];
+  const detailKeys = status === 'failed' ? FAILED_INSTALL_PROGRESS_DETAIL_KEYS : INSTALL_PROGRESS_DETAIL_KEYS;
 
-  return INSTALL_PROGRESS_DETAIL_KEYS
+  return detailKeys
     .map((key) => {
       const value = installProgressDetailValue(progress[key]);
       if (!value) return null;
@@ -292,7 +312,7 @@ function InstallProgressCell({ code }: { code: RegistrationCode }) {
       ? translatedRecommendation
       : fallbackRecommendation
     : '';
-  const details = installProgressDetails(code.install_progress, t);
+  const details = installProgressDetails(code.install_progress, t, status);
   const visibleDetails = details.slice(0, 6);
   const hiddenDetailCount = details.length - visibleDetails.length;
 
