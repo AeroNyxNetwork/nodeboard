@@ -477,6 +477,9 @@ function GenerateCodeCard() {
   const [showCode, setShowCode] = useState(false);
   const repoBootstrapCommand = 'mkdir -p /root/open && cd /root/open && if [ -d AeroNyx/.git ]; then cd AeroNyx && git fetch origin main && git checkout main && git pull --ff-only origin main; else git clone https://github.com/AeroNyxNetwork/AeroNyx.git AeroNyx && cd AeroNyx; fi';
   const quotedRegistrationCode = lastGeneratedCode ? shellSingleQuote(lastGeneratedCode.code) : '';
+  const quickstartCommand = lastGeneratedCode
+    ? `${repoBootstrapCommand} && AERONYX_REGISTRATION_CODE=${quotedRegistrationCode} ./deploy/node/aeronyx-node.sh quickstart --repo-dir "$PWD" --branch main --quick`
+    : '';
   const installCommand = lastGeneratedCode
     ? `${repoBootstrapCommand} && sudo env AERONYX_REGISTRATION_CODE=${quotedRegistrationCode} ./deploy/node/aeronyx-node.sh install --repo-dir "$PWD" --branch main --quick`
     : '';
@@ -497,7 +500,7 @@ function GenerateCodeCard() {
       '',
       'Rules:',
       '1. Use deploy/node/aeronyx-node.sh as the only operator entrypoint.',
-      '2. First run a read-only quick install plan. Do not install, restart, or change host networking before showing me the plan.',
+      '2. Prefer quickstart. It prints a read-only plan first and waits for me to type INSTALL before host changes.',
       '3. Never print my registration code, private keys, API secrets, wallet-level data, DNS contents, destinations, packet payloads, chat plaintext, or client public IPs.',
       '4. After install or upgrade, run status first and summarize operator_status, operator_title, operator_detail, and operator_next_step. Use health --json only when deeper diagnostics are needed.',
       '5. Do not use --force and do not restart a node with active sessions unless I explicitly approve a maintenance window.',
@@ -511,9 +514,9 @@ function GenerateCodeCard() {
       'cd /root/open',
       'if [ -d AeroNyx/.git ]; then cd AeroNyx && git fetch origin main && git checkout main && git pull --ff-only origin main; else git clone https://github.com/AeroNyxNetwork/AeroNyx.git AeroNyx && cd AeroNyx; fi',
       'cd /root/open/AeroNyx',
-      './deploy/node/aeronyx-node.sh plan --repo-dir /root/open/AeroNyx --branch main --quick --registration-code "$AERONYX_REGISTRATION_CODE"',
+      './deploy/node/aeronyx-node.sh quickstart --repo-dir /root/open/AeroNyx --branch main --quick --registration-code "$AERONYX_REGISTRATION_CODE"',
       '',
-      'Then wait for my approval before install.',
+      'Show me the plan, then wait for me to type INSTALL before continuing.',
     ].join('\n')
     : '';
 
@@ -613,6 +616,15 @@ function GenerateCodeCard() {
                 <p className="text-xs leading-5 text-purple-100/70">
                   {t('codes.generated.scriptOrigin')}
                 </p>
+                <p className="text-xs font-medium uppercase tracking-wider text-purple-100/60">
+                  {t('codes.generated.quickstartCommand')}
+                </p>
+                <div className="flex items-start gap-2">
+                  <code className="min-w-0 flex-1 overflow-x-auto rounded bg-black/30 px-3 py-2 font-mono text-xs leading-5 text-gray-200 sm:text-sm">
+                    {quickstartCommand}
+                  </code>
+                  <CopyButton text={quickstartCommand} />
+                </div>
                 <p className="text-xs font-medium uppercase tracking-wider text-purple-100/60">
                   {t('codes.generated.previewCommand')}
                 </p>
