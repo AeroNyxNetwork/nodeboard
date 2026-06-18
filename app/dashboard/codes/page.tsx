@@ -22,7 +22,8 @@
  * - Only unused codes can be revoked
  * - Used codes show linked node info
  * 
- * Last Modified: v1.2.0 - Show full preview/install one-line commands
+ * Last Modified: v1.3.0 - Generate unified aeronyx-node.sh and AI assistant commands
+ * Previous: v1.2.0 - Show full preview/install one-line commands
  * Previous: v1.1.0 - Use Rust install.sh --quick setup commands
  * Previous: v1.0.0 - Initial codes page
  * ============================================
@@ -157,13 +158,38 @@ function GenerateCodeCard() {
   const { t } = useI18n();
   const { generateCode, isLoading, lastGeneratedCode, reset } = useGenerateCode();
   const [showCode, setShowCode] = useState(false);
-  const repoBootstrapCommand = 'git clone https://github.com/AeroNyxNetwork/AeroNyx.git AeroNyx && cd AeroNyx';
+  const repoBootstrapCommand = 'if [ -d AeroNyx/.git ]; then cd AeroNyx && git fetch origin main && git checkout main && git pull --ff-only origin main; else git clone https://github.com/AeroNyxNetwork/AeroNyx.git AeroNyx && cd AeroNyx; fi';
   const quotedRegistrationCode = lastGeneratedCode ? shellSingleQuote(lastGeneratedCode.code) : '';
   const installCommand = lastGeneratedCode
-    ? `${repoBootstrapCommand} && sudo env AERONYX_REGISTRATION_CODE=${quotedRegistrationCode} ./deploy/node/install.sh --quick`
+    ? `${repoBootstrapCommand} && sudo env AERONYX_REGISTRATION_CODE=${quotedRegistrationCode} ./deploy/node/aeronyx-node.sh install --repo-dir "$PWD" --branch main --quick`
     : '';
   const previewCommand = lastGeneratedCode
-    ? `${repoBootstrapCommand} && AERONYX_REGISTRATION_CODE=${quotedRegistrationCode} ./deploy/node/install.sh --quick --print-plan`
+    ? `${repoBootstrapCommand} && AERONYX_REGISTRATION_CODE=${quotedRegistrationCode} ./deploy/node/aeronyx-node.sh plan --repo-dir "$PWD" --branch main`
+    : '';
+  const healthCommand = lastGeneratedCode
+    ? `${repoBootstrapCommand} && ./deploy/node/aeronyx-node.sh health --repo-dir "$PWD" --json`
+    : '';
+  const aiAssistantPrompt = lastGeneratedCode
+    ? [
+      'You are helping me install or maintain an AeroNyx privacy protocol node.',
+      '',
+      'Rules:',
+      '1. Use deploy/node/aeronyx-node.sh as the only operator entrypoint.',
+      '2. First run a read-only plan. Do not install, restart, or change host networking before showing me the plan.',
+      '3. Never print my registration code, private keys, API secrets, wallet-level data, DNS contents, destinations, packet payloads, chat plaintext, or client public IPs.',
+      '4. After install or upgrade, run health --json and summarize the result.',
+      '5. Do not use --force and do not restart a node with active sessions unless I explicitly approve a maintenance window.',
+      '',
+      `AERONYX_REGISTRATION_CODE=${lastGeneratedCode.code}`,
+      'REPO_DIR=/root/open/AeroNyx',
+      'BRANCH=main',
+      '',
+      'Start with:',
+      'cd /root/open/AeroNyx',
+      './deploy/node/aeronyx-node.sh plan --repo-dir /root/open/AeroNyx --branch main --registration-code "$AERONYX_REGISTRATION_CODE"',
+      '',
+      'Then wait for my approval before install.',
+    ].join('\n')
     : '';
 
   const handleGenerate = async () => {
@@ -276,6 +302,24 @@ function GenerateCodeCard() {
                     {installCommand}
                   </code>
                   <CopyButton text={installCommand} />
+                </div>
+                <p className="text-xs font-medium uppercase tracking-wider text-purple-100/60">
+                  {t('codes.generated.healthCommand')}
+                </p>
+                <div className="flex items-start gap-2">
+                  <code className="min-w-0 flex-1 overflow-x-auto rounded bg-black/30 px-3 py-2 font-mono text-xs leading-5 text-gray-400">
+                    {healthCommand}
+                  </code>
+                  <CopyButton text={healthCommand} />
+                </div>
+                <p className="text-xs font-medium uppercase tracking-wider text-purple-100/60">
+                  {t('codes.generated.aiPrompt')}
+                </p>
+                <div className="flex items-start gap-2">
+                  <code className="max-h-56 min-w-0 flex-1 overflow-auto whitespace-pre-wrap rounded bg-black/30 px-3 py-2 font-mono text-xs leading-5 text-gray-400">
+                    {aiAssistantPrompt}
+                  </code>
+                  <CopyButton text={aiAssistantPrompt} />
                 </div>
                 <p className="text-xs leading-5 text-purple-100/60">
                   {t('codes.generated.quickNote')}
