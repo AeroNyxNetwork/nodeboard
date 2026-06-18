@@ -6,6 +6,9 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.31 - Added privacy-safe Rust upgrade workflow status from
+ *     system.upgrade_status with an Operator Actions shortcut and a dedicated
+ *     node detail panel, keeping Services as a high-level readiness view.
  *   v1.6.30 - Added an Operator Actions panel that summarizes node settings,
  *     capacity bottlenecks, health checks, recent events, runtime rollout, and
  *     maintenance readiness into action cards with anchors to the detailed
@@ -175,7 +178,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.30 - Add node operator action hub
+ * Last Modified: v1.6.31 - Show Rust upgrade workflow status
+ * Previous: v1.6.30 - Add node operator action hub
  * Previous: v1.6.29 - Show sanitized recent Rust operational errors
  * Previous: v1.6.28 - Add node operator runbook commands
  * Previous: v1.6.27 - Prefer Rust-authored capacity risks
@@ -2321,6 +2325,9 @@ function OperatorActionsPanel({
   const eventsReported = Boolean(recentErrors?.reported);
   const rollout = runtimeRolloutForNode(health);
   const restartRequired = Boolean(rollout?.restart_required);
+  const upgradeStatus = health.system.upgrade_status ?? null;
+  const upgradeReported = Boolean(upgradeStatus?.reported);
+  const upgradeStatusValue = upgradeStatus?.status ?? null;
   const runtimeReported = Boolean(
     health.system.runtime
     || health.system.runtime_version
@@ -2335,6 +2342,7 @@ function OperatorActionsPanel({
     ? (health.health_status === 'offline' || health.health_status === 'overloaded' ? 'critical' : 'warning')
     : 'ok';
   const runtimeTone: OperatorActionTone = restartRequired ? 'warning' : runtimeReported ? 'ok' : 'pending';
+  const upgradeTone = upgradeWorkflowTone(upgradeStatusValue, upgradeReported);
   const eventsTone: OperatorActionTone = eventCount > 0 ? 'warning' : eventsReported ? 'ok' : 'pending';
   const commandTone: OperatorActionTone = failedCommandCount > 0 ? 'warning' : activeCommandCount > 0 ? 'info' : 'ok';
   const restartTone: OperatorActionTone = restartRequired
@@ -2414,6 +2422,20 @@ function OperatorActionsPanel({
           : t('nodeDetail.operatorActions.meta.waiting'),
       href: '#runtime-panel',
       cta: t('nodeDetail.operatorActions.runtime.cta'),
+    },
+    {
+      key: 'upgrade',
+      tone: upgradeTone,
+      title: t('nodeDetail.operatorActions.upgrade.title'),
+      detail: upgradeReported
+        ? t('nodeDetail.operatorActions.upgrade.reportedDetail', {
+          status: upgradeWorkflowMeta(upgradeStatusValue, upgradeReported, t),
+          step: upgradeStatus?.step || t('common.status.pending'),
+        })
+        : t('nodeDetail.operatorActions.upgrade.waitingDetail'),
+      meta: upgradeWorkflowMeta(upgradeStatusValue, upgradeReported, t),
+      href: '#upgrade-workflow',
+      cta: t('nodeDetail.operatorActions.upgrade.cta'),
     },
     {
       key: 'commands',
@@ -2503,6 +2525,52 @@ function shellQuote(value: string) {
 
 function runtimeRolloutForNode(health: VpnNodeHealth) {
   return health.system.runtime?.rollout ?? health.system.operator_status?.runtime_rollout ?? null;
+}
+
+function upgradeWorkflowTone(status?: string | null, reported?: boolean): OperatorActionTone {
+  switch ((status || '').toLowerCase()) {
+    case 'failed':
+    case 'unreadable':
+      return 'warning';
+    case 'running':
+      return 'info';
+    case 'completed':
+      return 'ok';
+    default:
+      return reported ? 'info' : 'pending';
+  }
+}
+
+function upgradeWorkflowMeta(status: string | null | undefined, reported: boolean, t: TranslateFn) {
+  switch ((status || '').toLowerCase()) {
+    case 'failed':
+      return t('nodeDetail.upgradeWorkflow.meta.failed');
+    case 'running':
+      return t('nodeDetail.upgradeWorkflow.meta.running');
+    case 'completed':
+      return t('nodeDetail.upgradeWorkflow.meta.completed');
+    case 'unreadable':
+      return t('nodeDetail.upgradeWorkflow.meta.unreadable');
+    default:
+      return reported ? t('nodeDetail.upgradeWorkflow.meta.reported') : t('nodeDetail.operatorActions.meta.waiting');
+  }
+}
+
+function upgradeWorkflowAction(status: string | null | undefined, reported: boolean, t: TranslateFn) {
+  switch ((status || '').toLowerCase()) {
+    case 'failed':
+      return t('nodeDetail.upgradeWorkflow.action.failed');
+    case 'running':
+      return t('nodeDetail.upgradeWorkflow.action.running');
+    case 'completed':
+      return t('nodeDetail.upgradeWorkflow.action.completed');
+    case 'unreadable':
+      return t('nodeDetail.upgradeWorkflow.action.unreadable');
+    default:
+      return reported
+        ? t('nodeDetail.upgradeWorkflow.action.reported')
+        : t('nodeDetail.upgradeWorkflow.action.waiting');
+  }
 }
 
 function inferRustRepoDir(health: VpnNodeHealth) {
@@ -2707,6 +2775,112 @@ function RuntimeVersionPanel({ health }: { health: VpnNodeHealth }) {
           tone={restartRequired ? 'border-yellow-500/25 bg-yellow-500/[0.06]' : 'border-emerald-500/15 bg-emerald-500/[0.04]'}
         />
       </div>
+    </div>
+  );
+}
+
+function UpgradeWorkflowPanel({ health }: { health: VpnNodeHealth }) {
+  const { t } = useI18n();
+  const upgrade = health.system.upgrade_status ?? null;
+  const reported = Boolean(upgrade?.reported);
+  const status = upgrade?.status ?? null;
+  const tone = upgradeWorkflowTone(status, reported);
+  const meta = upgradeWorkflowMeta(status, reported, t);
+  const action = upgradeWorkflowAction(status, reported, t);
+  const statusValue = meta;
+  const stepValue = upgrade?.step || t('common.status.pending');
+  const updatedValue = upgrade?.updated_at ? formatRelativeTime(upgrade.updated_at) : t('common.status.pending');
+  const branchValue = upgrade?.branch || t('common.status.pending');
+  const repoValue = upgrade?.repo_dir || inferRustRepoDir(health);
+  const serviceValue = upgrade?.service || 'aeronyx-server';
+  const configValue = upgrade?.config || '/etc/aeronyx/server.toml';
+  const noRestartValue = upgrade?.no_restart === true
+    ? t('common.yes')
+    : upgrade?.no_restart === false
+      ? t('common.no')
+      : t('common.status.pending');
+  const forceValue = upgrade?.force === true
+    ? t('common.yes')
+    : upgrade?.force === false
+      ? t('common.no')
+      : t('common.status.pending');
+
+  return (
+    <div id="upgrade-workflow" className={`mt-5 scroll-mt-6 rounded-xl border p-4 ${operatorActionToneClass(tone)}`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-semibold text-white">{t('nodeDetail.upgradeWorkflow.title')}</h4>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs uppercase tracking-wide ${operatorActionBadgeClass(tone)}`}>
+              {meta}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-gray-500">{t('nodeDetail.upgradeWorkflow.description')}</p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500 lg:max-w-md">
+          <p className="font-medium text-gray-300">{t('nodeDetail.upgradeWorkflow.operatorAction')}</p>
+          <p className="mt-1 leading-5">{action}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CapacityMetric
+          label={t('nodeDetail.upgradeWorkflow.status')}
+          value={statusValue}
+          detail={reported ? t('nodeDetail.upgradeWorkflow.reported') : t('nodeDetail.upgradeWorkflow.waiting')}
+          tone="border-white/5 bg-black/20"
+        />
+        <CapacityMetric
+          label={t('nodeDetail.upgradeWorkflow.step')}
+          value={stepValue}
+          detail={upgrade?.message || t('nodeDetail.upgradeWorkflow.stepDetail')}
+          tone={tone === 'warning' ? 'border-yellow-500/25 bg-yellow-500/[0.06]' : 'border-white/5 bg-black/20'}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.upgradeWorkflow.updated')}
+          value={updatedValue}
+          detail={upgrade?.updated_at || t('common.status.pending')}
+          tone="border-white/5 bg-black/20"
+        />
+        <CapacityMetric
+          label={t('nodeDetail.upgradeWorkflow.branch')}
+          value={branchValue}
+          detail={t('nodeDetail.upgradeWorkflow.flags', { noRestart: noRestartValue, force: forceValue })}
+          tone="border-white/5 bg-black/20"
+        />
+      </div>
+
+      <div className="mt-3 grid gap-3 lg:grid-cols-3">
+        <div className="rounded-lg border border-white/5 bg-black/20 p-3 lg:col-span-2">
+          <p className="text-[11px] uppercase tracking-wide text-gray-500">{t('nodeDetail.upgradeWorkflow.repoDir')}</p>
+          <p className="mt-1 break-words font-mono text-xs leading-5 text-gray-300 [overflow-wrap:anywhere]">{repoValue}</p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-gray-500">{t('nodeDetail.upgradeWorkflow.service')}</p>
+          <p className="mt-1 break-words font-mono text-xs leading-5 text-gray-300 [overflow-wrap:anywhere]">{serviceValue}</p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 p-3 lg:col-span-2">
+          <p className="text-[11px] uppercase tracking-wide text-gray-500">{t('nodeDetail.upgradeWorkflow.config')}</p>
+          <p className="mt-1 break-words font-mono text-xs leading-5 text-gray-300 [overflow-wrap:anywhere]">{configValue}</p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-gray-500">{t('nodeDetail.upgradeWorkflow.source')}</p>
+          <p className="mt-1 break-words font-mono text-xs leading-5 text-gray-300 [overflow-wrap:anywhere]">
+            {upgrade?.source || 'system_stats.vpn_health.upgrade_status'}
+          </p>
+        </div>
+      </div>
+
+      {upgrade?.message ? (
+        <div className="mt-3 rounded-lg border border-white/5 bg-black/20 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-gray-500">{t('nodeDetail.upgradeWorkflow.message')}</p>
+          <p className="mt-1 break-words text-xs leading-5 text-gray-300 [overflow-wrap:anywhere]">{upgrade.message}</p>
+        </div>
+      ) : null}
+
+      <p className="mt-3 text-xs leading-5 text-gray-600">
+        {upgrade?.privacy_boundary || t('nodeDetail.upgradeWorkflow.privacyBoundary')}
+      </p>
     </div>
   );
 }
@@ -4973,6 +5147,7 @@ function VpnHealthPanel({
       <CapacityPanel health={health} />
       <RecentOperationalEventsPanel health={health} />
       <RuntimeVersionPanel health={health} />
+      <UpgradeWorkflowPanel health={health} />
       <OperatorRunbookPanel health={health} />
       <NodeMetricsTrendPanel metrics={metrics} isLoading={metricsLoading} />
       <BandwidthLimitPanel health={health} metrics={metrics} isLoading={metricsLoading} />

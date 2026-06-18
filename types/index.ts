@@ -1746,6 +1746,38 @@ export interface VpnRecentErrorsSnapshot {
 }
 
 /**
+ * Privacy-safe Rust install/upgrade workflow status.
+ *
+ * Backend API:
+ *   GET /api/privacy_network/vpn/overview/
+ * Backend file:
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py
+ * Rust producers:
+ *   /root/open/AeroNyx/deploy/node/upgrade.sh
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *
+ * The payload is an allow-listed operator workflow snapshot. It intentionally
+ * excludes registration codes, private keys, client public IPs, destinations,
+ * DNS contents, packet payloads, chat plaintext, voucher secrets, and
+ * wallet-level traffic.
+ */
+export interface VpnUpgradeStatusSnapshot {
+  reported: boolean;
+  status?: 'running' | 'completed' | 'failed' | 'unreadable' | string | null;
+  step?: string | null;
+  message?: string | null;
+  repo_dir?: string | null;
+  branch?: string | null;
+  service?: string | null;
+  config?: string | null;
+  no_restart?: boolean | null;
+  force?: boolean | null;
+  updated_at?: string | null;
+  source?: string | null;
+  privacy_boundary?: string | null;
+}
+
+/**
  * Local nodeboard runtime health response.
  *
  * Frontend endpoint:
@@ -1924,6 +1956,7 @@ export interface VpnNodeHealth {
     placement_readiness?: VpnPlacementReadiness | null;
     capacity?: VpnCapacitySnapshot | null;
     recent_errors?: VpnRecentErrorsSnapshot | null;
+    upgrade_status?: VpnUpgradeStatusSnapshot | null;
     policy_sync?: VpnPolicySync;
     policy_enforcement?: VpnPolicyEnforcement;
     runtime_recovery?: VpnRuntimeRecovery;
