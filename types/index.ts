@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.29 - Added discovery seed recovery counters from Rust heartbeat.
  *   v1.5.28 - Added VPN transport capability health metadata.
  *   v1.5.27 - Added VPN DNS ownership health metadata.
  *   v1.5.26 - Documented nodeboard health contract for capacity.risks.
@@ -68,7 +69,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.28 - Added VPN transport capability health metadata
+ * Last Modified: v1.5.29 - Added discovery seed recovery counters
+ * Previous: v1.5.28 - Added VPN transport capability health metadata
  * Previous: v1.5.27 - Added VPN DNS ownership health metadata
  * Previous: v1.5.26 - Documented nodeboard health contract for capacity.risks
  * Previous: v1.5.25 - Documented fleet placement rollout action links
@@ -2155,6 +2157,7 @@ export interface DiscoveryBootstrapStatus {
   enabled: boolean;
   peer_cache_configured: boolean;
   gossip_enabled: boolean;
+  seed_endpoints_configured?: number;
   last_source_kind: string | null;
   last_source_status: string | null;
   last_source_detail: string | null;
@@ -2165,6 +2168,7 @@ export interface DiscoveryBootstrapStatus {
   last_cache_save_detail: string | null;
   last_cache_save_at: number | null;
   last_gossip_attempted: number;
+  last_gossip_seed_attempted?: number;
   last_gossip_succeeded: number;
   last_gossip_round_at: number | null;
 }

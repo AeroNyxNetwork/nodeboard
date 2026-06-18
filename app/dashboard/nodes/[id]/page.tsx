@@ -225,7 +225,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.40 - Show Rust discovery and gossip status
+ * Last Modified: v1.6.41 - Show discovery seed recovery status
+ * Previous: v1.6.40 - Show Rust discovery and gossip status
  * Previous: v1.6.39 - Prioritize status in operator runbook
  * Previous: v1.6.38 - Link service configuration to Services sections
  * Previous: v1.6.37 - Show node service configuration panel
@@ -3480,8 +3481,7 @@ function discoveryWarningCount(discovery: DiscoveryStatus | null | undefined) {
   const runtime = discovery?.peer_store?.runtime;
   if (!runtime) return 0;
   return (
-    (runtime.stale || 0)
-    + (runtime.rejected || 0)
+    (runtime.rejected || 0)
     + (runtime.capacity_rejected || 0)
     + (runtime.policy_rejected || 0)
     + (runtime.rate_limited || 0)
@@ -3610,7 +3610,7 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
       </div>
 
       {bootstrap && (
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <CapacityMetric
             label={t('nodeDetail.discovery.bootstrapSource')}
             value={bootstrap.last_source_status || (bootstrap.enabled ? pending : t('nodeDetail.discovery.disabled'))}
@@ -3660,6 +3660,17 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
               ? bootstrap.last_gossip_attempted > bootstrap.last_gossip_succeeded
                 ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
                 : 'border-sky-500/15 bg-sky-500/[0.04]'
+              : 'border-white/5 bg-black/20'}
+          />
+          <CapacityMetric
+            label={t('nodeDetail.discovery.seedRecovery')}
+            value={formatNumber(bootstrap.seed_endpoints_configured ?? 0)}
+            detail={t('nodeDetail.discovery.seedRecoveryDetail', {
+              attempted: formatNumber(bootstrap.last_gossip_seed_attempted ?? 0),
+              configured: formatNumber(bootstrap.seed_endpoints_configured ?? 0),
+            })}
+            tone={(bootstrap.seed_endpoints_configured ?? 0) > 0
+              ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
               : 'border-white/5 bg-black/20'}
           />
         </div>

@@ -1193,6 +1193,8 @@ const en: Dictionary = {
   'nodeDetail.discovery.outboundGossip': 'Outbound gossip',
   'nodeDetail.discovery.outboundGossipDetail': '{succeeded}/{attempted} peers · {time}',
   'nodeDetail.discovery.outboundGossipWaiting': 'waiting for first gossip round',
+  'nodeDetail.discovery.seedRecovery': 'Seed recovery',
+  'nodeDetail.discovery.seedRecoveryDetail': '{attempted}/{configured} seeds used this round',
   'nodeDetail.discovery.auditTitle': 'Recent discovery audit',
   'nodeDetail.discovery.auditDescription': 'Privacy-safe control-plane events from this Rust node. No client traffic, payloads, or full peer public keys are included.',
   'nodeDetail.discovery.auditCount': '{count} event(s)',
