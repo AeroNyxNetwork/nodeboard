@@ -1926,6 +1926,54 @@ export interface VpnTransportHealthStatus {
   privacy_boundary?: string | null;
 }
 
+/**
+ * AeroNyx privacy protocol runtime metadata.
+ *
+ * Backend API:
+ *   GET /api/privacy_network/vpn/overview/
+ * Backend file:
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py
+ * Rust source:
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *
+ * Privacy boundary: aggregate protocol/runtime status only. No client public
+ * IPs, destinations, DNS contents, packet payloads, domains, URLs, browsing
+ * history, voucher secrets, chat plaintext, private keys, or wallet-level
+ * traffic.
+ */
+export interface PrivacyProtocolRuntimeStatus {
+  active: boolean;
+  status: 'ok' | 'degraded' | 'failed' | string;
+  detail: string;
+  source?: string | null;
+  privacy_boundary?: string | null;
+}
+
+/**
+ * AeroNyx privacy protocol health summary for nodeboard.
+ *
+ * This contract lets node detail and Services display protocol readiness
+ * without re-deriving it from checks[], transport_health, service_manager,
+ * and session counters. It is intentionally named around the AeroNyx privacy
+ * protocol rather than historical VPN or third-party tunnel terminology.
+ */
+export interface PrivacyProtocolHealthStatus {
+  protocol: string;
+  label: string;
+  status: 'ok' | 'degraded' | 'failed' | string;
+  checked_at?: number | null;
+  failed_checks?: number | null;
+  active_sessions?: number | null;
+  active_wallet_devices?: number | null;
+  data_plane?: string | null;
+  preferred_transport?: VpnTransportKey | string | null;
+  effective_transport?: VpnTransportKey | string | null;
+  service_active_state?: string | null;
+  protocol_runtime?: PrivacyProtocolRuntimeStatus | null;
+  source?: string | null;
+  privacy_boundary?: string | null;
+}
+
 export interface VpnNodeHealth {
   id: string;
   name: string;
@@ -2009,6 +2057,20 @@ export interface VpnNodeHealth {
     supported_transports?: VpnTransportKey[] | null;
     preferred_transport?: VpnTransportKey | null;
     transport_health?: VpnTransportHealthStatus | null;
+    /**
+     * Rust source:
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+     * Backend pass-through:
+     *   /root/aeronyx/privacy_network/api/vpn_observability.py
+     *
+     * Aggregate AeroNyx privacy protocol readiness only. This is the
+     * operator-facing health contract for protocol runtime, data plane,
+     * transport, service state, failed check count, and active aggregate
+     * sessions. It never carries user IPs, destinations, DNS contents,
+     * packet payloads, domains, URLs, browsing history, voucher secrets,
+     * chat plaintext, private keys, or wallet-level traffic.
+     */
+    privacy_protocol_health?: PrivacyProtocolHealthStatus | null;
     service_manager?: VpnServiceManagerStatus | null;
     /**
      * Backend API:

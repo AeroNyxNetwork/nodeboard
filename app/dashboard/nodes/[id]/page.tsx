@@ -3215,6 +3215,94 @@ function RuntimeVersionPanel({ health }: { health: VpnNodeHealth }) {
   );
 }
 
+function privacyProtocolTone(status: string | null | undefined) {
+  if (status === 'ok') return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+  if (status === 'degraded') return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  if (status === 'failed') return 'border-red-500/25 bg-red-500/[0.06]';
+  return 'border-gray-500/20 bg-gray-500/[0.04]';
+}
+
+function privacyProtocolStatusLabel(status: string | null | undefined, pending: string, t: TranslateFn) {
+  if (!status) return pending;
+  const key = `nodeDetail.privacyProtocol.status.${status}`;
+  const translated = t(key);
+  return translated === key ? status.replaceAll('_', ' ') : translated;
+}
+
+function PrivacyProtocolHealthPanel({ health }: { health: VpnNodeHealth }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
+  const protocol = health.system.privacy_protocol_health ?? null;
+  const pending = t('common.status.pending');
+  const status = protocol?.status || health.system.vpn_health_status || null;
+  const checkedAt = protocol?.checked_at ?? health.system.vpn_health_checked_at ?? null;
+  const runtime = protocol?.protocol_runtime ?? null;
+  const failedChecks = typeof protocol?.failed_checks === 'number'
+    ? protocol.failed_checks
+    : health.checks.filter((check) => !check.ok).length;
+  const source = protocol?.source || runtime?.source || 'system_stats.vpn_health';
+  const activeSessions = typeof protocol?.active_sessions === 'number'
+    ? protocol.active_sessions
+    : health.active_sessions;
+
+  return (
+    <div id="privacy-protocol-panel" className={`mt-5 scroll-mt-6 rounded-xl border p-4 ${privacyProtocolTone(status)}`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-semibold text-white">{t('nodeDetail.privacyProtocol.title')}</h4>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${privacyProtocolTone(status)}`}>
+              {privacyProtocolStatusLabel(status, pending, t)}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-gray-500">
+            {t('nodeDetail.privacyProtocol.description')}
+          </p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500 lg:max-w-md">
+          <p className="font-medium text-gray-300">{t('nodeDetail.privacyProtocol.source')}</p>
+          <p className="mt-1 break-words [overflow-wrap:anywhere]">{source}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CapacityMetric
+          label={t('nodeDetail.privacyProtocol.protocol')}
+          value={protocol?.label || 'AeroNyx Privacy Protocol'}
+          detail={runtime?.detail || t('nodeDetail.privacyProtocol.runtimeDetail')}
+          tone={privacyProtocolTone(status)}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.privacyProtocol.dataPlane')}
+          value={protocol?.data_plane || 'aeronyx_privacy_protocol'}
+          detail={t('nodeDetail.privacyProtocol.dataPlaneDetail', {
+            sessions: formatNumber(activeSessions),
+            checks: formatNumber(failedChecks),
+          })}
+          tone={failedChecks > 0 ? 'border-yellow-500/25 bg-yellow-500/[0.06]' : 'border-emerald-500/15 bg-emerald-500/[0.04]'}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.privacyProtocol.transport')}
+          value={formatTransportKey(protocol?.effective_transport ?? health.system.transport_health?.effective_transport ?? health.system.preferred_transport, t)}
+          detail={t('nodeDetail.privacyProtocol.transportDetail', {
+            preferred: formatTransportKey(protocol?.preferred_transport ?? health.system.preferred_transport, t),
+          })}
+          tone="border-sky-500/15 bg-sky-500/[0.04]"
+        />
+        <CapacityMetric
+          label={t('nodeDetail.privacyProtocol.service')}
+          value={protocol?.service_active_state || health.system.service_manager?.active_state || pending}
+          detail={checkedAt
+            ? t('nodeDetail.privacyProtocol.checkedAt', { time: i18nRelativeTime(new Date(checkedAt * 1000).toISOString()) })
+            : t('nodeDetail.privacyProtocol.waiting')}
+          tone={health.system.service_manager?.active_state === 'active' ? 'border-emerald-500/15 bg-emerald-500/[0.04]' : 'border-white/5 bg-black/20'}
+        />
+      </div>
+
+      <p className="mt-3 text-[11px] leading-5 text-gray-600">{t('nodeDetail.privacyProtocol.privacyBoundary')}</p>
+    </div>
+  );
+}
+
 function ServiceConfigurationPanel({ health }: { health: VpnNodeHealth }) {
   const { t, formatNumber } = useI18n();
   const pending = t('common.status.pending');
@@ -5947,6 +6035,7 @@ function VpnHealthPanel({
       <CapacityPanel health={health} />
       <RecentOperationalEventsPanel health={health} />
       <RuntimeVersionPanel health={health} />
+      <PrivacyProtocolHealthPanel health={health} />
       <ServiceConfigurationPanel health={health} />
       <UpgradeWorkflowPanel health={health} />
       <OperatorRunbookPanel health={health} />
