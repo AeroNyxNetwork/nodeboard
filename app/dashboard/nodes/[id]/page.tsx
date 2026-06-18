@@ -6,6 +6,10 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.35 - Added CPU and memory resource load to the node Capacity panel
+ *     and folded high resource pressure into the commercial capacity risk
+ *     summary. This keeps Services lean while making node detail explain
+ *     whether connection quality is constrained by host resources.
  *   v1.6.34 - Added a node detail section navigator that groups the long
  *     operator page into Overview, Capacity, Runtime, Install & Upgrade,
  *     Events, and Commands. This keeps all existing diagnostic panels intact
@@ -191,7 +195,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.34 - Add node detail section navigator
+ * Last Modified: v1.6.35 - Add resource load capacity signals
+ * Previous: v1.6.34 - Add node detail section navigator
  * Previous: v1.6.33 - Fix capacity bandwidth cap units
  * Previous: v1.6.32 - Show node install workflow status
  * Previous: v1.6.31 - Show Rust upgrade workflow status
@@ -1782,6 +1787,10 @@ function capacityTone(percent: number | null) {
   return 'border-emerald-500/15 bg-emerald-500/[0.04]';
 }
 
+const RESOURCE_CPU_OVERLOADED_PERCENT = 85;
+const RESOURCE_MEMORY_OVERLOADED_PERCENT = 90;
+const RESOURCE_MEMORY_OVERLOADED_MB = 14 * 1024;
+
 type CapacityRiskItem = {
   tone: 'critical' | 'warning';
   label: string;
@@ -1898,6 +1907,61 @@ function capacityRiskItems(
   return risks;
 }
 
+function resourceLoadRiskItems(
+  health: VpnNodeHealth,
+  t: TranslateFn,
+  formatNumber: CapacityFormatNumber,
+): CapacityRiskItem[] {
+  const risks: CapacityRiskItem[] = [];
+  const cpuUsage = typeof health.system.cpu_usage === 'number' && Number.isFinite(health.system.cpu_usage)
+    ? health.system.cpu_usage
+    : null;
+  const memoryMb = typeof health.system.memory_mb === 'number' && Number.isFinite(health.system.memory_mb)
+    ? health.system.memory_mb
+    : null;
+  const memoryTotalMb = typeof health.system.memory_total_mb === 'number' && Number.isFinite(health.system.memory_total_mb)
+    ? health.system.memory_total_mb
+    : null;
+  const memoryPercent = memoryTotalMb && memoryTotalMb > 0
+    ? capacityPercent(memoryMb, memoryTotalMb)
+    : null;
+
+  if (cpuUsage !== null && cpuUsage >= RESOURCE_CPU_OVERLOADED_PERCENT) {
+    risks.push({
+      tone: 'warning',
+      label: t('nodeDetail.capacity.risk.cpuLoad'),
+      detail: t('nodeDetail.capacity.risk.cpuLoadDetail', {
+        value: formatNumber(cpuUsage, { maximumFractionDigits: 1 }),
+      }),
+      action: t('nodeDetail.capacity.risk.cpuLoadAction'),
+      code: 'cpu_load_pressure',
+    });
+  }
+
+  if (
+    (typeof memoryPercent === 'number' && memoryPercent >= RESOURCE_MEMORY_OVERLOADED_PERCENT)
+    || (memoryPercent === null && memoryMb !== null && memoryMb >= RESOURCE_MEMORY_OVERLOADED_MB)
+  ) {
+    risks.push({
+      tone: typeof memoryPercent === 'number' && memoryPercent >= 95 ? 'critical' : 'warning',
+      label: t('nodeDetail.capacity.risk.memoryLoad'),
+      detail: typeof memoryPercent === 'number'
+        ? t('nodeDetail.capacity.risk.memoryLoadDetailPercent', {
+            value: formatNumber(memoryPercent, { maximumFractionDigits: 1 }),
+            used: formatCapacityNumber(memoryMb, formatNumber, '0'),
+            total: formatCapacityNumber(memoryTotalMb, formatNumber, '0'),
+          })
+        : t('nodeDetail.capacity.risk.memoryLoadDetailMb', {
+            used: formatCapacityNumber(memoryMb, formatNumber, '0'),
+          }),
+      action: t('nodeDetail.capacity.risk.memoryLoadAction'),
+      code: 'memory_load_pressure',
+    });
+  }
+
+  return risks;
+}
+
 function capacityRiskLabelFromCode(code: string, t: TranslateFn) {
   switch (code) {
     case 'vpn_ip_pool_below_max_connections':
@@ -1916,6 +1980,10 @@ function capacityRiskLabelFromCode(code: string, t: TranslateFn) {
       return t('nodeDetail.capacity.risk.bandwidthLimit');
     case 'packet_drops_detected':
       return t('nodeDetail.capacity.risk.packetDrops');
+    case 'cpu_load_pressure':
+      return t('nodeDetail.capacity.risk.cpuLoad');
+    case 'memory_load_pressure':
+      return t('nodeDetail.capacity.risk.memoryLoad');
     default:
       return code ? code.replaceAll('_', ' ') : t('nodeDetail.capacity.risk.title');
   }
@@ -1974,6 +2042,21 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
   const bps = capacity?.interface?.total_bps;
   const capacityLimitBytesPerSecond = capacity?.bandwidth_limit_bytes_per_second
     ?? bandwidthLimitBytesPerSecond(capacity?.bandwidth_limit_mbps ?? health.bandwidth_limit_mbps);
+  const cpuUsage = typeof health.system.cpu_usage === 'number' && Number.isFinite(health.system.cpu_usage)
+    ? health.system.cpu_usage
+    : null;
+  const cpuCount = typeof health.system.cpu_count === 'number' && Number.isFinite(health.system.cpu_count)
+    ? health.system.cpu_count
+    : null;
+  const memoryMb = typeof health.system.memory_mb === 'number' && Number.isFinite(health.system.memory_mb)
+    ? health.system.memory_mb
+    : null;
+  const memoryTotalMb = typeof health.system.memory_total_mb === 'number' && Number.isFinite(health.system.memory_total_mb)
+    ? health.system.memory_total_mb
+    : null;
+  const memoryPercent = memoryTotalMb && memoryTotalMb > 0
+    ? capacityPercent(memoryMb, memoryTotalMb)
+    : null;
   const diskPath = capacity?.disk?.state?.reported
     ? capacity.disk.state
     : capacity?.disk?.root?.reported
@@ -1994,7 +2077,10 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
   const routingTone = forwardingOk && natOk && egressOk
     ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
     : 'border-yellow-500/20 bg-yellow-500/[0.05]';
-  const riskItems = capacityRiskItems(capacity, t, formatNumber);
+  const riskItems = [
+    ...capacityRiskItems(capacity, t, formatNumber),
+    ...resourceLoadRiskItems(health, t, formatNumber),
+  ];
   const riskTone = riskItems.some((item) => item.tone === 'critical')
     ? 'border-red-500/25 bg-red-500/[0.07]'
     : 'border-yellow-500/25 bg-yellow-500/[0.06]';
@@ -2095,6 +2181,29 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
       </div>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CapacityMetric
+          label={t('nodeDetail.capacity.cpuLoad')}
+          value={cpuUsage !== null ? t('nodeDetail.capacity.cpuValue', { value: formatNumber(cpuUsage, { maximumFractionDigits: 1 }) }) : pending}
+          detail={cpuCount !== null
+            ? t('nodeDetail.capacity.cpuDetail', { count: formatNumber(cpuCount) })
+            : t('nodeDetail.capacity.resourceHeartbeatDetail')}
+          percent={cpuUsage}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.capacity.memoryUse')}
+          value={memoryMb !== null && memoryTotalMb !== null
+            ? t('nodeDetail.capacity.memoryValueTotal', {
+                used: formatCapacityNumber(memoryMb, formatNumber, pending),
+                total: formatCapacityNumber(memoryTotalMb, formatNumber, pending),
+              })
+            : memoryMb !== null
+              ? t('nodeDetail.capacity.memoryValue', { used: formatCapacityNumber(memoryMb, formatNumber, pending) })
+              : pending}
+          detail={memoryPercent !== null
+            ? t('nodeDetail.capacity.memoryDetailPercent', { value: formatNumber(memoryPercent, { maximumFractionDigits: 1 }) })
+            : t('nodeDetail.capacity.resourceHeartbeatDetail')}
+          percent={memoryPercent}
+        />
         <CapacityMetric
           label={t('nodeDetail.capacity.throughput')}
           value={formatBitsPerSecond(bps)}
