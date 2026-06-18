@@ -1,36 +1,43 @@
-# VPN Observability MVP
+# AeroNyx Privacy Protocol Observability
 
-This document records the first commercial VPN operations milestone: node
-operators can inspect VPN node health and active tunnel impact from nodeboard
-without SSH access.
+This document records the commercial AeroNyx Privacy Protocol operations
+milestone: node operators can inspect node health, capacity, traffic impact,
+rollout state, and sanitized operational events from nodeboard without SSH
+access.
 
-M3 starts a narrow, non-destructive operations path: nodeboard can enqueue VPN
-diagnostic commands and read their command history. Destructive actions such as
-service restart, session kick, config mutation, tier switching, and rate-limit
-changes remain intentionally closed until confirmation, audit, and permission
-rules are added.
+M3 started a narrow, non-destructive operations path: nodeboard could enqueue
+diagnostic commands and read their command history. Later milestones added
+capacity telemetry, install progress, status-first runbooks, rollout gates, and
+controlled maintenance actions. Destructive actions such as service restart,
+session kick, config mutation, tier switching, and rate-limit changes must stay
+behind confirmation, audit, and permission rules.
 
 ## Goal
 
 Give operators answers to three production questions:
 
-1. Which VPN node is unhealthy?
+1. Which AeroNyx Privacy Protocol node is unhealthy?
 2. Why is it unhealthy?
-3. Which VPN sessions or users are affected?
+3. Which aggregate sessions or commercial capacity are affected?
 
 The MVP intentionally uses privacy-minimal telemetry. It does not collect
 destination domains, destination IPs, browsing history, packet payloads, or DNS
 queries.
+
+First-level nodeboard Services should remain a fleet decision surface. It
+should show health, capacity, traffic, and errors first, then open one
+Operations Workbench report when the operator needs placement, capacity,
+transport, DNS, restart/rollout, service-layer, risk, or node-table detail.
 
 ## Source Map
 
 ### nodeboard frontend
 
 - `app/dashboard/page.tsx`
-  - Adds a VPN Operations snapshot to the main dashboard entry point.
-  - Shows healthy VPN node count, 24h availability, active tunnels, VPN traffic,
+  - Adds an AeroNyx operations snapshot to the main dashboard entry point.
+  - Shows healthy privacy node count, 24h availability, active aggregate sessions, encrypted traffic,
     open alert count, and the top nodes needing attention.
-  - Shows the latest 24h VPN events from `useVpnEvents()` directly in the
+  - Shows the latest 24h privacy operations events from `useVpnEvents()` directly in the
     overview attention panel, including severity, affected node, reason, and
     relative time, so operators can start triage without opening SSH or the full
     Events page.
@@ -55,7 +62,7 @@ queries.
     stale-session cleanup impact on the first screen before opening Node
     Detail, while the UI still displays only aggregate runtime/session recovery
     metadata.
-  - Links directly to VPN Operations, Events, and Node Detail so operators can
+  - Links directly to AeroNyx operations, Events, and Node Detail so operators can
     triage without starting from SSH or a generic node card.
 
 - `app/dashboard/nodes/page.tsx`
@@ -70,12 +77,12 @@ queries.
     SSH or client-side guessing.
   - Lets operators see which nodes clients will actually receive from the
     centralized failover policy before they open SSH or inspect client logs.
-  - Adds a dense VPN Node Operations table above the existing node cards.
+  - Adds a dense AeroNyx Node Operations table above the existing node cards.
   - Shows region, IP/port, version, health status, health score, 24h
     availability, active sessions, CPU, memory, and last heartbeat age.
   - Shows operator policy posture in the list: accepting vs maintenance, node
     tier, max-session cap, bandwidth cap, and remaining session capacity.
-  - Sorts unhealthy VPN nodes first so degraded/offline/overloaded nodes are
+  - Sorts unhealthy privacy protocol nodes first so degraded/offline/overloaded nodes are
     visible before the generic node card grid.
 
 - `app/dashboard/sessions/page.tsx`

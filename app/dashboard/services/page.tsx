@@ -4,12 +4,16 @@
  * ============================================
  * File Path: app/dashboard/services/page.tsx
  *
- * Creation Reason: Nodeboard is evolving from a VPN-only dashboard into the
- * AeroNyx node operator console. This page gives operators one place to inspect
- * Privacy Protocol, MemChain, ChatRelay, Sovereign Data Layer, and SuperNode
- * readiness.
+ * Creation Reason: Nodeboard is the AeroNyx node operator console. This page
+ * gives operators a compact fleet decision surface for AeroNyx Privacy Protocol
+ * nodes, with detailed Privacy Protocol, MemChain, ChatRelay, Sovereign Data
+ * Layer, and SuperNode diagnostics opened only when needed.
  *
  * Modification Reason:
+ *   v1.1.72 - Align the Operations Workbench default group with the
+ *     backend/operator recommended module. The first-level Services page stays
+ *     compact, and the selectable report cards now open on the task group that
+ *     actually needs attention instead of always defaulting to Operate.
  *   v1.1.71 - Persisted the selected Operations Workbench module in the
  *     `section` URL query parameter. Services now behaves like a mature
  *     operations console: the first-level page stays focused, while deep
@@ -244,12 +248,13 @@
  *       data.nodes[].system.session_cleanup
  *
  * Product Requirement:
- *   Treat this as a commercial node readiness console, not a VPN-only page.
+ *   Treat this as a commercial AeroNyx Privacy Protocol readiness console.
  *   Operators need a clear answer to: which nodes can serve AeroNyx Privacy
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.71 - Persist Services detail module in URL state
+ * Last Modified: v1.1.72 - Align Services Workbench with recommended task
+ * Previous: v1.1.71 - Persist Services detail module in URL state
  * Previous: v1.1.70 - Add Services Operations Workbench primary task
  * Previous: v1.1.69 - Add workflow segmented control for Services modules
  * Previous: v1.1.68 - Group Services detail modules by operator workflow
@@ -3619,7 +3624,7 @@ function DetailModulesPanel({
   nodeCount: number;
 }) {
   const { t, formatNumber } = useI18n();
-  const [selectedGroup, setSelectedGroup] = useState<ServiceModuleGroup>('overview');
+  const [selectedGroup, setSelectedGroup] = useState<ServiceModuleGroup | null>(null);
   const modules: Array<{
     key: ServiceDetailSection;
     group: ServiceModuleGroup;
@@ -3730,9 +3735,6 @@ function DetailModulesPanel({
   const activeSectionGroup = activeSection
     ? modules.find((module) => module.key === activeSection)?.group ?? null
     : null;
-  const activeGroupKey = activeSectionGroup ?? selectedGroup;
-  const activeGroup = moduleGroups.find((group) => group.key === activeGroupKey) ?? moduleGroups[0];
-  const groupedModules = modules.filter((module) => module.group === activeGroup.key);
   const recommendedModuleKey: ServiceDetailSection = capacityRiskCount > 0
     ? 'capacity'
     : placementTotal > 0 && placementAvailable <= 0
@@ -3747,6 +3749,10 @@ function DetailModulesPanel({
               ? 'risks'
               : 'placement';
   const recommendedModule = modules.find((module) => module.key === recommendedModuleKey) ?? modules[0];
+  const recommendedGroupKey = recommendedModule.group;
+  const activeGroupKey = activeSectionGroup ?? selectedGroup ?? recommendedGroupKey;
+  const activeGroup = moduleGroups.find((group) => group.key === activeGroupKey) ?? moduleGroups[0];
+  const groupedModules = modules.filter((module) => module.group === activeGroup.key);
   const activeGroupModules = modules.filter((module) => module.group === activeGroup.key);
   const attentionModules = modules.filter((module) => ['critical', 'failed', 'warning'].includes(module.status));
   const clearModuleCount = Math.max(modules.length - attentionModules.length, 0);
