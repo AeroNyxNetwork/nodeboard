@@ -6,6 +6,8 @@
  * 
  * Creation Reason: Manage registration codes for node binding
  * Modification Reason:
+ *   v1.8.0 - Add --quick to generated preview and AI assistant plan commands
+ *     so the read-only approval step matches the actual quick install command.
  *   v1.7.0 - Prioritize failed phase and exit code in installer detail chips
  *     when Rust reports a failed install, while keeping normal rows compact.
  *   v1.6.0 - Surface privacy-safe structured installer details as compact
@@ -32,7 +34,8 @@
  * - Only unused codes can be revoked
  * - Used codes show linked node info
  * 
- * Last Modified: v1.7.0 - Prioritize failed installer detail chips
+ * Last Modified: v1.8.0 - Align preview command with quick install
+ * Previous: v1.7.0 - Prioritize failed installer detail chips
  * Previous: v1.6.0 - Show structured installer detail chips
  * Previous: v1.5.0 - Link install completion to node detail operations
  * Previous: v1.4.0 - Show commercial installer stage timeline
@@ -470,7 +473,7 @@ function GenerateCodeCard() {
     ? `${repoBootstrapCommand} && sudo env AERONYX_REGISTRATION_CODE=${quotedRegistrationCode} ./deploy/node/aeronyx-node.sh install --repo-dir "$PWD" --branch main --quick`
     : '';
   const previewCommand = lastGeneratedCode
-    ? `${repoBootstrapCommand} && AERONYX_REGISTRATION_CODE=${quotedRegistrationCode} ./deploy/node/aeronyx-node.sh plan --repo-dir "$PWD" --branch main`
+    ? `${repoBootstrapCommand} && AERONYX_REGISTRATION_CODE=${quotedRegistrationCode} ./deploy/node/aeronyx-node.sh plan --repo-dir "$PWD" --branch main --quick`
     : '';
   const healthCommand = lastGeneratedCode
     ? `${repoBootstrapCommand} && ./deploy/node/aeronyx-node.sh health --repo-dir "$PWD" --json`
@@ -486,7 +489,7 @@ function GenerateCodeCard() {
       '',
       'Rules:',
       '1. Use deploy/node/aeronyx-node.sh as the only operator entrypoint.',
-      '2. First run a read-only plan. Do not install, restart, or change host networking before showing me the plan.',
+      '2. First run a read-only quick install plan. Do not install, restart, or change host networking before showing me the plan.',
       '3. Never print my registration code, private keys, API secrets, wallet-level data, DNS contents, destinations, packet payloads, chat plaintext, or client public IPs.',
       '4. After install or upgrade, run health --json and summarize the result.',
       '5. Do not use --force and do not restart a node with active sessions unless I explicitly approve a maintenance window.',
@@ -500,7 +503,7 @@ function GenerateCodeCard() {
       'cd /root/open',
       'if [ -d AeroNyx/.git ]; then cd AeroNyx && git fetch origin main && git checkout main && git pull --ff-only origin main; else git clone https://github.com/AeroNyxNetwork/AeroNyx.git AeroNyx && cd AeroNyx; fi',
       'cd /root/open/AeroNyx',
-      './deploy/node/aeronyx-node.sh plan --repo-dir /root/open/AeroNyx --branch main --registration-code "$AERONYX_REGISTRATION_CODE"',
+      './deploy/node/aeronyx-node.sh plan --repo-dir /root/open/AeroNyx --branch main --quick --registration-code "$AERONYX_REGISTRATION_CODE"',
       '',
       'Then wait for my approval before install.',
     ].join('\n')

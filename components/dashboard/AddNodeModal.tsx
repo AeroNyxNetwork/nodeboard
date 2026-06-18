@@ -5,6 +5,8 @@
  * File Path: components/dashboard/AddNodeModal.tsx
  *
  * Modification Reason:
+ *   v1.3.0 - Add --quick to the preview command so the read-only plan mirrors
+ *   the exact first-install path shown by the install command.
  *   v1.2.0 - Replace the legacy raw install.sh bootstrap with the unified
  *   deploy/node/aeronyx-node.sh operator entrypoint. The modal now mirrors
  *   the Codes page: fetch/refresh the repo, run plan, run install, then offer
@@ -34,9 +36,10 @@
  * - If deploy/node/aeronyx-node.sh changes flags, update preview, install,
  *   and healthcheck commands together.
  *
- * Last Modified: v1.2.0 - Unified node operator entrypoint onboarding
- * Last Modified: v1.1.0 - Production quick install onboarding
- * Last Modified: v1.0.1 - Removed framer-motion to fix re-render issues
+ * Last Modified: v1.3.0 - Align preview command with quick install
+ * Previous: v1.2.0 - Unified node operator entrypoint onboarding
+ * Previous: v1.1.0 - Production quick install onboarding
+ * Previous: v1.0.1 - Removed framer-motion to fix re-render issues
  * ============================================
  */
 
@@ -59,7 +62,7 @@ function shellQuote(value: string): string {
 function buildPreviewCommand(code: string): string {
   return [
     REPO_BOOTSTRAP_COMMAND,
-    `AERONYX_REGISTRATION_CODE=${shellQuote(code)} ./deploy/node/aeronyx-node.sh plan --repo-dir "$PWD" --branch main`,
+    `AERONYX_REGISTRATION_CODE=${shellQuote(code)} ./deploy/node/aeronyx-node.sh plan --repo-dir "$PWD" --branch main --quick`,
   ].join(' && ');
 }
 

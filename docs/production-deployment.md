@@ -29,8 +29,10 @@ Frontend repository:
 - Production source path on US1 test host: `/root/open/nodeboard`
 - Main UI files:
   - `app/api/health/route.ts`
+  - `app/dashboard/codes/page.tsx`
   - `app/dashboard/services/page.tsx`
   - `app/dashboard/nodes/[id]/page.tsx`
+  - `components/dashboard/AddNodeModal.tsx`
   - `lib/api.ts`
   - `lib/constants.ts`
   - `hooks/useNodes.ts`
@@ -184,6 +186,20 @@ stays readable for fleet triage.
 The Service Configuration panel must stay read-only. It is an inspection panel,
 not a config editor. Configuration changes continue through Node Settings,
 backend owner-scoped APIs, Rust policy sync, and the audited command queue.
+
+## Node Onboarding Command Contract
+
+Nodeboard must generate three operator commands from the same repository-local
+entrypoint:
+
+- Preview: `./deploy/node/aeronyx-node.sh plan --quick`
+- Install: `sudo env AERONYX_REGISTRATION_CODE=... ./deploy/node/aeronyx-node.sh install --quick`
+- Verify: `./deploy/node/aeronyx-node.sh health --json`
+
+The preview command must include `--quick` whenever the install command includes
+`--quick`. Operators and AI assistants should approve the same first-install
+path that will actually run after approval. Do not show a generic plan in the
+UI and then execute a quick install.
 
 ## Dependency Security
 

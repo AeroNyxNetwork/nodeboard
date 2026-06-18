@@ -20,7 +20,8 @@
  *   public keys, wallet secrets, client IPs, destinations, DNS contents,
  *   packet payloads, browsing history, or traffic metadata.
  *
- * Last Modified: v1.0.3 - Added multilingual node service configuration labels
+ * Last Modified: v1.0.4 - Clarified quick install preview copy
+ * Previous: v1.0.3 - Added multilingual node service configuration labels
  * Previous: v1.0.2 - Added preview/install command labels for node setup
  * Previous: v1.0.1 - Added multilingual Rust quick install command copy
  * Previous: v1.0.0 - Initial nodeboard i18n base framework
@@ -1506,7 +1507,7 @@ const en: Dictionary = {
   'codes.generated.installCommand': 'Install command',
   'codes.generated.healthCommand': 'Healthcheck command',
   'codes.generated.aiPrompt': 'AI assistant prompt',
-  'codes.generated.previewHint': 'Preview the resolved install plan without root access or host changes:',
+  'codes.generated.previewHint': 'Preview the resolved quick install plan without root access or host changes:',
   'codes.generated.quickNote': 'The unified entrypoint keeps preflight checks, capacity warnings, network setup, release build, systemd verification, registration safeguards, and healthcheck automation available through one command.',
   'codes.generated.repoStepTitle': 'Need the repository first?',
   'codes.history.title': 'Code History',
@@ -3377,7 +3378,7 @@ const zhCN: Dictionary = {
   'codes.generated.installCommand': '安装命令',
   'codes.generated.healthCommand': '健康检查命令',
   'codes.generated.aiPrompt': 'AI 助手提示词',
-  'codes.generated.previewHint': '无需 root 权限、不会修改主机，先预览解析后的安装计划：',
+  'codes.generated.previewHint': '无需 root 权限、不会修改主机，先预览解析后的快速安装计划：',
   'codes.generated.quickNote': '统一入口把预检、容量告警、网络配置、release 构建、systemd 校验、注册保护和健康检查都收敛到一个命令。',
   'codes.generated.repoStepTitle': '还没有仓库？',
   'codes.history.title': '代码历史',
@@ -5206,7 +5207,7 @@ const zhTW: Dictionary = {
   'codes.generated.installCommand': '安裝命令',
   'codes.generated.healthCommand': '健康檢查命令',
   'codes.generated.aiPrompt': 'AI 助手提示詞',
-  'codes.generated.previewHint': '無需 root 權限、也不會修改主機，先預覽解析後的安裝計畫：',
+  'codes.generated.previewHint': '無需 root 權限、也不會修改主機，先預覽解析後的快速安裝計畫：',
   'codes.generated.quickNote': '統一入口把預檢、容量告警、網路設定、release 建置、systemd 校驗、註冊保護和健康檢查都收斂到一個命令。',
   'codes.generated.repoStepTitle': '還沒有倉庫？',
   'codes.history.title': '代碼歷史',
@@ -7121,7 +7122,7 @@ const ja: Dictionary = {
   'codes.generated.installCommand': 'インストールコマンド',
   'codes.generated.healthCommand': 'ヘルスチェックコマンド',
   'codes.generated.aiPrompt': 'AI アシスタント用プロンプト',
-  'codes.generated.previewHint': 'root 権限やホスト変更なしで、解決されたインストール計画を先に確認します:',
+  'codes.generated.previewHint': 'root 権限やホスト変更なしで、解決された quick install plan を先に確認します:',
   'codes.generated.quickNote': '統一エントリポイントで preflight、容量警告、ネットワーク設定、release build、systemd 検証、登録保護、ヘルスチェックを 1 つのコマンドに集約します。',
   'codes.generated.repoStepTitle': 'まだリポジトリがありませんか？',
   'codes.history.title': 'コード履歴',
@@ -8992,7 +8993,7 @@ const ko: Dictionary = {
   'codes.generated.installCommand': '설치 명령',
   'codes.generated.healthCommand': '헬스체크 명령',
   'codes.generated.aiPrompt': 'AI 어시스턴트 프롬프트',
-  'codes.generated.previewHint': 'root 권한이나 호스트 변경 없이 해석된 설치 계획을 먼저 확인하세요:',
+  'codes.generated.previewHint': 'root 권한이나 호스트 변경 없이 해석된 quick install plan 을 먼저 확인하세요:',
   'codes.generated.quickNote': '통합 엔트리포인트는 preflight, 용량 경고, 네트워크 설정, release build, systemd 검증, 등록 보호, healthcheck를 하나의 명령으로 모읍니다.',
   'codes.generated.repoStepTitle': '저장소가 아직 없나요?',
   'codes.history.title': '코드 기록',
@@ -10863,7 +10864,7 @@ const ru: Dictionary = {
   'codes.generated.installCommand': 'Команда установки',
   'codes.generated.healthCommand': 'Команда healthcheck',
   'codes.generated.aiPrompt': 'Промпт для AI-ассистента',
-  'codes.generated.previewHint': 'Сначала проверьте рассчитанный план установки без root-доступа и изменений на хосте:',
+  'codes.generated.previewHint': 'Сначала проверьте рассчитанный quick install plan без root-доступа и изменений на хосте:',
   'codes.generated.quickNote': 'Единая точка входа объединяет preflight, предупреждения емкости, настройку сети, release build, проверку systemd, защиту регистрации и healthcheck в одной команде.',
   'codes.generated.repoStepTitle': 'Репозитория еще нет?',
   'codes.history.title': 'История кодов',
