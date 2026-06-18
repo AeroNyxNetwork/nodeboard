@@ -339,6 +339,9 @@ function GenerateCodeCard() {
                 {t('codes.generated.commandHint')}
               </p>
               <div className="mt-3 space-y-3">
+                <p className="text-xs leading-5 text-purple-100/70">
+                  {t('codes.generated.scriptOrigin')}
+                </p>
                 <p className="text-xs font-medium uppercase tracking-wider text-purple-100/60">
                   {t('codes.generated.previewCommand')}
                 </p>
