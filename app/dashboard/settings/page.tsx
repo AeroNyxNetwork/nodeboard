@@ -38,7 +38,8 @@
  *   contents, traffic destinations, domains, URLs, browsing history, voucher
  *   secrets, wallet-level traffic, or plaintext social graph data.
  *
- * Last Modified: v1.6.2 - Added dashboard language selector
+ * Last Modified: v1.6.3 - Wire private access code generation and save flow
+ * Previous: v1.6.2 - Added dashboard language selector
  * Previous: v1.6.1 - Control plane runtime panel
  * ============================================
  */
@@ -86,6 +87,11 @@ type PolicySaveFollowUp = {
   nodeName: string;
   nodeCount: number;
   savedAt: string;
+};
+type AccessPasswordDraft = {
+  value: string;
+  dirty: boolean;
+  generated: boolean;
 };
 type PolicyPreset = {
   id: string;
@@ -142,6 +148,13 @@ function clampNumber(value: number, min: number, max: number) {
 
 function normalizeRegionCode(value: string) {
   return value.trim().toUpperCase().slice(0, 2);
+}
+
+function generatePrivateAccessCode() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const bytes = new Uint8Array(18);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('');
 }
 
 function shortValue(value: unknown) {
@@ -671,20 +684,39 @@ function NodeList({
 function PolicyEditor({
   node,
   form,
+  accessPassword,
   onForm,
+  onAccessPassword,
   onSave,
   saving,
   policySync,
 }: {
   node: Node;
   form: NodeSettingsForm;
+  accessPassword: AccessPasswordDraft;
   onForm: (form: NodeSettingsForm) => void;
+  onAccessPassword: (draft: AccessPasswordDraft) => void;
   onSave: () => void;
   saving: boolean;
   policySync?: VpnPolicySync;
 }) {
   const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const changed = policyChanged(node, form);
+  const canSave = changed || accessPassword.dirty;
+  const handleGenerateAccessCode = () => {
+    const value = generatePrivateAccessCode();
+    onAccessPassword({ value, dirty: true, generated: true });
+    onForm({ ...form, visibility: 'password_protected' });
+  };
+  const handleCopyAccessCode = async () => {
+    if (!accessPassword.value) return;
+    await navigator.clipboard.writeText(accessPassword.value);
+  };
+  const handleRemoveAccessCode = () => {
+    onAccessPassword({ value: '', dirty: true, generated: false });
+    onForm({ ...form, visibility: 'private' });
+  };
+
   return (
     <Card variant="default" padding="none">
       <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between gap-3">
@@ -696,7 +728,7 @@ function PolicyEditor({
               : t('settings.policyEditor.noHeartbeat')}
           </p>
         </div>
-        <Button variant="primary" onClick={onSave} disabled={!changed || saving} isLoading={saving}>
+        <Button variant="primary" onClick={onSave} disabled={!canSave || saving} isLoading={saving}>
           {t('settings.policyEditor.saveSettings')}
         </Button>
       </div>
@@ -739,9 +771,7 @@ function PolicyEditor({
                 <option value="private" className="bg-[#111118]">{t('nodeSettings.visibility.private.label')}</option>
                 <option value="public" className="bg-[#111118]">{t('nodeSettings.visibility.public.label')}</option>
                 <option value="unlisted" className="bg-[#111118]">{t('nodeSettings.visibility.unlisted.label')}</option>
-                {form.visibility === 'password_protected' && (
-                  <option value="password_protected" className="bg-[#111118]">{t('nodeSettings.visibility.password_protected.label')}</option>
-                )}
+                <option value="password_protected" className="bg-[#111118]">{t('nodeSettings.visibility.password_protected.label')}</option>
               </select>
             </label>
 
@@ -760,6 +790,65 @@ function PolicyEditor({
                 <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform duration-200 ${form.is_vpn_node ? 'translate-x-5' : 'translate-x-0'}`} />
               </button>
             </section>
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-purple-500/20 bg-purple-500/[0.05] p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-white">{t('nodeSettings.password.title')}</h3>
+              <p className="mt-1 text-xs leading-5 text-gray-500">
+                {node.has_access_password
+                  ? t('nodeSettings.password.existingHint')
+                  : t('nodeSettings.password.newHint')}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-600">{t('nodeSettings.password.generatedHint')}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={handleGenerateAccessCode}>
+                {accessPassword.dirty ? t('nodeSettings.password.regenerate') : t('nodeSettings.password.generate')}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  void handleCopyAccessCode().catch(() => undefined);
+                }}
+                disabled={!accessPassword.value}
+              >
+                {t('nodeSettings.password.copy')}
+              </Button>
+              {(node.has_access_password || form.visibility === 'password_protected') && (
+                <Button variant="secondary" onClick={handleRemoveAccessCode}>
+                  {t('nodeSettings.password.remove')}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
+            <label className="block">
+              <span className="text-xs text-gray-500">{t('nodeSettings.password.title')}</span>
+              <input
+                type="text"
+                value={accessPassword.value}
+                onChange={(event) => onAccessPassword({
+                  value: event.target.value,
+                  dirty: true,
+                  generated: false,
+                })}
+                placeholder={node.has_access_password
+                  ? t('nodeSettings.password.existingHint')
+                  : t('nodeSettings.password.placeholder')}
+                className="mt-1 w-full rounded-lg bg-black/30 border border-white/10 px-3 py-2 font-mono text-sm text-white placeholder-gray-600 outline-none focus:border-purple-500/50"
+              />
+            </label>
+            <span className={`inline-flex h-10 items-center justify-center rounded-lg border px-3 text-xs ${
+              form.visibility === 'password_protected'
+                ? 'border-purple-500/30 bg-purple-500/10 text-purple-200'
+                : 'border-white/10 bg-white/[0.04] text-gray-400'
+            }`}>
+              {t(`nodeSettings.visibility.${form.visibility}.label`)}
+            </span>
           </div>
         </section>
 
@@ -933,6 +1022,11 @@ export default function SettingsPage() {
     [nodes, selectedId]
   );
   const [form, setForm] = useState<NodeSettingsForm>(DEFAULT_FORM);
+  const [accessPassword, setAccessPassword] = useState<AccessPasswordDraft>({
+    value: '',
+    dirty: false,
+    generated: false,
+  });
   const [message, setMessage] = useState('');
   const [messageTone, setMessageTone] = useState<'success' | 'error'>('success');
   const [lastPolicySave, setLastPolicySave] = useState<PolicySaveFollowUp | null>(null);
@@ -948,12 +1042,24 @@ export default function SettingsPage() {
 
   useEffect(() => {
     setForm(nodePolicy(selectedNode));
+    setAccessPassword({ value: '', dirty: false, generated: false });
     setMessage('');
   }, [selectedNode?.id]);
 
   const save = async () => {
     if (!selectedNode) return;
     setMessage('');
+    const nextAccessPassword = accessPassword.value.trim();
+    if (
+      form.visibility === 'password_protected'
+      && !selectedNode.has_access_password
+      && !nextAccessPassword
+    ) {
+      setMessage(t('nodeSettings.validation.passwordRequired'));
+      setMessageTone('error');
+      return;
+    }
+
     const payload: NodeUpdateRequest = {
       visibility: form.visibility,
       region_code: form.region_code,
@@ -965,6 +1071,10 @@ export default function SettingsPage() {
       bandwidth_limit_mbps: form.bandwidth_limit_mbps,
       heartbeat_interval_seconds: form.heartbeat_interval_seconds,
     };
+    if (accessPassword.dirty) {
+      payload.access_password = nextAccessPassword;
+    }
+
     try {
       await updateNode.mutateAsync({ nodeId: selectedNode.id, data: payload });
       setMessage(t('settings.policyEditor.saved'));
@@ -976,6 +1086,7 @@ export default function SettingsPage() {
         nodeCount: 1,
         savedAt: new Date().toISOString(),
       });
+      setAccessPassword({ value: '', dirty: false, generated: false });
       refetch();
       refetchVpnOverview();
     } catch (err) {
@@ -1112,7 +1223,9 @@ export default function SettingsPage() {
           <PolicyEditor
             node={selectedNode}
             form={form}
+            accessPassword={accessPassword}
             onForm={setForm}
+            onAccessPassword={setAccessPassword}
             onSave={save}
             saving={updateNode.isPending}
             policySync={policySyncByNodeId[selectedNode.id]}

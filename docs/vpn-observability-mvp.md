@@ -373,8 +373,13 @@ transport, DNS, restart/rollout, service-layer, risk, or node-table detail.
 - `app/dashboard/settings/page.tsx`
   - Adds Settings as the node operator policy center.
   - Lets operators select a node and edit placement/access fields: region
-    code, city, visibility, and whether the node is advertised as a VPN exit
-    candidate.
+    code, city, visibility, and whether the node is advertised as an AeroNyx
+    Privacy Protocol entry candidate.
+  - Lets operators generate, replace, copy, or remove a private access code for
+    password-protected nodes. The frontend sends `access_password` only when
+    the operator explicitly changes the code; ordinary policy saves leave the
+    stored password hash untouched. Removing protection sends an empty
+    `access_password` only while switching the node back to private access.
   - Lets operators edit node tier, maintenance mode, maximum sessions,
     bandwidth cap, and heartbeat interval.
   - Adds Fleet Presets for common commercial operating modes:

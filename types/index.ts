@@ -231,6 +231,8 @@ export interface Node {
   status: NodeStatus;
   // v1.2.0 — visibility & access
   visibility: NodeVisibility;
+  // v1.2.0 — password indicator only; never exposes hash or plaintext.
+  has_access_password: boolean;
   // v1.2.0 — region
   region_code: string;
   city: string;
@@ -291,8 +293,6 @@ export interface NodeInstallProgressSummary {
 export interface NodeDetail extends Node {
   owner_wallet: string;
   public_key: string;
-  // v1.2.0 — password indicator (never exposes the hash)
-  has_access_password: boolean;
   binary_hash: string;
   total_uptime_seconds: number;
   total_data_bytes: number;
