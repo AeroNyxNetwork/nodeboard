@@ -6,6 +6,11 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.36 - Added Rust-authored operator_action recommendation to the
+ *     node detail Operator Actions hub. The card consumes
+ *     data.nodes[].system.operator_action and links operators to the detailed
+ *     health, capacity, upgrade, runtime, or runbook evidence without adding
+ *     more first-level Services modules.
  *   v1.6.35 - Added CPU and memory resource load to the node Capacity panel
  *     and folded high resource pressure into the commercial capacity risk
  *     summary. This keeps Services lean while making node detail explain
@@ -195,7 +200,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.35 - Add resource load capacity signals
+ * Last Modified: v1.6.36 - Show Rust operator action recommendation
+ * Previous: v1.6.35 - Add resource load capacity signals
  * Previous: v1.6.34 - Add node detail section navigator
  * Previous: v1.6.33 - Fix capacity bandwidth cap units
  * Previous: v1.6.32 - Show node install workflow status
@@ -2426,6 +2432,37 @@ function operatorActionBadgeClass(tone: OperatorActionTone) {
   }
 }
 
+function rustOperatorActionTone(status: string | undefined | null): OperatorActionTone {
+  switch (status) {
+    case 'critical':
+      return 'critical';
+    case 'warning':
+      return 'warning';
+    case 'ok':
+      return 'ok';
+    case 'info':
+      return 'info';
+    default:
+      return 'pending';
+  }
+}
+
+function rustOperatorActionHref(source: string | undefined | null, priority: string | undefined | null) {
+  const value = `${source || ''} ${priority || ''}`.toLowerCase();
+  if (value.includes('capacity')) return '#capacity-panel';
+  if (value.includes('upgrade')) return '#upgrade-workflow';
+  if (value.includes('service_manager') || value.includes('service_not_active')) return '#operator-runbook';
+  if (value.includes('runtime') || value.includes('restart')) return '#runtime-panel';
+  if (value.includes('recent')) return '#recent-operational-events';
+  if (value.includes('check') || value.includes('health')) return '#health-checks';
+  return '#operator-runbook';
+}
+
+function rustOperatorActionMeta(status: string | undefined | null, priority: string | undefined | null, t: TranslateFn) {
+  if (!status && !priority) return t('nodeDetail.operatorActions.meta.waiting');
+  return String(status || priority || '').replace(/_/g, ' ');
+}
+
 function OperatorActionCard({
   tone,
   title,
@@ -2550,6 +2587,7 @@ function OperatorActionsPanel({
   const rollout = runtimeRolloutForNode(health);
   const restartRequired = Boolean(rollout?.restart_required);
   const upgradeStatus = health.system.upgrade_status ?? null;
+  const rustAction = health.system.operator_action ?? null;
   const upgradeReported = Boolean(upgradeStatus?.reported);
   const upgradeStatusValue = upgradeStatus?.status ?? null;
   const installStatusValue = installStatus?.status ?? null;
@@ -2580,8 +2618,20 @@ function OperatorActionsPanel({
   const restartTone: OperatorActionTone = restartRequired
     ? (restartReady ? 'warning' : 'critical')
     : maintenanceMode ? 'info' : 'ok';
+  const rustActionTone = rustOperatorActionTone(rustAction?.status);
 
   const actions = [
+    {
+      key: 'rust-operator-action',
+      tone: rustActionTone,
+      title: rustAction?.title || t('nodeDetail.operatorActions.rust.title'),
+      detail: rustAction?.next_step || rustAction?.detail || t('nodeDetail.operatorActions.rust.waitingDetail'),
+      meta: rustOperatorActionMeta(rustAction?.status, rustAction?.priority, t),
+      href: rustOperatorActionHref(rustAction?.source, rustAction?.priority),
+      cta: rustAction?.source
+        ? t('nodeDetail.operatorActions.rust.cta', { source: rustAction.source })
+        : t('nodeDetail.operatorActions.rust.waitingCta'),
+    },
     {
       key: 'settings',
       tone: 'info' as OperatorActionTone,

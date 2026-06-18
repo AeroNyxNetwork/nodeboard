@@ -1584,6 +1584,16 @@ export interface OperatorRisk {
   remediation: string;
 }
 
+export interface VpnOperatorActionSummary {
+  status: 'ok' | 'info' | 'warning' | 'critical' | string;
+  priority: string;
+  title: string;
+  detail: string;
+  next_step: string;
+  source: string;
+  privacy_boundary?: string | null;
+}
+
 export interface RuntimeRolloutStatus {
   executable_path?: string | null;
   executable_replaced: boolean;
@@ -2018,6 +2028,7 @@ export interface VpnNodeHealth {
     capacity?: VpnCapacitySnapshot | null;
     recent_errors?: VpnRecentErrorsSnapshot | null;
     upgrade_status?: VpnUpgradeStatusSnapshot | null;
+    operator_action?: VpnOperatorActionSummary | null;
     policy_sync?: VpnPolicySync;
     policy_enforcement?: VpnPolicyEnforcement;
     runtime_recovery?: VpnRuntimeRecovery;
