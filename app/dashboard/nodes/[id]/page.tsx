@@ -6,6 +6,10 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.30 - Added an Operator Actions panel that summarizes node settings,
+ *     capacity bottlenecks, health checks, recent events, runtime rollout, and
+ *     maintenance readiness into action cards with anchors to the detailed
+ *     panels instead of forcing operators to scan the whole page.
  *   v1.6.29 - Added recent Rust operational error events from sanitized
  *     system_stats.vpn_health.recent_errors so operators can triage service
  *     failures without collecting client traffic data.
@@ -171,7 +175,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.29 - Show sanitized recent Rust operational errors
+ * Last Modified: v1.6.30 - Add node operator action hub
+ * Previous: v1.6.29 - Show sanitized recent Rust operational errors
  * Previous: v1.6.28 - Add node operator runbook commands
  * Previous: v1.6.27 - Prefer Rust-authored capacity risks
  * Previous: v1.6.26 - Show commercial capacity risk summary
@@ -1952,7 +1957,7 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
     : 'border-yellow-500/25 bg-yellow-500/[0.06]';
 
   return (
-    <div className={`mt-5 rounded-xl border p-4 ${capacityReported ? 'border-white/5 bg-white/[0.02]' : 'border-yellow-500/20 bg-yellow-500/[0.05]'}`}>
+    <div id="capacity-panel" className={`mt-5 scroll-mt-6 rounded-xl border p-4 ${capacityReported ? 'border-white/5 bg-white/[0.02]' : 'border-yellow-500/20 bg-yellow-500/[0.05]'}`}>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -2158,7 +2163,7 @@ function RecentOperationalEventsPanel({ health }: { health: VpnNodeHealth }) {
   const reported = Boolean(recentErrors?.reported);
 
   return (
-    <div className={`mt-5 rounded-xl border p-4 ${
+    <div id="recent-operational-events" className={`mt-5 scroll-mt-6 rounded-xl border p-4 ${
       events.length > 0
         ? 'border-yellow-500/20 bg-yellow-500/[0.04]'
         : reported
@@ -2224,6 +2229,260 @@ function RecentOperationalEventsPanel({ health }: { health: VpnNodeHealth }) {
       <p className="mt-3 text-[11px] leading-5 text-gray-600">
         {recentErrors?.privacy_boundary || t('nodeDetail.recentErrors.privacy')}
       </p>
+    </div>
+  );
+}
+
+type OperatorActionTone = 'ok' | 'warning' | 'critical' | 'info' | 'pending';
+
+function operatorActionToneClass(tone: OperatorActionTone) {
+  switch (tone) {
+    case 'critical':
+      return 'border-red-500/25 bg-red-500/[0.07]';
+    case 'warning':
+      return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+    case 'ok':
+      return 'border-emerald-500/20 bg-emerald-500/[0.04]';
+    case 'pending':
+      return 'border-gray-500/20 bg-gray-500/[0.04]';
+    default:
+      return 'border-sky-500/20 bg-sky-500/[0.04]';
+  }
+}
+
+function operatorActionBadgeClass(tone: OperatorActionTone) {
+  switch (tone) {
+    case 'critical':
+      return 'border-red-400/25 bg-red-400/10 text-red-100';
+    case 'warning':
+      return 'border-yellow-400/25 bg-yellow-400/10 text-yellow-100';
+    case 'ok':
+      return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100';
+    case 'pending':
+      return 'border-gray-400/20 bg-gray-400/10 text-gray-300';
+    default:
+      return 'border-sky-400/25 bg-sky-400/10 text-sky-100';
+  }
+}
+
+function OperatorActionCard({
+  tone,
+  title,
+  detail,
+  meta,
+  href,
+  cta,
+}: {
+  tone: OperatorActionTone;
+  title: string;
+  detail: string;
+  meta: string;
+  href: string;
+  cta: string;
+}) {
+  return (
+    <a
+      href={href}
+      className={`block min-h-[168px] rounded-xl border p-4 transition hover:border-white/25 hover:bg-white/[0.06] ${operatorActionToneClass(tone)}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white">{title}</p>
+          <p className="mt-1 text-xs leading-5 text-gray-400">{detail}</p>
+        </div>
+        <span className={`shrink-0 rounded-full border px-2 py-1 text-[11px] uppercase tracking-wide ${operatorActionBadgeClass(tone)}`}>
+          {meta}
+        </span>
+      </div>
+      <p className="mt-4 text-xs font-medium text-purple-200">{cta}</p>
+    </a>
+  );
+}
+
+function OperatorActionsPanel({
+  health,
+  failedChecksCount,
+  activeCommandCount,
+  failedCommandCount,
+  maintenanceMode,
+  restartReady,
+}: {
+  health: VpnNodeHealth;
+  failedChecksCount: number;
+  activeCommandCount: number;
+  failedCommandCount: number;
+  maintenanceMode: boolean;
+  restartReady: boolean;
+}) {
+  const { t, formatNumber } = useI18n();
+  const capacityRisks = capacityRiskItems(health.system.capacity, t, formatNumber);
+  const recentErrors = health.system.recent_errors;
+  const eventCount = Array.isArray(recentErrors?.events) ? recentErrors.events.length : 0;
+  const eventsReported = Boolean(recentErrors?.reported);
+  const rollout = runtimeRolloutForNode(health);
+  const restartRequired = Boolean(rollout?.restart_required);
+  const runtimeReported = Boolean(
+    health.system.runtime
+    || health.system.runtime_version
+    || health.system.runtime_started_at
+    || health.system.operator_status?.runtime_rollout
+  );
+  const hasCriticalCapacity = capacityRisks.some((risk) => risk.tone === 'critical');
+  const capacityTone: OperatorActionTone = capacityRisks.length > 0
+    ? (hasCriticalCapacity ? 'critical' : 'warning')
+    : health.system.capacity?.reported ? 'ok' : 'pending';
+  const healthTone: OperatorActionTone = failedChecksCount > 0
+    ? (health.health_status === 'offline' || health.health_status === 'overloaded' ? 'critical' : 'warning')
+    : 'ok';
+  const runtimeTone: OperatorActionTone = restartRequired ? 'warning' : runtimeReported ? 'ok' : 'pending';
+  const eventsTone: OperatorActionTone = eventCount > 0 ? 'warning' : eventsReported ? 'ok' : 'pending';
+  const commandTone: OperatorActionTone = failedCommandCount > 0 ? 'warning' : activeCommandCount > 0 ? 'info' : 'ok';
+  const restartTone: OperatorActionTone = restartRequired
+    ? (restartReady ? 'warning' : 'critical')
+    : maintenanceMode ? 'info' : 'ok';
+
+  const actions = [
+    {
+      key: 'settings',
+      tone: 'info' as OperatorActionTone,
+      title: t('nodeDetail.operatorActions.settings.title'),
+      detail: t('nodeDetail.operatorActions.settings.detail'),
+      meta: t('nodeDetail.operatorActions.settings.meta'),
+      href: '#node-settings',
+      cta: t('nodeDetail.operatorActions.settings.cta'),
+    },
+    {
+      key: 'capacity',
+      tone: capacityTone,
+      title: t('nodeDetail.operatorActions.capacity.title'),
+      detail: capacityRisks.length > 0
+        ? t('nodeDetail.operatorActions.capacity.riskDetail', { count: formatNumber(capacityRisks.length) })
+        : health.system.capacity?.reported
+          ? t('nodeDetail.operatorActions.capacity.clearDetail')
+          : t('nodeDetail.operatorActions.capacity.waitingDetail'),
+      meta: capacityRisks.length > 0
+        ? t('nodeDetail.operatorActions.capacity.riskMeta', { count: formatNumber(capacityRisks.length) })
+        : health.system.capacity?.reported
+          ? t('nodeDetail.operatorActions.meta.clear')
+          : t('nodeDetail.operatorActions.meta.waiting'),
+      href: '#capacity-panel',
+      cta: t('nodeDetail.operatorActions.capacity.cta'),
+    },
+    {
+      key: 'health',
+      tone: healthTone,
+      title: t('nodeDetail.operatorActions.health.title'),
+      detail: failedChecksCount > 0
+        ? t('nodeDetail.operatorActions.health.failedDetail', { count: formatNumber(failedChecksCount) })
+        : t('nodeDetail.operatorActions.health.clearDetail'),
+      meta: failedChecksCount > 0
+        ? t('nodeDetail.operatorActions.health.failedMeta', { count: formatNumber(failedChecksCount) })
+        : t('nodeDetail.operatorActions.meta.clear'),
+      href: '#health-checks',
+      cta: t('nodeDetail.operatorActions.health.cta'),
+    },
+    {
+      key: 'events',
+      tone: eventsTone,
+      title: t('nodeDetail.operatorActions.events.title'),
+      detail: eventCount > 0
+        ? t('nodeDetail.operatorActions.events.hasEventsDetail', { count: formatNumber(eventCount) })
+        : eventsReported
+          ? t('nodeDetail.operatorActions.events.clearDetail')
+          : t('nodeDetail.operatorActions.events.waitingDetail'),
+      meta: eventCount > 0
+        ? t('nodeDetail.operatorActions.events.eventMeta', { count: formatNumber(eventCount) })
+        : eventsReported
+          ? t('nodeDetail.operatorActions.meta.clear')
+          : t('nodeDetail.operatorActions.meta.waiting'),
+      href: '#recent-operational-events',
+      cta: t('nodeDetail.operatorActions.events.cta'),
+    },
+    {
+      key: 'runtime',
+      tone: runtimeTone,
+      title: t('nodeDetail.operatorActions.runtime.title'),
+      detail: restartRequired
+        ? t('nodeDetail.operatorActions.runtime.restartDetail')
+        : runtimeReported
+          ? t('nodeDetail.operatorActions.runtime.clearDetail')
+          : t('nodeDetail.operatorActions.runtime.waitingDetail'),
+      meta: restartRequired
+        ? t('nodeDetail.operatorActions.runtime.restartMeta')
+        : runtimeReported
+          ? t('nodeDetail.operatorActions.meta.clear')
+          : t('nodeDetail.operatorActions.meta.waiting'),
+      href: '#runtime-panel',
+      cta: t('nodeDetail.operatorActions.runtime.cta'),
+    },
+    {
+      key: 'commands',
+      tone: commandTone,
+      title: t('nodeDetail.operatorActions.commands.title'),
+      detail: failedCommandCount > 0
+        ? t('nodeDetail.operatorActions.commands.failedDetail', { count: formatNumber(failedCommandCount) })
+        : activeCommandCount > 0
+          ? t('nodeDetail.operatorActions.commands.activeDetail', { count: formatNumber(activeCommandCount) })
+          : t('nodeDetail.operatorActions.commands.clearDetail'),
+      meta: failedCommandCount > 0
+        ? t('nodeDetail.operatorActions.commands.failedMeta', { count: formatNumber(failedCommandCount) })
+        : activeCommandCount > 0
+          ? t('nodeDetail.operatorActions.commands.activeMeta', { count: formatNumber(activeCommandCount) })
+          : t('nodeDetail.operatorActions.meta.clear'),
+      href: '#vpn-commands',
+      cta: t('nodeDetail.operatorActions.commands.cta'),
+    },
+    {
+      key: 'restart',
+      tone: restartTone,
+      title: t('nodeDetail.operatorActions.restart.title'),
+      detail: restartRequired
+        ? restartReady
+          ? t('nodeDetail.operatorActions.restart.readyDetail')
+          : t('nodeDetail.operatorActions.restart.blockedDetail')
+        : maintenanceMode
+          ? t('nodeDetail.operatorActions.restart.maintenanceDetail')
+          : t('nodeDetail.operatorActions.restart.clearDetail'),
+      meta: restartRequired
+        ? restartReady
+          ? t('nodeDetail.operatorActions.restart.readyMeta')
+          : t('nodeDetail.operatorActions.restart.blockedMeta')
+        : maintenanceMode
+          ? t('nodeDetail.operatorActions.restart.maintenanceMeta')
+          : t('nodeDetail.operatorActions.meta.clear'),
+      href: '#maintenance-drain',
+      cta: t('nodeDetail.operatorActions.restart.cta'),
+    },
+    {
+      key: 'runbook',
+      tone: 'info' as OperatorActionTone,
+      title: t('nodeDetail.operatorActions.runbook.title'),
+      detail: t('nodeDetail.operatorActions.runbook.detail'),
+      meta: t('nodeDetail.operatorActions.runbook.meta'),
+      href: '#operator-runbook',
+      cta: t('nodeDetail.operatorActions.runbook.cta'),
+    },
+  ];
+
+  return (
+    <div id="operator-actions" className="mt-5 scroll-mt-6 rounded-xl border border-white/5 bg-white/[0.02] p-4">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-white">{t('nodeDetail.operatorActions.title')}</h4>
+          <p className="mt-1 text-xs leading-5 text-gray-500">{t('nodeDetail.operatorActions.description')}</p>
+        </div>
+        <span className="w-fit rounded-full border border-white/10 bg-black/20 px-2 py-1 text-xs text-gray-400">
+          {t('nodeDetail.operatorActions.scope')}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {actions.map(({ key, ...action }) => (
+          <OperatorActionCard key={key} {...action} />
+        ))}
+      </div>
+
+      <p className="mt-3 text-[11px] leading-5 text-gray-600">{t('nodeDetail.operatorActions.privacyBoundary')}</p>
     </div>
   );
 }
@@ -2319,7 +2578,7 @@ function OperatorRunbookPanel({ health }: { health: VpnNodeHealth }) {
   ].join('\n');
 
   return (
-    <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.02] p-4">
+    <div id="operator-runbook" className="mt-5 scroll-mt-6 rounded-xl border border-white/5 bg-white/[0.02] p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <h4 className="text-sm font-semibold text-white">{t('nodeDetail.operatorRunbook.title')}</h4>
@@ -2391,7 +2650,7 @@ function RuntimeVersionPanel({ health }: { health: VpnNodeHealth }) {
   const runtimeReported = Boolean(runtime || health.system.runtime_version || health.system.runtime_started_at || health.system.operator_status?.runtime_rollout);
 
   return (
-    <div className={`mt-5 rounded-xl border p-4 ${restartRequired ? 'border-yellow-500/25 bg-yellow-500/[0.06]' : runtimeReported ? 'border-white/5 bg-white/[0.02]' : 'border-gray-500/20 bg-gray-500/[0.04]'}`}>
+    <div id="runtime-panel" className={`mt-5 scroll-mt-6 rounded-xl border p-4 ${restartRequired ? 'border-yellow-500/25 bg-yellow-500/[0.06]' : runtimeReported ? 'border-white/5 bg-white/[0.02]' : 'border-gray-500/20 bg-gray-500/[0.04]'}`}>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -4653,6 +4912,15 @@ function VpnHealthPanel({
         isMetricsLoading={metricsLoading}
       />
 
+      <OperatorActionsPanel
+        health={health}
+        failedChecksCount={failedChecks.length}
+        activeCommandCount={activeCommandCount}
+        failedCommandCount={failedCommandCount}
+        maintenanceMode={maintenanceMode}
+        restartReady={restartReady}
+      />
+
       <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 mt-5">
         <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
           <p className="text-xs text-gray-500">{t('nodeDetail.health.activeTunnels')}</p>
@@ -4725,7 +4993,7 @@ function VpnHealthPanel({
         onCancelRestartCommand={handleCancelRestartCommand}
       />
 
-      <div className="mt-5 grid md:grid-cols-2 gap-3">
+      <div id="health-checks" className="mt-5 grid scroll-mt-6 gap-3 md:grid-cols-2">
         {health.checks.map((check) => (
           <div
             key={check.name}
@@ -5494,11 +5762,13 @@ export default function NodeDetailPage() {
       />
 
       {/* 2. Node Settings */}
-      <NodeSettings
-        node={node}
-        onSaved={refetch}
-        onToast={showToast}
-      />
+      <div id="node-settings" className="scroll-mt-6">
+        <NodeSettings
+          node={node}
+          onSaved={refetch}
+          onToast={showToast}
+        />
+      </div>
 
       {/* 3. AeroNyx Service Readiness */}
       <ServiceReadinessPanel
