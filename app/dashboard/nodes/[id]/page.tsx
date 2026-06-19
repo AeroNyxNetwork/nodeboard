@@ -6,6 +6,13 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.43 - Added a node-scoped Encrypted Chat Relay panel that consumes
+ *     data.nodes[].system.chat_relay_status from the backend overview API.
+ *     Rust reports privacy-safe node-to-node relay counters from
+ *     crates/aeronyx-server/src/services/chat_relay.rs and
+ *     crates/aeronyx-server/src/server.rs so operators can see relay
+ *     stability without exposing message IDs, wallet IDs, chat plaintext,
+ *     ciphertext, client public IPs, or per-user traffic.
  *   v1.6.40 - Added a node-scoped Discovery panel that consumes
  *     data.nodes[].system.discovery_status from the backend overview API.
  *     Rust reports this aggregate peer-store snapshot from
@@ -130,6 +137,11 @@
  *     /root/aeronyx/privacy_network/api/vpn_observability.py. Rust producers:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
  *     and /root/open/AeroNyx/crates/aeronyx-server/src/services/peer_store.rs.
+ *     Exposes data.nodes[].system.chat_relay_status for aggregate encrypted
+ *     chat peer relay health. Backend path:
+ *     /root/aeronyx/privacy_network/api/vpn_observability.py. Rust producers:
+ *     /root/open/AeroNyx/crates/aeronyx-server/src/services/chat_relay.rs
+ *     and /root/open/AeroNyx/crates/aeronyx-server/src/server.rs.
  *     Exposes data.nodes[].system.restart_readiness.active_restart_command
  *     and latest_restart_command for restart command SLA/outcome visibility
  *     without command params, result, or error_message payloads.
@@ -225,7 +237,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.42 - Show discovery outbound gossip health
+ * Last Modified: v1.6.43 - Show encrypted chat peer relay health
+ * Previous: v1.6.42 - Show discovery outbound gossip health
  * Previous: v1.6.41 - Show discovery seed recovery status
  * Previous: v1.6.40 - Show Rust discovery and gossip status
  * Previous: v1.6.39 - Prioritize status in operator runbook
@@ -292,6 +305,7 @@ import {
   useDeleteNode,
 } from '@/hooks/useNodes';
 import {
+  ChatRelayStatus,
   NodeCommand,
   DiscoveryBootstrapStatus,
   DiscoveryStatus,
@@ -3807,6 +3821,192 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
   );
 }
 
+function chatRelayPeer(relay: ChatRelayStatus | null | undefined) {
+  return relay?.peer_relay ?? null;
+}
+
+function chatRelayWarningCount(relay: ChatRelayStatus | null | undefined) {
+  const peer = chatRelayPeer(relay);
+  if (!peer || !peer.enabled) return 0;
+  const outboundWarning = peer.last_outbound_status === 'failed' || peer.last_outbound_status === 'degraded'
+    || (peer.consecutive_outbound_failures ?? 0) > 0
+    ? 1
+    : 0;
+  const inboundWarning = (peer.inbound_rejected_total ?? 0) > 0 ? 1 : 0;
+  return outboundWarning + inboundWarning;
+}
+
+function chatRelayPanelTone(relay: ChatRelayStatus | null | undefined) {
+  const peer = chatRelayPeer(relay);
+  if (!peer) return 'border-gray-500/20 bg-gray-500/[0.04]';
+  if (!peer.enabled) return 'border-white/5 bg-black/20';
+  if (peer.last_outbound_status === 'failed' || (peer.consecutive_outbound_failures ?? 0) > 1) {
+    return 'border-red-500/25 bg-red-500/[0.06]';
+  }
+  if (chatRelayWarningCount(relay) > 0) return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  if (peer.last_outbound_status === 'healthy' || peer.inbound_accepted_total > 0) {
+    return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+  }
+  return 'border-sky-500/15 bg-sky-500/[0.04]';
+}
+
+function chatRelayStatusLabel(relay: ChatRelayStatus | null | undefined, t: TranslateFn) {
+  const peer = chatRelayPeer(relay);
+  if (!peer) return t('nodeDetail.chatRelay.status.pending');
+  if (!peer.enabled) return t('nodeDetail.chatRelay.status.disabled');
+  if (chatRelayWarningCount(relay) > 0) return t('nodeDetail.chatRelay.status.attention');
+  if (peer.last_outbound_status === 'healthy') return t('nodeDetail.chatRelay.status.ready');
+  if (peer.outbound_rounds > 0 || peer.inbound_accepted_total > 0) return t('nodeDetail.chatRelay.status.active');
+  return t('nodeDetail.chatRelay.status.idle');
+}
+
+function chatRelayBucketLabel(value: string | null | undefined, t: TranslateFn) {
+  if (!value) return t('nodeDetail.chatRelay.bucket.none');
+  const key = `nodeDetail.chatRelay.bucket.${value}`;
+  const translated = t(key);
+  return translated === key ? value.replaceAll('_', ' ') : translated;
+}
+
+function chatRelayTimestampLabel(
+  value: number | null | undefined,
+  pending: string,
+  relativeTime: (value: string) => string,
+) {
+  return typeof value === 'number' && value > 0
+    ? relativeTime(new Date(value * 1000).toISOString())
+    : pending;
+}
+
+function ChatRelayStatusPanel({ relay }: { relay: ChatRelayStatus | null | undefined }) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
+  const pending = t('common.status.pending');
+  const peer = chatRelayPeer(relay);
+
+  if (!peer) {
+    return (
+      <div id="chat-relay-panel" className={`mt-5 scroll-mt-6 rounded-xl border p-4 ${chatRelayPanelTone(relay)}`}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="text-sm font-semibold text-white">{t('nodeDetail.chatRelay.title')}</h4>
+              <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${chatRelayPanelTone(relay)}`}>
+                {t('nodeDetail.chatRelay.status.pending')}
+              </span>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-gray-500">{t('nodeDetail.chatRelay.description')}</p>
+          </div>
+          <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500 lg:max-w-md">
+            <p className="font-medium text-gray-300">{t('nodeDetail.chatRelay.pendingTitle')}</p>
+            <p className="mt-1 leading-5">{t('nodeDetail.chatRelay.pendingDescription')}</p>
+          </div>
+        </div>
+        <p className="mt-3 text-[11px] leading-5 text-gray-600">{t('nodeDetail.chatRelay.backendPath')}</p>
+      </div>
+    );
+  }
+
+  const warnings = chatRelayWarningCount(relay);
+  const telemetrySource = relay?.source || 'system_stats.chat_relay_status';
+  const privacyBoundary = relay?.privacy_boundary || t('nodeDetail.chatRelay.privacyBoundary');
+  const lastOutboundStatus = chatRelayBucketLabel(peer.last_outbound_status, t);
+  const lastInboundStatus = chatRelayBucketLabel(peer.last_inbound_status, t);
+  const lastFailure = peer.last_outbound_failure_reason || peer.last_inbound_failure_reason;
+
+  return (
+    <div id="chat-relay-panel" className={`mt-5 scroll-mt-6 rounded-xl border p-4 ${chatRelayPanelTone(relay)}`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-semibold text-white">{t('nodeDetail.chatRelay.title')}</h4>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${chatRelayPanelTone(relay)}`}>
+              {chatRelayStatusLabel(relay, t)}
+            </span>
+            {warnings > 0 && (
+              <span className="inline-flex rounded-full border border-yellow-500/25 bg-yellow-500/10 px-2 py-1 text-xs text-yellow-200">
+                {t('nodeDetail.chatRelay.navWarnings', { count: formatNumber(warnings) })}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-xs leading-5 text-gray-500">{t('nodeDetail.chatRelay.description')}</p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500 lg:max-w-md">
+          <p className="font-medium text-gray-300">{t('nodeDetail.discovery.source')}</p>
+          <p className="mt-1 break-words [overflow-wrap:anywhere]">{telemetrySource}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CapacityMetric
+          label={t('nodeDetail.chatRelay.mode')}
+          value={peer.enabled ? t('nodeDetail.discovery.enabled') : t('nodeDetail.discovery.disabled')}
+          detail={t('nodeDetail.chatRelay.roundsDetail', { count: formatNumber(peer.outbound_rounds) })}
+          tone={peer.enabled ? 'border-emerald-500/15 bg-emerald-500/[0.04]' : 'border-white/5 bg-black/20'}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.chatRelay.outbound')}
+          value={`${formatNumber(peer.outbound_accepted_total)}/${formatNumber(peer.outbound_attempted_total)}`}
+          detail={t('nodeDetail.chatRelay.lastOutboundDetail', {
+            status: lastOutboundStatus,
+            failed: formatNumber(peer.last_outbound_failed),
+          })}
+          tone={peer.last_outbound_status === 'failed'
+            ? 'border-red-500/25 bg-red-500/[0.06]'
+            : peer.last_outbound_status === 'degraded'
+              ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
+              : peer.last_outbound_status === 'healthy'
+                ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
+                : 'border-white/5 bg-black/20'}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.chatRelay.inbound')}
+          value={`${formatNumber(peer.inbound_accepted_total)}/${formatNumber(peer.inbound_rejected_total)}`}
+          detail={t('nodeDetail.chatRelay.lastInboundDetail', {
+            status: lastInboundStatus,
+            duplicate: formatNumber(peer.inbound_duplicate_total),
+          })}
+          tone={peer.inbound_rejected_total > 0
+            ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
+            : peer.inbound_accepted_total > 0
+              ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
+              : 'border-white/5 bg-black/20'}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.chatRelay.lastSuccess')}
+          value={chatRelayTimestampLabel(peer.last_outbound_success_at, pending, i18nRelativeTime)}
+          detail={t('nodeDetail.chatRelay.lastAttemptDetail', {
+            time: chatRelayTimestampLabel(peer.last_outbound_at, pending, i18nRelativeTime),
+          })}
+          tone={peer.last_outbound_success_at ? 'border-emerald-500/15 bg-emerald-500/[0.04]' : 'border-white/5 bg-black/20'}
+        />
+      </div>
+
+      <div className="mt-3 grid gap-2 lg:grid-cols-3">
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500">
+          <p className="font-medium text-gray-300">{t('nodeDetail.chatRelay.delivery')}</p>
+          <p className="mt-1">
+            {t('nodeDetail.chatRelay.deliveryDetail', {
+              online: formatNumber(peer.inbound_delivered_online_total),
+              pending: formatNumber(peer.inbound_stored_pending_total),
+            })}
+          </p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500">
+          <p className="font-medium text-gray-300">{t('nodeDetail.chatRelay.consecutiveFailures')}</p>
+          <p className="mt-1">{formatNumber(peer.consecutive_outbound_failures)}</p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500">
+          <p className="font-medium text-gray-300">{t('nodeDetail.chatRelay.lastFailure')}</p>
+          <p className="mt-1 break-words [overflow-wrap:anywhere]">{lastFailure ? lastFailure.replaceAll('_', ' ') : t('nodeDetail.discovery.gossipFailureNone')}</p>
+        </div>
+      </div>
+
+      <p className="mt-3 text-[11px] leading-5 text-gray-600">
+        {privacyBoundary}
+      </p>
+    </div>
+  );
+}
+
 function PrivacyProtocolHealthPanel({ health }: { health: VpnNodeHealth }) {
   const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const protocol = health.system.privacy_protocol_health ?? null;
@@ -6360,6 +6560,9 @@ function VpnHealthPanel({
   const restartRequired = Boolean(runtimeRollout?.restart_required);
   const discoveryStatus = health.system.discovery_status ?? null;
   const discoveryWarnings = discoveryWarningCount(discoveryStatus);
+  const chatRelayStatus = health.system.chat_relay_status ?? null;
+  const chatRelayWarnings = chatRelayWarningCount(chatRelayStatus);
+  const chatRelay = chatRelayPeer(chatRelayStatus);
   const recentErrors = health.system.recent_errors;
   const recentOperationalEventCount = Array.isArray(recentErrors?.events) ? recentErrors.events.length : 0;
   const hasRecentOperationalEventTelemetry = Boolean(recentErrors?.reported);
@@ -6428,6 +6631,22 @@ function VpnHealthPanel({
           ? t('nodeDetail.operatorActions.meta.clear')
           : t('nodeDetail.operatorActions.meta.waiting'),
       tone: discoveryWarnings > 0 ? 'warning' : discoveryStatus ? 'ok' : 'pending',
+    },
+    {
+      href: '#chat-relay-panel',
+      label: t('nodeDetail.chatRelay.navLabel'),
+      detail: chatRelay
+        ? t('nodeDetail.chatRelay.navDetail', {
+            accepted: formatNumber(chatRelay.outbound_accepted_total),
+            attempted: formatNumber(chatRelay.outbound_attempted_total),
+          })
+        : t('nodeDetail.chatRelay.navPending'),
+      meta: chatRelayWarnings > 0
+        ? t('nodeDetail.chatRelay.navWarnings', { count: formatNumber(chatRelayWarnings) })
+        : chatRelay
+          ? chatRelayStatusLabel(chatRelayStatus, t)
+          : t('nodeDetail.operatorActions.meta.waiting'),
+      tone: chatRelayWarnings > 0 ? 'warning' : chatRelay ? (chatRelay.enabled ? 'ok' : 'info') : 'pending',
     },
     {
       href: '#service-config-panel',
@@ -6633,6 +6852,7 @@ function VpnHealthPanel({
       <RuntimeVersionPanel health={health} />
       <PrivacyProtocolHealthPanel health={health} />
       <DiscoveryStatusPanel discovery={health.system.discovery_status} />
+      <ChatRelayStatusPanel relay={health.system.chat_relay_status} />
       <ServiceConfigurationPanel health={health} />
       <UpgradeWorkflowPanel health={health} />
       <OperatorRunbookPanel health={health} />

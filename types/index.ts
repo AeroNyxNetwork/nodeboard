@@ -6,6 +6,9 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.31 - Added encrypted chat peer relay health telemetry from Rust
+ *     heartbeat system_stats.chat_relay_status for node detail stability
+ *     diagnostics.
  *   v1.5.30 - Added discovery outbound gossip health fields.
  *   v1.5.29 - Added discovery seed recovery counters from Rust heartbeat.
  *   v1.5.28 - Added VPN transport capability health metadata.
@@ -70,7 +73,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.30 - Added discovery outbound gossip health fields
+ * Last Modified: v1.5.31 - Added encrypted chat peer relay health fields
+ * Previous: v1.5.30 - Added discovery outbound gossip health fields
  * Previous: v1.5.29 - Added discovery seed recovery counters
  * Previous: v1.5.28 - Added VPN transport capability health metadata
  * Previous: v1.5.27 - Added VPN DNS ownership health metadata
@@ -2115,6 +2119,21 @@ export interface VpnNodeHealth {
      * voucher secrets, private keys, or wallet-level traffic.
      */
     discovery_status?: DiscoveryStatus | null;
+    /**
+     * Rust source:
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/management/client.rs
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/server.rs
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/services/chat_relay.rs
+     * Backend pass-through:
+     *   /root/aeronyx/privacy_network/api/vpn_observability.py
+     *
+     * Aggregate encrypted chat peer relay health only. Contains fanout status,
+     * accepted/rejected counters, and stable failure buckets. It never
+     * contains message IDs, wallet IDs, client public IPs, destinations, DNS
+     * contents, packet payloads, chat plaintext, ciphertext, private keys,
+     * voucher secrets, or per-user traffic.
+     */
+    chat_relay_status?: ChatRelayStatus | null;
   };
   checks: VpnHealthCheck[];
 }
@@ -2185,6 +2204,38 @@ export interface DiscoveryStatus {
   peer_store: DiscoveryPeerStoreStatus;
   source?: string;
   privacy_boundary?: string;
+}
+
+export interface ChatRelayPeerStatus {
+  enabled: boolean;
+  outbound_attempted_total: number;
+  outbound_accepted_total: number;
+  outbound_failed_total: number;
+  outbound_rounds: number;
+  last_outbound_attempted: number;
+  last_outbound_accepted: number;
+  last_outbound_failed: number;
+  last_outbound_status: 'healthy' | 'degraded' | 'failed' | 'idle' | string | null;
+  last_outbound_failure_reason: string | null;
+  consecutive_outbound_failures: number;
+  last_outbound_success_at: number | null;
+  last_outbound_at: number | null;
+  inbound_accepted_total: number;
+  inbound_duplicate_total: number;
+  inbound_delivered_online_total: number;
+  inbound_stored_pending_total: number;
+  inbound_rejected_total: number;
+  last_inbound_status: 'accepted' | 'duplicate' | 'rejected' | string | null;
+  last_inbound_failure_reason: string | null;
+  last_inbound_at: number | null;
+}
+
+export interface ChatRelayStatus {
+  generated_at: number;
+  peer_relay: ChatRelayPeerStatus;
+  source?: string;
+  privacy_boundary?: string;
+  last_reported_at?: string | null;
 }
 
 export interface VpnAlert {
