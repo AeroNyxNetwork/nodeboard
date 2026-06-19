@@ -6,6 +6,11 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.46 - Added Rust-authored PeerStore stability summary to the
+ *     Discovery panel so operators can see whether node discovery is ready
+ *     as a relay/multihop foundation without exposing peer URLs, full peer
+ *     public keys, client traffic, chat plaintext/ciphertext, Memory Chain
+ *     plaintext, or wallet-level traffic.
  *   v1.6.45 - Added a blind-operation boundary callout to the Discovery
  *     panel. Peer discovery health is allowed to show signed peer counts,
  *     gossip freshness, and aggregate descriptor counters, but nodeboard must
@@ -144,7 +149,8 @@
  *     data.nodes[].system.restart_readiness.command_delivery is preferred so
  *     node detail shares the same policy as Services command_delivery_health.
  *     Exposes data.nodes[].system.discovery_status for aggregate Rust node
- *     discovery/gossip health. Backend path:
+ *     discovery/gossip health, including peer_store.stability as the
+ *     Rust-authored relay foundation gate. Backend path:
  *     /root/aeronyx/privacy_network/api/vpn_observability.py. Rust producers:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/management/reporter.rs
  *     and /root/open/AeroNyx/crates/aeronyx-server/src/services/peer_store.rs.
@@ -248,7 +254,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.45 - Show blind operation boundary in Discovery
+ * Last Modified: v1.6.46 - Show PeerStore relay foundation stability
+ * Previous: v1.6.45 - Show blind operation boundary in Discovery
  * Previous: v1.6.44 - Show packet runtime health
  * Previous: v1.6.43 - Show encrypted chat peer relay health
  * Previous: v1.6.42 - Show discovery outbound gossip health
@@ -3536,10 +3543,17 @@ function privacyProtocolStatusLabel(status: string | null | undefined, pending: 
 function discoveryWarningCount(discovery: DiscoveryStatus | null | undefined) {
   const runtime = discovery?.peer_store?.runtime;
   const bootstrap = discovery?.peer_store?.bootstrap;
+  const stability = discovery?.peer_store?.stability;
   if (!runtime) return 0;
   const gossipStatus = bootstrap?.last_gossip_status;
   const gossipWarning = gossipStatus === 'failed' || gossipStatus === 'degraded'
     || (bootstrap?.consecutive_gossip_failures ?? 0) > 0
+    ? 1
+    : 0;
+  const stabilityWarning = stability
+    && !stability.relay_foundation_ready
+    && stability.health !== 'pending'
+    && stability.health !== 'disabled'
     ? 1
     : 0;
   return (
@@ -3548,6 +3562,7 @@ function discoveryWarningCount(discovery: DiscoveryStatus | null | undefined) {
     + (runtime.policy_rejected || 0)
     + (runtime.rate_limited || 0)
     + gossipWarning
+    + stabilityWarning
   );
 }
 
@@ -3604,6 +3619,34 @@ function discoveryGossipTone(bootstrap: DiscoveryBootstrapStatus) {
   return 'border-sky-500/15 bg-sky-500/[0.04]';
 }
 
+type DiscoveryStabilityStatus = NonNullable<DiscoveryStatus['peer_store']['stability']>;
+
+function discoveryStabilityTone(stability: DiscoveryStabilityStatus | null | undefined) {
+  if (!stability) return 'border-white/5 bg-black/20';
+  if (stability.health === 'failed') return 'border-red-500/25 bg-red-500/[0.06]';
+  if (stability.health === 'degraded' || stability.health === 'stale') return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  if (stability.health === 'healthy' && stability.relay_foundation_ready) return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+  return 'border-sky-500/15 bg-sky-500/[0.04]';
+}
+
+function discoveryStabilityHealthLabel(health: string | null | undefined, t: TranslateFn) {
+  if (!health) return t('nodeDetail.discovery.status.pending');
+  const key = `nodeDetail.discovery.stability.health.${health}`;
+  const translated = t(key);
+  return translated === key ? health.replaceAll('_', ' ') : translated;
+}
+
+function discoveryStabilityAgeLabel(
+  seconds: number | null | undefined,
+  pending: string,
+  formatNumber: (value: number) => string,
+  t: TranslateFn,
+) {
+  return typeof seconds === 'number' && Number.isFinite(seconds)
+    ? t('nodeDetail.discovery.stabilityAgeSeconds', { seconds: formatNumber(Math.max(0, Math.floor(seconds))) })
+    : pending;
+}
+
 function discoveryFailureReasonLabel(reason: string | null | undefined, t: TranslateFn) {
   if (!reason) return t('nodeDetail.discovery.gossipFailureNone');
   return reason.replaceAll('_', ' ');
@@ -3646,6 +3689,7 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
   const publicPeers = formatNumber(snapshot.public_peers);
   const auditEvents = peerStore.recent_audit_events ?? [];
   const bootstrap = peerStore.bootstrap ?? null;
+  const stability = peerStore.stability ?? null;
   const telemetrySource = discovery?.source || 'system_stats.discovery_status';
   const privacyBoundary = discovery?.privacy_boundary || t('nodeDetail.discovery.privacyBoundary');
 
@@ -3694,6 +3738,54 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
           </div>
         </div>
       </div>
+
+      {stability && (
+        <div className={`mt-4 rounded-xl border p-3 ${discoveryStabilityTone(stability)}`}>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-300">
+                  {t('nodeDetail.discovery.stabilityTitle')}
+                </p>
+                <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${discoveryStabilityTone(stability)}`}>
+                  {discoveryStabilityHealthLabel(stability.health, t)}
+                </span>
+                <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${stability.relay_foundation_ready ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200' : 'border-yellow-500/25 bg-yellow-500/10 text-yellow-200'}`}>
+                  {stability.relay_foundation_ready
+                    ? t('nodeDetail.discovery.stabilityReady')
+                    : t('nodeDetail.discovery.stabilityBlocked')}
+                </span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-gray-400">
+                {stability.detail || t('nodeDetail.discovery.stabilityDescription')}
+              </p>
+              {stability.next_action && (
+                <p className="mt-2 text-[11px] leading-4 text-gray-500">
+                  {t('nodeDetail.discovery.stabilityNextAction')}: {stability.next_action}
+                </p>
+              )}
+            </div>
+            <div className="grid gap-2 text-[11px] leading-4 text-gray-400 sm:grid-cols-2 lg:min-w-[360px]">
+              <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+                <p className="font-medium text-gray-200">{t('nodeDetail.discovery.stabilityLastSuccessAge')}</p>
+                <p className="mt-1">{discoveryStabilityAgeLabel(stability.last_gossip_success_age_seconds, pending, formatNumber, t)}</p>
+              </div>
+              <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+                <p className="font-medium text-gray-200">{t('nodeDetail.discovery.stabilityLastRoundAge')}</p>
+                <p className="mt-1">{discoveryStabilityAgeLabel(stability.last_gossip_round_age_seconds, pending, formatNumber, t)}</p>
+              </div>
+              <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+                <p className="font-medium text-gray-200">{t('nodeDetail.discovery.stabilitySeedRecovery')}</p>
+                <p className="mt-1">{stability.seed_recovery_configured ? t('nodeDetail.discovery.enabled') : t('nodeDetail.discovery.disabled')}</p>
+              </div>
+              <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+                <p className="font-medium text-gray-200">{t('nodeDetail.discovery.stabilityStaleAfter')}</p>
+                <p className="mt-1">{discoveryStabilityAgeLabel(stability.stale_after_seconds, pending, formatNumber, t)}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <CapacityMetric

@@ -6,6 +6,10 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.33 - Added PeerStore discovery stability summary fields from Rust
+ *     so nodeboard can show relay-foundation readiness without exposing peer
+ *     URLs, full peer public keys, user traffic, chat payloads, Memory Chain
+ *     plaintext, or wallet-level traffic.
  *   v1.5.32 - Added packet_runtime health telemetry from Rust packet handler
  *     counters so node detail can show stale-session packet drops after node
  *     restarts without exposing session IDs, client IPs, packet payloads, or
@@ -77,7 +81,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.32 - Added packet_runtime health telemetry
+ * Last Modified: v1.5.33 - Added PeerStore stability fields
+ * Previous: v1.5.32 - Added packet_runtime health telemetry
  * Previous: v1.5.31 - Added encrypted chat peer relay health fields
  * Previous: v1.5.30 - Added discovery outbound gossip health fields
  * Previous: v1.5.29 - Added discovery seed recovery counters
@@ -2217,6 +2222,23 @@ export interface DiscoveryPeerStoreStatus {
   max_peers: number | null;
   recent_audit_events?: DiscoveryAuditEvent[];
   bootstrap?: DiscoveryBootstrapStatus;
+  /**
+   * Rust-authored aggregate readiness gate for using node discovery as a
+   * relay/multihop foundation. It intentionally contains only derived
+   * health, ages, and boolean recovery metadata.
+   */
+  stability?: DiscoveryPeerStoreStabilityStatus;
+}
+
+export interface DiscoveryPeerStoreStabilityStatus {
+  health: 'disabled' | 'pending' | 'healthy' | 'degraded' | 'stale' | 'failed' | string;
+  relay_foundation_ready: boolean;
+  detail: string;
+  next_action: string;
+  last_gossip_success_age_seconds: number | null;
+  last_gossip_round_age_seconds: number | null;
+  seed_recovery_configured: boolean;
+  stale_after_seconds: number;
 }
 
 export interface DiscoveryAuditEvent {
