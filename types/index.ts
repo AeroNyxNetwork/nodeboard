@@ -6,6 +6,9 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.35 - Added optional discovery bootstrap recovery status fields from
+ *     Rust so nodeboard can distinguish an expired static bootstrap source
+ *     from a successful live seed-gossip recovery path.
  *   v1.5.34 - Added PeerStore restart recovery readiness field so nodeboard
  *     can show whether discovery survives Rust restarts through seed recovery
  *     or peer-cache persistence without exposing peer URLs or user traffic.
@@ -2262,6 +2265,9 @@ export interface DiscoveryBootstrapStatus {
   last_source_status: string | null;
   last_source_detail: string | null;
   last_source_at: number | null;
+  recovery_status?: string | null;
+  recovery_detail?: string | null;
+  recovery_at?: number | null;
   self_descriptor_status: string | null;
   self_descriptor_at: number | null;
   last_cache_save_status: string | null;

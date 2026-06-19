@@ -6,6 +6,11 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.48 - Discovery Bootstrap Source now prefers Rust
+ *     bootstrap.recovery_status when available, so an expired static
+ *     bootstrap file does not mask a successful seed-gossip recovery path.
+ *     Raw last_source_* evidence is preserved in detail text and heartbeat
+ *     data for diagnostics.
  *   v1.6.47 - Added PeerStore restart recovery readiness to the Discovery
  *     Relay foundation card. Rust now reports whether discovery has a restart
  *     recovery path through seed endpoints or peer-cache persistence, so
@@ -3551,6 +3556,8 @@ function discoveryWarningCount(discovery: DiscoveryStatus | null | undefined) {
   const bootstrap = discovery?.peer_store?.bootstrap;
   const stability = discovery?.peer_store?.stability;
   if (!runtime) return 0;
+  const recoveredAndReady = bootstrap?.recovery_status === 'success' && stability?.relay_foundation_ready;
+  const descriptorRejectedWarnings = recoveredAndReady ? 0 : (runtime.rejected || 0);
   const gossipStatus = bootstrap?.last_gossip_status;
   const gossipWarning = gossipStatus === 'failed' || gossipStatus === 'degraded'
     || (bootstrap?.consecutive_gossip_failures ?? 0) > 0
@@ -3563,7 +3570,7 @@ function discoveryWarningCount(discovery: DiscoveryStatus | null | undefined) {
     ? 1
     : 0;
   return (
-    (runtime.rejected || 0)
+    descriptorRejectedWarnings
     + (runtime.capacity_rejected || 0)
     + (runtime.policy_rejected || 0)
     + (runtime.rate_limited || 0)
@@ -3696,6 +3703,11 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
   const auditEvents = peerStore.recent_audit_events ?? [];
   const bootstrap = peerStore.bootstrap ?? null;
   const stability = peerStore.stability ?? null;
+  const bootstrapRecoveryStatus = bootstrap?.recovery_status || bootstrap?.last_source_status || null;
+  const bootstrapRecoveryKind = bootstrap?.recovery_status
+    ? [bootstrap.last_source_kind, 'recovery'].filter(Boolean).join(' / ')
+    : bootstrap?.last_source_kind;
+  const bootstrapRecoveryAt = bootstrap?.recovery_at ?? bootstrap?.last_source_at ?? null;
   const telemetrySource = discovery?.source || 'system_stats.discovery_status';
   const privacyBoundary = discovery?.privacy_boundary || t('nodeDetail.discovery.privacyBoundary');
 
@@ -3845,14 +3857,14 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
           <CapacityMetric
             label={t('nodeDetail.discovery.bootstrapSource')}
-            value={bootstrap.last_source_status || (bootstrap.enabled ? pending : t('nodeDetail.discovery.disabled'))}
+            value={bootstrapRecoveryStatus || (bootstrap.enabled ? pending : t('nodeDetail.discovery.disabled'))}
             detail={t('nodeDetail.discovery.bootstrapSourceDetail', {
-              kind: bootstrap.last_source_kind || t('common.status.pending'),
-              time: discoveryTimestampLabel(bootstrap.last_source_at, pending, i18nRelativeTime),
+              kind: bootstrapRecoveryKind || t('common.status.pending'),
+              time: discoveryTimestampLabel(bootstrapRecoveryAt, pending, i18nRelativeTime),
             })}
-            tone={bootstrap.last_source_status === 'failed'
+            tone={bootstrapRecoveryStatus === 'failed'
               ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
-              : bootstrap.last_source_status === 'success' || bootstrap.last_source_status === 'warning'
+              : bootstrapRecoveryStatus === 'success' || bootstrapRecoveryStatus === 'warning'
                 ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
                 : 'border-white/5 bg-black/20'}
           />
