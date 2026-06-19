@@ -225,7 +225,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.41 - Show discovery seed recovery status
+ * Last Modified: v1.6.42 - Show discovery outbound gossip health
+ * Previous: v1.6.41 - Show discovery seed recovery status
  * Previous: v1.6.40 - Show Rust discovery and gossip status
  * Previous: v1.6.39 - Prioritize status in operator runbook
  * Previous: v1.6.38 - Link service configuration to Services sections
@@ -292,6 +293,7 @@ import {
 } from '@/hooks/useNodes';
 import {
   NodeCommand,
+  DiscoveryBootstrapStatus,
   DiscoveryStatus,
   NodeInstallProgressSummary,
   NodeOperatorStatus,
@@ -3479,12 +3481,19 @@ function privacyProtocolStatusLabel(status: string | null | undefined, pending: 
 
 function discoveryWarningCount(discovery: DiscoveryStatus | null | undefined) {
   const runtime = discovery?.peer_store?.runtime;
+  const bootstrap = discovery?.peer_store?.bootstrap;
   if (!runtime) return 0;
+  const gossipStatus = bootstrap?.last_gossip_status;
+  const gossipWarning = gossipStatus === 'failed' || gossipStatus === 'degraded'
+    || (bootstrap?.consecutive_gossip_failures ?? 0) > 0
+    ? 1
+    : 0;
   return (
     (runtime.rejected || 0)
     + (runtime.capacity_rejected || 0)
     + (runtime.policy_rejected || 0)
     + (runtime.rate_limited || 0)
+    + gossipWarning
   );
 }
 
@@ -3510,6 +3519,40 @@ function discoveryTimestampLabel(
   return typeof value === 'number' && value > 0
     ? relativeTime(new Date(value * 1000).toISOString())
     : pending;
+}
+
+function discoveryGossipStatusLabel(status: string | null | undefined, t: TranslateFn) {
+  switch (status) {
+    case 'healthy':
+      return t('nodeDetail.discovery.gossipStatus.healthy');
+    case 'degraded':
+      return t('nodeDetail.discovery.gossipStatus.degraded');
+    case 'failed':
+      return t('nodeDetail.discovery.gossipStatus.failed');
+    case 'idle':
+      return t('nodeDetail.discovery.gossipStatus.idle');
+    default:
+      return t('nodeDetail.discovery.gossipStatus.waiting');
+  }
+}
+
+function discoveryGossipTone(bootstrap: DiscoveryBootstrapStatus) {
+  if (!bootstrap.gossip_enabled) return 'border-white/5 bg-black/20';
+  if (bootstrap.last_gossip_status === 'failed' || (bootstrap.consecutive_gossip_failures ?? 0) > 1) {
+    return 'border-red-500/25 bg-red-500/[0.06]';
+  }
+  if (bootstrap.last_gossip_status === 'degraded' || (bootstrap.last_gossip_failed ?? 0) > 0) {
+    return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  }
+  if (bootstrap.last_gossip_status === 'healthy') {
+    return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+  }
+  return 'border-sky-500/15 bg-sky-500/[0.04]';
+}
+
+function discoveryFailureReasonLabel(reason: string | null | undefined, t: TranslateFn) {
+  if (!reason) return t('nodeDetail.discovery.gossipFailureNone');
+  return reason.replaceAll('_', ' ');
 }
 
 function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null | undefined }) {
@@ -3610,7 +3653,7 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
       </div>
 
       {bootstrap && (
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
           <CapacityMetric
             label={t('nodeDetail.discovery.bootstrapSource')}
             value={bootstrap.last_source_status || (bootstrap.enabled ? pending : t('nodeDetail.discovery.disabled'))}
@@ -3648,20 +3691,32 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
           />
           <CapacityMetric
             label={t('nodeDetail.discovery.outboundGossip')}
-            value={bootstrap.gossip_enabled ? t('nodeDetail.discovery.enabled') : t('nodeDetail.discovery.disabled')}
+            value={bootstrap.gossip_enabled
+              ? discoveryGossipStatusLabel(bootstrap.last_gossip_status, t)
+              : t('nodeDetail.discovery.disabled')}
             detail={bootstrap.last_gossip_round_at
-              ? t('nodeDetail.discovery.outboundGossipDetail', {
+              ? t('nodeDetail.discovery.outboundGossipHealthDetail', {
                   attempted: formatNumber(bootstrap.last_gossip_attempted),
                   succeeded: formatNumber(bootstrap.last_gossip_succeeded),
+                  failed: formatNumber(bootstrap.last_gossip_failed ?? 0),
+                  consecutive: formatNumber(bootstrap.consecutive_gossip_failures ?? 0),
                   time: discoveryTimestampLabel(bootstrap.last_gossip_round_at, pending, i18nRelativeTime),
                 })
               : t('nodeDetail.discovery.outboundGossipWaiting')}
-            tone={bootstrap.gossip_enabled
-              ? bootstrap.last_gossip_attempted > bootstrap.last_gossip_succeeded
-                ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
-                : 'border-sky-500/15 bg-sky-500/[0.04]'
-              : 'border-white/5 bg-black/20'}
+            tone={discoveryGossipTone(bootstrap)}
           />
+          {(bootstrap.last_gossip_failure_reason || bootstrap.last_gossip_success_at) && (
+            <CapacityMetric
+              label={t('nodeDetail.discovery.gossipEvidence')}
+              value={discoveryTimestampLabel(bootstrap.last_gossip_success_at, pending, i18nRelativeTime)}
+              detail={t('nodeDetail.discovery.gossipEvidenceDetail', {
+                reason: discoveryFailureReasonLabel(bootstrap.last_gossip_failure_reason, t),
+              })}
+              tone={bootstrap.last_gossip_failure_reason
+                ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
+                : 'border-emerald-500/15 bg-emerald-500/[0.04]'}
+            />
+          )}
           <CapacityMetric
             label={t('nodeDetail.discovery.seedRecovery')}
             value={formatNumber(bootstrap.seed_endpoints_configured ?? 0)}

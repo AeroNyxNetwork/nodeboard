@@ -6,6 +6,7 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.30 - Added discovery outbound gossip health fields.
  *   v1.5.29 - Added discovery seed recovery counters from Rust heartbeat.
  *   v1.5.28 - Added VPN transport capability health metadata.
  *   v1.5.27 - Added VPN DNS ownership health metadata.
@@ -69,7 +70,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.29 - Added discovery seed recovery counters
+ * Last Modified: v1.5.30 - Added discovery outbound gossip health fields
+ * Previous: v1.5.29 - Added discovery seed recovery counters
  * Previous: v1.5.28 - Added VPN transport capability health metadata
  * Previous: v1.5.27 - Added VPN DNS ownership health metadata
  * Previous: v1.5.26 - Documented nodeboard health contract for capacity.risks
@@ -2170,6 +2172,11 @@ export interface DiscoveryBootstrapStatus {
   last_gossip_attempted: number;
   last_gossip_seed_attempted?: number;
   last_gossip_succeeded: number;
+  last_gossip_failed?: number;
+  last_gossip_status?: string | null;
+  last_gossip_failure_reason?: string | null;
+  consecutive_gossip_failures?: number;
+  last_gossip_success_at?: number | null;
   last_gossip_round_at: number | null;
 }
 
