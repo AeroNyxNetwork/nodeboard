@@ -6,6 +6,11 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.45 - Added a blind-operation boundary callout to the Discovery
+ *     panel. Peer discovery health is allowed to show signed peer counts,
+ *     gossip freshness, and aggregate descriptor counters, but nodeboard must
+ *     not become a user traffic, Memory Chain plaintext, social graph, DNS,
+ *     destination, or wallet-level traffic viewer.
  *   v1.6.44 - Added packet_runtime telemetry to the Capacity panel so node
  *     operators can see stale-session packet drops after Rust restarts from
  *     data.nodes[].system.packet_runtime. The card consumes only aggregate
@@ -243,7 +248,9 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.43 - Show encrypted chat peer relay health
+ * Last Modified: v1.6.45 - Show blind operation boundary in Discovery
+ * Previous: v1.6.44 - Show packet runtime health
+ * Previous: v1.6.43 - Show encrypted chat peer relay health
  * Previous: v1.6.42 - Show discovery outbound gossip health
  * Previous: v1.6.41 - Show discovery seed recovery status
  * Previous: v1.6.40 - Show Rust discovery and gossip status
@@ -3662,6 +3669,29 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
         <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500 lg:max-w-md">
           <p className="font-medium text-gray-300">{t('nodeDetail.discovery.source')}</p>
           <p className="mt-1 break-words [overflow-wrap:anywhere]">{telemetrySource}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-emerald-500/15 bg-emerald-500/[0.035] p-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-100">
+              {t('nodeDetail.discovery.blindTitle')}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-emerald-100/75">
+              {t('nodeDetail.discovery.blindDescription')}
+            </p>
+          </div>
+          <div className="grid gap-2 text-[11px] leading-4 text-gray-400 sm:grid-cols-2 lg:max-w-2xl">
+            <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+              <p className="font-medium text-gray-200">{t('nodeDetail.discovery.blindAllowedTitle')}</p>
+              <p className="mt-1">{t('nodeDetail.discovery.blindAllowedDetail')}</p>
+            </div>
+            <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+              <p className="font-medium text-gray-200">{t('nodeDetail.discovery.blindForbiddenTitle')}</p>
+              <p className="mt-1">{t('nodeDetail.discovery.blindForbiddenDetail')}</p>
+            </div>
+          </div>
         </div>
       </div>
 
