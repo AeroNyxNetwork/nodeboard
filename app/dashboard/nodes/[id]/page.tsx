@@ -5003,7 +5003,7 @@ function restartReadinessBlockers({
     blockers.push(health.system.service_manager?.detail || 'The Rust node did not report restart support.');
   }
   if (!backendReadiness && !maintenanceMode) {
-    blockers.push('Start maintenance mode first so new VPN handshakes stop before restart.');
+    blockers.push('Start maintenance mode first so new AeroNyx protocol handshakes stop before restart.');
   }
   if (policySyncStatus !== 'synced') {
     blockers.push(`Wait for Rust policy sync before restart. Current policy status: ${policySyncStatus}.`);

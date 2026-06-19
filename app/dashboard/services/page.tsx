@@ -1359,8 +1359,8 @@ function placementBlockerAction(reason: string | null, t?: (key: string) => stri
   const copy: Record<string, string> = {
     maintenance_mode: 'End maintenance after active sessions drain and restart work is complete.',
     max_sessions_reached: 'Raise max_sessions or wait for sessions to complete.',
-    vpn_health_degraded: 'Open node health and inspect Rust VPN checks before returning to placement.',
-    vpn_health_failed: 'Inspect Rust VPN health before exposing the node to clients.',
+    vpn_health_degraded: 'Open node health and inspect Rust AeroNyx protocol checks before returning to placement.',
+    vpn_health_failed: 'Inspect Rust AeroNyx protocol health before exposing the node to clients.',
     low_24h_availability: 'Review heartbeat availability before using this node for failover.',
     overloaded: 'Reduce load or increase capacity before routing new sessions.',
     heartbeat_stale: 'Restore fresh Rust heartbeats before exposing this node to clients.',
