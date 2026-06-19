@@ -20,7 +20,8 @@
  *   public keys, wallet secrets, client IPs, destinations, DNS contents,
  *   packet payloads, browsing history, or traffic metadata.
  *
- * Last Modified: v1.0.7 - Added discovery stability summary copy
+ * Last Modified: v1.0.8 - Added discovery restart recovery copy
+ * Previous: v1.0.7 - Added discovery stability summary copy
  * Previous: v1.0.6 - Added packet runtime capacity copy
  * Previous: v1.0.5 - Added event incident closure summary copy
  * Previous: v1.0.4 - Clarified quick install preview copy
@@ -1231,6 +1232,10 @@ const en: Dictionary = {
   'nodeDetail.discovery.stabilityLastSuccessAge': 'Last gossip success age',
   'nodeDetail.discovery.stabilityLastRoundAge': 'Last gossip round age',
   'nodeDetail.discovery.stabilitySeedRecovery': 'Seed recovery',
+  'nodeDetail.discovery.stabilityRestartRecovery': 'Restart recovery',
+  'nodeDetail.discovery.stabilityRestartRecoveryReady': 'configured',
+  'nodeDetail.discovery.stabilityRestartRecoveryMissing': 'missing',
+  'nodeDetail.discovery.stabilityRestartRecoveryDetail': 'seed {seed} · cache {cache}',
   'nodeDetail.discovery.stabilityStaleAfter': 'Stale after',
   'nodeDetail.discovery.stabilityAgeSeconds': '{seconds}s',
   'nodeDetail.discovery.stability.health.disabled': 'disabled',
@@ -2295,6 +2300,10 @@ const zhCN: Dictionary = {
   'nodeDetail.discovery.stabilityLastSuccessAge': '最近成功 gossip 距今',
   'nodeDetail.discovery.stabilityLastRoundAge': '最近 gossip 轮次距今',
   'nodeDetail.discovery.stabilitySeedRecovery': '种子恢复',
+  'nodeDetail.discovery.stabilityRestartRecovery': '重启恢复',
+  'nodeDetail.discovery.stabilityRestartRecoveryReady': '已配置',
+  'nodeDetail.discovery.stabilityRestartRecoveryMissing': '未配置',
+  'nodeDetail.discovery.stabilityRestartRecoveryDetail': '种子 {seed} · 缓存 {cache}',
   'nodeDetail.discovery.stabilityStaleAfter': '过期阈值',
   'nodeDetail.discovery.stabilityAgeSeconds': '{seconds}s',
   'nodeDetail.discovery.stability.health.disabled': '已禁用',
@@ -4355,6 +4364,10 @@ const zhTW: Dictionary = {
   'nodeDetail.discovery.stabilityLastSuccessAge': '最近成功 gossip 距今',
   'nodeDetail.discovery.stabilityLastRoundAge': '最近 gossip 輪次距今',
   'nodeDetail.discovery.stabilitySeedRecovery': '種子恢復',
+  'nodeDetail.discovery.stabilityRestartRecovery': '重啟恢復',
+  'nodeDetail.discovery.stabilityRestartRecoveryReady': '已配置',
+  'nodeDetail.discovery.stabilityRestartRecoveryMissing': '未配置',
+  'nodeDetail.discovery.stabilityRestartRecoveryDetail': '種子 {seed} · 快取 {cache}',
   'nodeDetail.discovery.stabilityStaleAfter': '過期閾值',
   'nodeDetail.discovery.stabilityAgeSeconds': '{seconds}s',
   'nodeDetail.discovery.stability.health.disabled': '已停用',
@@ -6429,6 +6442,10 @@ const ja: Dictionary = {
   'nodeDetail.discovery.stabilityLastSuccessAge': '最後の gossip 成功から',
   'nodeDetail.discovery.stabilityLastRoundAge': '最後の gossip ラウンドから',
   'nodeDetail.discovery.stabilitySeedRecovery': 'シード復旧',
+  'nodeDetail.discovery.stabilityRestartRecovery': '再起動復旧',
+  'nodeDetail.discovery.stabilityRestartRecoveryReady': '設定済み',
+  'nodeDetail.discovery.stabilityRestartRecoveryMissing': '未設定',
+  'nodeDetail.discovery.stabilityRestartRecoveryDetail': 'シード {seed} · キャッシュ {cache}',
   'nodeDetail.discovery.stabilityStaleAfter': '期限切れ判定',
   'nodeDetail.discovery.stabilityAgeSeconds': '{seconds}s',
   'nodeDetail.discovery.stability.health.disabled': '無効',
@@ -8507,6 +8524,10 @@ const ko: Dictionary = {
   'nodeDetail.discovery.stabilityLastSuccessAge': '마지막 gossip 성공 이후',
   'nodeDetail.discovery.stabilityLastRoundAge': '마지막 gossip 라운드 이후',
   'nodeDetail.discovery.stabilitySeedRecovery': '시드 복구',
+  'nodeDetail.discovery.stabilityRestartRecovery': '재시작 복구',
+  'nodeDetail.discovery.stabilityRestartRecoveryReady': '구성됨',
+  'nodeDetail.discovery.stabilityRestartRecoveryMissing': '없음',
+  'nodeDetail.discovery.stabilityRestartRecoveryDetail': '시드 {seed} · 캐시 {cache}',
   'nodeDetail.discovery.stabilityStaleAfter': '만료 기준',
   'nodeDetail.discovery.stabilityAgeSeconds': '{seconds}s',
   'nodeDetail.discovery.stability.health.disabled': '비활성',
@@ -10585,6 +10606,10 @@ const ru: Dictionary = {
   'nodeDetail.discovery.stabilityLastSuccessAge': 'С последнего успешного gossip',
   'nodeDetail.discovery.stabilityLastRoundAge': 'С последнего раунда gossip',
   'nodeDetail.discovery.stabilitySeedRecovery': 'Seed recovery',
+  'nodeDetail.discovery.stabilityRestartRecovery': 'Restart recovery',
+  'nodeDetail.discovery.stabilityRestartRecoveryReady': 'configured',
+  'nodeDetail.discovery.stabilityRestartRecoveryMissing': 'missing',
+  'nodeDetail.discovery.stabilityRestartRecoveryDetail': 'seed {seed} · cache {cache}',
   'nodeDetail.discovery.stabilityStaleAfter': 'Устаревает через',
   'nodeDetail.discovery.stabilityAgeSeconds': '{seconds}s',
   'nodeDetail.discovery.stability.health.disabled': 'disabled',

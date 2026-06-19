@@ -6,6 +6,11 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.47 - Added PeerStore restart recovery readiness to the Discovery
+ *     Relay foundation card. Rust now reports whether discovery has a restart
+ *     recovery path through seed endpoints or peer-cache persistence, so
+ *     operators do not mistake a fresh in-memory peer view for a resilient
+ *     commercial relay foundation.
  *   v1.6.46 - Added Rust-authored PeerStore stability summary to the
  *     Discovery panel so operators can see whether node discovery is ready
  *     as a relay/multihop foundation without exposing peer URLs, full peer
@@ -254,7 +259,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.46 - Show PeerStore relay foundation stability
+ * Last Modified: v1.6.47 - Show PeerStore restart recovery readiness
+ * Previous: v1.6.46 - Show PeerStore relay foundation stability
  * Previous: v1.6.45 - Show blind operation boundary in Discovery
  * Previous: v1.6.44 - Show packet runtime health
  * Previous: v1.6.43 - Show encrypted chat peer relay health
@@ -3765,7 +3771,7 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
                 </p>
               )}
             </div>
-            <div className="grid gap-2 text-[11px] leading-4 text-gray-400 sm:grid-cols-2 lg:min-w-[360px]">
+            <div className="grid gap-2 text-[11px] leading-4 text-gray-400 sm:grid-cols-2 xl:grid-cols-3 lg:min-w-[360px]">
               <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
                 <p className="font-medium text-gray-200">{t('nodeDetail.discovery.stabilityLastSuccessAge')}</p>
                 <p className="mt-1">{discoveryStabilityAgeLabel(stability.last_gossip_success_age_seconds, pending, formatNumber, t)}</p>
@@ -3777,6 +3783,20 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
               <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
                 <p className="font-medium text-gray-200">{t('nodeDetail.discovery.stabilitySeedRecovery')}</p>
                 <p className="mt-1">{stability.seed_recovery_configured ? t('nodeDetail.discovery.enabled') : t('nodeDetail.discovery.disabled')}</p>
+              </div>
+              <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+                <p className="font-medium text-gray-200">{t('nodeDetail.discovery.stabilityRestartRecovery')}</p>
+                <p className="mt-1">
+                  {stability.restart_recovery_configured
+                    ? t('nodeDetail.discovery.stabilityRestartRecoveryReady')
+                    : t('nodeDetail.discovery.stabilityRestartRecoveryMissing')}
+                </p>
+                <p className="mt-1 text-gray-600">
+                  {t('nodeDetail.discovery.stabilityRestartRecoveryDetail', {
+                    seed: stability.seed_recovery_configured ? t('nodeDetail.discovery.enabled') : t('nodeDetail.discovery.disabled'),
+                    cache: bootstrap?.peer_cache_configured ? t('nodeDetail.discovery.enabled') : t('nodeDetail.discovery.disabled'),
+                  })}
+                </p>
               </div>
               <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
                 <p className="font-medium text-gray-200">{t('nodeDetail.discovery.stabilityStaleAfter')}</p>

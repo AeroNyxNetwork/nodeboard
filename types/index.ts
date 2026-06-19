@@ -6,6 +6,9 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.34 - Added PeerStore restart recovery readiness field so nodeboard
+ *     can show whether discovery survives Rust restarts through seed recovery
+ *     or peer-cache persistence without exposing peer URLs or user traffic.
  *   v1.5.33 - Added PeerStore discovery stability summary fields from Rust
  *     so nodeboard can show relay-foundation readiness without exposing peer
  *     URLs, full peer public keys, user traffic, chat payloads, Memory Chain
@@ -81,7 +84,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.33 - Added PeerStore stability fields
+ * Last Modified: v1.5.34 - Added PeerStore restart recovery field
+ * Previous: v1.5.33 - Added PeerStore stability fields
  * Previous: v1.5.32 - Added packet_runtime health telemetry
  * Previous: v1.5.31 - Added encrypted chat peer relay health fields
  * Previous: v1.5.30 - Added discovery outbound gossip health fields
@@ -2239,6 +2243,7 @@ export interface DiscoveryPeerStoreStabilityStatus {
   last_gossip_round_age_seconds: number | null;
   seed_recovery_configured: boolean;
   stale_after_seconds: number;
+  restart_recovery_configured?: boolean;
 }
 
 export interface DiscoveryAuditEvent {
