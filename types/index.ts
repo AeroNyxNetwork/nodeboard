@@ -6,6 +6,10 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.32 - Added packet_runtime health telemetry from Rust packet handler
+ *     counters so node detail can show stale-session packet drops after node
+ *     restarts without exposing session IDs, client IPs, packet payloads, or
+ *     wallet-level traffic.
  *   v1.5.31 - Added encrypted chat peer relay health telemetry from Rust
  *     heartbeat system_stats.chat_relay_status for node detail stability
  *     diagnostics.
@@ -73,7 +77,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.31 - Added encrypted chat peer relay health fields
+ * Last Modified: v1.5.32 - Added packet_runtime health telemetry
+ * Previous: v1.5.31 - Added encrypted chat peer relay health fields
  * Previous: v1.5.30 - Added discovery outbound gossip health fields
  * Previous: v1.5.29 - Added discovery seed recovery counters
  * Previous: v1.5.28 - Added VPN transport capability health metadata
@@ -1811,6 +1816,38 @@ export interface VpnCapacitySnapshot {
   privacy_boundary?: string;
 }
 
+/**
+ * Privacy-safe Rust packet handler runtime counters shown in node detail.
+ *
+ * Backend API:
+ *   GET /api/privacy_network/vpn/overview/
+ * Backend file:
+ *   /root/aeronyx/privacy_network/api/vpn_observability.py
+ * Rust producer:
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/handlers/packet.rs
+ *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+ *
+ * Main logical flow:
+ * 1. Rust increments aggregate counters inside PacketHandler.
+ * 2. /api/vpn/health exposes packet_runtime through signed heartbeat.
+ * 3. Backend normalizes the snapshot into nodes[].system.packet_runtime.
+ * 4. Node detail shows the coarse stale-session status beside capacity data.
+ *
+ * Privacy boundary: aggregate node process counters only. No session IDs,
+ * wallet IDs, client public IPs, destinations, DNS contents, packet payloads,
+ * domains, URLs, browsing history, voucher secrets, private keys, chat
+ * plaintext, ciphertext, or wallet-level traffic.
+ */
+export interface VpnPacketRuntimeSnapshot {
+  reported: boolean;
+  source: string;
+  encrypted_vpn_packets: number | null;
+  unknown_session_packets: number | null;
+  active_sessions: number | null;
+  unknown_session_status: 'clear' | 'stale_after_restart' | 'watch' | 'unknown' | string;
+  privacy_boundary?: string;
+}
+
 export interface VpnRecentErrorEvent {
   timestamp?: string | null;
   severity: 'info' | 'warning' | 'critical' | string;
@@ -2098,6 +2135,21 @@ export interface VpnNodeHealth {
     restart_readiness?: VpnRestartReadiness | null;
     placement_readiness?: VpnPlacementReadiness | null;
     capacity?: VpnCapacitySnapshot | null;
+    /**
+     * Rust source:
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/handlers/packet.rs
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
+     * Backend pass-through:
+     *   /root/aeronyx/privacy_network/api/vpn_observability.py
+     *
+     * Aggregate packet runtime counters only. The field helps operators see
+     * whether packets are being dropped because a Rust node restarted and
+     * clients still use stale sessions. It never contains session IDs, client
+     * public IPs, destinations, DNS contents, packet payloads, domains, URLs,
+     * browsing history, voucher secrets, chat plaintext, ciphertext, private
+     * keys, or wallet-level traffic.
+     */
+    packet_runtime?: VpnPacketRuntimeSnapshot | null;
     recent_errors?: VpnRecentErrorsSnapshot | null;
     upgrade_status?: VpnUpgradeStatusSnapshot | null;
     operator_action?: VpnOperatorActionSummary | null;

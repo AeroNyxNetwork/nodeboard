@@ -6,6 +6,12 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.44 - Added packet_runtime telemetry to the Capacity panel so node
+ *     operators can see stale-session packet drops after Rust restarts from
+ *     data.nodes[].system.packet_runtime. The card consumes only aggregate
+ *     counters from Rust PacketHandler and never exposes session IDs, client
+ *     public IPs, packet payloads, chat plaintext, ciphertext, or per-user
+ *     traffic.
  *   v1.6.43 - Added a node-scoped Encrypted Chat Relay panel that consumes
  *     data.nodes[].system.chat_relay_status from the backend overview API.
  *     Rust reports privacy-safe node-to-node relay counters from
@@ -2271,8 +2277,25 @@ function capacityDecisionSummary({
 function CapacityPanel({ health }: { health: VpnNodeHealth }) {
   const { t, formatNumber } = useI18n();
   const capacity = health.system.capacity;
+  const packetRuntime = health.system.packet_runtime;
   const pending = t('common.status.pending');
   const capacityReported = Boolean(capacity?.reported);
+  const packetRuntimeReported = Boolean(packetRuntime?.reported);
+  const packetRuntimeStatus = packetRuntime?.unknown_session_status || 'unknown';
+  const packetRuntimeStatusLabel = packetRuntimeStatus === 'clear'
+    ? t('nodeDetail.capacity.packetRuntimeStatus.clear')
+    : packetRuntimeStatus === 'stale_after_restart'
+      ? t('nodeDetail.capacity.packetRuntimeStatus.staleAfterRestart')
+      : packetRuntimeStatus === 'watch'
+        ? t('nodeDetail.capacity.packetRuntimeStatus.watch')
+        : t('nodeDetail.capacity.packetRuntimeStatus.unknown');
+  const packetRuntimeTone = packetRuntimeStatus === 'clear'
+    ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
+    : packetRuntimeStatus === 'stale_after_restart' || packetRuntimeStatus === 'watch'
+      ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
+      : packetRuntimeReported
+        ? 'border-white/10 bg-white/[0.03]'
+        : 'border-yellow-500/20 bg-yellow-500/[0.05]';
   const ipPercent = capacityPercent(capacity?.ip_pool_used, capacity?.ip_pool_capacity);
   const sessionTotal = capacity?.policy_max_sessions && capacity.policy_max_sessions > 0
     ? capacity.policy_max_sessions
@@ -2588,6 +2611,16 @@ function CapacityPanel({ health }: { health: VpnNodeHealth }) {
             iface: formatCapacityNumber(capacity?.interface?.packet_drops, formatNumber, pending),
           })}
           tone={packetDrops && packetDrops > 0 ? 'border-yellow-500/25 bg-yellow-500/[0.06]' : 'border-emerald-500/15 bg-emerald-500/[0.04]'}
+        />
+        <CapacityMetric
+          label={t('nodeDetail.capacity.packetRuntime')}
+          value={formatCapacityNumber(packetRuntime?.unknown_session_packets, formatNumber, pending)}
+          detail={t('nodeDetail.capacity.packetRuntimeDetail', {
+            status: packetRuntimeStatusLabel,
+            encrypted: formatCapacityNumber(packetRuntime?.encrypted_vpn_packets, formatNumber, pending),
+            active: formatCapacityNumber(packetRuntime?.active_sessions, formatNumber, pending),
+          })}
+          tone={packetRuntimeTone}
         />
         <CapacityMetric
           label={t('nodeDetail.capacity.storage')}
