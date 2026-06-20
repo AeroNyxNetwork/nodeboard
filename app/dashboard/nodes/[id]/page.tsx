@@ -6,6 +6,11 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.50 - Aligned Security / Relay Protection peer health rendering with
+ *     Rust PeerStorePeerHealth field names (`route_failure_count`,
+ *     `relay_rejection_count`, `relay_quarantine_count`) while preserving
+ *     legacy aliases for already-deployed snapshots. The UI still displays
+ *     aggregate node-level protection buckets only.
  *   v1.6.49 - Added Security / Relay Protection inside the Discovery panel.
  *     The panel consumes Rust peer_store.runtime.blind_relay and
  *     peer_health_summary aggregates so operators can see loop detection,
@@ -271,7 +276,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.49 - Added relay protection security summary
+ * Last Modified: v1.6.50 - Align peer health counter fields with Rust
+ * Previous: v1.6.49 - Added relay protection security summary
  * Previous: v1.6.48 - Added discovery bootstrap recovery status preference
  * Previous: v1.6.47 - Show PeerStore restart recovery readiness
  * Previous: v1.6.46 - Show PeerStore relay foundation stability
@@ -3695,11 +3701,23 @@ function relayProtectionStatusLabel(
   return t('nodeDetail.discovery.securityStatus.ready');
 }
 
+function relayPeerRouteFailureCount(peer: DiscoveryPeerHealthRow) {
+  return peer.route_failure_count ?? peer.route_failures ?? 0;
+}
+
+function relayPeerRejectionCount(peer: DiscoveryPeerHealthRow) {
+  return peer.relay_rejection_count ?? peer.relay_rejections ?? 0;
+}
+
+function relayPeerQuarantineCount(peer: DiscoveryPeerHealthRow) {
+  return peer.relay_quarantine_count ?? peer.relay_quarantine_started ?? 0;
+}
+
 function relayPeerHealthTone(peer: DiscoveryPeerHealthRow) {
   if (peer.health === 'quarantined' || peer.health === 'failing') {
     return 'border-red-500/25 bg-red-500/[0.06]';
   }
-  if (peer.health === 'degraded' || peer.route_failures > 0 || peer.relay_rejections > 0) {
+  if (peer.health === 'degraded' || relayPeerRouteFailureCount(peer) > 0 || relayPeerRejectionCount(peer) > 0) {
     return 'border-yellow-500/25 bg-yellow-500/[0.06]';
   }
   return 'border-white/5 bg-black/20';
@@ -3850,8 +3868,11 @@ function RelayProtectionPanel({
                     </span>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2 text-[11px] leading-4 text-gray-500">
-                    <span>{t('nodeDetail.discovery.peerRouteFailures', { count: formatNumber(peer.route_failures) })}</span>
-                    <span>{t('nodeDetail.discovery.peerRelayRejections', { count: formatNumber(peer.relay_rejections) })}</span>
+                    <span>{t('nodeDetail.discovery.peerRouteFailures', { count: formatNumber(relayPeerRouteFailureCount(peer)) })}</span>
+                    <span>{t('nodeDetail.discovery.peerRelayRejections', { count: formatNumber(relayPeerRejectionCount(peer)) })}</span>
+                    {relayPeerQuarantineCount(peer) > 0 && (
+                      <span>{t('nodeDetail.discovery.peerRelayQuarantines', { count: formatNumber(relayPeerQuarantineCount(peer)) })}</span>
+                    )}
                     {typeof peer.relay_quarantine_remaining_seconds === 'number' && peer.relay_quarantine_remaining_seconds > 0 && (
                       <span className="text-yellow-200">
                         {t('nodeDetail.discovery.peerQuarantineRemaining', {

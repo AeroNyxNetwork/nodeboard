@@ -6,6 +6,10 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.37 - Aligned DiscoveryPeerHealthRow with Rust
+ *     PeerStorePeerHealth field names while preserving optional legacy aliases
+ *     for already-deployed JSON. nodeboard must read aggregate counters only
+ *     and must not infer route IDs, endpoints, payloads, or social graph edges.
  *   v1.5.36 - Added blind relay abuse-guard counters and peer health summary
  *     types from Rust peer_store. These fields are node-level aggregates only:
  *     loop/replay/rate-limit/quarantine counters, peer health buckets, and
@@ -92,7 +96,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.36 - Added blind relay protection and peer health types
+ * Last Modified: v1.5.37 - Align peer health counter fields with Rust
+ * Previous: v1.5.36 - Added blind relay protection and peer health types
  * Previous: v1.5.35 - Added discovery bootstrap recovery status fields
  * Previous: v1.5.34 - Added PeerStore restart recovery field
  * Previous: v1.5.33 - Added PeerStore stability fields
@@ -2292,19 +2297,23 @@ export interface DiscoveryPeerHealthRow {
   last_seen_at: number | null;
   last_seen_age_seconds: number | null;
   route_health: string;
-  route_successes: number;
-  route_failures: number;
+  route_success_count: number;
+  route_failure_count: number;
+  route_consecutive_failures: number;
+  /** Legacy alias kept for older snapshots; Rust v0.26 uses route_success_count. */
+  route_successes?: number;
+  /** Legacy alias kept for older snapshots; Rust v0.26 uses route_failure_count. */
+  route_failures?: number;
   last_route_success_at: number | null;
-  last_route_success_age_seconds: number | null;
   last_route_failure_at: number | null;
-  last_route_failure_age_seconds: number | null;
   last_route_failure_reason: string | null;
-  relay_rejections: number;
-  relay_loop_detected: number;
-  relay_replay_dropped: number;
-  relay_rate_limited: number;
-  relay_quarantined: number;
-  relay_quarantine_started: number;
+  relay_rejection_count: number;
+  relay_quarantine_count: number;
+  /** Legacy alias kept for older snapshots; Rust v0.26 uses relay_rejection_count. */
+  relay_rejections?: number;
+  /** Legacy alias kept for older snapshots; Rust v0.26 uses relay_quarantine_count. */
+  relay_quarantine_started?: number;
+  relay_quarantined: boolean;
   relay_quarantine_remaining_seconds: number | null;
   last_relay_rejection_at: number | null;
   last_relay_rejection_reason: string | null;
