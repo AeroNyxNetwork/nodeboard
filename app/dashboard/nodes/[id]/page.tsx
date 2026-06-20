@@ -6,6 +6,13 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.49 - Added Security / Relay Protection inside the Discovery panel.
+ *     The panel consumes Rust peer_store.runtime.blind_relay and
+ *     peer_health_summary aggregates so operators can see loop detection,
+ *     replay drops, relay rate limits, quarantine state, and per-peer health
+ *     buckets without exposing route IDs, endpoints, encrypted blobs, client
+ *     IPs, destinations, payloads, Memory Chain plaintext, or social graph
+ *     edges.
  *   v1.6.48 - Discovery Bootstrap Source now prefers Rust
  *     bootstrap.recovery_status when available, so an expired static
  *     bootstrap file does not mask a successful seed-gossip recovery path.
@@ -264,7 +271,9 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.47 - Show PeerStore restart recovery readiness
+ * Last Modified: v1.6.49 - Added relay protection security summary
+ * Previous: v1.6.48 - Added discovery bootstrap recovery status preference
+ * Previous: v1.6.47 - Show PeerStore restart recovery readiness
  * Previous: v1.6.46 - Show PeerStore relay foundation stability
  * Previous: v1.6.45 - Show blind operation boundary in Discovery
  * Previous: v1.6.44 - Show packet runtime health
@@ -3569,6 +3578,7 @@ function discoveryWarningCount(discovery: DiscoveryStatus | null | undefined) {
     && stability.health !== 'disabled'
     ? 1
     : 0;
+  const relayProtectionWarning = relayProtectionWarningCount(discovery) > 0 ? 1 : 0;
   return (
     descriptorRejectedWarnings
     + (runtime.capacity_rejected || 0)
@@ -3576,6 +3586,7 @@ function discoveryWarningCount(discovery: DiscoveryStatus | null | undefined) {
     + (runtime.rate_limited || 0)
     + gossipWarning
     + stabilityWarning
+    + relayProtectionWarning
   );
 }
 
@@ -3633,6 +3644,66 @@ function discoveryGossipTone(bootstrap: DiscoveryBootstrapStatus) {
 }
 
 type DiscoveryStabilityStatus = NonNullable<DiscoveryStatus['peer_store']['stability']>;
+type DiscoveryBlindRelayStats = NonNullable<DiscoveryStatus['peer_store']['runtime']['blind_relay']>;
+type DiscoveryPeerHealthSummary = NonNullable<DiscoveryStatus['peer_store']['peer_health_summary']>;
+type DiscoveryPeerHealthRow = DiscoveryPeerHealthSummary['peers'][number];
+
+function relayProtectionWarningCountFromParts(
+  relay: DiscoveryBlindRelayStats | null | undefined,
+  peerHealth: DiscoveryPeerHealthSummary | null | undefined,
+) {
+  const relayCounters = [
+    relay?.loop_detected ?? 0,
+    relay?.replay_dropped ?? 0,
+    relay?.rate_limited ?? 0,
+    relay?.quarantined ?? 0,
+    relay?.quarantine_started ?? 0,
+  ].reduce<number>((sum, value) => sum + value, 0);
+  const unhealthyPeers = (peerHealth?.degraded_peers ?? 0)
+    + (peerHealth?.failing_peers ?? 0)
+    + (peerHealth?.quarantined_peers ?? 0);
+  return relayCounters + unhealthyPeers;
+}
+
+function relayProtectionWarningCount(discovery: DiscoveryStatus | null | undefined) {
+  return relayProtectionWarningCountFromParts(
+    discovery?.peer_store?.runtime?.blind_relay,
+    discovery?.peer_store?.peer_health_summary,
+  );
+}
+
+function relayProtectionTone(
+  relay: DiscoveryBlindRelayStats | null | undefined,
+  peerHealth: DiscoveryPeerHealthSummary | null | undefined,
+) {
+  if (!relay && !peerHealth) return 'border-white/5 bg-black/20';
+  if (relayProtectionWarningCountFromParts(relay, peerHealth) > 0) {
+    return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  }
+  return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+}
+
+function relayProtectionStatusLabel(
+  relay: DiscoveryBlindRelayStats | null | undefined,
+  peerHealth: DiscoveryPeerHealthSummary | null | undefined,
+  t: TranslateFn,
+) {
+  if (!relay && !peerHealth) return t('nodeDetail.discovery.securityStatus.pending');
+  if (relayProtectionWarningCountFromParts(relay, peerHealth) > 0) {
+    return t('nodeDetail.discovery.securityStatus.attention');
+  }
+  return t('nodeDetail.discovery.securityStatus.ready');
+}
+
+function relayPeerHealthTone(peer: DiscoveryPeerHealthRow) {
+  if (peer.health === 'quarantined' || peer.health === 'failing') {
+    return 'border-red-500/25 bg-red-500/[0.06]';
+  }
+  if (peer.health === 'degraded' || peer.route_failures > 0 || peer.relay_rejections > 0) {
+    return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  }
+  return 'border-white/5 bg-black/20';
+}
 
 function discoveryStabilityTone(stability: DiscoveryStabilityStatus | null | undefined) {
   if (!stability) return 'border-white/5 bg-black/20';
@@ -3663,6 +3734,153 @@ function discoveryStabilityAgeLabel(
 function discoveryFailureReasonLabel(reason: string | null | undefined, t: TranslateFn) {
   if (!reason) return t('nodeDetail.discovery.gossipFailureNone');
   return reason.replaceAll('_', ' ');
+}
+
+function RelayProtectionPanel({
+  relay,
+  peerHealth,
+}: {
+  relay: DiscoveryBlindRelayStats | null | undefined;
+  peerHealth: DiscoveryPeerHealthSummary | null | undefined;
+}) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
+  const pending = t('nodeDetail.discovery.pendingTime');
+  const peerRows = peerHealth?.peers ?? [];
+  const securityTone = relayProtectionTone(relay, peerHealth);
+  const statusLabel = relayProtectionStatusLabel(relay, peerHealth, t);
+  const relayReported = Boolean(relay);
+  const peerHealthDetail = peerHealth
+    ? t('nodeDetail.discovery.peerHealthDetail', {
+        healthy: formatNumber(peerHealth.healthy_peers),
+        degraded: formatNumber(peerHealth.degraded_peers),
+        failing: formatNumber(peerHealth.failing_peers),
+        quarantined: formatNumber(peerHealth.quarantined_peers),
+      })
+    : t('nodeDetail.discovery.securityWaiting');
+
+  return (
+    <div id="relay-protection-panel" className={`mt-4 rounded-xl border p-3 ${securityTone}`}>
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-300">
+              {t('nodeDetail.discovery.securityTitle')}
+            </p>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${securityTone}`}>
+              {statusLabel}
+            </span>
+          </div>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-gray-400">
+            {t('nodeDetail.discovery.securityDescription')}
+          </p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-[11px] leading-4 text-gray-500 xl:max-w-md">
+          <p className="font-medium text-gray-300">
+            {relayReported
+              ? t('nodeDetail.discovery.securityReported')
+              : t('nodeDetail.discovery.securityWaiting')}
+          </p>
+          <p className="mt-1">
+            {t('nodeDetail.discovery.relaySummary', {
+              received: formatNumber(relay?.received ?? 0),
+              forwarded: formatNumber(relay?.forwarded ?? 0),
+              rejected: formatNumber(relay?.rejected ?? 0),
+            })}
+          </p>
+          <p className="mt-1">
+            {t('nodeDetail.discovery.lastRelayEvent')}: {discoveryTimestampLabel(relay?.last_event_at, pending, i18nRelativeTime)}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        {[
+          [t('nodeDetail.discovery.loopDetected'), relay?.loop_detected ?? 0],
+          [t('nodeDetail.discovery.replayDropped'), relay?.replay_dropped ?? 0],
+          [t('nodeDetail.discovery.relayRateLimited'), relay?.rate_limited ?? 0],
+          [t('nodeDetail.discovery.relayQuarantined'), relay?.quarantined ?? 0],
+          [t('nodeDetail.discovery.quarantineStarted'), relay?.quarantine_started ?? 0],
+        ].map(([label, value]) => (
+          <div key={String(label)} className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-600">{label}</p>
+            <p className={`mt-1 text-sm font-semibold ${Number(value) > 0 ? 'text-yellow-200' : 'text-gray-200'}`}>
+              {formatNumber(Number(value))}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 rounded-lg border border-white/5 bg-black/20 p-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-medium text-gray-300">{t('nodeDetail.discovery.peerHealth')}</p>
+            <p className="mt-1 text-[11px] leading-4 text-gray-500">{peerHealthDetail}</p>
+          </div>
+          <span className="w-fit rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] uppercase text-gray-400">
+            {t('nodeDetail.discovery.peerHealthRows', { count: formatNumber(peerRows.length) })}
+          </span>
+        </div>
+
+        {peerRows.length > 0 ? (
+          <div className="mt-3 grid gap-2 xl:grid-cols-2">
+            {peerRows.slice(0, 6).map((peer) => {
+              const reason = peer.last_relay_rejection_reason
+                || peer.last_route_failure_reason
+                || peer.last_relay_quarantine_reason;
+              return (
+                <div
+                  key={`${peer.node_id_prefix}-${peer.source}`}
+                  className={`rounded-lg border px-3 py-2 ${relayPeerHealthTone(peer)}`}
+                >
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="break-words text-xs font-semibold text-white [overflow-wrap:anywhere]">
+                        {peer.node_id_prefix}
+                      </p>
+                      <p className="mt-1 text-[11px] leading-4 text-gray-500">
+                        {t('nodeDetail.discovery.peerRowDetail', {
+                          source: peer.source || pending,
+                          route: peer.route_health || pending,
+                          gossip: discoveryStabilityAgeLabel(peer.last_successful_gossip_age_seconds, pending, formatNumber, t),
+                        })}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase text-gray-300">
+                      {peer.health}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] leading-4 text-gray-500">
+                    <span>{t('nodeDetail.discovery.peerRouteFailures', { count: formatNumber(peer.route_failures) })}</span>
+                    <span>{t('nodeDetail.discovery.peerRelayRejections', { count: formatNumber(peer.relay_rejections) })}</span>
+                    {typeof peer.relay_quarantine_remaining_seconds === 'number' && peer.relay_quarantine_remaining_seconds > 0 && (
+                      <span className="text-yellow-200">
+                        {t('nodeDetail.discovery.peerQuarantineRemaining', {
+                          seconds: formatNumber(Math.floor(peer.relay_quarantine_remaining_seconds)),
+                        })}
+                      </span>
+                    )}
+                    {reason && (
+                      <span className="break-words [overflow-wrap:anywhere]">
+                        {t('nodeDetail.discovery.peerReason', { reason: discoveryFailureReasonLabel(reason, t) })}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="mt-3 text-[11px] leading-4 text-gray-600">
+            {t('nodeDetail.discovery.securityNoPeerRows')}
+          </p>
+        )}
+      </div>
+
+      <p className="mt-3 text-[11px] leading-5 text-gray-600">
+        {t('nodeDetail.discovery.securityPrivacy')}
+      </p>
+    </div>
+  );
 }
 
 function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null | undefined }) {
@@ -3703,6 +3921,8 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
   const auditEvents = peerStore.recent_audit_events ?? [];
   const bootstrap = peerStore.bootstrap ?? null;
   const stability = peerStore.stability ?? null;
+  const blindRelay = runtime.blind_relay ?? null;
+  const peerHealthSummary = peerStore.peer_health_summary ?? null;
   const bootstrapRecoveryStatus = bootstrap?.recovery_status || bootstrap?.last_source_status || null;
   const bootstrapRecoveryKind = bootstrap?.recovery_status
     ? [bootstrap.last_source_kind, 'recovery'].filter(Boolean).join(' / ')
@@ -3818,6 +4038,8 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
           </div>
         </div>
       )}
+
+      <RelayProtectionPanel relay={blindRelay} peerHealth={peerHealthSummary} />
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <CapacityMetric

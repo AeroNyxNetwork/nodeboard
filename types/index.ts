@@ -6,6 +6,11 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.36 - Added blind relay abuse-guard counters and peer health summary
+ *     types from Rust peer_store. These fields are node-level aggregates only:
+ *     loop/replay/rate-limit/quarantine counters, peer health buckets, and
+ *     node-id prefixes. They must never expose route IDs, endpoints, encrypted
+ *     blobs, client IPs, destinations, payloads, or social graph edges.
  *   v1.5.35 - Added optional discovery bootstrap recovery status fields from
  *     Rust so nodeboard can distinguish an expired static bootstrap source
  *     from a successful live seed-gossip recovery path.
@@ -87,7 +92,9 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.34 - Added PeerStore restart recovery field
+ * Last Modified: v1.5.36 - Added blind relay protection and peer health types
+ * Previous: v1.5.35 - Added discovery bootstrap recovery status fields
+ * Previous: v1.5.34 - Added PeerStore restart recovery field
  * Previous: v1.5.33 - Added PeerStore stability fields
  * Previous: v1.5.32 - Added packet_runtime health telemetry
  * Previous: v1.5.31 - Added encrypted chat peer relay health fields
@@ -2221,6 +2228,15 @@ export interface DiscoveryRuntimeStats {
   last_import_at: number | null;
   last_gossip_at: number | null;
   last_snapshot_at: number | null;
+  /**
+   * Privacy-safe blind relay abuse guard counters from Rust.
+   *
+   * This object is intentionally aggregate-only. Nodeboard may show loop,
+   * replay, rate-limit, and quarantine counters, but must not derive route
+   * topology, message IDs, endpoints, encrypted payloads, client IPs, or
+   * social graph edges from this telemetry.
+   */
+  blind_relay?: DiscoveryBlindRelayStats | null;
 }
 
 export interface DiscoveryPeerStoreStatus {
@@ -2235,6 +2251,75 @@ export interface DiscoveryPeerStoreStatus {
    * health, ages, and boolean recovery metadata.
    */
   stability?: DiscoveryPeerStoreStabilityStatus;
+  /**
+   * Per-peer health buckets keyed by node-id prefix only. Rust owns the
+   * aggregation boundary; UI must keep this as operator diagnostics and avoid
+   * expanding it into route, endpoint, payload, or user relationship detail.
+   */
+  peer_health_summary?: DiscoveryPeerHealthSummary | null;
+}
+
+export interface DiscoveryBlindRelayStats {
+  received: number;
+  terminal: number;
+  forwarded: number;
+  rejected: number;
+  backpressure_dropped: number;
+  invalid_signature: number;
+  envelope_too_large: number;
+  ttl_exhausted: number;
+  no_route: number;
+  invalid_endpoint: number;
+  forward_failed: number;
+  loop_detected: number;
+  replay_dropped: number;
+  rate_limited: number;
+  quarantined: number;
+  quarantine_started: number;
+  retry_attempted: number;
+  retry_succeeded: number;
+  retry_exhausted: number;
+  last_event_at: number | null;
+}
+
+export interface DiscoveryPeerHealthRow {
+  node_id_prefix: string;
+  health: 'healthy' | 'degraded' | 'failing' | 'quarantined' | string;
+  descriptor_health: string;
+  source: string;
+  last_successful_gossip_at: number | null;
+  last_successful_gossip_age_seconds: number | null;
+  last_seen_at: number | null;
+  last_seen_age_seconds: number | null;
+  route_health: string;
+  route_successes: number;
+  route_failures: number;
+  last_route_success_at: number | null;
+  last_route_success_age_seconds: number | null;
+  last_route_failure_at: number | null;
+  last_route_failure_age_seconds: number | null;
+  last_route_failure_reason: string | null;
+  relay_rejections: number;
+  relay_loop_detected: number;
+  relay_replay_dropped: number;
+  relay_rate_limited: number;
+  relay_quarantined: number;
+  relay_quarantine_started: number;
+  relay_quarantine_remaining_seconds: number | null;
+  last_relay_rejection_at: number | null;
+  last_relay_rejection_reason: string | null;
+  last_relay_quarantine_at: number | null;
+  last_relay_quarantine_reason: string | null;
+}
+
+export interface DiscoveryPeerHealthSummary {
+  generated_at: number;
+  total_peers: number;
+  healthy_peers: number;
+  degraded_peers: number;
+  failing_peers: number;
+  quarantined_peers: number;
+  peers: DiscoveryPeerHealthRow[];
 }
 
 export interface DiscoveryPeerStoreStabilityStatus {
