@@ -6,6 +6,10 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.38 - Added PeerStore peer-cache startup load evidence and restart
+ *     recovery source buckets. These fields are aggregate recovery signals
+ *     only and must not expose cache paths, peer endpoints, public keys,
+ *     route IDs, payloads, client IPs, or social graph edges.
  *   v1.5.37 - Aligned DiscoveryPeerHealthRow with Rust
  *     PeerStorePeerHealth field names while preserving optional legacy aliases
  *     for already-deployed JSON. nodeboard must read aggregate counters only
@@ -2341,6 +2345,7 @@ export interface DiscoveryPeerStoreStabilityStatus {
   seed_recovery_configured: boolean;
   stale_after_seconds: number;
   restart_recovery_configured?: boolean;
+  restart_recovery_sources?: string[];
 }
 
 export interface DiscoveryAuditEvent {
@@ -2367,6 +2372,10 @@ export interface DiscoveryBootstrapStatus {
   last_cache_save_status: string | null;
   last_cache_save_detail: string | null;
   last_cache_save_at: number | null;
+  last_cache_load_source?: string | null;
+  last_cache_load_status?: string | null;
+  last_cache_load_detail?: string | null;
+  last_cache_load_at?: number | null;
   last_gossip_attempted: number;
   last_gossip_seed_attempted?: number;
   last_gossip_succeeded: number;

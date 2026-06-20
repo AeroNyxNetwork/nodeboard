@@ -6,6 +6,11 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.51 - Added peer-cache startup recovery evidence to the Discovery
+ *     panel. The UI distinguishes cache save status from restart load status
+ *     and displays only Rust-provided source/status buckets, never cache
+ *     paths, peer endpoints, public keys, route IDs, payloads, client IPs, or
+ *     social graph edges.
  *   v1.6.50 - Aligned Security / Relay Protection peer health rendering with
  *     Rust PeerStorePeerHealth field names (`route_failure_count`,
  *     `relay_rejection_count`, `relay_quarantine_count`) while preserving
@@ -3738,6 +3743,23 @@ function discoveryStabilityHealthLabel(health: string | null | undefined, t: Tra
   return translated === key ? health.replaceAll('_', ' ') : translated;
 }
 
+function discoveryRestartRecoverySourcesLabel(
+  sources: string[] | null | undefined,
+  t: TranslateFn,
+) {
+  if (!sources || sources.length === 0) {
+    return t('common.status.pending');
+  }
+
+  return sources
+    .map((source) => {
+      if (source === 'seed_endpoints') return t('nodeDetail.discovery.recoverySourceSeed');
+      if (source === 'peer_cache') return t('nodeDetail.discovery.recoverySourceCache');
+      return source.replace(/_/g, ' ');
+    })
+    .join(' · ');
+}
+
 function discoveryStabilityAgeLabel(
   seconds: number | null | undefined,
   pending: string,
@@ -3949,6 +3971,8 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
     ? [bootstrap.last_source_kind, 'recovery'].filter(Boolean).join(' / ')
     : bootstrap?.last_source_kind;
   const bootstrapRecoveryAt = bootstrap?.recovery_at ?? bootstrap?.last_source_at ?? null;
+  const restartRecoverySources = discoveryRestartRecoverySourcesLabel(stability?.restart_recovery_sources, t);
+  const cacheLoadStatus = bootstrap?.last_cache_load_status || null;
   const telemetrySource = discovery?.source || 'system_stats.discovery_status';
   const privacyBoundary = discovery?.privacy_boundary || t('nodeDetail.discovery.privacyBoundary');
 
@@ -4045,10 +4069,14 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
                     : t('nodeDetail.discovery.stabilityRestartRecoveryMissing')}
                 </p>
                 <p className="mt-1 text-gray-600">
-                  {t('nodeDetail.discovery.stabilityRestartRecoveryDetail', {
-                    seed: stability.seed_recovery_configured ? t('nodeDetail.discovery.enabled') : t('nodeDetail.discovery.disabled'),
-                    cache: bootstrap?.peer_cache_configured ? t('nodeDetail.discovery.enabled') : t('nodeDetail.discovery.disabled'),
-                  })}
+                  {stability.restart_recovery_sources?.length
+                    ? t('nodeDetail.discovery.stabilityRestartRecoverySources', {
+                        sources: restartRecoverySources,
+                      })
+                    : t('nodeDetail.discovery.stabilityRestartRecoveryDetail', {
+                        seed: stability.seed_recovery_configured ? t('nodeDetail.discovery.enabled') : t('nodeDetail.discovery.disabled'),
+                        cache: bootstrap?.peer_cache_configured ? t('nodeDetail.discovery.enabled') : t('nodeDetail.discovery.disabled'),
+                      })}
                 </p>
               </div>
               <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
@@ -4130,6 +4158,21 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
             tone={bootstrap.last_cache_save_status === 'failed'
               ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
               : bootstrap.last_cache_save_status === 'success'
+                ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
+                : 'border-white/5 bg-black/20'}
+          />
+          <CapacityMetric
+            label={t('nodeDetail.discovery.peerCacheStartup')}
+            value={bootstrap.peer_cache_configured ? (cacheLoadStatus || pending) : t('nodeDetail.discovery.disabled')}
+            detail={bootstrap.last_cache_load_source || bootstrap.last_cache_load_at
+              ? t('nodeDetail.discovery.peerCacheStartupSourceDetail', {
+                  source: bootstrap.last_cache_load_source || t('common.status.pending'),
+                  time: discoveryTimestampLabel(bootstrap.last_cache_load_at, pending, i18nRelativeTime),
+                })
+              : t('nodeDetail.discovery.peerCacheStartupDetail')}
+            tone={cacheLoadStatus === 'failed'
+              ? 'border-yellow-500/25 bg-yellow-500/[0.06]'
+              : cacheLoadStatus === 'success' || cacheLoadStatus === 'warning'
                 ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
                 : 'border-white/5 bg-black/20'}
           />
