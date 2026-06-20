@@ -6,6 +6,14 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.52 - Added Rust local ChatRelay capability self-check to the
+ *     Discovery panel. The card consumes discovery_status.local_capabilities
+ *     from Rust /api/discovery/status so operators can see whether ChatRelay
+ *     config, blind relay endpoint readiness, and advertised capability are
+ *     consistent before enabling node-to-node encrypted relay. The UI shows
+ *     booleans and Rust-authored status/detail only; it never exposes relay
+ *     routes, endpoints, message IDs, encrypted blobs, client IPs, Memory
+ *     Chain plaintext, or social graph edges.
  *   v1.6.51 - Added peer-cache startup recovery evidence to the Discovery
  *     panel. The UI distinguishes cache save status from restart load status
  *     and displays only Rust-provided source/status buckets, never cache
@@ -281,8 +289,10 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.50 - Align peer health counter fields with Rust
- * Previous: v1.6.49 - Added relay protection security summary
+ * Last Modified: v1.6.52 - Show local ChatRelay capability self-check
+ * Previous: v1.6.51 - Show peer-cache startup recovery evidence
+ * Previous: v1.6.50 - Align peer health counter names with Rust
+ * Previous: v1.6.49 - Show blind relay protection counters
  * Previous: v1.6.48 - Added discovery bootstrap recovery status preference
  * Previous: v1.6.47 - Show PeerStore restart recovery readiness
  * Previous: v1.6.46 - Show PeerStore relay foundation stability
@@ -359,6 +369,7 @@ import {
   ChatRelayStatus,
   NodeCommand,
   DiscoveryBootstrapStatus,
+  DiscoveryLocalCapabilityStatus,
   DiscoveryStatus,
   NodeInstallProgressSummary,
   NodeOperatorStatus,
@@ -3575,6 +3586,7 @@ function discoveryWarningCount(discovery: DiscoveryStatus | null | undefined) {
   const runtime = discovery?.peer_store?.runtime;
   const bootstrap = discovery?.peer_store?.bootstrap;
   const stability = discovery?.peer_store?.stability;
+  const localCapabilities = discovery?.local_capabilities;
   if (!runtime) return 0;
   const recoveredAndReady = bootstrap?.recovery_status === 'success' && stability?.relay_foundation_ready;
   const descriptorRejectedWarnings = recoveredAndReady ? 0 : (runtime.rejected || 0);
@@ -3590,6 +3602,10 @@ function discoveryWarningCount(discovery: DiscoveryStatus | null | undefined) {
     ? 1
     : 0;
   const relayProtectionWarning = relayProtectionWarningCount(discovery) > 0 ? 1 : 0;
+  const localCapabilityWarning = localCapabilities
+    && (localCapabilities.status === 'misconfigured' || !localCapabilities.capability_config_consistent)
+    ? 1
+    : 0;
   return (
     descriptorRejectedWarnings
     + (runtime.capacity_rejected || 0)
@@ -3598,6 +3614,7 @@ function discoveryWarningCount(discovery: DiscoveryStatus | null | undefined) {
     + gossipWarning
     + stabilityWarning
     + relayProtectionWarning
+    + localCapabilityWarning
   );
 }
 
@@ -3658,6 +3675,30 @@ type DiscoveryStabilityStatus = NonNullable<DiscoveryStatus['peer_store']['stabi
 type DiscoveryBlindRelayStats = NonNullable<DiscoveryStatus['peer_store']['runtime']['blind_relay']>;
 type DiscoveryPeerHealthSummary = NonNullable<DiscoveryStatus['peer_store']['peer_health_summary']>;
 type DiscoveryPeerHealthRow = DiscoveryPeerHealthSummary['peers'][number];
+
+function localCapabilityTone(capability: DiscoveryLocalCapabilityStatus | null | undefined) {
+  if (!capability) return 'border-white/5 bg-black/20';
+  if (capability.status === 'misconfigured' || !capability.capability_config_consistent) {
+    return 'border-red-500/25 bg-red-500/[0.06]';
+  }
+  if (capability.status === 'ready') return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+  if (capability.status === 'disabled') return 'border-sky-500/15 bg-sky-500/[0.04]';
+  return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+}
+
+function localCapabilityStatusLabel(
+  capability: DiscoveryLocalCapabilityStatus | null | undefined,
+  t: TranslateFn,
+) {
+  if (!capability) return t('nodeDetail.discovery.localCapability.status.pending');
+  const key = `nodeDetail.discovery.localCapability.status.${capability.status}`;
+  const translated = t(key);
+  return translated === key ? capability.status.replaceAll('_', ' ') : translated;
+}
+
+function localCapabilityBooleanLabel(value: boolean, t: TranslateFn) {
+  return value ? t('nodeDetail.discovery.enabled') : t('nodeDetail.discovery.disabled');
+}
 
 function relayProtectionWarningCountFromParts(
   relay: DiscoveryBlindRelayStats | null | undefined,
@@ -3774,6 +3815,86 @@ function discoveryStabilityAgeLabel(
 function discoveryFailureReasonLabel(reason: string | null | undefined, t: TranslateFn) {
   if (!reason) return t('nodeDetail.discovery.gossipFailureNone');
   return reason.replaceAll('_', ' ');
+}
+
+function LocalCapabilityPanel({
+  capability,
+}: {
+  capability: DiscoveryLocalCapabilityStatus | null | undefined;
+}) {
+  const { t } = useI18n();
+
+  if (!capability) return null;
+
+  const tone = localCapabilityTone(capability);
+  const fields = [
+    {
+      label: t('nodeDetail.discovery.localCapability.chatRelayConfigured'),
+      value: localCapabilityBooleanLabel(capability.chat_relay_configured, t),
+      ready: capability.chat_relay_configured,
+    },
+    {
+      label: t('nodeDetail.discovery.localCapability.endpointReady'),
+      value: localCapabilityBooleanLabel(capability.blind_relay_endpoint_ready, t),
+      ready: capability.blind_relay_endpoint_ready,
+    },
+    {
+      label: t('nodeDetail.discovery.localCapability.advertised'),
+      value: localCapabilityBooleanLabel(capability.advertised_chat_relay_capability, t),
+      ready: capability.advertised_chat_relay_capability,
+    },
+    {
+      label: t('nodeDetail.discovery.localCapability.consistent'),
+      value: capability.capability_config_consistent
+        ? t('nodeDetail.discovery.localCapability.consistentYes')
+        : t('nodeDetail.discovery.localCapability.consistentNo'),
+      ready: capability.capability_config_consistent,
+    },
+  ];
+
+  return (
+    <div className={`mt-4 rounded-xl border p-3 ${tone}`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-300">
+              {t('nodeDetail.discovery.localCapability.title')}
+            </p>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${tone}`}>
+              {localCapabilityStatusLabel(capability, t)}
+            </span>
+          </div>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-gray-400">
+            {t('nodeDetail.discovery.localCapability.description')}
+          </p>
+          <p className="mt-2 break-words text-[11px] leading-4 text-gray-500 [overflow-wrap:anywhere]">
+            {capability.detail || t('nodeDetail.discovery.localCapability.noDetail')}
+          </p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-[11px] leading-4 text-gray-500 lg:max-w-md">
+          <p className="font-medium text-gray-300">
+            {capability.capability_config_consistent
+              ? t('nodeDetail.discovery.localCapability.safeToAdvertise')
+              : t('nodeDetail.discovery.localCapability.fixBeforeAdvertise')}
+          </p>
+          <p className="mt-1">
+            {t('nodeDetail.discovery.localCapability.privacy')}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {fields.map((field) => (
+          <div key={field.label} className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-600">{field.label}</p>
+            <p className={`mt-1 text-sm font-semibold ${field.ready ? 'text-emerald-200' : 'text-gray-300'}`}>
+              {field.value}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function RelayProtectionPanel({
@@ -3964,6 +4085,7 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
   const auditEvents = peerStore.recent_audit_events ?? [];
   const bootstrap = peerStore.bootstrap ?? null;
   const stability = peerStore.stability ?? null;
+  const localCapabilities = discovery?.local_capabilities ?? null;
   const blindRelay = runtime.blind_relay ?? null;
   const peerHealthSummary = peerStore.peer_health_summary ?? null;
   const bootstrapRecoveryStatus = bootstrap?.recovery_status || bootstrap?.last_source_status || null;
@@ -4021,6 +4143,8 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
           </div>
         </div>
       </div>
+
+      <LocalCapabilityPanel capability={localCapabilities} />
 
       {stability && (
         <div className={`mt-4 rounded-xl border p-3 ${discoveryStabilityTone(stability)}`}>

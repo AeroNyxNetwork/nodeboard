@@ -6,6 +6,12 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.39 - Added Rust discovery local_capabilities status so nodeboard can
+ *     show whether this node is configured to advertise ChatRelay capability
+ *     consistently with its blind relay endpoint readiness. The contract is
+ *     aggregate node runtime metadata only and must not expose relay routes,
+ *     endpoints, message IDs, encrypted blobs, client IPs, or social graph
+ *     edges.
  *   v1.5.38 - Added PeerStore peer-cache startup load evidence and restart
  *     recovery source buckets. These fields are aggregate recovery signals
  *     only and must not expose cache paths, peer endpoints, public keys,
@@ -100,7 +106,9 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.37 - Align peer health counter fields with Rust
+ * Last Modified: v1.5.39 - Added local ChatRelay capability self-check type
+ * Previous: v1.5.38 - Added PeerStore startup recovery evidence
+ * Previous: v1.5.37 - Align peer health counter fields with Rust
  * Previous: v1.5.36 - Added blind relay protection and peer health types
  * Previous: v1.5.35 - Added discovery bootstrap recovery status fields
  * Previous: v1.5.34 - Added PeerStore restart recovery field
@@ -2387,9 +2395,31 @@ export interface DiscoveryBootstrapStatus {
   last_gossip_round_at: number | null;
 }
 
+export interface DiscoveryLocalCapabilityStatus {
+  chat_relay_configured: boolean;
+  blind_relay_endpoint_ready: boolean;
+  advertised_chat_relay_capability: boolean;
+  capability_config_consistent: boolean;
+  status: 'ready' | 'disabled' | 'misconfigured' | string;
+  detail: string;
+}
+
 export interface DiscoveryStatus {
   generated_at: number;
   peer_store: DiscoveryPeerStoreStatus;
+  /**
+   * Rust source:
+   *   /root/open/AeroNyx/crates/aeronyx-server/src/api/discovery.rs
+   *   /root/open/AeroNyx/crates/aeronyx-server/src/server.rs
+   *
+   * Privacy boundary: node-local capability self-check only. It reports
+   * booleans and a status string proving that ChatRelay configuration,
+   * endpoint readiness, and advertised discovery capability are consistent.
+   * It must never expose route IDs, peer endpoints, message IDs, encrypted
+   * payloads, client IPs, destinations, Memory Chain plaintext, or social
+   * graph relationships.
+   */
+  local_capabilities?: DiscoveryLocalCapabilityStatus | null;
   source?: string;
   privacy_boundary?: string;
 }
