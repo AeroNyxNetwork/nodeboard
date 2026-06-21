@@ -2435,8 +2435,24 @@ export interface DiscoveryBootstrapStatus {
 export interface DiscoveryLocalCapabilityStatus {
   chat_relay_configured: boolean;
   blind_relay_endpoint_ready: boolean;
+  /**
+   * Whether the Rust ChatRelayService initialized successfully in this process.
+   *
+   * This is a runtime self-check from:
+   *   /root/open/AeroNyx/crates/aeronyx-server/src/server.rs
+   *   /root/open/AeroNyx/crates/aeronyx-server/src/api/discovery.rs
+   *
+   * Privacy boundary: runtime capability metadata only. It must not expose
+   * endpoints, route IDs, message IDs, encrypted blobs, client IPs, Memory
+   * Chain plaintext, or social graph relationships.
+   */
+  chat_relay_runtime_ready?: boolean;
   advertised_chat_relay_capability: boolean;
+  /** Whether config, endpoint readiness, runtime readiness, and advertisement are all safe. */
+  safe_to_advertise_chat_relay?: boolean;
   capability_config_consistent: boolean;
+  /** Stable privacy-safe blocker buckets such as chat_relay_disabled or chat_relay_runtime_not_ready. */
+  advertisement_blockers?: string[];
   status: 'ready' | 'disabled' | 'misconfigured' | string;
   detail: string;
 }

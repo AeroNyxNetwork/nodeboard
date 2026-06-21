@@ -3710,6 +3710,23 @@ function localCapabilityBooleanLabel(value: boolean, t: TranslateFn) {
   return value ? t('nodeDetail.discovery.enabled') : t('nodeDetail.discovery.disabled');
 }
 
+function localCapabilityBlockerLabel(blocker: string) {
+  return blocker.replaceAll('_', ' ');
+}
+
+function localCapabilitySafeToAdvertise(capability: DiscoveryLocalCapabilityStatus) {
+  return Boolean(
+    capability.safe_to_advertise_chat_relay
+    ?? (
+      capability.chat_relay_configured
+      && capability.blind_relay_endpoint_ready
+      && capability.chat_relay_runtime_ready
+      && capability.advertised_chat_relay_capability
+      && capability.capability_config_consistent
+    ),
+  );
+}
+
 function networkStoryTone(story: DiscoveryNetworkStoryStatus | null | undefined) {
   if (!story) return 'border-white/5 bg-black/20';
   if (story.status === 'attention') return 'border-yellow-500/25 bg-yellow-500/[0.06]';
@@ -3970,6 +3987,10 @@ function LocalCapabilityPanel({
   if (!capability) return null;
 
   const tone = localCapabilityTone(capability);
+  const safeToAdvertise = localCapabilitySafeToAdvertise(capability);
+  const blockers = Array.isArray(capability.advertisement_blockers)
+    ? capability.advertisement_blockers.filter(Boolean)
+    : [];
   const fields = [
     {
       label: t('nodeDetail.discovery.localCapability.chatRelayConfigured'),
@@ -3982,9 +4003,19 @@ function LocalCapabilityPanel({
       ready: capability.blind_relay_endpoint_ready,
     },
     {
+      label: t('nodeDetail.discovery.localCapability.runtimeReady'),
+      value: localCapabilityBooleanLabel(Boolean(capability.chat_relay_runtime_ready), t),
+      ready: Boolean(capability.chat_relay_runtime_ready),
+    },
+    {
       label: t('nodeDetail.discovery.localCapability.advertised'),
       value: localCapabilityBooleanLabel(capability.advertised_chat_relay_capability, t),
       ready: capability.advertised_chat_relay_capability,
+    },
+    {
+      label: t('nodeDetail.discovery.localCapability.safeToAdvertiseLabel'),
+      value: localCapabilityBooleanLabel(safeToAdvertise, t),
+      ready: safeToAdvertise,
     },
     {
       label: t('nodeDetail.discovery.localCapability.consistent'),
@@ -4016,17 +4047,19 @@ function LocalCapabilityPanel({
         </div>
         <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-[11px] leading-4 text-gray-500 lg:max-w-md">
           <p className="font-medium text-gray-300">
-            {capability.capability_config_consistent
+            {safeToAdvertise
               ? t('nodeDetail.discovery.localCapability.safeToAdvertise')
               : t('nodeDetail.discovery.localCapability.fixBeforeAdvertise')}
           </p>
           <p className="mt-1">
-            {t('nodeDetail.discovery.localCapability.privacy')}
+            {blockers.length > 0
+              ? blockers.map(localCapabilityBlockerLabel).join(' · ')
+              : t('nodeDetail.discovery.localCapability.privacy')}
           </p>
         </div>
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
         {fields.map((field) => (
           <div key={field.label} className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
             <p className="text-[11px] uppercase tracking-wide text-gray-600">{field.label}</p>
