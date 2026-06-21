@@ -10,6 +10,10 @@
  * Layer, and SuperNode diagnostics opened only when needed.
  *
  * Modification Reason:
+ *   v1.1.73 - Added a compact Protocol Foundation panel sourced from
+ *     data.nodes[].system.discovery_status so Services can show peer discovery
+ *     and relay runtime advertisement readiness without expanding per-node
+ *     discovery diagnostics on the first-level page.
  *   v1.1.72 - Align the Operations Workbench default group with the
  *     backend/operator recommended module. The first-level Services page stays
  *     compact, and the selectable report cards now open on the task group that
@@ -416,6 +420,19 @@ interface FleetSummary {
   totalServiceSlots: number;
 }
 
+interface FleetProtocolFoundationSummary {
+  reportedNodes: number;
+  foundationReadyNodes: number;
+  maxValidPeers: number;
+  safeRelayNodes: number;
+  runtimeReadyNodes: number;
+  endpointReadyNodes: number;
+  misconfiguredRelayNodes: number;
+  status: 'ok' | 'attention' | 'pending';
+  blockerSummary: string;
+  privacyBoundary: string | null;
+}
+
 interface FleetCapacityRisk {
   nodeId: string;
   nodeName: string;
@@ -722,6 +739,83 @@ function buildFleetSummary(nodes: VpnNodeHealth[], statuses: NodeOperatorStatus[
     rolloutRestartRequired: statuses.filter((status) => status.runtime_rollout?.restart_required).length,
     enabledServices: serviceSlots.filter((service) => service.enabled).length,
     totalServiceSlots: serviceSlots.length,
+  };
+}
+
+function buildProtocolFoundationSummary(nodes: VpnNodeHealth[]): FleetProtocolFoundationSummary {
+  const blockerCounts = new Map<string, number>();
+  let reportedNodes = 0;
+  let foundationReadyNodes = 0;
+  let maxValidPeers = 0;
+  let safeRelayNodes = 0;
+  let runtimeReadyNodes = 0;
+  let endpointReadyNodes = 0;
+  let misconfiguredRelayNodes = 0;
+  let privacyBoundary: string | null = null;
+
+  nodes.forEach((node) => {
+    const discovery = node.system.discovery_status;
+    if (!discovery?.peer_store) return;
+
+    reportedNodes += 1;
+    const story = discovery.peer_store.network_story;
+    const localCapabilities = discovery.local_capabilities;
+    const validPeers = discovery.peer_store.snapshot?.valid_peers ?? story?.valid_nodes ?? 0;
+
+    maxValidPeers = Math.max(maxValidPeers, validPeers);
+    if (story?.relay_foundation_ready || discovery.peer_store.stability?.relay_foundation_ready) {
+      foundationReadyNodes += 1;
+    }
+    if (localCapabilities?.safe_to_advertise_chat_relay) {
+      safeRelayNodes += 1;
+    }
+    if (localCapabilities?.chat_relay_runtime_ready) {
+      runtimeReadyNodes += 1;
+    }
+    if (localCapabilities?.blind_relay_endpoint_ready) {
+      endpointReadyNodes += 1;
+    }
+    if (
+      localCapabilities
+      && (
+        localCapabilities.status === 'misconfigured'
+        || localCapabilities.capability_config_consistent === false
+      )
+    ) {
+      misconfiguredRelayNodes += 1;
+    }
+    if (Array.isArray(localCapabilities?.advertisement_blockers)) {
+      localCapabilities.advertisement_blockers.forEach((blocker) => {
+        if (!blocker) return;
+        blockerCounts.set(blocker, (blockerCounts.get(blocker) ?? 0) + 1);
+      });
+    }
+    privacyBoundary = privacyBoundary ?? discovery.privacy_boundary ?? story?.privacy_boundary ?? null;
+  });
+
+  const blockerSummary = [...blockerCounts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, 2)
+    .map(([key, count]) => `${key.replaceAll('_', ' ')} ${count}`)
+    .join(' · ');
+
+  const status: FleetProtocolFoundationSummary['status'] = reportedNodes === 0
+    ? 'pending'
+    : misconfiguredRelayNodes > 0
+      ? 'attention'
+      : 'ok';
+
+  return {
+    reportedNodes,
+    foundationReadyNodes,
+    maxValidPeers,
+    safeRelayNodes,
+    runtimeReadyNodes,
+    endpointReadyNodes,
+    misconfiguredRelayNodes,
+    status,
+    blockerSummary,
+    privacyBoundary,
   };
 }
 
@@ -2777,6 +2871,82 @@ function FleetSummaryGrid({
         status={summary.rolloutRestartRequired > 0 ? 'warning' : 'ok'}
       />
     </div>
+  );
+}
+
+function FleetProtocolFoundationPanel({
+  summary,
+}: {
+  summary: FleetProtocolFoundationSummary;
+}) {
+  const { t, formatNumber } = useI18n();
+  const detail = summary.blockerSummary
+    || t('services.protocolFoundation.noBlockers');
+
+  return (
+    <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="max-w-3xl">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold text-white">{t('services.protocolFoundation.title')}</h2>
+            <StatusPill status={summary.status} />
+            <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-xs text-gray-300">
+              {t('services.protocolFoundation.reported', {
+                reported: formatNumber(summary.reportedNodes),
+                total: formatNumber(Math.max(summary.reportedNodes, summary.endpointReadyNodes)),
+              })}
+            </span>
+          </div>
+          <p className="mt-2 text-sm leading-6 text-gray-400">
+            {t('services.protocolFoundation.description')}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-gray-500">
+            {summary.privacyBoundary || t('services.protocolFoundation.privacy')}
+          </p>
+        </div>
+        <div className="grid w-full gap-2 text-xs sm:grid-cols-2 xl:max-w-3xl xl:grid-cols-4">
+          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-gray-500">{t('services.protocolFoundation.peerView')}</p>
+            <p className="mt-1 text-base font-semibold text-white">
+              {formatNumber(summary.maxValidPeers)}
+            </p>
+            <p className="mt-1 text-gray-600">
+              {t('services.protocolFoundation.foundationReady', {
+                count: formatNumber(summary.foundationReadyNodes),
+              })}
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-gray-500">{t('services.protocolFoundation.safeRelay')}</p>
+            <p className="mt-1 text-base font-semibold text-white">
+              {formatNumber(summary.safeRelayNodes)}
+            </p>
+            <p className="mt-1 text-gray-600">
+              {t('services.protocolFoundation.runtimeReady', {
+                count: formatNumber(summary.runtimeReadyNodes),
+              })}
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-gray-500">{t('services.protocolFoundation.endpointReady')}</p>
+            <p className="mt-1 text-base font-semibold text-white">
+              {formatNumber(summary.endpointReadyNodes)}
+            </p>
+            <p className="mt-1 text-gray-600">
+              {t('services.protocolFoundation.misconfigured', {
+                count: formatNumber(summary.misconfiguredRelayNodes),
+              })}
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-gray-500">{t('services.protocolFoundation.blockers')}</p>
+            <p className="mt-1 break-words text-sm font-semibold text-white [overflow-wrap:anywhere]">
+              {detail}
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -6183,6 +6353,7 @@ export default function NodeServicesPage() {
   const restartReadinessSummary = overview?.summary.restart_readiness ?? null;
   const operatorStatuses = useMemo(() => collectOperatorStatuses(nodes), [nodes]);
   const fleetSummary = useMemo(() => buildFleetSummary(nodes, operatorStatuses), [nodes, operatorStatuses]);
+  const protocolFoundation = useMemo(() => buildProtocolFoundationSummary(nodes), [nodes]);
   const services = useMemo(() => buildServiceViews(nodes, operatorStatuses), [nodes, operatorStatuses]);
   const nodesById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const risks = useMemo(() => collectRisks(nodes), [nodes]);
@@ -6272,6 +6443,7 @@ export default function NodeServicesPage() {
       )}
 
       <FleetSummaryGrid summary={fleetSummary} latestReportedAt={latestReportedAt} />
+      <FleetProtocolFoundationPanel summary={protocolFoundation} />
       <FleetCommercialOperationsPanel nodes={nodes} summary={restartReadinessSummary} />
 
       <DetailModulesPanel
