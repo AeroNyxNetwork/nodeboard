@@ -6,6 +6,14 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.53 - Added Rust PeerStore network_story rendering to the Discovery
+ *     panel. The card translates aggregate protocol discovery readiness into
+ *     operator/product language: verified peer view, routeable encrypted relay
+ *     candidates, future onion-shaped path readiness, and restart recovery.
+ *     The UI consumes only Rust aggregate counts and booleans; it must never
+ *     expose full node IDs, endpoint URLs, route IDs, encrypted payloads,
+ *     receiver identities, client IPs, DNS contents, Memory Chain plaintext,
+ *     social graph edges, or wallet-level traffic.
  *   v1.6.52 - Added Rust local ChatRelay capability self-check to the
  *     Discovery panel. The card consumes discovery_status.local_capabilities
  *     from Rust /api/discovery/status so operators can see whether ChatRelay
@@ -289,7 +297,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.52 - Show local ChatRelay capability self-check
+ * Last Modified: v1.6.53 - Show PeerStore network story readiness
+ * Previous: v1.6.52 - Show local ChatRelay capability self-check
  * Previous: v1.6.51 - Show peer-cache startup recovery evidence
  * Previous: v1.6.50 - Align peer health counter names with Rust
  * Previous: v1.6.49 - Show blind relay protection counters
@@ -3675,6 +3684,7 @@ type DiscoveryStabilityStatus = NonNullable<DiscoveryStatus['peer_store']['stabi
 type DiscoveryBlindRelayStats = NonNullable<DiscoveryStatus['peer_store']['runtime']['blind_relay']>;
 type DiscoveryPeerHealthSummary = NonNullable<DiscoveryStatus['peer_store']['peer_health_summary']>;
 type DiscoveryPeerHealthRow = DiscoveryPeerHealthSummary['peers'][number];
+type DiscoveryNetworkStoryStatus = NonNullable<DiscoveryStatus['peer_store']['network_story']>;
 
 function localCapabilityTone(capability: DiscoveryLocalCapabilityStatus | null | undefined) {
   if (!capability) return 'border-white/5 bg-black/20';
@@ -3698,6 +3708,139 @@ function localCapabilityStatusLabel(
 
 function localCapabilityBooleanLabel(value: boolean, t: TranslateFn) {
   return value ? t('nodeDetail.discovery.enabled') : t('nodeDetail.discovery.disabled');
+}
+
+function networkStoryTone(story: DiscoveryNetworkStoryStatus | null | undefined) {
+  if (!story) return 'border-white/5 bg-black/20';
+  if (story.status === 'attention') return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  if (story.status === 'onion_ready') return 'border-emerald-500/20 bg-emerald-500/[0.06]';
+  if (story.status === 'relay_ready' || story.status === 'peer_view_ready') {
+    return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+  }
+  if (story.status === 'disabled') return 'border-gray-500/20 bg-gray-500/[0.04]';
+  return 'border-sky-500/15 bg-sky-500/[0.04]';
+}
+
+function networkStoryStatusLabel(
+  story: DiscoveryNetworkStoryStatus | null | undefined,
+  t: TranslateFn,
+) {
+  if (!story) return t('nodeDetail.discovery.networkStory.status.pending');
+  const key = `nodeDetail.discovery.networkStory.status.${story.status}`;
+  const translated = t(key);
+  return translated === key ? story.status.replaceAll('_', ' ') : translated;
+}
+
+function networkStoryBooleanLabel(value: boolean, t: TranslateFn) {
+  return value ? t('nodeDetail.discovery.networkStory.ready') : t('nodeDetail.discovery.networkStory.notReady');
+}
+
+function NetworkStoryPanel({
+  story,
+}: {
+  story: DiscoveryNetworkStoryStatus | null | undefined;
+}) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
+
+  if (!story) return null;
+
+  const tone = networkStoryTone(story);
+  const fields = [
+    {
+      label: t('nodeDetail.discovery.networkStory.validNodes'),
+      value: formatNumber(story.valid_nodes ?? 0),
+      detail: t('nodeDetail.discovery.networkStory.discoveredNodes', {
+        count: formatNumber(story.discovered_nodes ?? 0),
+      }),
+      ready: (story.valid_nodes ?? 0) > 0,
+    },
+    {
+      label: t('nodeDetail.discovery.networkStory.chatRelays'),
+      value: formatNumber(story.routeable_chat_relays ?? 0),
+      detail: t('nodeDetail.discovery.networkStory.chatRelayDescriptors', {
+        count: formatNumber(story.chat_relay_nodes ?? 0),
+      }),
+      ready: (story.routeable_chat_relays ?? 0) > 0,
+    },
+    {
+      label: t('nodeDetail.discovery.networkStory.onionHops'),
+      value: formatNumber(story.routeable_onion_middle_hops ?? 0),
+      detail: t('nodeDetail.discovery.networkStory.onionDescriptors', {
+        count: formatNumber(story.onion_middle_nodes ?? 0),
+      }),
+      ready: (story.routeable_onion_middle_hops ?? 0) > 0,
+    },
+    {
+      label: t('nodeDetail.discovery.networkStory.twoHopPath'),
+      value: networkStoryBooleanLabel(Boolean(story.chat_two_hop_onion_ready), t),
+      detail: t('nodeDetail.discovery.networkStory.singleHopDetail', {
+        status: networkStoryBooleanLabel(Boolean(story.chat_single_hop_ready), t),
+      }),
+      ready: Boolean(story.chat_two_hop_onion_ready),
+    },
+  ];
+
+  return (
+    <div className={`mt-4 rounded-xl border p-3 ${tone}`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-300">
+              {t('nodeDetail.discovery.networkStory.title')}
+            </p>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${tone}`}>
+              {networkStoryStatusLabel(story, t)}
+            </span>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${story.relay_foundation_ready ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200' : 'border-yellow-500/25 bg-yellow-500/10 text-yellow-200'}`}>
+              {story.relay_foundation_ready
+                ? t('nodeDetail.discovery.networkStory.foundationReady')
+                : t('nodeDetail.discovery.networkStory.foundationBlocked')}
+            </span>
+          </div>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-gray-400">
+            {t('nodeDetail.discovery.networkStory.description')}
+          </p>
+          <p className="mt-2 break-words text-[11px] leading-4 text-gray-500 [overflow-wrap:anywhere]">
+            {story.headline || t('nodeDetail.discovery.networkStory.noHeadline')}
+          </p>
+          {story.detail && (
+            <p className="mt-1 break-words text-[11px] leading-4 text-gray-600 [overflow-wrap:anywhere]">
+              {story.detail}
+            </p>
+          )}
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-[11px] leading-4 text-gray-500 lg:max-w-md">
+          <p className="font-medium text-gray-300">
+            {t('nodeDetail.discovery.networkStory.generatedAt')}
+          </p>
+          <p className="mt-1">
+            {discoveryTimestampLabel(story.generated_at, t('nodeDetail.discovery.pendingTime'), i18nRelativeTime)}
+          </p>
+          <p className="mt-2">
+            {story.restart_recovery_configured
+              ? t('nodeDetail.discovery.networkStory.restartReady')
+              : t('nodeDetail.discovery.networkStory.restartMissing')}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {fields.map((field) => (
+          <div key={field.label} className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-600">{field.label}</p>
+            <p className={`mt-1 text-sm font-semibold ${field.ready ? 'text-emerald-200' : 'text-gray-300'}`}>
+              {field.value}
+            </p>
+            <p className="mt-1 text-[11px] leading-4 text-gray-600">{field.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-3 text-[11px] leading-5 text-gray-600">
+        {story.privacy_boundary || t('nodeDetail.discovery.networkStory.privacy')}
+      </p>
+    </div>
+  );
 }
 
 function relayProtectionWarningCountFromParts(
@@ -4085,6 +4228,7 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
   const auditEvents = peerStore.recent_audit_events ?? [];
   const bootstrap = peerStore.bootstrap ?? null;
   const stability = peerStore.stability ?? null;
+  const networkStory = peerStore.network_story ?? null;
   const localCapabilities = discovery?.local_capabilities ?? null;
   const blindRelay = runtime.blind_relay ?? null;
   const peerHealthSummary = peerStore.peer_health_summary ?? null;
@@ -4143,6 +4287,8 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
           </div>
         </div>
       </div>
+
+      <NetworkStoryPanel story={networkStory} />
 
       <LocalCapabilityPanel capability={localCapabilities} />
 
