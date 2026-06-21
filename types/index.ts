@@ -2310,6 +2310,16 @@ export interface DiscoveryPeerStoreStatus {
    * wallet-level traffic.
    */
   network_story?: DiscoveryNetworkStoryStatus | null;
+  /**
+   * Rust-authored peer quorum readiness gate.
+   *
+   * This is local peer-view readiness only, not public-chain consensus. It is
+   * safe for operator UI because it contains counts, booleans, and stable
+   * action labels only. It must never be expanded into full node IDs,
+   * endpoints, route IDs, encrypted payloads, receiver identities, client IPs,
+   * DNS contents, Memory Chain plaintext, or wallet-level traffic.
+   */
+  peer_quorum?: DiscoveryPeerQuorumStatus | null;
 }
 
 export interface DiscoveryNetworkStoryStatus {
@@ -2327,6 +2337,25 @@ export interface DiscoveryNetworkStoryStatus {
   chat_two_hop_onion_ready: boolean;
   restart_recovery_configured: boolean;
   relay_foundation_ready: boolean;
+  privacy_boundary: string;
+}
+
+export interface DiscoveryPeerQuorumStatus {
+  generated_at: number;
+  status: 'disabled' | 'forming' | 'peer_view_ready' | 'route_ready' | 'attention' | string;
+  quorum_ready: boolean;
+  min_valid_peers: number;
+  min_routeable_chat_relays: number;
+  valid_peers: number;
+  healthy_peers: number;
+  stale_peers: number;
+  routeable_chat_relays: number;
+  routeable_onion_middle_hops: number;
+  healthy_ratio_percent: number;
+  restart_recovery_configured: boolean;
+  relay_foundation_ready: boolean;
+  detail: string;
+  next_action: string;
   privacy_boundary: string;
 }
 

@@ -3693,6 +3693,7 @@ type DiscoveryBlindRelayStats = NonNullable<DiscoveryStatus['peer_store']['runti
 type DiscoveryPeerHealthSummary = NonNullable<DiscoveryStatus['peer_store']['peer_health_summary']>;
 type DiscoveryPeerHealthRow = DiscoveryPeerHealthSummary['peers'][number];
 type DiscoveryNetworkStoryStatus = NonNullable<DiscoveryStatus['peer_store']['network_story']>;
+type DiscoveryPeerQuorumStatus = NonNullable<DiscoveryStatus['peer_store']['peer_quorum']>;
 
 function localCapabilityTone(capability: DiscoveryLocalCapabilityStatus | null | undefined) {
   if (!capability) return 'border-white/5 bg-black/20';
@@ -3758,6 +3759,30 @@ function networkStoryStatusLabel(
 
 function networkStoryBooleanLabel(value: boolean, t: TranslateFn) {
   return value ? t('nodeDetail.discovery.networkStory.ready') : t('nodeDetail.discovery.networkStory.notReady');
+}
+
+function peerQuorumTone(quorum: DiscoveryPeerQuorumStatus | null | undefined) {
+  if (!quorum) return 'border-white/5 bg-black/20';
+  if (quorum.status === 'attention') return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  if (quorum.status === 'route_ready') return 'border-emerald-500/20 bg-emerald-500/[0.06]';
+  if (quorum.status === 'peer_view_ready') return 'border-sky-500/15 bg-sky-500/[0.04]';
+  if (quorum.status === 'forming') return 'border-yellow-500/20 bg-yellow-500/[0.05]';
+  if (quorum.status === 'disabled') return 'border-gray-500/20 bg-gray-500/[0.04]';
+  return 'border-sky-500/15 bg-sky-500/[0.04]';
+}
+
+function peerQuorumStatusLabel(
+  quorum: DiscoveryPeerQuorumStatus | null | undefined,
+  t: TranslateFn,
+) {
+  if (!quorum) return t('nodeDetail.discovery.peerQuorum.status.pending');
+  const key = `nodeDetail.discovery.peerQuorum.status.${quorum.status}`;
+  const translated = t(key);
+  return translated === key ? quorum.status.replaceAll('_', ' ') : translated;
+}
+
+function peerQuorumReadinessLabel(value: boolean, t: TranslateFn) {
+  return value ? t('nodeDetail.discovery.peerQuorum.ready') : t('nodeDetail.discovery.peerQuorum.notReady');
 }
 
 function NetworkStoryPanel({
@@ -3863,6 +3888,120 @@ function NetworkStoryPanel({
 
       <p className="mt-3 text-[11px] leading-5 text-gray-600">
         {story.privacy_boundary || t('nodeDetail.discovery.networkStory.privacy')}
+      </p>
+    </div>
+  );
+}
+
+function PeerQuorumPanel({
+  quorum,
+}: {
+  quorum: DiscoveryPeerQuorumStatus | null | undefined;
+}) {
+  const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
+
+  if (!quorum) return null;
+
+  const tone = peerQuorumTone(quorum);
+  const fields = [
+    {
+      label: t('nodeDetail.discovery.peerQuorum.validPeers'),
+      value: formatNumber(quorum.valid_peers ?? 0),
+      detail: t('nodeDetail.discovery.peerQuorum.validPeersDetail', {
+        min: formatNumber(quorum.min_valid_peers ?? 0),
+      }),
+      ready: (quorum.valid_peers ?? 0) >= (quorum.min_valid_peers ?? 0),
+    },
+    {
+      label: t('nodeDetail.discovery.peerQuorum.healthyRatio'),
+      value: t('nodeDetail.discovery.peerQuorum.percentValue', {
+        value: formatNumber(quorum.healthy_ratio_percent ?? 0),
+      }),
+      detail: t('nodeDetail.discovery.peerQuorum.healthyRatioDetail', {
+        healthy: formatNumber(quorum.healthy_peers ?? 0),
+        stale: formatNumber(quorum.stale_peers ?? 0),
+      }),
+      ready: (quorum.healthy_peers ?? 0) > 0,
+    },
+    {
+      label: t('nodeDetail.discovery.peerQuorum.routeableRelays'),
+      value: formatNumber(quorum.routeable_chat_relays ?? 0),
+      detail: t('nodeDetail.discovery.peerQuorum.routeableRelaysDetail', {
+        min: formatNumber(quorum.min_routeable_chat_relays ?? 0),
+      }),
+      ready: (quorum.routeable_chat_relays ?? 0) >= (quorum.min_routeable_chat_relays ?? 0),
+    },
+    {
+      label: t('nodeDetail.discovery.peerQuorum.onionHops'),
+      value: formatNumber(quorum.routeable_onion_middle_hops ?? 0),
+      detail: t('nodeDetail.discovery.peerQuorum.onionHopsDetail'),
+      ready: (quorum.routeable_onion_middle_hops ?? 0) > 0,
+    },
+  ];
+
+  return (
+    <div className={`mt-4 rounded-xl border p-3 ${tone}`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-300">
+              {t('nodeDetail.discovery.peerQuorum.title')}
+            </p>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${tone}`}>
+              {peerQuorumStatusLabel(quorum, t)}
+            </span>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${quorum.quorum_ready ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200' : 'border-yellow-500/25 bg-yellow-500/10 text-yellow-200'}`}>
+              {peerQuorumReadinessLabel(Boolean(quorum.quorum_ready), t)}
+            </span>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${quorum.restart_recovery_configured ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200' : 'border-yellow-500/25 bg-yellow-500/10 text-yellow-200'}`}>
+              {quorum.restart_recovery_configured
+                ? t('nodeDetail.discovery.peerQuorum.restartReady')
+                : t('nodeDetail.discovery.peerQuorum.restartMissing')}
+            </span>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${quorum.relay_foundation_ready ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200' : 'border-yellow-500/25 bg-yellow-500/10 text-yellow-200'}`}>
+              {quorum.relay_foundation_ready
+                ? t('nodeDetail.discovery.peerQuorum.foundationReady')
+                : t('nodeDetail.discovery.peerQuorum.foundationBlocked')}
+            </span>
+          </div>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-gray-400">
+            {t('nodeDetail.discovery.peerQuorum.description')}
+          </p>
+          {quorum.detail && (
+            <p className="mt-2 break-words text-[11px] leading-4 text-gray-500 [overflow-wrap:anywhere]">
+              {quorum.detail}
+            </p>
+          )}
+          {quorum.next_action && (
+            <p className="mt-1 break-words text-[11px] leading-4 text-gray-600 [overflow-wrap:anywhere]">
+              {t('nodeDetail.discovery.peerQuorum.nextAction')}: {quorum.next_action}
+            </p>
+          )}
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-[11px] leading-4 text-gray-500 lg:max-w-md">
+          <p className="font-medium text-gray-300">
+            {t('nodeDetail.discovery.peerQuorum.generatedAt')}
+          </p>
+          <p className="mt-1">
+            {discoveryTimestampLabel(quorum.generated_at, t('nodeDetail.discovery.pendingTime'), i18nRelativeTime)}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {fields.map((field) => (
+          <div key={field.label} className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-600">{field.label}</p>
+            <p className={`mt-1 text-sm font-semibold ${field.ready ? 'text-emerald-200' : 'text-gray-300'}`}>
+              {field.value}
+            </p>
+            <p className="mt-1 text-[11px] leading-4 text-gray-600">{field.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-3 text-[11px] leading-5 text-gray-600">
+        {quorum.privacy_boundary || t('nodeDetail.discovery.peerQuorum.privacy')}
       </p>
     </div>
   );
@@ -4271,6 +4410,7 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
   const bootstrap = peerStore.bootstrap ?? null;
   const stability = peerStore.stability ?? null;
   const networkStory = peerStore.network_story ?? null;
+  const peerQuorum = peerStore.peer_quorum ?? null;
   const localCapabilities = discovery?.local_capabilities ?? null;
   const blindRelay = runtime.blind_relay ?? null;
   const peerHealthSummary = peerStore.peer_health_summary ?? null;
@@ -4331,6 +4471,8 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
       </div>
 
       <NetworkStoryPanel story={networkStory} />
+
+      <PeerQuorumPanel quorum={peerQuorum} />
 
       <LocalCapabilityPanel capability={localCapabilities} />
 
