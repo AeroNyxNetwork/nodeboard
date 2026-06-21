@@ -6,6 +6,13 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.54 - Added Rust PeerStore recent_peer_events rendering to the
+ *     Discovery panel. The UI shows privacy-safe peer lifecycle motion
+ *     (inserted, upgraded, refreshed, rejected, expired) using only short
+ *     node prefixes, source buckets, sequence numbers, and reason buckets.
+ *     It must never expose full node IDs, endpoints, route IDs, encrypted
+ *     payloads, client IPs, DNS contents, Memory Chain plaintext, social
+ *     graph edges, private keys, voucher secrets, or wallet-level traffic.
  *   v1.6.53 - Added Rust PeerStore network_story rendering to the Discovery
  *     panel. The card translates aggregate protocol discovery readiness into
  *     operator/product language: verified peer view, routeable encrypted relay
@@ -297,7 +304,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.53 - Show PeerStore network story readiness
+ * Last Modified: v1.6.54 - Show PeerStore lifecycle events
+ * Previous: v1.6.53 - Show PeerStore network story readiness
  * Previous: v1.6.52 - Show local ChatRelay capability self-check
  * Previous: v1.6.51 - Show peer-cache startup recovery evidence
  * Previous: v1.6.50 - Align peer health counter names with Rust
@@ -4259,6 +4267,7 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
   const validPeers = formatNumber(snapshot.valid_peers);
   const publicPeers = formatNumber(snapshot.public_peers);
   const auditEvents = peerStore.recent_audit_events ?? [];
+  const peerEvents = peerStore.recent_peer_events ?? [];
   const bootstrap = peerStore.bootstrap ?? null;
   const stability = peerStore.stability ?? null;
   const networkStory = peerStore.network_story ?? null;
@@ -4546,6 +4555,65 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
           <p className="mt-1">{formatNumber(runtime.capacity_rejected)}</p>
         </div>
       </div>
+
+      {peerEvents.length > 0 && (
+        <div className="mt-3 rounded-lg border border-cyan-500/10 bg-cyan-500/[0.035] p-3">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-medium text-cyan-100">{t('nodeDetail.discovery.peerEventsTitle')}</p>
+              <p className="mt-1 text-[11px] leading-4 text-cyan-100/60">{t('nodeDetail.discovery.peerEventsDescription')}</p>
+            </div>
+            <span className="w-fit rounded-full border border-cyan-500/15 bg-cyan-500/10 px-2 py-1 text-[10px] uppercase text-cyan-100">
+              {t('nodeDetail.discovery.peerEventsCount', { count: formatNumber(peerEvents.length) })}
+            </span>
+          </div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-2">
+            {peerEvents.slice(-6).map((event, index) => {
+              const rejected = event.outcome === 'rejected' || event.outcome === 'expired';
+              return (
+                <div
+                  key={`${event.at}-${event.event}-${event.node_id_prefix}-${index}`}
+                  className="rounded-lg border border-white/5 bg-black/20 px-3 py-2"
+                >
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-white">
+                        {event.event.replaceAll('_', ' ')}
+                      </p>
+                      <p className="mt-1 text-[11px] leading-4 text-gray-500">
+                        {t('nodeDetail.discovery.peerEventsDetail', {
+                          prefix: event.node_id_prefix || pending,
+                          source: event.source || pending,
+                          sequence: event.sequence == null ? pending : formatNumber(event.sequence),
+                        })}
+                      </p>
+                      {event.reason && (
+                        <p className="mt-1 break-words text-[11px] leading-4 text-gray-600 [overflow-wrap:anywhere]">
+                          {t('nodeDetail.discovery.peerEventsReason', {
+                            reason: discoveryFailureReasonLabel(event.reason, t),
+                          })}
+                        </p>
+                      )}
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase ${
+                      rejected
+                        ? 'border-yellow-500/25 bg-yellow-500/10 text-yellow-200'
+                        : event.outcome === 'ignored'
+                          ? 'border-white/10 bg-white/[0.04] text-gray-300'
+                          : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200'
+                    }`}>
+                      {event.outcome}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-[11px] text-gray-600">
+                    {discoveryTimestampLabel(event.at, pending, i18nRelativeTime)}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {auditEvents.length > 0 && (
         <div className="mt-3 rounded-lg border border-white/5 bg-black/20 p-3">
