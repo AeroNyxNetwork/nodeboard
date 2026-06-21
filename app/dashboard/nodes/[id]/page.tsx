@@ -6,6 +6,13 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.55 - Expanded the Security / Relay Protection summary with terminal
+ *     delivery and aggregate failure totals. This lets operators distinguish
+ *     configured blind relay protection from actual relay-probe delivery
+ *     evidence while preserving the blind relay boundary: no payloads, route
+ *     IDs, endpoints, receiver identities, client IPs, DNS contents, Memory
+ *     Chain plaintext, social graph edges, private keys, voucher secrets, or
+ *     wallet-level traffic.
  *   v1.6.54 - Added Rust PeerStore recent_peer_events rendering to the
  *     Discovery panel. The UI shows privacy-safe peer lifecycle motion
  *     (inserted, upgraded, refreshed, rejected, expired) using only short
@@ -4268,7 +4275,13 @@ function RelayProtectionPanel({
             {t('nodeDetail.discovery.relaySummary', {
               received: formatNumber(relay?.received ?? 0),
               forwarded: formatNumber(relay?.forwarded ?? 0),
+              terminal: formatNumber(relay?.terminal ?? 0),
               rejected: formatNumber(relay?.rejected ?? 0),
+              failures: formatNumber(
+                (relay?.forward_failed ?? 0)
+                + (relay?.no_route ?? 0)
+                + (relay?.rejected ?? 0),
+              ),
             })}
           </p>
           <p className="mt-1">

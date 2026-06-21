@@ -20,7 +20,9 @@
  *   public keys, wallet secrets, client IPs, destinations, DNS contents,
  *   packet payloads, browsing history, or traffic metadata.
  *
- * Last Modified: v1.0.13 - Added PeerStore peer quorum readiness copy
+ * Last Modified: v1.0.14 - Expanded relay protection summary copy with
+ * terminal delivery and aggregate failure totals for blind relay proof.
+ * Previous: v1.0.13 - Added PeerStore peer quorum readiness copy
  * Previous: v1.0.12 - Added PeerStore network story readiness copy
  * Previous: v1.0.11 - Added local ChatRelay capability self-check copy
  * Previous: v1.0.10 - Added peer-cache startup recovery evidence copy
@@ -1349,7 +1351,7 @@ const en: Dictionary = {
   'nodeDetail.discovery.securityStatus.pending': 'waiting',
   'nodeDetail.discovery.securityReported': 'Rust relay protection reported',
   'nodeDetail.discovery.securityWaiting': 'Waiting for Rust relay protection counters',
-  'nodeDetail.discovery.relaySummary': '{received} received · {forwarded} forwarded · {rejected} rejected',
+  'nodeDetail.discovery.relaySummary': '{received} received · {forwarded} forwarded · {terminal} terminal · {failures} failures',
   'nodeDetail.discovery.lastRelayEvent': 'Last relay event',
   'nodeDetail.discovery.loopDetected': 'Loop detected',
   'nodeDetail.discovery.replayDropped': 'Replay dropped',
@@ -2523,7 +2525,7 @@ const zhCN: Dictionary = {
   'nodeDetail.discovery.securityStatus.pending': '等待中',
   'nodeDetail.discovery.securityReported': 'Rust 已上报转发保护',
   'nodeDetail.discovery.securityWaiting': '等待 Rust 转发保护计数',
-  'nodeDetail.discovery.relaySummary': '{received} 收到 · {forwarded} 已转发 · {rejected} 已拒绝',
+  'nodeDetail.discovery.relaySummary': '{received} 收到 · {forwarded} 已转发 · {terminal} 已终止送达 · {failures} 失败',
   'nodeDetail.discovery.lastRelayEvent': '最近转发事件',
   'nodeDetail.discovery.loopDetected': '循环检测',
   'nodeDetail.discovery.replayDropped': '重放丢弃',
@@ -4705,7 +4707,7 @@ const zhTW: Dictionary = {
   'nodeDetail.discovery.securityStatus.pending': '等待中',
   'nodeDetail.discovery.securityReported': 'Rust 已回報轉發保護',
   'nodeDetail.discovery.securityWaiting': '等待 Rust 轉發保護計數',
-  'nodeDetail.discovery.relaySummary': '{received} 收到 · {forwarded} 已轉發 · {rejected} 已拒絕',
+  'nodeDetail.discovery.relaySummary': '{received} 收到 · {forwarded} 已轉發 · {terminal} 已終止送達 · {failures} 失敗',
   'nodeDetail.discovery.lastRelayEvent': '最近轉發事件',
   'nodeDetail.discovery.loopDetected': '循環檢測',
   'nodeDetail.discovery.replayDropped': '重放丟棄',
@@ -6901,7 +6903,7 @@ const ja: Dictionary = {
   'nodeDetail.discovery.securityStatus.pending': '待機中',
   'nodeDetail.discovery.securityReported': 'Rust リレー保護を報告済み',
   'nodeDetail.discovery.securityWaiting': 'Rust リレー保護カウンター待ち',
-  'nodeDetail.discovery.relaySummary': '{received} 受信 · {forwarded} 転送 · {rejected} 拒否',
+  'nodeDetail.discovery.relaySummary': '{received} 受信 · {forwarded} 転送 · {terminal} 終端到達 · {failures} 失敗',
   'nodeDetail.discovery.lastRelayEvent': '最終リレーイベント',
   'nodeDetail.discovery.loopDetected': 'ループ検出',
   'nodeDetail.discovery.replayDropped': 'リプレイ破棄',
@@ -9101,7 +9103,7 @@ const ko: Dictionary = {
   'nodeDetail.discovery.securityStatus.pending': '대기 중',
   'nodeDetail.discovery.securityReported': 'Rust 릴레이 보호 보고됨',
   'nodeDetail.discovery.securityWaiting': 'Rust 릴레이 보호 카운터 대기 중',
-  'nodeDetail.discovery.relaySummary': '{received} 수신 · {forwarded} 전달 · {rejected} 거부',
+  'nodeDetail.discovery.relaySummary': '{received} 수신 · {forwarded} 전달 · {terminal} 최종 도달 · {failures} 실패',
   'nodeDetail.discovery.lastRelayEvent': '최근 릴레이 이벤트',
   'nodeDetail.discovery.loopDetected': '루프 감지',
   'nodeDetail.discovery.replayDropped': '재전송 폐기',
@@ -11301,7 +11303,7 @@ const ru: Dictionary = {
   'nodeDetail.discovery.securityStatus.pending': 'ожидание',
   'nodeDetail.discovery.securityReported': 'Rust сообщил защиту relay',
   'nodeDetail.discovery.securityWaiting': 'Ожидание счетчиков защиты Rust relay',
-  'nodeDetail.discovery.relaySummary': '{received} получено · {forwarded} переслано · {rejected} отклонено',
+  'nodeDetail.discovery.relaySummary': '{received} получено · {forwarded} переслано · {terminal} доставлено · {failures} сбоев',
   'nodeDetail.discovery.lastRelayEvent': 'Последнее relay событие',
   'nodeDetail.discovery.loopDetected': 'Обнаружен loop',
   'nodeDetail.discovery.replayDropped': 'Replay отброшен',
