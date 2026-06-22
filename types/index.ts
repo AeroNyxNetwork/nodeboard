@@ -2359,6 +2359,40 @@ export interface DiscoveryPeerQuorumStatus {
   privacy_boundary: string;
 }
 
+export interface DiscoveryProtocolFoundationStatus {
+  status: 'ready' | 'live' | 'forming' | 'pending' | 'disabled' | 'syncing' | string;
+  stage: 'bootstrap' | 'verified_peer_view' | 'single_hop_relay_ready' | 'two_hop_path_ready' | string;
+  headline?: string;
+  checks_passed: number;
+  checks_total: number;
+  local_relay_ready: boolean;
+  peer_mesh_ready: boolean;
+  blind_relay_ready: boolean;
+  restart_recovery_ready: boolean;
+  single_hop_relay_ready: boolean;
+  two_hop_onion_ready: boolean;
+  verified_peer_count: number;
+  routeable_relay_count: number;
+  last_probe_age_seconds: number | null;
+  /**
+   * Privacy-safe evidence bucket proving why blind relay readiness is true.
+   *
+   * This separates real encrypted relay traffic from low-frequency synthetic
+   * probes. The UI may show this bucket, but must not infer route topology,
+   * message content, receiver identity, endpoint URLs, route IDs, client IPs,
+   * DNS contents, Memory Chain plaintext, or wallet-level traffic.
+   */
+  relay_evidence_mode?: 'real_relay_traffic' | 'synthetic_probe' | 'probe_failed' | 'real_relay_attempted' | 'idle' | string;
+  real_relay_ready?: boolean;
+  synthetic_probe_ready?: boolean;
+  privacy_invariant: string;
+  next_action: string;
+}
+
+export interface DiscoveryReadinessStatus {
+  protocol_foundation?: DiscoveryProtocolFoundationStatus | null;
+}
+
 export interface DiscoveryBlindRelayStats {
   received: number;
   terminal: number;
@@ -2379,6 +2413,10 @@ export interface DiscoveryBlindRelayStats {
   retry_attempted: number;
   retry_succeeded: number;
   retry_exhausted: number;
+  probe_attempted?: number;
+  probe_succeeded?: number;
+  probe_failed?: number;
+  last_probe_at?: number | null;
   last_event_at: number | null;
 }
 
@@ -2529,6 +2567,15 @@ export interface DiscoveryStatus {
    * graph relationships.
    */
   local_capabilities?: DiscoveryLocalCapabilityStatus | null;
+  /**
+   * Compact Rust-authored readiness object for first-level operator surfaces.
+   *
+   * Privacy boundary: aggregate booleans, counts, and evidence buckets only.
+   * Do not expand this into node IDs, endpoints, route IDs, encrypted payloads,
+   * receiver identities, client IPs, DNS contents, Memory Chain plaintext, or
+   * wallet-level traffic.
+   */
+  discovery_readiness?: DiscoveryReadinessStatus | null;
   source?: string;
   privacy_boundary?: string;
 }

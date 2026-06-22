@@ -14,6 +14,10 @@
  *     data.nodes[].system.discovery_status so Services can show peer discovery
  *     and relay runtime advertisement readiness without expanding per-node
  *     discovery diagnostics on the first-level page.
+ *   v1.1.74 - Added relay evidence mode to the compact Protocol Foundation
+ *     panel so operators can distinguish real encrypted relay traffic from
+ *     synthetic route probes without exposing route IDs, endpoints, payloads,
+ *     client IPs, or social graph metadata.
  *   v1.1.72 - Align the Operations Workbench default group with the
  *     backend/operator recommended module. The first-level Services page stays
  *     compact, and the selectable report cards now open on the task group that
@@ -428,6 +432,10 @@ interface FleetProtocolFoundationSummary {
   runtimeReadyNodes: number;
   endpointReadyNodes: number;
   misconfiguredRelayNodes: number;
+  relayEvidenceMode: string;
+  realRelayReadyNodes: number;
+  syntheticProbeReadyNodes: number;
+  probeFailedNodes: number;
   status: 'ok' | 'attention' | 'pending';
   blockerSummary: string;
   privacyBoundary: string | null;
@@ -751,7 +759,11 @@ function buildProtocolFoundationSummary(nodes: VpnNodeHealth[]): FleetProtocolFo
   let runtimeReadyNodes = 0;
   let endpointReadyNodes = 0;
   let misconfiguredRelayNodes = 0;
+  let realRelayReadyNodes = 0;
+  let syntheticProbeReadyNodes = 0;
+  let probeFailedNodes = 0;
   let privacyBoundary: string | null = null;
+  const evidenceModeCounts = new Map<string, number>();
 
   nodes.forEach((node) => {
     const discovery = node.system.discovery_status;
@@ -759,12 +771,35 @@ function buildProtocolFoundationSummary(nodes: VpnNodeHealth[]): FleetProtocolFo
 
     reportedNodes += 1;
     const story = discovery.peer_store.network_story;
+    const foundation = discovery.discovery_readiness?.protocol_foundation;
     const localCapabilities = discovery.local_capabilities;
-    const validPeers = discovery.peer_store.snapshot?.valid_peers ?? story?.valid_nodes ?? 0;
+    const validPeers = foundation?.verified_peer_count
+      ?? discovery.peer_store.snapshot?.valid_peers
+      ?? story?.valid_nodes
+      ?? 0;
 
     maxValidPeers = Math.max(maxValidPeers, validPeers);
-    if (story?.relay_foundation_ready || discovery.peer_store.stability?.relay_foundation_ready) {
+    if (
+      foundation?.status === 'ready'
+      || story?.relay_foundation_ready
+      || discovery.peer_store.stability?.relay_foundation_ready
+    ) {
       foundationReadyNodes += 1;
+    }
+    if (foundation?.relay_evidence_mode) {
+      evidenceModeCounts.set(
+        foundation.relay_evidence_mode,
+        (evidenceModeCounts.get(foundation.relay_evidence_mode) ?? 0) + 1,
+      );
+    }
+    if (foundation?.real_relay_ready) {
+      realRelayReadyNodes += 1;
+    }
+    if (foundation?.synthetic_probe_ready) {
+      syntheticProbeReadyNodes += 1;
+    }
+    if (foundation?.relay_evidence_mode === 'probe_failed') {
+      probeFailedNodes += 1;
     }
     if (localCapabilities?.safe_to_advertise_chat_relay) {
       safeRelayNodes += 1;
@@ -799,9 +834,19 @@ function buildProtocolFoundationSummary(nodes: VpnNodeHealth[]): FleetProtocolFo
     .map(([key, count]) => `${key.replaceAll('_', ' ')} ${count}`)
     .join(' · ');
 
+  const relayEvidenceMode = evidenceModeCounts.get('real_relay_traffic')
+    ? 'real_relay_traffic'
+    : evidenceModeCounts.get('synthetic_probe')
+      ? 'synthetic_probe'
+      : evidenceModeCounts.get('probe_failed')
+        ? 'probe_failed'
+        : evidenceModeCounts.get('real_relay_attempted')
+          ? 'real_relay_attempted'
+          : 'idle';
+
   const status: FleetProtocolFoundationSummary['status'] = reportedNodes === 0
     ? 'pending'
-    : misconfiguredRelayNodes > 0
+    : misconfiguredRelayNodes > 0 || probeFailedNodes > 0
       ? 'attention'
       : 'ok';
 
@@ -813,6 +858,10 @@ function buildProtocolFoundationSummary(nodes: VpnNodeHealth[]): FleetProtocolFo
     runtimeReadyNodes,
     endpointReadyNodes,
     misconfiguredRelayNodes,
+    relayEvidenceMode,
+    realRelayReadyNodes,
+    syntheticProbeReadyNodes,
+    probeFailedNodes,
     status,
     blockerSummary,
     privacyBoundary,
@@ -2882,6 +2931,12 @@ function FleetProtocolFoundationPanel({
   const { t, formatNumber } = useI18n();
   const detail = summary.blockerSummary
     || t('services.protocolFoundation.noBlockers');
+  const evidenceLabel = protocolEvidenceModeLabel(summary.relayEvidenceMode, t);
+  const evidenceDetail = t('services.protocolFoundation.evidenceDetail', {
+    real: formatNumber(summary.realRelayReadyNodes),
+    probe: formatNumber(summary.syntheticProbeReadyNodes),
+    failed: formatNumber(summary.probeFailedNodes),
+  });
 
   return (
     <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
@@ -2902,6 +2957,9 @@ function FleetProtocolFoundationPanel({
           </p>
           <p className="mt-1 text-xs leading-5 text-gray-500">
             {summary.privacyBoundary || t('services.protocolFoundation.privacy')}
+          </p>
+          <p className="mt-2 text-xs leading-5 text-gray-500">
+            {t('services.protocolFoundation.blockers')}: {detail}
           </p>
         </div>
         <div className="grid w-full gap-2 text-xs sm:grid-cols-2 xl:max-w-3xl xl:grid-cols-4">
@@ -2939,15 +2997,33 @@ function FleetProtocolFoundationPanel({
             </p>
           </div>
           <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <p className="text-gray-500">{t('services.protocolFoundation.blockers')}</p>
+            <p className="text-gray-500">{t('services.protocolFoundation.evidence')}</p>
             <p className="mt-1 break-words text-sm font-semibold text-white [overflow-wrap:anywhere]">
-              {detail}
+              {evidenceLabel}
+            </p>
+            <p className="mt-1 text-gray-600">
+              {evidenceDetail}
             </p>
           </div>
         </div>
       </div>
     </section>
   );
+}
+
+function protocolEvidenceModeLabel(mode: string, t: ServicesTranslateFn) {
+  switch (mode) {
+    case 'real_relay_traffic':
+      return t('services.protocolFoundation.evidence.real');
+    case 'synthetic_probe':
+      return t('services.protocolFoundation.evidence.probe');
+    case 'probe_failed':
+      return t('services.protocolFoundation.evidence.failed');
+    case 'real_relay_attempted':
+      return t('services.protocolFoundation.evidence.attempted');
+    default:
+      return t('services.protocolFoundation.evidence.idle');
+  }
 }
 
 /**
