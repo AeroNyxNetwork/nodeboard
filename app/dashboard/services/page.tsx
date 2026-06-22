@@ -24,6 +24,12 @@
  *     protection state without exposing route IDs, endpoints, payloads,
  *     receiver identities, client IPs, Memory Chain plaintext, or social graph
  *     metadata.
+ *   v1.1.76 - Prefer backend summary.protocol_status.protocol_foundation for
+ *     fleet-level Protocol Foundation evidence and readiness reason counts,
+ *     while keeping per-node aggregation as fallback. This keeps nodeboard,
+ *     public API, and website status aligned without exposing node identities,
+ *     endpoints, route IDs, payloads, receiver identities, or social graph
+ *     metadata.
  *   v1.1.72 - Align the Operations Workbench default group with the
  *     backend/operator recommended module. The first-level Services page stays
  *     compact, and the selectable report cards now open on the task group that
@@ -365,6 +371,7 @@ import {
   VpnServerCandidate,
   VpnServerPlacementSummary,
   VpnSessionCleanupStatus,
+  VpnProtocolFoundationSummary,
   VpnTransportHealthStatus,
 } from '@/types';
 
@@ -757,7 +764,10 @@ function buildFleetSummary(nodes: VpnNodeHealth[], statuses: NodeOperatorStatus[
   };
 }
 
-function buildProtocolFoundationSummary(nodes: VpnNodeHealth[]): FleetProtocolFoundationSummary {
+function buildProtocolFoundationSummary(
+  nodes: VpnNodeHealth[],
+  backendFoundation?: VpnProtocolFoundationSummary | null,
+): FleetProtocolFoundationSummary {
   const blockerCounts = new Map<string, number>();
   let reportedNodes = 0;
   let foundationReadyNodes = 0;
@@ -880,6 +890,48 @@ function buildProtocolFoundationSummary(nodes: VpnNodeHealth[]): FleetProtocolFo
     : misconfiguredRelayNodes > 0 || probeFailedNodes > 0
       ? 'attention'
       : 'ok';
+
+  if (backendFoundation && Number(backendFoundation.reported_nodes ?? 0) > 0) {
+    const backendReason = backendFoundation.relay_readiness_reason || relayReadinessReason;
+    const backendEvidence = backendFoundation.relay_evidence_mode || relayEvidenceMode;
+    const backendProbeFailed = Number(
+      backendFoundation.evidence_mode_counts?.probe_failed
+      ?? backendFoundation.readiness_reason_counts?.synthetic_probe_failed
+      ?? probeFailedNodes
+      ?? 0,
+    );
+    const backendAttention = backendProbeFailed > 0
+      || backendReason === 'transport_attention'
+      || backendReason === 'real_relay_transport_attention'
+      || backendReason === 'synthetic_probe_failed';
+    const backendStatus: FleetProtocolFoundationSummary['status'] = (
+      backendFoundation.status === 'syncing'
+      || backendFoundation.status === 'pending'
+      || backendFoundation.status === 'disabled'
+    )
+      ? 'pending'
+      : backendAttention || misconfiguredRelayNodes > 0
+        ? 'attention'
+        : 'ok';
+
+    return {
+      reportedNodes: Number(backendFoundation.reported_nodes ?? reportedNodes),
+      foundationReadyNodes: Number(backendFoundation.ready_nodes ?? foundationReadyNodes),
+      maxValidPeers: Number(backendFoundation.max_verified_peer_count ?? maxValidPeers),
+      safeRelayNodes,
+      runtimeReadyNodes,
+      endpointReadyNodes,
+      misconfiguredRelayNodes,
+      relayEvidenceMode: backendEvidence,
+      relayReadinessReason: backendReason,
+      realRelayReadyNodes: Number(backendFoundation.real_relay_ready_nodes ?? realRelayReadyNodes),
+      syntheticProbeReadyNodes: Number(backendFoundation.synthetic_probe_ready_nodes ?? syntheticProbeReadyNodes),
+      probeFailedNodes: backendProbeFailed,
+      status: backendStatus,
+      blockerSummary,
+      privacyBoundary: backendFoundation.privacy_boundary || privacyBoundary,
+    };
+  }
 
   return {
     reportedNodes,
@@ -6486,7 +6538,13 @@ export default function NodeServicesPage() {
   const restartReadinessSummary = overview?.summary.restart_readiness ?? null;
   const operatorStatuses = useMemo(() => collectOperatorStatuses(nodes), [nodes]);
   const fleetSummary = useMemo(() => buildFleetSummary(nodes, operatorStatuses), [nodes, operatorStatuses]);
-  const protocolFoundation = useMemo(() => buildProtocolFoundationSummary(nodes), [nodes]);
+  const protocolFoundation = useMemo(
+    () => buildProtocolFoundationSummary(
+      nodes,
+      overview?.summary.protocol_status?.protocol_foundation ?? null,
+    ),
+    [nodes, overview?.summary.protocol_status?.protocol_foundation],
+  );
   const services = useMemo(() => buildServiceViews(nodes, operatorStatuses), [nodes, operatorStatuses]);
   const nodesById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const risks = useMemo(() => collectRisks(nodes), [nodes]);

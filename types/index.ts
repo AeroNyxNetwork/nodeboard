@@ -6,6 +6,14 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.43 - Added backend summary.protocol_status.protocol_foundation
+ *     aggregate type for Services. This lets nodeboard prefer backend-owned
+ *     fleet readiness, evidence mode, and readiness reason counts while still
+ *     preserving per-node fallback aggregation. The contract remains aggregate
+ *     status only and must not expose node public keys, endpoints, route IDs,
+ *     encrypted payloads, receiver identities, client IPs, DNS contents,
+ *     Memory Chain plaintext, social graph edges, voucher secrets, or
+ *     wallet-level traffic.
  *   v1.5.42 - Added Rust blind relay readiness reason fields for discovery
  *     protocol foundation status. These are coarse operator buckets such as
  *     real_relay_observed, synthetic_probe_ready, and transport_attention.
@@ -127,7 +135,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.42 - Added blind relay readiness reason fields
+ * Last Modified: v1.5.43 - Added backend protocol foundation summary type
+ * Previous: v1.5.42 - Added blind relay readiness reason fields
  * Previous: v1.5.41 - Added PeerStore peer lifecycle event types
  * Previous: v1.5.40 - Added PeerStore network story status
  * Previous: v1.5.39 - Added local ChatRelay capability self-check type
@@ -2697,7 +2706,42 @@ export interface VpnOverviewSummary {
   traffic_out_mb: number;
   open_alerts: number;
   restart_readiness?: VpnRestartReadinessSummary;
+  protocol_status?: VpnProtocolStatusSummary;
   availability_24h_percent: number | null;
+}
+
+export interface VpnProtocolStatusSummary {
+  protocol_foundation?: VpnProtocolFoundationSummary | null;
+}
+
+export interface VpnProtocolFoundationSummary {
+  status?: 'ready' | 'live' | 'forming' | 'pending' | 'disabled' | 'syncing' | string;
+  stage?: 'bootstrap' | 'verified_peer_view' | 'single_hop_relay_ready' | 'two_hop_path_ready' | string;
+  reported_nodes?: number;
+  ready_nodes?: number;
+  live_nodes?: number;
+  checks_passed?: number;
+  checks_total?: number;
+  local_relay_ready_nodes?: number;
+  peer_mesh_ready_nodes?: number;
+  blind_relay_ready_nodes?: number;
+  restart_recovery_ready_nodes?: number;
+  single_hop_ready_nodes?: number;
+  two_hop_onion_ready_nodes?: number;
+  max_verified_peer_count?: number;
+  max_routeable_relay_count?: number;
+  min_last_probe_age_seconds?: number | null;
+  relay_evidence_mode?: 'real_relay_traffic' | 'synthetic_probe' | 'probe_failed' | 'real_relay_attempted' | 'idle' | string;
+  relay_readiness_reason?: 'real_relay_observed' | 'real_relay_transport_attention' | 'synthetic_probe_ready' | 'synthetic_probe_failed' | 'transport_attention' | 'real_relay_protection_active' | 'protection_active' | 'real_relay_attempted' | 'idle_waiting_for_relay' | 'unknown' | string;
+  real_relay_ready_nodes?: number;
+  synthetic_probe_ready_nodes?: number;
+  evidence_mode_counts?: Record<string, number>;
+  readiness_reason_counts?: Record<string, number>;
+  status_counts?: Record<string, number>;
+  stage_counts?: Record<string, number>;
+  source?: string;
+  privacy_invariant?: string;
+  privacy_boundary?: string;
 }
 
 export interface VpnOverview {
