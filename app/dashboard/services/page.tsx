@@ -18,6 +18,12 @@
  *     panel so operators can distinguish real encrypted relay traffic from
  *     synthetic route probes without exposing route IDs, endpoints, payloads,
  *     client IPs, or social graph metadata.
+ *   v1.1.75 - Added relay readiness reason buckets to the compact Protocol
+ *     Foundation panel so operators can see whether readiness comes from real
+ *     relay observation, synthetic probe proof, transport attention, or
+ *     protection state without exposing route IDs, endpoints, payloads,
+ *     receiver identities, client IPs, Memory Chain plaintext, or social graph
+ *     metadata.
  *   v1.1.72 - Align the Operations Workbench default group with the
  *     backend/operator recommended module. The first-level Services page stays
  *     compact, and the selectable report cards now open on the task group that
@@ -433,6 +439,7 @@ interface FleetProtocolFoundationSummary {
   endpointReadyNodes: number;
   misconfiguredRelayNodes: number;
   relayEvidenceMode: string;
+  relayReadinessReason: string;
   realRelayReadyNodes: number;
   syntheticProbeReadyNodes: number;
   probeFailedNodes: number;
@@ -764,6 +771,7 @@ function buildProtocolFoundationSummary(nodes: VpnNodeHealth[]): FleetProtocolFo
   let probeFailedNodes = 0;
   let privacyBoundary: string | null = null;
   const evidenceModeCounts = new Map<string, number>();
+  const readinessReasonCounts = new Map<string, number>();
 
   nodes.forEach((node) => {
     const discovery = node.system.discovery_status;
@@ -790,6 +798,12 @@ function buildProtocolFoundationSummary(nodes: VpnNodeHealth[]): FleetProtocolFo
       evidenceModeCounts.set(
         foundation.relay_evidence_mode,
         (evidenceModeCounts.get(foundation.relay_evidence_mode) ?? 0) + 1,
+      );
+    }
+    if (foundation?.relay_readiness_reason) {
+      readinessReasonCounts.set(
+        foundation.relay_readiness_reason,
+        (readinessReasonCounts.get(foundation.relay_readiness_reason) ?? 0) + 1,
       );
     }
     if (foundation?.real_relay_ready) {
@@ -843,6 +857,23 @@ function buildProtocolFoundationSummary(nodes: VpnNodeHealth[]): FleetProtocolFo
         : evidenceModeCounts.get('real_relay_attempted')
           ? 'real_relay_attempted'
           : 'idle';
+  const relayReadinessReason = readinessReasonCounts.get('real_relay_observed')
+    ? 'real_relay_observed'
+    : readinessReasonCounts.get('real_relay_transport_attention')
+      ? 'real_relay_transport_attention'
+      : readinessReasonCounts.get('synthetic_probe_ready')
+        ? 'synthetic_probe_ready'
+        : readinessReasonCounts.get('synthetic_probe_failed')
+          ? 'synthetic_probe_failed'
+          : readinessReasonCounts.get('transport_attention')
+            ? 'transport_attention'
+            : readinessReasonCounts.get('real_relay_protection_active')
+              ? 'real_relay_protection_active'
+              : readinessReasonCounts.get('protection_active')
+                ? 'protection_active'
+                : readinessReasonCounts.get('real_relay_attempted')
+                  ? 'real_relay_attempted'
+                  : 'idle_waiting_for_relay';
 
   const status: FleetProtocolFoundationSummary['status'] = reportedNodes === 0
     ? 'pending'
@@ -859,6 +890,7 @@ function buildProtocolFoundationSummary(nodes: VpnNodeHealth[]): FleetProtocolFo
     endpointReadyNodes,
     misconfiguredRelayNodes,
     relayEvidenceMode,
+    relayReadinessReason,
     realRelayReadyNodes,
     syntheticProbeReadyNodes,
     probeFailedNodes,
@@ -2932,7 +2964,9 @@ function FleetProtocolFoundationPanel({
   const detail = summary.blockerSummary
     || t('services.protocolFoundation.noBlockers');
   const evidenceLabel = protocolEvidenceModeLabel(summary.relayEvidenceMode, t);
+  const readinessReasonLabel = protocolReadinessReasonLabel(summary.relayReadinessReason, t);
   const evidenceDetail = t('services.protocolFoundation.evidenceDetail', {
+    reason: readinessReasonLabel,
     real: formatNumber(summary.realRelayReadyNodes),
     probe: formatNumber(summary.syntheticProbeReadyNodes),
     failed: formatNumber(summary.probeFailedNodes),
@@ -3023,6 +3057,29 @@ function protocolEvidenceModeLabel(mode: string, t: ServicesTranslateFn) {
       return t('services.protocolFoundation.evidence.attempted');
     default:
       return t('services.protocolFoundation.evidence.idle');
+  }
+}
+
+function protocolReadinessReasonLabel(reason: string, t: ServicesTranslateFn) {
+  switch (reason) {
+    case 'real_relay_observed':
+      return t('services.protocolFoundation.reason.realObserved');
+    case 'real_relay_transport_attention':
+      return t('services.protocolFoundation.reason.realTransportAttention');
+    case 'synthetic_probe_ready':
+      return t('services.protocolFoundation.reason.syntheticReady');
+    case 'synthetic_probe_failed':
+      return t('services.protocolFoundation.reason.syntheticFailed');
+    case 'transport_attention':
+      return t('services.protocolFoundation.reason.transportAttention');
+    case 'real_relay_protection_active':
+      return t('services.protocolFoundation.reason.realProtectionActive');
+    case 'protection_active':
+      return t('services.protocolFoundation.reason.protectionActive');
+    case 'real_relay_attempted':
+      return t('services.protocolFoundation.reason.attempted');
+    default:
+      return t('services.protocolFoundation.reason.idle');
   }
 }
 

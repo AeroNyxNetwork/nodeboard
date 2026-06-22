@@ -6,6 +6,13 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.42 - Added Rust blind relay readiness reason fields for discovery
+ *     protocol foundation status. These are coarse operator buckets such as
+ *     real_relay_observed, synthetic_probe_ready, and transport_attention.
+ *     They must never expose full node IDs, endpoints, route IDs, encrypted
+ *     payloads, receiver identities, client IPs, DNS contents, Memory Chain
+ *     plaintext, social graph edges, private keys, voucher secrets, or
+ *     wallet-level traffic.
  *   v1.5.41 - Added Rust PeerStore recent_peer_events status so nodeboard can
  *     show privacy-safe peer lifecycle motion: inserted, upgraded, refreshed,
  *     rejected, or expired. These rows use only node-id prefixes, source
@@ -120,7 +127,8 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.41 - Added PeerStore peer lifecycle event types
+ * Last Modified: v1.5.42 - Added blind relay readiness reason fields
+ * Previous: v1.5.41 - Added PeerStore peer lifecycle event types
  * Previous: v1.5.40 - Added PeerStore network story status
  * Previous: v1.5.39 - Added local ChatRelay capability self-check type
  * Previous: v1.5.38 - Added PeerStore startup recovery evidence
@@ -2381,8 +2389,17 @@ export interface DiscoveryProtocolFoundationStatus {
    * probes. The UI may show this bucket, but must not infer route topology,
    * message content, receiver identity, endpoint URLs, route IDs, client IPs,
    * DNS contents, Memory Chain plaintext, or wallet-level traffic.
-   */
+  */
   relay_evidence_mode?: 'real_relay_traffic' | 'synthetic_probe' | 'probe_failed' | 'real_relay_attempted' | 'idle' | string;
+  /**
+   * Privacy-safe reason bucket explaining the relay evidence state.
+   *
+   * The reason is a coarse operational status only. Do not combine it with
+   * peer rows or audit events to infer route topology, social graph edges,
+   * message content, endpoint URLs, route IDs, receiver identity, client IPs,
+   * DNS contents, Memory Chain plaintext, or wallet-level traffic.
+   */
+  relay_readiness_reason?: 'real_relay_observed' | 'real_relay_transport_attention' | 'synthetic_probe_ready' | 'synthetic_probe_failed' | 'transport_attention' | 'real_relay_protection_active' | 'protection_active' | 'real_relay_attempted' | 'idle_waiting_for_relay' | 'unknown' | string;
   real_relay_ready?: boolean;
   synthetic_probe_ready?: boolean;
   privacy_invariant: string;
