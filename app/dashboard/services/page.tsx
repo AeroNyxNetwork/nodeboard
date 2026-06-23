@@ -10,6 +10,13 @@
  * Layer, and SuperNode diagnostics opened only when needed.
  *
  * Modification Reason:
+ *   v1.1.77 - Added Route Freshness Guard evidence to the Protocol Foundation
+ *     panel from backend summary.protocol_status.protocol_foundation and the
+ *     per-node Rust blind relay fallback. The counter is aggregate-only:
+ *     stale/future opaque route frames rejected by Rust are visible, but the
+ *     UI must never expose or infer route IDs, endpoints, node identities,
+ *     encrypted payloads, receiver identities, client IPs, DNS contents,
+ *     Memory Chain plaintext, wallet-level traffic, or social graph edges.
  *   v1.1.73 - Added a compact Protocol Foundation panel sourced from
  *     data.nodes[].system.discovery_status so Services can show peer discovery
  *     and relay runtime advertisement readiness without expanding per-node
@@ -447,6 +454,7 @@ interface FleetProtocolFoundationSummary {
   misconfiguredRelayNodes: number;
   relayEvidenceMode: string;
   relayReadinessReason: string;
+  timestampRejected: number;
   realRelayReadyNodes: number;
   syntheticProbeReadyNodes: number;
   probeFailedNodes: number;
@@ -779,6 +787,7 @@ function buildProtocolFoundationSummary(
   let realRelayReadyNodes = 0;
   let syntheticProbeReadyNodes = 0;
   let probeFailedNodes = 0;
+  let timestampRejected = 0;
   let privacyBoundary: string | null = null;
   const evidenceModeCounts = new Map<string, number>();
   const readinessReasonCounts = new Map<string, number>();
@@ -790,6 +799,7 @@ function buildProtocolFoundationSummary(
     reportedNodes += 1;
     const story = discovery.peer_store.network_story;
     const foundation = discovery.discovery_readiness?.protocol_foundation;
+    const blindRelay = discovery.peer_store.runtime?.blind_relay;
     const localCapabilities = discovery.local_capabilities;
     const validPeers = foundation?.verified_peer_count
       ?? discovery.peer_store.snapshot?.valid_peers
@@ -825,6 +835,7 @@ function buildProtocolFoundationSummary(
     if (foundation?.relay_evidence_mode === 'probe_failed') {
       probeFailedNodes += 1;
     }
+    timestampRejected += Number(foundation?.timestamp_rejected ?? blindRelay?.timestamp_rejected ?? 0);
     if (localCapabilities?.safe_to_advertise_chat_relay) {
       safeRelayNodes += 1;
     }
@@ -894,6 +905,7 @@ function buildProtocolFoundationSummary(
   if (backendFoundation && Number(backendFoundation.reported_nodes ?? 0) > 0) {
     const backendReason = backendFoundation.relay_readiness_reason || relayReadinessReason;
     const backendEvidence = backendFoundation.relay_evidence_mode || relayEvidenceMode;
+    const backendTimestampRejected = Number(backendFoundation.timestamp_rejected ?? timestampRejected ?? 0);
     const backendProbeFailed = Number(
       backendFoundation.evidence_mode_counts?.probe_failed
       ?? backendFoundation.readiness_reason_counts?.synthetic_probe_failed
@@ -924,6 +936,7 @@ function buildProtocolFoundationSummary(
       misconfiguredRelayNodes,
       relayEvidenceMode: backendEvidence,
       relayReadinessReason: backendReason,
+      timestampRejected: backendTimestampRejected,
       realRelayReadyNodes: Number(backendFoundation.real_relay_ready_nodes ?? realRelayReadyNodes),
       syntheticProbeReadyNodes: Number(backendFoundation.synthetic_probe_ready_nodes ?? syntheticProbeReadyNodes),
       probeFailedNodes: backendProbeFailed,
@@ -943,6 +956,7 @@ function buildProtocolFoundationSummary(
     misconfiguredRelayNodes,
     relayEvidenceMode,
     relayReadinessReason,
+    timestampRejected,
     realRelayReadyNodes,
     syntheticProbeReadyNodes,
     probeFailedNodes,
@@ -3023,6 +3037,11 @@ function FleetProtocolFoundationPanel({
     probe: formatNumber(summary.syntheticProbeReadyNodes),
     failed: formatNumber(summary.probeFailedNodes),
   });
+  const timestampProtectionDetail = summary.timestampRejected > 0
+    ? t('services.protocolFoundation.timestampProtectionDetail', {
+      count: formatNumber(summary.timestampRejected),
+    })
+    : t('services.protocolFoundation.timestampProtectionQuiet');
 
   return (
     <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
@@ -3090,6 +3109,14 @@ function FleetProtocolFoundationPanel({
             <p className="mt-1 text-gray-600">
               {evidenceDetail}
             </p>
+          </div>
+          <div className="rounded-lg border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2 sm:col-span-2 xl:col-span-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-gray-500">{t('services.protocolFoundation.timestampProtection')}</p>
+              <p className="text-sm font-semibold text-emerald-200">
+                {timestampProtectionDetail}
+              </p>
+            </div>
           </div>
         </div>
       </div>

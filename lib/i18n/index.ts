@@ -20,7 +20,9 @@
  *   public keys, wallet secrets, client IPs, destinations, DNS contents,
  *   packet payloads, browsing history, or traffic metadata.
  *
- * Last Modified: v1.0.14 - Expanded relay protection summary copy with
+ * Last Modified: v1.0.15 - Added protocol foundation route freshness guard
+ * copy for Rust blind relay timestamp rejection aggregates.
+ * Previous: v1.0.14 - Expanded relay protection summary copy with
  * terminal delivery and aggregate failure totals for blind relay proof.
  * Previous: v1.0.13 - Added PeerStore peer quorum readiness copy
  * Previous: v1.0.12 - Added PeerStore network story readiness copy
@@ -526,6 +528,9 @@ const en: Dictionary = {
   'services.protocolFoundation.noBlockers': 'no blockers',
   'services.protocolFoundation.evidence': 'Relay evidence',
   'services.protocolFoundation.evidenceDetail': '{reason} · real {real} · probe {probe} · failed {failed}',
+  'services.protocolFoundation.timestampProtection': 'Route freshness guard',
+  'services.protocolFoundation.timestampProtectionDetail': '{count} stale/future route frame(s) rejected',
+  'services.protocolFoundation.timestampProtectionQuiet': 'active · no stale or future route frames rejected',
   'services.protocolFoundation.evidence.real': 'Real relay evidence',
   'services.protocolFoundation.evidence.probe': 'Synthetic probe proof',
   'services.protocolFoundation.evidence.failed': 'Probe needs attention',
@@ -2970,6 +2975,9 @@ const zhCN: Dictionary = {
   'services.protocolFoundation.noBlockers': '无阻塞',
   'services.protocolFoundation.evidence': 'Relay 证据',
   'services.protocolFoundation.evidenceDetail': '{reason} · 真实 {real} · 探测 {probe} · 失败 {failed}',
+  'services.protocolFoundation.timestampProtection': '路由新鲜度保护',
+  'services.protocolFoundation.timestampProtectionDetail': '已拒绝 {count} 个过期/未来时间路由帧',
+  'services.protocolFoundation.timestampProtectionQuiet': '已启用 · 暂无过期或未来时间路由帧被拒绝',
   'services.protocolFoundation.evidence.real': '真实 relay 证据',
   'services.protocolFoundation.evidence.probe': '合成探测证明',
   'services.protocolFoundation.evidence.failed': '探测需要处理',
@@ -5144,6 +5152,9 @@ const zhTW: Dictionary = {
   'services.protocolFoundation.noBlockers': '無阻塞',
   'services.protocolFoundation.evidence': 'Relay 證據',
   'services.protocolFoundation.evidenceDetail': '{reason} · 真實 {real} · 探測 {probe} · 失敗 {failed}',
+  'services.protocolFoundation.timestampProtection': '路由新鮮度保護',
+  'services.protocolFoundation.timestampProtectionDetail': '已拒絕 {count} 個過期/未來時間路由幀',
+  'services.protocolFoundation.timestampProtectionQuiet': '已啟用 · 暫無過期或未來時間路由幀被拒絕',
   'services.protocolFoundation.evidence.real': '真實 relay 證據',
   'services.protocolFoundation.evidence.probe': '合成探測證明',
   'services.protocolFoundation.evidence.failed': '探測需要處理',
@@ -8049,6 +8060,9 @@ const ja: Dictionary = {
   'services.protocolFoundation.noBlockers': 'no blockers',
   'services.protocolFoundation.evidence': 'Relay evidence',
   'services.protocolFoundation.evidenceDetail': '{reason} · real {real} · probe {probe} · failed {failed}',
+  'services.protocolFoundation.timestampProtection': 'Route freshness guard',
+  'services.protocolFoundation.timestampProtectionDetail': '{count} stale/future route frame(s) rejected',
+  'services.protocolFoundation.timestampProtectionQuiet': 'active · no stale or future route frames rejected',
   'services.protocolFoundation.evidence.real': 'Real relay evidence',
   'services.protocolFoundation.evidence.probe': 'Synthetic probe proof',
   'services.protocolFoundation.evidence.failed': 'Probe needs attention',
@@ -10265,6 +10279,9 @@ const ko: Dictionary = {
   'services.protocolFoundation.noBlockers': 'no blockers',
   'services.protocolFoundation.evidence': 'Relay evidence',
   'services.protocolFoundation.evidenceDetail': '{reason} · real {real} · probe {probe} · failed {failed}',
+  'services.protocolFoundation.timestampProtection': 'Route freshness guard',
+  'services.protocolFoundation.timestampProtectionDetail': '{count} stale/future route frame(s) rejected',
+  'services.protocolFoundation.timestampProtectionQuiet': 'active · no stale or future route frames rejected',
   'services.protocolFoundation.evidence.real': 'Real relay evidence',
   'services.protocolFoundation.evidence.probe': 'Synthetic probe proof',
   'services.protocolFoundation.evidence.failed': 'Probe needs attention',
@@ -12481,6 +12498,9 @@ const ru: Dictionary = {
   'services.protocolFoundation.noBlockers': 'no blockers',
   'services.protocolFoundation.evidence': 'Relay evidence',
   'services.protocolFoundation.evidenceDetail': '{reason} · real {real} · probe {probe} · failed {failed}',
+  'services.protocolFoundation.timestampProtection': 'Route freshness guard',
+  'services.protocolFoundation.timestampProtectionDetail': '{count} stale/future route frame(s) rejected',
+  'services.protocolFoundation.timestampProtectionQuiet': 'active · no stale or future route frames rejected',
   'services.protocolFoundation.evidence.real': 'Real relay evidence',
   'services.protocolFoundation.evidence.probe': 'Synthetic probe proof',
   'services.protocolFoundation.evidence.failed': 'Probe needs attention',

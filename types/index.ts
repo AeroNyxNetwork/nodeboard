@@ -6,6 +6,13 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.44 - Added timestamp_rejected to blind relay and protocol
+ *     foundation summaries so Services can display Rust's opaque route-frame
+ *     freshness guard as an aggregate protection signal. This field is a
+ *     counter only; nodeboard must not derive route IDs, endpoints, node
+ *     identities, encrypted payloads, receiver identities, client IPs, DNS
+ *     contents, Memory Chain plaintext, social graph edges, or wallet-level
+ *     traffic from it.
  *   v1.5.43 - Added backend summary.protocol_status.protocol_foundation
  *     aggregate type for Services. This lets nodeboard prefer backend-owned
  *     fleet readiness, evidence mode, and readiness reason counts while still
@@ -2407,8 +2414,15 @@ export interface DiscoveryProtocolFoundationStatus {
    * peer rows or audit events to infer route topology, social graph edges,
    * message content, endpoint URLs, route IDs, receiver identity, client IPs,
    * DNS contents, Memory Chain plaintext, or wallet-level traffic.
-   */
+  */
   relay_readiness_reason?: 'real_relay_observed' | 'real_relay_transport_attention' | 'synthetic_probe_ready' | 'synthetic_probe_failed' | 'transport_attention' | 'real_relay_protection_active' | 'protection_active' | 'real_relay_attempted' | 'idle_waiting_for_relay' | 'unknown' | string;
+  /**
+   * Aggregate count of stale or future-dated opaque route frames rejected by
+   * Rust. This is a freshness-guard counter only; never expose or infer route
+   * IDs, endpoints, encrypted payloads, receiver identities, client IPs, DNS
+   * contents, Memory Chain plaintext, or social graph edges from it.
+   */
+  timestamp_rejected?: number;
   real_relay_ready?: boolean;
   synthetic_probe_ready?: boolean;
   privacy_invariant: string;
@@ -2433,6 +2447,7 @@ export interface DiscoveryBlindRelayStats {
   forward_failed: number;
   loop_detected: number;
   replay_dropped: number;
+  timestamp_rejected?: number;
   rate_limited: number;
   quarantined: number;
   quarantine_started: number;
@@ -2733,6 +2748,7 @@ export interface VpnProtocolFoundationSummary {
   min_last_probe_age_seconds?: number | null;
   relay_evidence_mode?: 'real_relay_traffic' | 'synthetic_probe' | 'probe_failed' | 'real_relay_attempted' | 'idle' | string;
   relay_readiness_reason?: 'real_relay_observed' | 'real_relay_transport_attention' | 'synthetic_probe_ready' | 'synthetic_probe_failed' | 'transport_attention' | 'real_relay_protection_active' | 'protection_active' | 'real_relay_attempted' | 'idle_waiting_for_relay' | 'unknown' | string;
+  timestamp_rejected?: number;
   real_relay_ready_nodes?: number;
   synthetic_probe_ready_nodes?: number;
   evidence_mode_counts?: Record<string, number>;
