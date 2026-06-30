@@ -6,6 +6,13 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.46 - Added backend-fetched Rust public discovery summary type.
+ *     Nodeboard can now prefer system.discovery_summary for product-facing
+ *     protocol foundation status while keeping discovery_status as a
+ *     diagnostic fallback. The summary is sanitized by backend and must never
+ *     expose node endpoints, route IDs, encrypted payloads, receiver
+ *     identities, client IPs, DNS contents, Memory Chain plaintext, social
+ *     graph edges, voucher secrets, private keys, or wallet-level traffic.
  *   v1.5.45 - Added Rust two-hop path proof history telemetry from
  *     peer_store and backend protocol foundation summaries. Nodeboard may
  *     display aggregate proof freshness, retained-window counters, and age
@@ -149,7 +156,10 @@
  *   and consumed by Rust node policy:
  *     /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *
- * Last Modified: v1.5.43 - Added backend protocol foundation summary type
+ * Last Modified: v1.5.46 - Added backend-fetched Rust public discovery summary type
+ * Previous: v1.5.45 - Added two-hop path proof history telemetry
+ * Previous: v1.5.44 - Added timestamp rejection aggregation
+ * Previous: v1.5.43 - Added backend protocol foundation summary type
  * Previous: v1.5.42 - Added blind relay readiness reason fields
  * Previous: v1.5.41 - Added PeerStore peer lifecycle event types
  * Previous: v1.5.40 - Added PeerStore network story status
@@ -2256,6 +2266,20 @@ export interface VpnNodeHealth {
     discovery_status?: DiscoveryStatus | null;
     /**
      * Rust source:
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/api/discovery.rs
+     * Backend fetch/sanitizer:
+     *   /root/aeronyx/privacy_network/api/vpn_observability.py
+     *
+     * Compact product-facing discovery summary fetched from
+     * /api/discovery/summary and allow-listed by the backend. It contains
+     * aggregate protocol health only and must never expose node endpoints,
+     * route IDs, encrypted payloads, receiver identities, client public IPs,
+     * DNS contents, Memory Chain plaintext, social graph edges, private keys,
+     * voucher secrets, or wallet-level traffic.
+     */
+    discovery_summary?: DiscoverySummaryStatus | null;
+    /**
+     * Rust source:
      *   /root/open/AeroNyx/crates/aeronyx-server/src/management/client.rs
      *   /root/open/AeroNyx/crates/aeronyx-server/src/server.rs
      *   /root/open/AeroNyx/crates/aeronyx-server/src/services/chat_relay.rs
@@ -2672,6 +2696,86 @@ export interface DiscoveryStatus {
    */
   discovery_readiness?: DiscoveryReadinessStatus | null;
   source?: string;
+  privacy_boundary?: string;
+}
+
+export interface DiscoverySummaryLocalCapability {
+  status?: 'ready' | 'disabled' | 'misconfigured' | string;
+  chat_relay_configured?: boolean;
+  blind_relay_endpoint_ready?: boolean;
+  chat_relay_runtime_ready?: boolean;
+  safe_to_advertise_chat_relay?: boolean;
+  capability_config_consistent?: boolean;
+  advertisement_blockers?: string[];
+}
+
+export interface DiscoverySummaryPeerMesh {
+  status?: 'disabled' | 'forming' | 'peer_view_ready' | 'route_ready' | 'attention' | string;
+  quorum_ready?: boolean;
+  valid_peers?: number;
+  healthy_peers?: number;
+  stale_peers?: number;
+  min_valid_peers?: number;
+  routeable_chat_relays?: number;
+  routeable_onion_middle_hops?: number;
+  restart_recovery_configured?: boolean;
+  relay_foundation_ready?: boolean;
+  network_story_status?: string | null;
+  chat_single_hop_ready?: boolean;
+  chat_two_hop_onion_ready?: boolean;
+}
+
+export interface DiscoverySummaryBlindRelay {
+  status?: 'idle' | 'observing' | 'ready' | 'protecting' | 'degraded' | 'attention' | string;
+  runtime_ready?: boolean;
+  quality_ready?: boolean;
+  real_relay_ready?: boolean;
+  synthetic_probe_ready?: boolean;
+  evidence_mode?: string;
+  readiness_reason?: string;
+  accepted_total?: number;
+  forward_failed?: number;
+  timestamp_rejected?: number;
+  last_event_age_seconds?: number | null;
+  last_probe_age_seconds?: number | null;
+  next_action?: string;
+}
+
+export interface DiscoverySummaryTwoHopPathProof {
+  status?: 'forming' | 'ready' | 'stale' | 'attention' | 'idle' | string;
+  freshness_bucket?: 'forming' | 'fresh_success' | 'stale_success' | 'recent_failure' | 'no_success' | string;
+  proof_ready?: boolean;
+  recent_success_ready?: boolean;
+  failure_streak_active?: boolean;
+  retained_events?: number;
+  attempted?: number;
+  succeeded?: number;
+  failed?: number;
+  success_percent?: number;
+  latest_outcome?: string | null;
+  latest_reason_bucket?: string | null;
+  latest_age_seconds?: number | null;
+  latest_success_age_seconds?: number | null;
+  latest_failure_age_seconds?: number | null;
+  consecutive_successes?: number;
+  consecutive_failures?: number;
+  stale_after_seconds?: number;
+  next_action?: string;
+}
+
+export interface DiscoverySummaryStatus {
+  generated_at?: number;
+  source?: 'rust_discovery_summary' | string;
+  backend_source?: 'rust_public_discovery_summary' | string;
+  status?: 'ready' | 'live' | 'forming' | 'pending' | 'disabled' | 'syncing' | string;
+  stage?: 'bootstrap' | 'verified_peer_view' | 'single_hop_relay_ready' | 'two_hop_path_ready' | string;
+  headline?: string;
+  local_capability?: DiscoverySummaryLocalCapability;
+  peer_mesh?: DiscoverySummaryPeerMesh;
+  blind_relay?: DiscoverySummaryBlindRelay;
+  two_hop_path_proof?: DiscoverySummaryTwoHopPathProof;
+  next_action?: string;
+  privacy_invariant?: string;
   privacy_boundary?: string;
 }
 

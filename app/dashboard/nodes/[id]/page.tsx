@@ -318,7 +318,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.56 - Show two-hop path proof freshness
+ * Last Modified: v1.6.57 - Prefer backend-fetched Rust discovery summary
+ * Previous: v1.6.56 - Show two-hop path proof freshness
  * Previous: v1.6.55 - Expand relay protection delivery summary
  * Previous: v1.6.54 - Show PeerStore lifecycle events
  * Previous: v1.6.53 - Show PeerStore network story readiness
@@ -400,6 +401,7 @@ import {
 } from '@/hooks/useNodes';
 import {
   ChatRelayStatus,
+  DiscoverySummaryStatus,
   NodeCommand,
   DiscoveryBootstrapStatus,
   DiscoveryLocalCapabilityStatus,
@@ -3711,6 +3713,43 @@ type DiscoveryPeerHealthRow = DiscoveryPeerHealthSummary['peers'][number];
 type DiscoveryNetworkStoryStatus = NonNullable<DiscoveryStatus['peer_store']['network_story']>;
 type DiscoveryPeerQuorumStatus = NonNullable<DiscoveryStatus['peer_store']['peer_quorum']>;
 type DiscoveryTwoHopPathProofHistory = NonNullable<DiscoveryStatus['peer_store']['two_hop_path_proof_history']>;
+type DiscoverySummaryTwoHopPathProof = NonNullable<DiscoverySummaryStatus['two_hop_path_proof']>;
+
+function summaryTwoHopProofAsHistory(
+  summary: DiscoverySummaryStatus | null | undefined,
+): DiscoveryTwoHopPathProofHistory | null {
+  const proof: DiscoverySummaryTwoHopPathProof | null | undefined = summary?.two_hop_path_proof;
+  if (!proof) return null;
+
+  return {
+    generated_at: summary?.generated_at ?? 0,
+    status: proof.status ?? 'forming',
+    freshness_bucket: proof.freshness_bucket,
+    proof_ready: Boolean(proof.proof_ready),
+    recent_success_ready: Boolean(proof.recent_success_ready),
+    failure_streak_active: Boolean(proof.failure_streak_active),
+    window_size: proof.retained_events ?? 0,
+    retained_events: proof.retained_events ?? 0,
+    attempted: proof.attempted ?? 0,
+    succeeded: proof.succeeded ?? 0,
+    failed: proof.failed ?? 0,
+    success_percent: proof.success_percent ?? 0,
+    latest_outcome: proof.latest_outcome ?? null,
+    latest_reason_bucket: proof.latest_reason_bucket ?? null,
+    latest_age_seconds: proof.latest_age_seconds ?? null,
+    latest_success_age_seconds: proof.latest_success_age_seconds ?? null,
+    latest_failure_age_seconds: proof.latest_failure_age_seconds ?? null,
+    consecutive_successes: proof.consecutive_successes ?? 0,
+    consecutive_failures: proof.consecutive_failures ?? 0,
+    stale_after_seconds: proof.stale_after_seconds ?? 1800,
+    next_action: proof.next_action ?? summary?.next_action ?? '',
+    events: [],
+    privacy_invariant: summary?.privacy_invariant
+      ?? 'blind_nodes_route_only_opaque_ciphertext_and_aggregate_control_status',
+    privacy_boundary: summary?.privacy_boundary
+      ?? 'aggregate discovery summary only; no node endpoints, route IDs, encrypted payloads, receiver identities, client public IPs, DNS contents, Memory Chain plaintext, social graph edges, voucher secrets, private keys, or wallet-level traffic',
+  };
+}
 
 function localCapabilityTone(capability: DiscoveryLocalCapabilityStatus | null | undefined) {
   if (!capability) return 'border-white/5 bg-black/20';
@@ -4486,29 +4525,55 @@ function RelayProtectionPanel({
   );
 }
 
-function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null | undefined }) {
+function DiscoveryStatusPanel({
+  discovery,
+  summary,
+}: {
+  discovery: DiscoveryStatus | null | undefined;
+  summary?: DiscoverySummaryStatus | null;
+}) {
   const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const pending = t('nodeDetail.discovery.pendingTime');
   const peerStore = discovery?.peer_store ?? null;
+  const summaryProof = summaryTwoHopProofAsHistory(summary);
 
   if (!peerStore) {
     return (
-      <div id="discovery-panel" className={`mt-5 scroll-mt-6 rounded-xl border p-4 ${discoveryPanelTone(discovery)}`}>
+      <div
+        id="discovery-panel"
+        className={`mt-5 scroll-mt-6 rounded-xl border p-4 ${
+          summaryProof ? twoHopProofTone(summaryProof) : discoveryPanelTone(discovery)
+        }`}
+      >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h4 className="text-sm font-semibold text-white">{t('nodeDetail.discovery.title')}</h4>
-              <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${discoveryPanelTone(discovery)}`}>
-                {t('nodeDetail.discovery.status.pending')}
+              <span
+                className={`inline-flex rounded-full border px-2 py-1 text-xs ${
+                  summaryProof ? twoHopProofTone(summaryProof) : discoveryPanelTone(discovery)
+                }`}
+              >
+                {summary?.status ? summary.status.replaceAll('_', ' ') : t('nodeDetail.discovery.status.pending')}
               </span>
+              {summary?.stage && (
+                <span className="inline-flex rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-xs text-gray-300">
+                  {summary.stage.replaceAll('_', ' ')}
+                </span>
+              )}
             </div>
             <p className="mt-1 text-xs leading-5 text-gray-500">{t('nodeDetail.discovery.description')}</p>
           </div>
           <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500 lg:max-w-md">
-            <p className="font-medium text-gray-300">{t('nodeDetail.discovery.pendingTitle')}</p>
-            <p className="mt-1 leading-5">{t('nodeDetail.discovery.pendingDescription')}</p>
+            <p className="font-medium text-gray-300">
+              {summary?.headline || t('nodeDetail.discovery.pendingTitle')}
+            </p>
+            <p className="mt-1 leading-5">
+              {summary?.backend_source || summary?.source || t('nodeDetail.discovery.pendingDescription')}
+            </p>
           </div>
         </div>
+        {summaryProof && <TwoHopProofPanel proof={summaryProof} />}
         <p className="mt-3 text-[11px] leading-5 text-gray-600">{t('nodeDetail.discovery.backendPath')}</p>
       </div>
     );
@@ -4527,7 +4592,7 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
   const stability = peerStore.stability ?? null;
   const networkStory = peerStore.network_story ?? null;
   const peerQuorum = peerStore.peer_quorum ?? null;
-  const twoHopProof = peerStore.two_hop_path_proof_history ?? null;
+  const twoHopProof = summaryProof ?? peerStore.two_hop_path_proof_history ?? null;
   const localCapabilities = discovery?.local_capabilities ?? null;
   const blindRelay = runtime.blind_relay ?? null;
   const peerHealthSummary = peerStore.peer_health_summary ?? null;
@@ -4538,7 +4603,7 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
   const bootstrapRecoveryAt = bootstrap?.recovery_at ?? bootstrap?.last_source_at ?? null;
   const restartRecoverySources = discoveryRestartRecoverySourcesLabel(stability?.restart_recovery_sources, t);
   const cacheLoadStatus = bootstrap?.last_cache_load_status || null;
-  const telemetrySource = discovery?.source || 'system_stats.discovery_status';
+  const telemetrySource = summary?.backend_source || summary?.source || discovery?.source || 'system_stats.discovery_status';
   const privacyBoundary = discovery?.privacy_boundary || t('nodeDetail.discovery.privacyBoundary');
 
   return (
@@ -7956,7 +8021,10 @@ function VpnHealthPanel({
       <RecentOperationalEventsPanel health={health} />
       <RuntimeVersionPanel health={health} />
       <PrivacyProtocolHealthPanel health={health} />
-      <DiscoveryStatusPanel discovery={health.system.discovery_status} />
+      <DiscoveryStatusPanel
+        discovery={health.system.discovery_status}
+        summary={health.system.discovery_summary}
+      />
       <ChatRelayStatusPanel relay={health.system.chat_relay_status} />
       <ServiceConfigurationPanel health={health} />
       <UpgradeWorkflowPanel health={health} />
