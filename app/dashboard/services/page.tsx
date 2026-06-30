@@ -10,6 +10,14 @@
  * Layer, and SuperNode diagnostics opened only when needed.
  *
  * Modification Reason:
+ *   v1.1.78 - Added fleet Two-hop Path Proof evidence to the compact Protocol
+ *     Foundation panel. The summary prefers backend
+ *     summary.protocol_status.protocol_foundation.two_hop_path_proof_history
+ *     and falls back to node heartbeat aggregates. It shows only proof-ready
+ *     counts, retained-window counters, freshness buckets, and age buckets;
+ *     it must never expose route IDs, endpoints, node identities, encrypted
+ *     payloads, receiver identities, client IPs, DNS contents, Memory Chain
+ *     plaintext, wallet-level traffic, or social graph edges.
  *   v1.1.77 - Added Route Freshness Guard evidence to the Protocol Foundation
  *     panel from backend summary.protocol_status.protocol_foundation and the
  *     per-node Rust blind relay fallback. The counter is aggregate-only:
@@ -458,6 +466,15 @@ interface FleetProtocolFoundationSummary {
   realRelayReadyNodes: number;
   syntheticProbeReadyNodes: number;
   probeFailedNodes: number;
+  twoHopProofReportedNodes: number;
+  twoHopProofReadyNodes: number;
+  twoHopProofRetainedEvents: number;
+  twoHopProofAttempted: number;
+  twoHopProofSucceeded: number;
+  twoHopProofSuccessPercent: number;
+  twoHopProofFailureStreakNodes: number;
+  twoHopProofMinLatestSuccessAgeSeconds: number | null;
+  twoHopProofFreshnessSummary: string;
   status: 'ok' | 'attention' | 'pending';
   blockerSummary: string;
   privacyBoundary: string | null;
@@ -788,9 +805,17 @@ function buildProtocolFoundationSummary(
   let syntheticProbeReadyNodes = 0;
   let probeFailedNodes = 0;
   let timestampRejected = 0;
+  let twoHopProofReportedNodes = 0;
+  let twoHopProofReadyNodes = 0;
+  let twoHopProofRetainedEvents = 0;
+  let twoHopProofAttempted = 0;
+  let twoHopProofSucceeded = 0;
+  let twoHopProofFailureStreakNodes = 0;
+  let twoHopProofMinLatestSuccessAgeSeconds: number | null = null;
   let privacyBoundary: string | null = null;
   const evidenceModeCounts = new Map<string, number>();
   const readinessReasonCounts = new Map<string, number>();
+  const twoHopProofFreshnessCounts = new Map<string, number>();
 
   nodes.forEach((node) => {
     const discovery = node.system.discovery_status;
@@ -800,6 +825,7 @@ function buildProtocolFoundationSummary(
     const story = discovery.peer_store.network_story;
     const foundation = discovery.discovery_readiness?.protocol_foundation;
     const blindRelay = discovery.peer_store.runtime?.blind_relay;
+    const twoHopProof = discovery.peer_store.two_hop_path_proof_history;
     const localCapabilities = discovery.local_capabilities;
     const validPeers = foundation?.verified_peer_count
       ?? discovery.peer_store.snapshot?.valid_peers
@@ -836,6 +862,29 @@ function buildProtocolFoundationSummary(
       probeFailedNodes += 1;
     }
     timestampRejected += Number(foundation?.timestamp_rejected ?? blindRelay?.timestamp_rejected ?? 0);
+    if (twoHopProof) {
+      twoHopProofReportedNodes += 1;
+      twoHopProofRetainedEvents += Number(twoHopProof.retained_events ?? 0);
+      twoHopProofAttempted += Number(twoHopProof.attempted ?? 0);
+      twoHopProofSucceeded += Number(twoHopProof.succeeded ?? 0);
+      if (twoHopProof.proof_ready) {
+        twoHopProofReadyNodes += 1;
+      }
+      if (twoHopProof.failure_streak_active) {
+        twoHopProofFailureStreakNodes += 1;
+      }
+      const freshnessBucket = twoHopProof.freshness_bucket || twoHopProof.status || 'unknown';
+      twoHopProofFreshnessCounts.set(
+        freshnessBucket,
+        (twoHopProofFreshnessCounts.get(freshnessBucket) ?? 0) + 1,
+      );
+      if (typeof twoHopProof.latest_success_age_seconds === 'number') {
+        const ageSeconds = Math.max(0, Math.floor(twoHopProof.latest_success_age_seconds));
+        twoHopProofMinLatestSuccessAgeSeconds = twoHopProofMinLatestSuccessAgeSeconds === null
+          ? ageSeconds
+          : Math.min(twoHopProofMinLatestSuccessAgeSeconds, ageSeconds);
+      }
+    }
     if (localCapabilities?.safe_to_advertise_chat_relay) {
       safeRelayNodes += 1;
     }
@@ -898,14 +947,18 @@ function buildProtocolFoundationSummary(
 
   const status: FleetProtocolFoundationSummary['status'] = reportedNodes === 0
     ? 'pending'
-    : misconfiguredRelayNodes > 0 || probeFailedNodes > 0
+    : misconfiguredRelayNodes > 0 || probeFailedNodes > 0 || twoHopProofFailureStreakNodes > 0
       ? 'attention'
       : 'ok';
 
   if (backendFoundation && Number(backendFoundation.reported_nodes ?? 0) > 0) {
+    const backendTwoHop = backendFoundation.two_hop_path_proof_history ?? null;
     const backendReason = backendFoundation.relay_readiness_reason || relayReadinessReason;
     const backendEvidence = backendFoundation.relay_evidence_mode || relayEvidenceMode;
     const backendTimestampRejected = Number(backendFoundation.timestamp_rejected ?? timestampRejected ?? 0);
+    const backendTwoHopFailureStreakNodes = Number(
+      backendTwoHop?.failure_streak_nodes ?? twoHopProofFailureStreakNodes ?? 0,
+    );
     const backendProbeFailed = Number(
       backendFoundation.evidence_mode_counts?.probe_failed
       ?? backendFoundation.readiness_reason_counts?.synthetic_probe_failed
@@ -913,6 +966,7 @@ function buildProtocolFoundationSummary(
       ?? 0,
     );
     const backendAttention = backendProbeFailed > 0
+      || backendTwoHopFailureStreakNodes > 0
       || backendReason === 'transport_attention'
       || backendReason === 'real_relay_transport_attention'
       || backendReason === 'synthetic_probe_failed';
@@ -940,6 +994,27 @@ function buildProtocolFoundationSummary(
       realRelayReadyNodes: Number(backendFoundation.real_relay_ready_nodes ?? realRelayReadyNodes),
       syntheticProbeReadyNodes: Number(backendFoundation.synthetic_probe_ready_nodes ?? syntheticProbeReadyNodes),
       probeFailedNodes: backendProbeFailed,
+      twoHopProofReportedNodes: Number(backendTwoHop?.reported_nodes ?? twoHopProofReportedNodes),
+      twoHopProofReadyNodes: Number(
+        backendFoundation.two_hop_path_proof_ready_nodes
+        ?? backendTwoHop?.proof_ready_nodes
+        ?? twoHopProofReadyNodes,
+      ),
+      twoHopProofRetainedEvents: Number(backendTwoHop?.retained_events ?? twoHopProofRetainedEvents),
+      twoHopProofAttempted: Number(backendTwoHop?.attempted ?? twoHopProofAttempted),
+      twoHopProofSucceeded: Number(backendTwoHop?.succeeded ?? twoHopProofSucceeded),
+      twoHopProofSuccessPercent: Number(
+        backendTwoHop?.success_percent
+        ?? protocolFoundationPercent(twoHopProofSucceeded, twoHopProofAttempted),
+      ),
+      twoHopProofFailureStreakNodes: backendTwoHopFailureStreakNodes,
+      twoHopProofMinLatestSuccessAgeSeconds: typeof backendTwoHop?.min_latest_success_age_seconds === 'number'
+        ? backendTwoHop.min_latest_success_age_seconds
+        : twoHopProofMinLatestSuccessAgeSeconds,
+      twoHopProofFreshnessSummary: protocolFoundationBucketSummary(
+        backendTwoHop?.freshness_counts,
+        twoHopProofFreshnessCounts,
+      ),
       status: backendStatus,
       blockerSummary,
       privacyBoundary: backendFoundation.privacy_boundary || privacyBoundary,
@@ -960,10 +1035,38 @@ function buildProtocolFoundationSummary(
     realRelayReadyNodes,
     syntheticProbeReadyNodes,
     probeFailedNodes,
+    twoHopProofReportedNodes,
+    twoHopProofReadyNodes,
+    twoHopProofRetainedEvents,
+    twoHopProofAttempted,
+    twoHopProofSucceeded,
+    twoHopProofSuccessPercent: protocolFoundationPercent(twoHopProofSucceeded, twoHopProofAttempted),
+    twoHopProofFailureStreakNodes,
+    twoHopProofMinLatestSuccessAgeSeconds,
+    twoHopProofFreshnessSummary: protocolFoundationBucketSummary(null, twoHopProofFreshnessCounts),
     status,
     blockerSummary,
     privacyBoundary,
   };
+}
+
+function protocolFoundationPercent(value: number, total: number) {
+  return total > 0 ? Math.min(100, Math.max(0, Math.round((value * 100) / total))) : 0;
+}
+
+function protocolFoundationBucketSummary(
+  backendCounts: Record<string, number> | null | undefined,
+  fallbackCounts: Map<string, number>,
+) {
+  const entries = backendCounts
+    ? Object.entries(backendCounts)
+    : [...fallbackCounts.entries()];
+  return entries
+    .filter(([, count]) => Number(count) > 0)
+    .sort((left, right) => Number(right[1]) - Number(left[1]) || left[0].localeCompare(right[0]))
+    .slice(0, 2)
+    .map(([bucket, count]) => `${bucket.replaceAll('_', ' ')} ${count}`)
+    .join(' · ');
 }
 
 function capacityPercent(used: number | null | undefined, total: number | null | undefined) {
@@ -3042,6 +3145,12 @@ function FleetProtocolFoundationPanel({
       count: formatNumber(summary.timestampRejected),
     })
     : t('services.protocolFoundation.timestampProtectionQuiet');
+  const twoHopProofDetail = summary.twoHopProofReportedNodes > 0
+    ? `${formatNumber(summary.twoHopProofSuccessPercent)}% accepted · ${summary.twoHopProofFreshnessSummary || 'freshness pending'}`
+    : 'waiting for proof telemetry';
+  const twoHopProofAge = summary.twoHopProofMinLatestSuccessAgeSeconds !== null
+    ? `${formatNumber(summary.twoHopProofMinLatestSuccessAgeSeconds)}s latest success`
+    : `${formatNumber(summary.twoHopProofFailureStreakNodes)} failure streak nodes`;
 
   return (
     <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
@@ -3067,7 +3176,7 @@ function FleetProtocolFoundationPanel({
             {t('services.protocolFoundation.blockers')}: {detail}
           </p>
         </div>
-        <div className="grid w-full gap-2 text-xs sm:grid-cols-2 xl:max-w-3xl xl:grid-cols-4">
+        <div className="grid w-full gap-2 text-xs sm:grid-cols-2 xl:max-w-5xl xl:grid-cols-5">
           <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
             <p className="text-gray-500">{t('services.protocolFoundation.peerView')}</p>
             <p className="mt-1 text-base font-semibold text-white">
@@ -3110,7 +3219,25 @@ function FleetProtocolFoundationPanel({
               {evidenceDetail}
             </p>
           </div>
-          <div className="rounded-lg border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2 sm:col-span-2 xl:col-span-4">
+          <div className={`rounded-lg border px-3 py-2 ${
+            summary.twoHopProofFailureStreakNodes > 0
+              ? 'border-yellow-400/20 bg-yellow-400/[0.05]'
+              : summary.twoHopProofReadyNodes > 0
+                ? 'border-emerald-400/15 bg-emerald-400/[0.04]'
+                : 'border-white/10 bg-black/20'
+          }`}>
+            <p className="text-gray-500">Two-hop proof</p>
+            <p className="mt-1 text-base font-semibold text-white">
+              {formatNumber(summary.twoHopProofReadyNodes)} / {formatNumber(summary.twoHopProofReportedNodes)}
+            </p>
+            <p className="mt-1 text-gray-600">
+              {twoHopProofDetail}
+            </p>
+            <p className="mt-1 text-[11px] text-gray-600">
+              {twoHopProofAge} · {formatNumber(summary.twoHopProofRetainedEvents)} retained events
+            </p>
+          </div>
+          <div className="rounded-lg border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2 sm:col-span-2 xl:col-span-5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-gray-500">{t('services.protocolFoundation.timestampProtection')}</p>
               <p className="text-sm font-semibold text-emerald-200">
