@@ -6,6 +6,13 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.56 - Added a compact Two-hop Path Proof card to the Discovery panel.
+ *     The UI consumes Rust peer_store.two_hop_path_proof_history freshness
+ *     telemetry so operators can see whether the node has a recent accepted
+ *     entry -> middle -> terminal proof without exposing peer endpoints,
+ *     route IDs, encrypted payloads, receiver identities, client IPs, DNS
+ *     contents, Memory Chain plaintext, social graph edges, private keys,
+ *     voucher secrets, or wallet-level traffic.
  *   v1.6.55 - Expanded the Security / Relay Protection summary with terminal
  *     delivery and aggregate failure totals. This lets operators distinguish
  *     configured blind relay protection from actual relay-probe delivery
@@ -311,7 +318,9 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.54 - Show PeerStore lifecycle events
+ * Last Modified: v1.6.56 - Show two-hop path proof freshness
+ * Previous: v1.6.55 - Expand relay protection delivery summary
+ * Previous: v1.6.54 - Show PeerStore lifecycle events
  * Previous: v1.6.53 - Show PeerStore network story readiness
  * Previous: v1.6.52 - Show local ChatRelay capability self-check
  * Previous: v1.6.51 - Show peer-cache startup recovery evidence
@@ -3701,6 +3710,7 @@ type DiscoveryPeerHealthSummary = NonNullable<DiscoveryStatus['peer_store']['pee
 type DiscoveryPeerHealthRow = DiscoveryPeerHealthSummary['peers'][number];
 type DiscoveryNetworkStoryStatus = NonNullable<DiscoveryStatus['peer_store']['network_story']>;
 type DiscoveryPeerQuorumStatus = NonNullable<DiscoveryStatus['peer_store']['peer_quorum']>;
+type DiscoveryTwoHopPathProofHistory = NonNullable<DiscoveryStatus['peer_store']['two_hop_path_proof_history']>;
 
 function localCapabilityTone(capability: DiscoveryLocalCapabilityStatus | null | undefined) {
   if (!capability) return 'border-white/5 bg-black/20';
@@ -3790,6 +3800,99 @@ function peerQuorumStatusLabel(
 
 function peerQuorumReadinessLabel(value: boolean, t: TranslateFn) {
   return value ? t('nodeDetail.discovery.peerQuorum.ready') : t('nodeDetail.discovery.peerQuorum.notReady');
+}
+
+function twoHopProofTone(proof: DiscoveryTwoHopPathProofHistory | null | undefined) {
+  if (!proof) return 'border-white/5 bg-black/20';
+  if (proof.failure_streak_active || proof.status === 'attention' || proof.freshness_bucket === 'recent_failure') {
+    return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  }
+  if (proof.status === 'stale' || proof.freshness_bucket === 'stale_success' || proof.freshness_bucket === 'no_success') {
+    return 'border-sky-500/15 bg-sky-500/[0.04]';
+  }
+  if (proof.proof_ready || proof.freshness_bucket === 'fresh_success') {
+    return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+  }
+  return 'border-white/5 bg-black/20';
+}
+
+function twoHopProofStatusLabel(proof: DiscoveryTwoHopPathProofHistory, pending: string) {
+  if (proof.proof_ready) return 'fresh proof';
+  if (proof.failure_streak_active) return 'attention';
+  if (proof.status) return proof.status.replaceAll('_', ' ');
+  return pending;
+}
+
+function twoHopProofBucketLabel(proof: DiscoveryTwoHopPathProofHistory, pending: string) {
+  return (proof.freshness_bucket || proof.status || pending).replaceAll('_', ' ');
+}
+
+function TwoHopProofPanel({
+  proof,
+}: {
+  proof: DiscoveryTwoHopPathProofHistory | null | undefined;
+}) {
+  const { t, formatNumber } = useI18n();
+  const pending = t('nodeDetail.discovery.pendingTime');
+
+  if (!proof) return null;
+
+  return (
+    <div className={`mt-4 rounded-xl border p-3 ${twoHopProofTone(proof)}`}>
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0 xl:max-w-xl">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-300">
+              Two-hop path proof
+            </p>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${twoHopProofTone(proof)}`}>
+              {twoHopProofStatusLabel(proof, pending)}
+            </span>
+            <span className="inline-flex rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-xs text-gray-300">
+              {twoHopProofBucketLabel(proof, pending)}
+            </span>
+          </div>
+          <p className="mt-2 text-xs leading-5 text-gray-400">
+            Rust reports aggregate entry -&gt; middle -&gt; terminal proof freshness for the encrypted relay
+            foundation. Nodeboard shows counters and age buckets only; no peer endpoints, route IDs, encrypted
+            payloads, receiver identities, client IPs, DNS contents, Memory Chain plaintext, social graph edges,
+            private keys, voucher secrets, or wallet-level traffic.
+          </p>
+          {proof.next_action && (
+            <p className="mt-2 text-[11px] leading-4 text-gray-500">
+              Next action: {proof.next_action}
+            </p>
+          )}
+        </div>
+        <div className="grid min-w-0 gap-2 sm:grid-cols-2 xl:min-w-[520px]">
+          <CapacityMetric
+            label="Proof success"
+            value={`${formatNumber(proof.succeeded)} / ${formatNumber(proof.attempted)}`}
+            detail={`${formatNumber(Math.round(proof.success_percent))}% accepted in retained window`}
+            tone={twoHopProofTone(proof)}
+          />
+          <CapacityMetric
+            label="Latest success"
+            value={discoveryStabilityAgeLabel(proof.latest_success_age_seconds, pending, formatNumber, t)}
+            detail={`stale after ${discoveryStabilityAgeLabel(proof.stale_after_seconds, pending, formatNumber, t)}`}
+            tone={proof.recent_success_ready ? 'border-emerald-500/15 bg-emerald-500/[0.04]' : 'border-white/5 bg-black/20'}
+          />
+          <CapacityMetric
+            label="Latest failure"
+            value={discoveryStabilityAgeLabel(proof.latest_failure_age_seconds, pending, formatNumber, t)}
+            detail={`${formatNumber(proof.consecutive_failures)} consecutive failures`}
+            tone={proof.failure_streak_active ? 'border-yellow-500/25 bg-yellow-500/[0.06]' : 'border-white/5 bg-black/20'}
+          />
+          <CapacityMetric
+            label="Proof window"
+            value={formatNumber(proof.retained_events)}
+            detail={`${formatNumber(proof.succeeded)} accepted · ${formatNumber(proof.failed)} rejected`}
+            tone="border-white/5 bg-black/20"
+          />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function NetworkStoryPanel({
@@ -4424,6 +4527,7 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
   const stability = peerStore.stability ?? null;
   const networkStory = peerStore.network_story ?? null;
   const peerQuorum = peerStore.peer_quorum ?? null;
+  const twoHopProof = peerStore.two_hop_path_proof_history ?? null;
   const localCapabilities = discovery?.local_capabilities ?? null;
   const blindRelay = runtime.blind_relay ?? null;
   const peerHealthSummary = peerStore.peer_health_summary ?? null;
@@ -4556,6 +4660,8 @@ function DiscoveryStatusPanel({ discovery }: { discovery: DiscoveryStatus | null
       )}
 
       <RelayProtectionPanel relay={blindRelay} peerHealth={peerHealthSummary} />
+
+      <TwoHopProofPanel proof={twoHopProof} />
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <CapacityMetric

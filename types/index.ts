@@ -6,6 +6,13 @@
  *
  * Creation Reason: Centralized type definitions for the entire application
  * Modification Reason:
+ *   v1.5.45 - Added Rust two-hop path proof history telemetry from
+ *     peer_store and backend protocol foundation summaries. Nodeboard may
+ *     display aggregate proof freshness, retained-window counters, and age
+ *     buckets only. It must never expose full node IDs, endpoints, route IDs,
+ *     encrypted payloads, receiver identities, client IPs, DNS contents,
+ *     Memory Chain plaintext, social graph edges, voucher secrets, private
+ *     keys, or wallet-level traffic.
  *   v1.5.44 - Added timestamp_rejected to blind relay and protocol
  *     foundation summaries so Services can display Rust's opaque route-frame
  *     freshness guard as an aggregate protection signal. This field is a
@@ -2335,6 +2342,17 @@ export interface DiscoveryPeerStoreStatus {
    */
   network_story?: DiscoveryNetworkStoryStatus | null;
   /**
+   * Rust-authored two-hop path proof history.
+   *
+   * This proves the local node has recently observed an entry -> middle ->
+   * terminal shaped relay path using aggregate counters only. It is an
+   * operator-readiness signal, not a route explorer, and must never expose
+   * endpoints, route IDs, encrypted payloads, receiver identities, client IPs,
+   * DNS contents, Memory Chain plaintext, social graph edges, voucher secrets,
+   * private keys, or wallet-level traffic.
+   */
+  two_hop_path_proof_history?: DiscoveryTwoHopPathProofHistory | null;
+  /**
    * Rust-authored peer quorum readiness gate.
    *
    * This is local peer-view readiness only, not public-chain consensus. It is
@@ -2344,6 +2362,42 @@ export interface DiscoveryPeerStoreStatus {
    * DNS contents, Memory Chain plaintext, or wallet-level traffic.
    */
   peer_quorum?: DiscoveryPeerQuorumStatus | null;
+}
+
+export interface DiscoveryTwoHopPathProofEvent {
+  at: number;
+  outcome: 'accepted' | 'rejected' | string;
+  reason_bucket: string;
+  evidence_mode: string;
+  path_shape: string;
+  hop_count: number;
+}
+
+export interface DiscoveryTwoHopPathProofHistory {
+  generated_at: number;
+  status: 'forming' | 'ready' | 'stale' | 'attention' | 'idle' | string;
+  freshness_bucket?: 'forming' | 'fresh_success' | 'stale_success' | 'recent_failure' | 'no_success' | string;
+  proof_ready: boolean;
+  recent_success_ready: boolean;
+  failure_streak_active: boolean;
+  window_size: number;
+  retained_events: number;
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  success_percent: number;
+  latest_outcome: string | null;
+  latest_reason_bucket: string | null;
+  latest_age_seconds: number | null;
+  latest_success_age_seconds?: number | null;
+  latest_failure_age_seconds?: number | null;
+  consecutive_successes: number;
+  consecutive_failures: number;
+  stale_after_seconds: number;
+  next_action: string;
+  events: DiscoveryTwoHopPathProofEvent[];
+  privacy_invariant: string;
+  privacy_boundary: string;
 }
 
 export interface DiscoveryNetworkStoryStatus {
@@ -2751,6 +2805,26 @@ export interface VpnProtocolFoundationSummary {
   timestamp_rejected?: number;
   real_relay_ready_nodes?: number;
   synthetic_probe_ready_nodes?: number;
+  two_hop_path_proof_ready_nodes?: number;
+  two_hop_path_proof_history?: {
+    reported_nodes?: number;
+    retained_events?: number;
+    attempted?: number;
+    succeeded?: number;
+    failed?: number;
+    success_percent?: number;
+    min_latest_age_seconds?: number | null;
+    min_latest_success_age_seconds?: number | null;
+    min_latest_failure_age_seconds?: number | null;
+    proof_ready_nodes?: number;
+    recent_success_ready_nodes?: number;
+    failure_streak_nodes?: number;
+    freshness_counts?: Record<string, number>;
+    latest_outcome_counts?: Record<string, number>;
+    latest_reason_counts?: Record<string, number>;
+    source?: string;
+    privacy_boundary?: string;
+  };
   evidence_mode_counts?: Record<string, number>;
   readiness_reason_counts?: Record<string, number>;
   status_counts?: Record<string, number>;
