@@ -10,6 +10,14 @@
  * Layer, and SuperNode diagnostics opened only when needed.
  *
  * Modification Reason:
+ *   v1.1.80 - Added an aggregate App E2E readiness banner to the Protocol
+ *     Foundation panel. Operators can now see whether the fleet is ready for
+ *     controlled two-device App privacy-route testing without opening raw
+ *     diagnostics. The banner uses only aggregate reported/foundation/proof
+ *     counts plus failure buckets; it must never expose route IDs, hop IDs,
+ *     endpoints, receiver identities, encrypted payloads, client IPs, DNS
+ *     contents, Memory Chain plaintext, wallet-level traffic, or social graph
+ *     edges.
  *   v1.1.79 - Reworked the first-level Protocol Foundation panel from five
  *     narrow diagnostic tiles into three operator-grade evidence signals:
  *     Peer Mesh, Two-hop Proof, and Blind Relay Guard. The first-level page
@@ -3166,6 +3174,18 @@ function FleetProtocolFoundationPanel({
     : t('services.protocolFoundation.failureStreakNodes', {
       count: formatNumber(summary.twoHopProofFailureStreakNodes),
     });
+  const appE2eReady = summary.reportedNodes >= 2
+    && summary.foundationReadyNodes >= 2
+    && summary.twoHopProofReadyNodes >= 2
+    && summary.twoHopProofFailureStreakNodes === 0
+    && summary.probeFailedNodes === 0
+    && summary.status === 'ok';
+  const appE2eTone = appE2eReady
+    ? 'border-emerald-400/20 bg-emerald-400/[0.055] text-emerald-100'
+    : 'border-yellow-400/20 bg-yellow-400/[0.045] text-yellow-100';
+  const appE2eDot = appE2eReady
+    ? 'bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.35)]'
+    : 'bg-yellow-300 shadow-[0_0_18px_rgba(250,204,21,0.25)]';
 
   return (
     <section className="mb-6 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.035]">
@@ -3192,6 +3212,28 @@ function FleetProtocolFoundationPanel({
           </p>
         </div>
         <div className="p-5">
+          <div className={`mb-4 rounded-xl border px-4 py-3 ${appE2eTone}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-[0.14em] opacity-70">
+                  {t('services.protocolFoundation.appE2eEyebrow')}
+                </p>
+                <p className="mt-1 text-sm font-semibold">
+                  {appE2eReady
+                    ? t('services.protocolFoundation.appE2eReady')
+                    : t('services.protocolFoundation.appE2eForming')}
+                </p>
+              </div>
+              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${appE2eDot}`} />
+            </div>
+            <p className="mt-2 text-xs leading-5 opacity-70">
+              {t('services.protocolFoundation.appE2eDetail', {
+                mesh: `${formatNumber(summary.foundationReadyNodes)} / ${formatNumber(summary.reportedNodes)}`,
+                proof: `${formatNumber(summary.twoHopProofReadyNodes)} / ${formatNumber(summary.twoHopProofReportedNodes)}`,
+                failed: formatNumber(summary.probeFailedNodes + summary.twoHopProofFailureStreakNodes),
+              })}
+            </p>
+          </div>
           <div className="grid gap-3 md:grid-cols-3">
             <ProtocolSignalCard
               title={t('services.protocolFoundation.meshMetricTitle')}

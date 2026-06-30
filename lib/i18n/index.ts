@@ -20,7 +20,8 @@
  *   public keys, wallet secrets, client IPs, destinations, DNS contents,
  *   packet payloads, browsing history, or traffic metadata.
  *
- * Last Modified: v1.0.16 - Reworked Protocol Foundation evidence panel copy
+ * Last Modified: v1.0.17 - Added Protocol Foundation App E2E readiness gate copy
+ * Previous: v1.0.16 - Reworked Protocol Foundation evidence panel copy
  * Previous: v1.0.15 - Added protocol foundation route freshness guard
  * copy for Rust blind relay timestamp rejection aggregates.
  * Previous: v1.0.14 - Expanded relay protection summary copy with
@@ -511,6 +512,10 @@ const en: Dictionary = {
   'services.protocolFoundation.privacy': 'Aggregate protocol operations only; no route IDs, receiver identities, encrypted payloads, client IPs, DNS contents, Memory Chain plaintext, wallet-level traffic, or social graph edges.',
   'services.protocolFoundation.blockers': 'Operator blockers',
   'services.protocolFoundation.noBlockers': 'No current blocker reported',
+  'services.protocolFoundation.appE2eEyebrow': 'App E2E gate',
+  'services.protocolFoundation.appE2eReady': 'Ready for controlled two-device privacy-route testing',
+  'services.protocolFoundation.appE2eForming': 'Privacy-route E2E gate is still forming',
+  'services.protocolFoundation.appE2eDetail': 'Mesh {mesh}; two-hop proof {proof}; attention buckets {failed}. Aggregate only, no route or endpoint data.',
   'services.protocolFoundation.meshMetricTitle': 'Peer Mesh',
   'services.protocolFoundation.meshMetricDetail': 'Largest verified peer view: {peers}',
   'services.protocolFoundation.twoHopMetricTitle': 'Two-hop Proof',
@@ -2963,6 +2968,10 @@ const zhCN: Dictionary = {
   'services.protocolFoundation.privacy': '仅展示聚合协议运行数据；不展示 route id、接收者身份、加密载荷、客户端 IP、DNS 内容、Memory Chain 明文、钱包级流量或社交图谱边。',
   'services.protocolFoundation.blockers': '运维阻塞',
   'services.protocolFoundation.noBlockers': '当前没有上报阻塞',
+  'services.protocolFoundation.appE2eEyebrow': 'App E2E 门控',
+  'services.protocolFoundation.appE2eReady': '可以开始受控双设备隐私路由测试',
+  'services.protocolFoundation.appE2eForming': '隐私路由 E2E 门控仍在形成',
+  'services.protocolFoundation.appE2eDetail': 'Mesh {mesh}；two-hop 证明 {proof}；关注分类 {failed}。仅聚合展示，不含 route 或 endpoint 数据。',
   'services.protocolFoundation.meshMetricTitle': 'Peer Mesh',
   'services.protocolFoundation.meshMetricDetail': '最大已验证 peer 视图：{peers}',
   'services.protocolFoundation.twoHopMetricTitle': 'Two-hop 证明',
@@ -6463,6 +6472,10 @@ const zhTW: Dictionary = {
   'services.protocolFoundation.privacy': '僅展示聚合協議運行資料；不展示 route id、接收者身份、加密載荷、客戶端 IP、DNS 內容、Memory Chain 明文、錢包級流量或社交圖譜邊。',
   'services.protocolFoundation.blockers': '營運阻塞',
   'services.protocolFoundation.noBlockers': '目前沒有上報阻塞',
+  'services.protocolFoundation.appE2eEyebrow': 'App E2E 門控',
+  'services.protocolFoundation.appE2eReady': '可以開始受控雙設備隱私路由測試',
+  'services.protocolFoundation.appE2eForming': '隱私路由 E2E 門控仍在形成',
+  'services.protocolFoundation.appE2eDetail': 'Mesh {mesh}；two-hop 證明 {proof}；關注分類 {failed}。僅聚合展示，不含 route 或 endpoint 資料。',
   'services.protocolFoundation.meshMetricTitle': 'Peer Mesh',
   'services.protocolFoundation.meshMetricDetail': '最大已驗證 peer 視圖：{peers}',
   'services.protocolFoundation.twoHopMetricTitle': 'Two-hop 證明',
@@ -8058,6 +8071,10 @@ const ja: Dictionary = {
   'services.protocolFoundation.privacy': '集約 protocol operation のみ表示します。route ID、receiver identity、encrypted payload、client IP、DNS content、Memory Chain plaintext、wallet-level traffic、social graph edge は表示しません。',
   'services.protocolFoundation.blockers': '運用ブロッカー',
   'services.protocolFoundation.noBlockers': '現在のブロッカーはありません',
+  'services.protocolFoundation.appE2eEyebrow': 'App E2E ゲート',
+  'services.protocolFoundation.appE2eReady': '制御された 2 デバイス privacy route テストを開始できます',
+  'services.protocolFoundation.appE2eForming': 'Privacy route E2E ゲートは形成中です',
+  'services.protocolFoundation.appE2eDetail': 'Mesh {mesh}; two-hop proof {proof}; attention buckets {failed}。集約のみで、route や endpoint データは含みません。',
   'services.protocolFoundation.meshMetricTitle': 'Peer Mesh',
   'services.protocolFoundation.meshMetricDetail': '最大 verified peer view: {peers}',
   'services.protocolFoundation.twoHopMetricTitle': 'Two-hop Proof',
@@ -10282,6 +10299,10 @@ const ko: Dictionary = {
   'services.protocolFoundation.privacy': '집계 protocol operations 만 표시합니다. route ID, receiver identity, encrypted payload, client IP, DNS contents, Memory Chain plaintext, wallet-level traffic, social graph edge 는 표시하지 않습니다.',
   'services.protocolFoundation.blockers': '운영 blockers',
   'services.protocolFoundation.noBlockers': '현재 보고된 blocker 없음',
+  'services.protocolFoundation.appE2eEyebrow': 'App E2E 게이트',
+  'services.protocolFoundation.appE2eReady': '제어된 두 기기 privacy route 테스트를 시작할 수 있습니다',
+  'services.protocolFoundation.appE2eForming': 'Privacy route E2E 게이트가 아직 형성 중입니다',
+  'services.protocolFoundation.appE2eDetail': 'Mesh {mesh}; two-hop proof {proof}; attention buckets {failed}. 집계만 표시하며 route 또는 endpoint 데이터는 포함하지 않습니다.',
   'services.protocolFoundation.meshMetricTitle': 'Peer Mesh',
   'services.protocolFoundation.meshMetricDetail': '최대 verified peer view: {peers}',
   'services.protocolFoundation.twoHopMetricTitle': 'Two-hop Proof',
@@ -12506,6 +12527,10 @@ const ru: Dictionary = {
   'services.protocolFoundation.privacy': 'Показываются только агрегированные protocol operations; без route ID, receiver identity, encrypted payload, client IP, DNS contents, Memory Chain plaintext, wallet-level traffic или social graph edges.',
   'services.protocolFoundation.blockers': 'Операторские блокеры',
   'services.protocolFoundation.noBlockers': 'Текущих блокеров нет',
+  'services.protocolFoundation.appE2eEyebrow': 'App E2E gate',
+  'services.protocolFoundation.appE2eReady': 'Готово к контролируемому privacy-route тесту на двух устройствах',
+  'services.protocolFoundation.appE2eForming': 'Privacy-route E2E gate еще формируется',
+  'services.protocolFoundation.appE2eDetail': 'Mesh {mesh}; two-hop proof {proof}; attention buckets {failed}. Только агрегаты, без route или endpoint данных.',
   'services.protocolFoundation.meshMetricTitle': 'Peer Mesh',
   'services.protocolFoundation.meshMetricDetail': 'Максимальный verified peer view: {peers}',
   'services.protocolFoundation.twoHopMetricTitle': 'Two-hop Proof',
