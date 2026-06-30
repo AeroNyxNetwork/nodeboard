@@ -10,6 +10,12 @@
  * Layer, and SuperNode diagnostics opened only when needed.
  *
  * Modification Reason:
+ *   v1.1.79 - Reworked the first-level Protocol Foundation panel from five
+ *     narrow diagnostic tiles into three operator-grade evidence signals:
+ *     Peer Mesh, Two-hop Proof, and Blind Relay Guard. The first-level page
+ *     now explains protocol motion without exposing route IDs, endpoints,
+ *     receiver identities, encrypted payloads, client IPs, DNS contents,
+ *     Memory Chain plaintext, wallet-level traffic, or social graph edges.
  *   v1.1.78 - Added fleet Two-hop Path Proof evidence to the compact Protocol
  *     Foundation panel. The summary prefers backend
  *     summary.protocol_status.protocol_foundation.two_hop_path_proof_history
@@ -288,7 +294,9 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.72 - Align Services Workbench with recommended task
+ * Last Modified: v1.1.79 - Reworked Protocol Foundation first-level layout
+ * Previous: v1.1.78 - Added fleet Two-hop Path Proof evidence
+ * Previous: v1.1.72 - Align Services Workbench with recommended task
  * Previous: v1.1.71 - Persist Services detail module in URL state
  * Previous: v1.1.70 - Add Services Operations Workbench primary task
  * Previous: v1.1.69 - Add workflow segmented control for Services modules
@@ -3146,16 +3154,23 @@ function FleetProtocolFoundationPanel({
     })
     : t('services.protocolFoundation.timestampProtectionQuiet');
   const twoHopProofDetail = summary.twoHopProofReportedNodes > 0
-    ? `${formatNumber(summary.twoHopProofSuccessPercent)}% accepted · ${summary.twoHopProofFreshnessSummary || 'freshness pending'}`
-    : 'waiting for proof telemetry';
+    ? t('services.protocolFoundation.twoHopProofDetail', {
+      percent: formatNumber(summary.twoHopProofSuccessPercent),
+      freshness: summary.twoHopProofFreshnessSummary || t('services.protocolFoundation.freshnessPending'),
+    })
+    : t('services.protocolFoundation.waitingProofTelemetry');
   const twoHopProofAge = summary.twoHopProofMinLatestSuccessAgeSeconds !== null
-    ? `${formatNumber(summary.twoHopProofMinLatestSuccessAgeSeconds)}s latest success`
-    : `${formatNumber(summary.twoHopProofFailureStreakNodes)} failure streak nodes`;
+    ? t('services.protocolFoundation.latestSuccess', {
+      seconds: formatNumber(summary.twoHopProofMinLatestSuccessAgeSeconds),
+    })
+    : t('services.protocolFoundation.failureStreakNodes', {
+      count: formatNumber(summary.twoHopProofFailureStreakNodes),
+    });
 
   return (
-    <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="max-w-3xl">
+    <section className="mb-6 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.035]">
+      <div className="grid gap-0 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.55fr)]">
+        <div className="border-b border-white/10 p-5 xl:border-b-0 xl:border-r">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-semibold text-white">{t('services.protocolFoundation.title')}</h2>
             <StatusPill status={summary.status} />
@@ -3169,85 +3184,100 @@ function FleetProtocolFoundationPanel({
           <p className="mt-2 text-sm leading-6 text-gray-400">
             {t('services.protocolFoundation.description')}
           </p>
-          <p className="mt-1 text-xs leading-5 text-gray-500">
+          <p className="mt-3 text-xs leading-5 text-gray-500">
             {summary.privacyBoundary || t('services.protocolFoundation.privacy')}
           </p>
-          <p className="mt-2 text-xs leading-5 text-gray-500">
+          <p className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs leading-5 text-gray-400">
             {t('services.protocolFoundation.blockers')}: {detail}
           </p>
         </div>
-        <div className="grid w-full gap-2 text-xs sm:grid-cols-2 xl:max-w-5xl xl:grid-cols-5">
-          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <p className="text-gray-500">{t('services.protocolFoundation.peerView')}</p>
-            <p className="mt-1 text-base font-semibold text-white">
-              {formatNumber(summary.maxValidPeers)}
-            </p>
-            <p className="mt-1 text-gray-600">
-              {t('services.protocolFoundation.foundationReady', {
-                count: formatNumber(summary.foundationReadyNodes),
+        <div className="p-5">
+          <div className="grid gap-3 md:grid-cols-3">
+            <ProtocolSignalCard
+              title={t('services.protocolFoundation.meshMetricTitle')}
+              value={`${formatNumber(summary.foundationReadyNodes)} / ${formatNumber(summary.reportedNodes)}`}
+              detail={t('services.protocolFoundation.meshMetricDetail', {
+                peers: formatNumber(summary.maxValidPeers),
               })}
-            </p>
-          </div>
-          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <p className="text-gray-500">{t('services.protocolFoundation.safeRelay')}</p>
-            <p className="mt-1 text-base font-semibold text-white">
-              {formatNumber(summary.safeRelayNodes)}
-            </p>
-            <p className="mt-1 text-gray-600">
-              {t('services.protocolFoundation.runtimeReady', {
-                count: formatNumber(summary.runtimeReadyNodes),
+              status={summary.foundationReadyNodes > 0 ? 'ok' : 'pending'}
+            />
+            <ProtocolSignalCard
+              title={t('services.protocolFoundation.twoHopMetricTitle')}
+              value={`${formatNumber(summary.twoHopProofReadyNodes)} / ${formatNumber(summary.twoHopProofReportedNodes)}`}
+              detail={twoHopProofDetail}
+              footnote={`${twoHopProofAge} · ${t('services.protocolFoundation.retainedEvents', {
+                count: formatNumber(summary.twoHopProofRetainedEvents),
+              })}`}
+              status={summary.twoHopProofFailureStreakNodes > 0 ? 'attention' : summary.twoHopProofReadyNodes > 0 ? 'ok' : 'pending'}
+            />
+            <ProtocolSignalCard
+              title={t('services.protocolFoundation.blindRelayMetricTitle')}
+              value={`${formatNumber(summary.safeRelayNodes)} / ${formatNumber(summary.endpointReadyNodes)}`}
+              detail={t('services.protocolFoundation.blindRelayMetricDetail', {
+                runtime: formatNumber(summary.runtimeReadyNodes),
+                misconfigured: formatNumber(summary.misconfiguredRelayNodes),
               })}
-            </p>
+              status={summary.misconfiguredRelayNodes > 0 ? 'attention' : summary.safeRelayNodes > 0 ? 'ok' : 'pending'}
+            />
           </div>
-          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <p className="text-gray-500">{t('services.protocolFoundation.endpointReady')}</p>
-            <p className="mt-1 text-base font-semibold text-white">
-              {formatNumber(summary.endpointReadyNodes)}
-            </p>
-            <p className="mt-1 text-gray-600">
-              {t('services.protocolFoundation.misconfigured', {
-                count: formatNumber(summary.misconfiguredRelayNodes),
-              })}
-            </p>
-          </div>
-          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <p className="text-gray-500">{t('services.protocolFoundation.evidence')}</p>
-            <p className="mt-1 break-words text-sm font-semibold text-white [overflow-wrap:anywhere]">
-              {evidenceLabel}
-            </p>
-            <p className="mt-1 text-gray-600">
-              {evidenceDetail}
-            </p>
-          </div>
-          <div className={`rounded-lg border px-3 py-2 ${
-            summary.twoHopProofFailureStreakNodes > 0
-              ? 'border-yellow-400/20 bg-yellow-400/[0.05]'
-              : summary.twoHopProofReadyNodes > 0
-                ? 'border-emerald-400/15 bg-emerald-400/[0.04]'
-                : 'border-white/10 bg-black/20'
-          }`}>
-            <p className="text-gray-500">Two-hop proof</p>
-            <p className="mt-1 text-base font-semibold text-white">
-              {formatNumber(summary.twoHopProofReadyNodes)} / {formatNumber(summary.twoHopProofReportedNodes)}
-            </p>
-            <p className="mt-1 text-gray-600">
-              {twoHopProofDetail}
-            </p>
-            <p className="mt-1 text-[11px] text-gray-600">
-              {twoHopProofAge} · {formatNumber(summary.twoHopProofRetainedEvents)} retained events
-            </p>
-          </div>
-          <div className="rounded-lg border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2 sm:col-span-2 xl:col-span-5">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-gray-500">{t('services.protocolFoundation.timestampProtection')}</p>
-              <p className="text-sm font-semibold text-emerald-200">
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+              <p className="text-xs uppercase tracking-[0.14em] text-gray-500">
+                {t('services.protocolFoundation.evidence')}
+              </p>
+              <p className="mt-2 text-sm font-semibold text-white">{evidenceLabel}</p>
+              <p className="mt-1 text-xs leading-5 text-gray-500">{evidenceDetail}</p>
+            </div>
+            <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] p-3">
+              <p className="text-xs uppercase tracking-[0.14em] text-emerald-300/70">
+                {t('services.protocolFoundation.timestampProtection')}
+              </p>
+              <p className="mt-2 text-sm font-semibold text-emerald-100">
                 {timestampProtectionDetail}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-emerald-100/55">
+                {t('services.protocolFoundation.guardLine')}
               </p>
             </div>
           </div>
         </div>
       </div>
     </section>
+  );
+}
+
+function ProtocolSignalCard({
+  title,
+  value,
+  detail,
+  footnote,
+  status,
+}: {
+  title: string;
+  value: string;
+  detail: string;
+  footnote?: string;
+  status: 'ok' | 'attention' | 'pending';
+}) {
+  const dotClass = status === 'ok'
+    ? 'bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.35)]'
+    : status === 'attention'
+      ? 'bg-yellow-300 shadow-[0_0_18px_rgba(250,204,21,0.28)]'
+      : 'bg-gray-500';
+
+  return (
+    <div className="min-h-[142px] rounded-xl border border-white/10 bg-black/20 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs uppercase tracking-[0.14em] text-gray-500">{title}</p>
+        <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
+      </div>
+      <p className="mt-4 text-2xl font-semibold tabular-nums text-white">{value}</p>
+      <p className="mt-2 text-sm leading-5 text-gray-400">{detail}</p>
+      {footnote && (
+        <p className="mt-2 text-xs leading-5 text-gray-600">{footnote}</p>
+      )}
+    </div>
   );
 }
 
