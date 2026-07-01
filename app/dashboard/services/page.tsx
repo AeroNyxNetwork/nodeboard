@@ -10,6 +10,12 @@
  * Layer, and SuperNode diagnostics opened only when needed.
  *
  * Modification Reason:
+ *   v1.1.82 - Added an Onion Relay Pool admission detail panel under the
+ *     Services Layers module. The detail panel explains the permissionless
+ *     admission model, warm-up gates, client-selected routing, and honest
+ *     Sybil-resistance roadmap without exposing node IDs, endpoints, route
+ *     IDs, receiver identities, encrypted payloads, client IPs, DNS contents,
+ *     Memory Chain plaintext, wallet-level traffic, or social graph edges.
  *   v1.1.81 - Added a permissionless Onion Relay Pool eligibility strip to
  *     the first-level Protocol Foundation panel. The strip explains whether
  *     nodes are eligible to be selected for two-hop onion relay based on
@@ -310,7 +316,8 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.81 - Added permissionless Onion Relay Pool eligibility
+ * Last Modified: v1.1.82 - Added Onion Relay Pool admission detail panel
+ * Previous: v1.1.81 - Added permissionless Onion Relay Pool eligibility
  * Previous: v1.1.80 - Added Protocol Foundation App E2E readiness gate
  * Previous: v1.1.79 - Reworked Protocol Foundation first-level layout
  * Previous: v1.1.78 - Added fleet Two-hop Path Proof evidence
@@ -3428,6 +3435,121 @@ function ProtocolSignalCard({
         <p className="mt-2 text-xs leading-5 text-gray-600">{footnote}</p>
       )}
     </div>
+  );
+}
+
+function OnionRelayPoolDetailPanel({
+  summary,
+}: {
+  summary: FleetProtocolFoundationSummary;
+}) {
+  const { t, formatNumber } = useI18n();
+  const relayPoolReady = summary.relayPoolReadyNodes >= 2
+    && summary.relayPoolRouteableChatRelays >= 2
+    && summary.relayPoolRouteableOnionMiddleHops >= 2
+    && summary.twoHopProofReadyNodes >= 2;
+  const statusTone = relayPoolReady
+    ? 'border-cyan-300/20 bg-cyan-300/[0.045]'
+    : 'border-yellow-400/20 bg-yellow-400/[0.045]';
+  const statusText = relayPoolReady
+    ? t('services.relayPoolDetail.status.ready')
+    : t('services.relayPoolDetail.status.warming');
+  const detailRows = [
+    {
+      label: t('services.relayPoolDetail.metric.eligible'),
+      value: `${formatNumber(summary.relayPoolReadyNodes)} / ${formatNumber(summary.reportedNodes)}`,
+      detail: t('services.relayPoolDetail.metric.eligibleDetail'),
+    },
+    {
+      label: t('services.relayPoolDetail.metric.chatRelay'),
+      value: formatNumber(summary.relayPoolRouteableChatRelays),
+      detail: t('services.relayPoolDetail.metric.chatRelayDetail'),
+    },
+    {
+      label: t('services.relayPoolDetail.metric.onionMiddle'),
+      value: formatNumber(summary.relayPoolRouteableOnionMiddleHops),
+      detail: t('services.relayPoolDetail.metric.onionMiddleDetail'),
+    },
+    {
+      label: t('services.relayPoolDetail.metric.recovery'),
+      value: `${formatNumber(summary.relayPoolRestartRecoveryNodes)} / ${formatNumber(summary.reportedNodes)}`,
+      detail: t('services.relayPoolDetail.metric.recoveryDetail'),
+    },
+  ];
+  const admissionSteps = [
+    t('services.relayPoolDetail.step.configure'),
+    t('services.relayPoolDetail.step.descriptor'),
+    t('services.relayPoolDetail.step.gossip'),
+    t('services.relayPoolDetail.step.warmup'),
+    t('services.relayPoolDetail.step.client'),
+  ];
+  const roadmapItems = [
+    t('services.relayPoolDetail.roadmap.sybil'),
+    t('services.relayPoolDetail.roadmap.diversity'),
+    t('services.relayPoolDetail.roadmap.threeHop'),
+    t('services.relayPoolDetail.roadmap.reputation'),
+  ];
+
+  return (
+    <section className="mb-6 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
+      <div className="grid gap-0 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1.35fr)]">
+        <div className="border-b border-white/10 p-5 xl:border-b-0 xl:border-r">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold text-white">{t('services.relayPoolDetail.title')}</h2>
+            <span className={`rounded-full border px-2.5 py-1 text-xs ${statusTone}`}>
+              {statusText}
+            </span>
+          </div>
+          <p className="mt-2 text-sm leading-6 text-gray-400">
+            {t('services.relayPoolDetail.description')}
+          </p>
+          <p className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs leading-5 text-gray-500">
+            {t('services.relayPoolDetail.privacy')}
+          </p>
+        </div>
+        <div className="p-5">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {detailRows.map((row) => (
+              <div key={row.label} className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="text-[11px] uppercase tracking-[0.12em] text-gray-500">{row.label}</p>
+                <p className="mt-2 text-xl font-semibold tabular-nums text-white">{row.value}</p>
+                <p className="mt-1 text-xs leading-5 text-gray-500">{row.detail}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+              <p className="text-xs uppercase tracking-[0.14em] text-gray-500">
+                {t('services.relayPoolDetail.admissionTitle')}
+              </p>
+              <ol className="mt-3 space-y-2 text-sm leading-5 text-gray-300">
+                {admissionSteps.map((step, index) => (
+                  <li key={step} className="flex gap-3">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-cyan-300/20 bg-cyan-300/[0.06] text-[11px] text-cyan-100">
+                      {index + 1}
+                    </span>
+                    <span>{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            <div className="rounded-xl border border-yellow-300/15 bg-yellow-300/[0.045] p-4">
+              <p className="text-xs uppercase tracking-[0.14em] text-yellow-100/70">
+                {t('services.relayPoolDetail.securityTitle')}
+              </p>
+              <ul className="mt-3 space-y-2 text-sm leading-5 text-yellow-50/75">
+                {roadmapItems.map((item) => (
+                  <li key={item} className="flex gap-2">
+                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-yellow-200/70" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -7036,6 +7158,8 @@ export default function NodeServicesPage() {
 
       {activeDetailSection === 'layers' && (
         <>
+          <OnionRelayPoolDetailPanel summary={protocolFoundation} />
+
           <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
