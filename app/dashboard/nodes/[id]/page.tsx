@@ -318,7 +318,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.57 - Prefer backend-fetched Rust discovery summary
+ * Last Modified: v1.6.58 - Added node-level Onion Relay admission view
+ * Previous: v1.6.57 - Prefer backend-fetched Rust discovery summary
  * Previous: v1.6.56 - Show two-hop path proof freshness
  * Previous: v1.6.55 - Expand relay protection delivery summary
  * Previous: v1.6.54 - Show PeerStore lifecycle events
@@ -3792,6 +3793,12 @@ function localCapabilitySafeToAdvertise(capability: DiscoveryLocalCapabilityStat
   );
 }
 
+function nodeOnionAdmissionTone(ready: boolean, attention: boolean) {
+  if (ready) return 'border-cyan-300/20 bg-cyan-300/[0.045]';
+  if (attention) return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  return 'border-white/5 bg-black/20';
+}
+
 function networkStoryTone(story: DiscoveryNetworkStoryStatus | null | undefined) {
   if (!story) return 'border-white/5 bg-black/20';
   if (story.status === 'attention') return 'border-yellow-500/25 bg-yellow-500/[0.06]';
@@ -4369,6 +4376,149 @@ function LocalCapabilityPanel({
   );
 }
 
+function NodeOnionRelayAdmissionPanel({
+  capability,
+  story,
+  quorum,
+  proof,
+  summary,
+}: {
+  capability: DiscoveryLocalCapabilityStatus | null | undefined;
+  story: DiscoveryNetworkStoryStatus | null | undefined;
+  quorum: DiscoveryPeerQuorumStatus | null | undefined;
+  proof: DiscoveryTwoHopPathProofHistory | null | undefined;
+  summary?: DiscoverySummaryStatus | null;
+}) {
+  const { t, formatNumber } = useI18n();
+  const summaryCapability = summary?.local_capability ?? null;
+  const summaryMesh = summary?.peer_mesh ?? null;
+  const localRelayReady = capability
+    ? localCapabilitySafeToAdvertise(capability)
+    : Boolean(summaryCapability?.safe_to_advertise_chat_relay);
+  const chatRelayRuntimeReady = Boolean(
+    capability?.chat_relay_runtime_ready
+    ?? summaryCapability?.chat_relay_runtime_ready,
+  );
+  const endpointReady = Boolean(
+    capability?.blind_relay_endpoint_ready
+    ?? summaryCapability?.blind_relay_endpoint_ready,
+  );
+  const onionRouteViewReady = Boolean(
+    summaryMesh?.chat_two_hop_onion_ready
+    || story?.chat_two_hop_onion_ready
+    || quorum?.relay_foundation_ready,
+  );
+  const routeableChatRelays = Number(
+    summaryMesh?.routeable_chat_relays
+    ?? story?.routeable_chat_relays
+    ?? quorum?.routeable_chat_relays
+    ?? 0,
+  );
+  const routeableOnionHops = Number(
+    summaryMesh?.routeable_onion_middle_hops
+    ?? story?.routeable_onion_middle_hops
+    ?? quorum?.routeable_onion_middle_hops
+    ?? 0,
+  );
+  const proofReady = Boolean(proof?.proof_ready || summary?.two_hop_path_proof?.proof_ready);
+  const restartRecoveryReady = Boolean(
+    summaryMesh?.restart_recovery_configured
+    || story?.restart_recovery_configured
+    || quorum?.restart_recovery_configured,
+  );
+  const admissionReady = localRelayReady
+    && onionRouteViewReady
+    && routeableChatRelays >= 2
+    && routeableOnionHops >= 2
+    && proofReady
+    && restartRecoveryReady;
+  const hasAdmissionData = Boolean(capability)
+    || Boolean(story)
+    || Boolean(quorum)
+    || Boolean(proof)
+    || Boolean(summary);
+  const attention = hasAdmissionData && !admissionReady;
+  const tone = nodeOnionAdmissionTone(admissionReady, attention);
+  const rows = [
+    {
+      label: t('nodeDetail.discovery.onionAdmission.localRelay'),
+      value: localCapabilityBooleanLabel(localRelayReady, t),
+      ready: localRelayReady,
+      detail: chatRelayRuntimeReady && endpointReady
+        ? t('nodeDetail.discovery.onionAdmission.localRelayReady')
+        : t('nodeDetail.discovery.onionAdmission.localRelayBlocked'),
+    },
+    {
+      label: t('nodeDetail.discovery.onionAdmission.routePool'),
+      value: localCapabilityBooleanLabel(onionRouteViewReady, t),
+      ready: onionRouteViewReady,
+      detail: t('nodeDetail.discovery.onionAdmission.routePoolDetail', {
+        chat: formatNumber(routeableChatRelays),
+        onion: formatNumber(routeableOnionHops),
+      }),
+    },
+    {
+      label: t('nodeDetail.discovery.onionAdmission.pathProof'),
+      value: localCapabilityBooleanLabel(proofReady, t),
+      ready: proofReady,
+      detail: proof?.latest_reason_bucket
+        ? proof.latest_reason_bucket.replaceAll('_', ' ')
+        : t('nodeDetail.discovery.onionAdmission.pathProofPending'),
+    },
+    {
+      label: t('nodeDetail.discovery.onionAdmission.restartRecovery'),
+      value: localCapabilityBooleanLabel(restartRecoveryReady, t),
+      ready: restartRecoveryReady,
+      detail: restartRecoveryReady
+        ? t('nodeDetail.discovery.onionAdmission.restartRecoveryReady')
+        : t('nodeDetail.discovery.onionAdmission.restartRecoveryBlocked'),
+    },
+  ];
+
+  if (!hasAdmissionData) return null;
+
+  return (
+    <div className={`mt-4 rounded-xl border p-3 ${tone}`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-300">
+              {t('nodeDetail.discovery.onionAdmission.title')}
+            </p>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${tone}`}>
+              {admissionReady
+                ? t('nodeDetail.discovery.onionAdmission.status.ready')
+                : t('nodeDetail.discovery.onionAdmission.status.warming')}
+            </span>
+          </div>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-gray-400">
+            {t('nodeDetail.discovery.onionAdmission.description')}
+          </p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-[11px] leading-4 text-gray-500 lg:max-w-md">
+          <p className="font-medium text-gray-300">
+            {admissionReady
+              ? t('nodeDetail.discovery.onionAdmission.readyDetail')
+              : t('nodeDetail.discovery.onionAdmission.warmingDetail')}
+          </p>
+          <p className="mt-1">{t('nodeDetail.discovery.onionAdmission.privacy')}</p>
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {rows.map((row) => (
+          <div key={row.label} className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-600">{row.label}</p>
+            <p className={`mt-1 text-sm font-semibold ${row.ready ? 'text-cyan-100' : 'text-gray-300'}`}>
+              {row.value}
+            </p>
+            <p className="mt-1 text-[11px] leading-4 text-gray-500">{row.detail}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RelayProtectionPanel({
   relay,
   peerHealth,
@@ -4573,6 +4723,13 @@ function DiscoveryStatusPanel({
             </p>
           </div>
         </div>
+        <NodeOnionRelayAdmissionPanel
+          capability={null}
+          story={null}
+          quorum={null}
+          proof={summaryProof}
+          summary={summary}
+        />
         {summaryProof && <TwoHopProofPanel proof={summaryProof} />}
         <p className="mt-3 text-[11px] leading-5 text-gray-600">{t('nodeDetail.discovery.backendPath')}</p>
       </div>
@@ -4657,6 +4814,14 @@ function DiscoveryStatusPanel({
       <PeerQuorumPanel quorum={peerQuorum} />
 
       <LocalCapabilityPanel capability={localCapabilities} />
+
+      <NodeOnionRelayAdmissionPanel
+        capability={localCapabilities}
+        story={networkStory}
+        quorum={peerQuorum}
+        proof={twoHopProof}
+        summary={summary}
+      />
 
       {stability && (
         <div className={`mt-4 rounded-xl border p-3 ${discoveryStabilityTone(stability)}`}>
