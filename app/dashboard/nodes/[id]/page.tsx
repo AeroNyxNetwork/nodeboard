@@ -525,6 +525,7 @@ const NODE_DETAIL_VPN_COMMAND_ACTIONS = new Set([
   'collect_logs',
   'refresh_config',
   'apply_policy',
+  'two_hop_smoke',
   'restart_service',
   'kick_session',
   'ban_wallet',
@@ -5260,7 +5261,15 @@ function blindRelayRuntimeAgeLabel(
   return `${formatNumber(hours)}h ago`;
 }
 
-function EncryptedRelayRuntimePanel({ runtime }: { runtime: BlindRelayRuntimeStatus | null | undefined }) {
+function EncryptedRelayRuntimePanel({
+  runtime,
+  isSmokePending,
+  onRunSmoke,
+}: {
+  runtime: BlindRelayRuntimeStatus | null | undefined;
+  isSmokePending?: boolean;
+  onRunSmoke?: () => void;
+}) {
   const { formatNumber } = useI18n();
   const pending = 'Pending';
   const tone = blindRelayRuntimeTone(runtime);
@@ -5278,9 +5287,20 @@ function EncryptedRelayRuntimePanel({ runtime }: { runtime: BlindRelayRuntimeSta
               Waiting for the Rust node to report the blind relay runtime contract.
             </p>
           </div>
-          <p className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs leading-5 text-gray-500 lg:max-w-md">
-            This panel shows aggregate relay readiness only. It must never expose route IDs, endpoints, payloads, or social graph data.
-          </p>
+          <div className="flex flex-col gap-2 lg:max-w-md">
+            <p className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs leading-5 text-gray-500">
+              This panel shows aggregate relay readiness only. It must never expose route IDs, endpoints, payloads, or social graph data.
+            </p>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={!onRunSmoke || isSmokePending}
+              isLoading={isSmokePending}
+              onClick={onRunSmoke}
+            >
+              Run two-hop smoke
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -5337,6 +5357,16 @@ function EncryptedRelayRuntimePanel({ runtime }: { runtime: BlindRelayRuntimeSta
           <p className="mt-1 leading-5">
             {runtime.readiness_reason?.replaceAll('_', ' ') || realEvidence}
           </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mt-3"
+            disabled={!onRunSmoke || isSmokePending}
+            isLoading={isSmokePending}
+            onClick={onRunSmoke}
+          >
+            Run two-hop smoke
+          </Button>
         </div>
       </div>
 
@@ -5911,6 +5941,7 @@ function commandLabel(command: NodeCommand, t: TranslateFn) {
     collect_logs: t('events.command.collectLogs'),
     refresh_config: t('events.command.refreshConfig'),
     apply_policy: t('events.command.applyPolicy'),
+    two_hop_smoke: 'Two-hop relay smoke',
     restart_service: t('events.command.restartService'),
     kick_session: t('events.command.kickSession'),
     ban_wallet: t('events.command.banWallet'),
@@ -7868,14 +7899,16 @@ function VpnHealthPanel({
   );
   const failedCommandCount = (commandStats?.failed ?? 0) + (commandStats?.timeout ?? 0);
 
-  const handleRunCommand = async (action: 'system_info' | 'collect_logs' | 'refresh_config') => {
-    const priority = action === 'collect_logs' ? 10 : action === 'refresh_config' ? 3 : 5;
+  const handleRunCommand = async (action: 'system_info' | 'collect_logs' | 'refresh_config' | 'two_hop_smoke') => {
+    const priority = action === 'collect_logs' ? 10 : action === 'refresh_config' || action === 'two_hop_smoke' ? 3 : 5;
     const successMessage =
       action === 'system_info'
         ? t('nodeDetail.commands.systemDiagnosticsQueued')
         : action === 'collect_logs'
           ? t('nodeDetail.commands.logCollectionQueued')
-          : t('nodeDetail.commands.configRefreshQueued');
+          : action === 'two_hop_smoke'
+            ? 'Two-hop encrypted relay smoke queued. Watch command history for the aggregate proof result.'
+            : t('nodeDetail.commands.configRefreshQueued');
 
     try {
       await runCommand.mutateAsync({
@@ -8033,6 +8066,10 @@ function VpnHealthPanel({
   const placement = servers.find((server) => server.id === nodeId) ?? null;
   const restartCommandActive = vpnCommands.some((command) => (
     command.action === 'restart_service'
+    && ['pending', 'sent', 'executing'].includes(command.status)
+  ));
+  const twoHopSmokeCommandActive = vpnCommands.some((command) => (
+    command.action === 'two_hop_smoke'
     && ['pending', 'sent', 'executing'].includes(command.status)
   ));
   const restartBlockers = restartReadinessBlockers({
@@ -8374,7 +8411,11 @@ function VpnHealthPanel({
         discovery={health.system.discovery_status}
         summary={health.system.discovery_summary}
       />
-      <EncryptedRelayRuntimePanel runtime={health.system.blind_relay_runtime} />
+      <EncryptedRelayRuntimePanel
+        runtime={health.system.blind_relay_runtime}
+        isSmokePending={runCommand.isPending || twoHopSmokeCommandActive}
+        onRunSmoke={() => handleRunCommand('two_hop_smoke')}
+      />
       <ChatRelayStatusPanel relay={health.system.chat_relay_status} />
       <ServiceConfigurationPanel health={health} />
       <UpgradeWorkflowPanel health={health} />
@@ -8574,6 +8615,7 @@ function eventCommandLabel(action: string | null | undefined, t: TranslateFn) {
     collect_logs: t('events.command.collectLogs'),
     refresh_config: t('events.command.refreshConfig'),
     apply_policy: t('events.command.applyPolicy'),
+    two_hop_smoke: 'Two-hop relay smoke',
     restart_service: t('events.command.restartService'),
     kick_session: t('events.command.kickSession'),
     ban_wallet: t('events.command.banWallet'),
