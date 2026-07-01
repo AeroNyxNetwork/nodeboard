@@ -10,6 +10,14 @@
  * Layer, and SuperNode diagnostics opened only when needed.
  *
  * Modification Reason:
+ *   v1.1.81 - Added a permissionless Onion Relay Pool eligibility strip to
+ *     the first-level Protocol Foundation panel. The strip explains whether
+ *     nodes are eligible to be selected for two-hop onion relay based on
+ *     aggregate ChatRelay, OnionMiddle, signed-discovery, reachability, and
+ *     proof-readiness signals. It must never expose node IDs, endpoints,
+ *     route IDs, receiver identities, encrypted payloads, client IPs, DNS
+ *     contents, Memory Chain plaintext, wallet-level traffic, or social graph
+ *     edges.
  *   v1.1.80 - Added an aggregate App E2E readiness banner to the Protocol
  *     Foundation panel. Operators can now see whether the fleet is ready for
  *     controlled two-device App privacy-route testing without opening raw
@@ -302,7 +310,9 @@
  *   Protocol traffic today, which service layers are enabled, what risks need
  *   remediation, and whether the backend/Rust heartbeat path is fresh.
  *
- * Last Modified: v1.1.79 - Reworked Protocol Foundation first-level layout
+ * Last Modified: v1.1.81 - Added permissionless Onion Relay Pool eligibility
+ * Previous: v1.1.80 - Added Protocol Foundation App E2E readiness gate
+ * Previous: v1.1.79 - Reworked Protocol Foundation first-level layout
  * Previous: v1.1.78 - Added fleet Two-hop Path Proof evidence
  * Previous: v1.1.72 - Align Services Workbench with recommended task
  * Previous: v1.1.71 - Persist Services detail module in URL state
@@ -482,6 +492,10 @@ interface FleetProtocolFoundationSummary {
   realRelayReadyNodes: number;
   syntheticProbeReadyNodes: number;
   probeFailedNodes: number;
+  relayPoolReadyNodes: number;
+  relayPoolRouteableChatRelays: number;
+  relayPoolRouteableOnionMiddleHops: number;
+  relayPoolRestartRecoveryNodes: number;
   twoHopProofReportedNodes: number;
   twoHopProofReadyNodes: number;
   twoHopProofRetainedEvents: number;
@@ -820,6 +834,10 @@ function buildProtocolFoundationSummary(
   let realRelayReadyNodes = 0;
   let syntheticProbeReadyNodes = 0;
   let probeFailedNodes = 0;
+  let relayPoolReadyNodes = 0;
+  let relayPoolRouteableChatRelays = 0;
+  let relayPoolRouteableOnionMiddleHops = 0;
+  let relayPoolRestartRecoveryNodes = 0;
   let timestampRejected = 0;
   let twoHopProofReportedNodes = 0;
   let twoHopProofReadyNodes = 0;
@@ -835,16 +853,20 @@ function buildProtocolFoundationSummary(
 
   nodes.forEach((node) => {
     const discovery = node.system.discovery_status;
-    if (!discovery?.peer_store) return;
+    const discoverySummary = node.system.discovery_summary;
+    if (!discovery?.peer_store && !discoverySummary) return;
 
     reportedNodes += 1;
-    const story = discovery.peer_store.network_story;
-    const foundation = discovery.discovery_readiness?.protocol_foundation;
-    const blindRelay = discovery.peer_store.runtime?.blind_relay;
-    const twoHopProof = discovery.peer_store.two_hop_path_proof_history;
-    const localCapabilities = discovery.local_capabilities;
+    const story = discovery?.peer_store?.network_story;
+    const foundation = discovery?.discovery_readiness?.protocol_foundation;
+    const blindRelay = discovery?.peer_store?.runtime?.blind_relay;
+    const twoHopProof = discovery?.peer_store?.two_hop_path_proof_history;
+    const localCapabilities = discovery?.local_capabilities;
+    const summaryPeerMesh = discoverySummary?.peer_mesh;
+    const summaryLocalCapability = discoverySummary?.local_capability;
     const validPeers = foundation?.verified_peer_count
-      ?? discovery.peer_store.snapshot?.valid_peers
+      ?? summaryPeerMesh?.valid_peers
+      ?? discovery?.peer_store?.snapshot?.valid_peers
       ?? story?.valid_nodes
       ?? 0;
 
@@ -852,7 +874,7 @@ function buildProtocolFoundationSummary(
     if (
       foundation?.status === 'ready'
       || story?.relay_foundation_ready
-      || discovery.peer_store.stability?.relay_foundation_ready
+      || discovery?.peer_store?.stability?.relay_foundation_ready
     ) {
       foundationReadyNodes += 1;
     }
@@ -878,6 +900,33 @@ function buildProtocolFoundationSummary(
       probeFailedNodes += 1;
     }
     timestampRejected += Number(foundation?.timestamp_rejected ?? blindRelay?.timestamp_rejected ?? 0);
+    const nodeRouteableChatRelays = Number(
+      summaryPeerMesh?.routeable_chat_relays
+      ?? story?.routeable_chat_relays
+      ?? foundation?.routeable_relay_count
+      ?? 0,
+    );
+    const nodeRouteableOnionMiddleHops = Number(
+      summaryPeerMesh?.routeable_onion_middle_hops
+      ?? story?.routeable_onion_middle_hops
+      ?? 0,
+    );
+    relayPoolRouteableChatRelays = Math.max(relayPoolRouteableChatRelays, nodeRouteableChatRelays);
+    relayPoolRouteableOnionMiddleHops = Math.max(relayPoolRouteableOnionMiddleHops, nodeRouteableOnionMiddleHops);
+    if (
+      summaryPeerMesh?.chat_two_hop_onion_ready
+      || story?.chat_two_hop_onion_ready
+      || foundation?.two_hop_onion_ready
+      || discoverySummary?.stage === 'two_hop_path_ready'
+    ) {
+      relayPoolReadyNodes += 1;
+    }
+    if (
+      summaryPeerMesh?.restart_recovery_configured
+      || story?.restart_recovery_configured
+    ) {
+      relayPoolRestartRecoveryNodes += 1;
+    }
     if (twoHopProof) {
       twoHopProofReportedNodes += 1;
       twoHopProofRetainedEvents += Number(twoHopProof.retained_events ?? 0);
@@ -901,21 +950,20 @@ function buildProtocolFoundationSummary(
           : Math.min(twoHopProofMinLatestSuccessAgeSeconds, ageSeconds);
       }
     }
-    if (localCapabilities?.safe_to_advertise_chat_relay) {
+    if (localCapabilities?.safe_to_advertise_chat_relay || summaryLocalCapability?.safe_to_advertise_chat_relay) {
       safeRelayNodes += 1;
     }
-    if (localCapabilities?.chat_relay_runtime_ready) {
+    if (localCapabilities?.chat_relay_runtime_ready || summaryLocalCapability?.chat_relay_runtime_ready) {
       runtimeReadyNodes += 1;
     }
-    if (localCapabilities?.blind_relay_endpoint_ready) {
+    if (localCapabilities?.blind_relay_endpoint_ready || summaryLocalCapability?.blind_relay_endpoint_ready) {
       endpointReadyNodes += 1;
     }
     if (
-      localCapabilities
-      && (
-        localCapabilities.status === 'misconfigured'
-        || localCapabilities.capability_config_consistent === false
-      )
+      localCapabilities?.status === 'misconfigured'
+      || localCapabilities?.capability_config_consistent === false
+      || summaryLocalCapability?.status === 'misconfigured'
+      || summaryLocalCapability?.capability_config_consistent === false
     ) {
       misconfiguredRelayNodes += 1;
     }
@@ -925,7 +973,11 @@ function buildProtocolFoundationSummary(
         blockerCounts.set(blocker, (blockerCounts.get(blocker) ?? 0) + 1);
       });
     }
-    privacyBoundary = privacyBoundary ?? discovery.privacy_boundary ?? story?.privacy_boundary ?? null;
+    privacyBoundary = privacyBoundary
+      ?? discoverySummary?.privacy_boundary
+      ?? discovery?.privacy_boundary
+      ?? story?.privacy_boundary
+      ?? null;
   });
 
   const blockerSummary = [...blockerCounts.entries()]
@@ -1010,6 +1062,10 @@ function buildProtocolFoundationSummary(
       realRelayReadyNodes: Number(backendFoundation.real_relay_ready_nodes ?? realRelayReadyNodes),
       syntheticProbeReadyNodes: Number(backendFoundation.synthetic_probe_ready_nodes ?? syntheticProbeReadyNodes),
       probeFailedNodes: backendProbeFailed,
+      relayPoolReadyNodes,
+      relayPoolRouteableChatRelays,
+      relayPoolRouteableOnionMiddleHops,
+      relayPoolRestartRecoveryNodes,
       twoHopProofReportedNodes: Number(backendTwoHop?.reported_nodes ?? twoHopProofReportedNodes),
       twoHopProofReadyNodes: Number(
         backendFoundation.two_hop_path_proof_ready_nodes
@@ -1051,6 +1107,10 @@ function buildProtocolFoundationSummary(
     realRelayReadyNodes,
     syntheticProbeReadyNodes,
     probeFailedNodes,
+    relayPoolReadyNodes,
+    relayPoolRouteableChatRelays,
+    relayPoolRouteableOnionMiddleHops,
+    relayPoolRestartRecoveryNodes,
     twoHopProofReportedNodes,
     twoHopProofReadyNodes,
     twoHopProofRetainedEvents,
@@ -3186,6 +3246,16 @@ function FleetProtocolFoundationPanel({
   const appE2eDot = appE2eReady
     ? 'bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.35)]'
     : 'bg-yellow-300 shadow-[0_0_18px_rgba(250,204,21,0.25)]';
+  const relayPoolReady = summary.relayPoolReadyNodes >= 2
+    && summary.relayPoolRouteableChatRelays >= 2
+    && summary.relayPoolRouteableOnionMiddleHops >= 2
+    && summary.twoHopProofReadyNodes >= 2;
+  const relayPoolTone = relayPoolReady
+    ? 'border-cyan-300/20 bg-cyan-300/[0.045] text-cyan-100'
+    : 'border-white/10 bg-black/20 text-gray-300';
+  const relayPoolDot = relayPoolReady
+    ? 'bg-cyan-300 shadow-[0_0_18px_rgba(103,232,249,0.28)]'
+    : 'bg-gray-500';
 
   return (
     <section className="mb-6 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.035]">
@@ -3233,6 +3303,44 @@ function FleetProtocolFoundationPanel({
                 failed: formatNumber(summary.probeFailedNodes + summary.twoHopProofFailureStreakNodes),
               })}
             </p>
+          </div>
+          <div className={`mb-4 rounded-xl border px-4 py-3 ${relayPoolTone}`}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-[0.14em] opacity-70">
+                  {t('services.protocolFoundation.relayPoolEyebrow')}
+                </p>
+                <p className="mt-1 text-sm font-semibold">
+                  {relayPoolReady
+                    ? t('services.protocolFoundation.relayPoolReady')
+                    : t('services.protocolFoundation.relayPoolWarming')}
+                </p>
+              </div>
+              <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${relayPoolDot}`} />
+            </div>
+            <p className="mt-2 text-xs leading-5 opacity-70">
+              {t('services.protocolFoundation.relayPoolDetail', {
+                eligible: `${formatNumber(summary.relayPoolReadyNodes)} / ${formatNumber(summary.reportedNodes)}`,
+                chat: formatNumber(summary.relayPoolRouteableChatRelays),
+                onion: formatNumber(summary.relayPoolRouteableOnionMiddleHops),
+                recovery: `${formatNumber(summary.relayPoolRestartRecoveryNodes)} / ${formatNumber(summary.reportedNodes)}`,
+              })}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[
+                t('services.protocolFoundation.relayPoolGate.config'),
+                t('services.protocolFoundation.relayPoolGate.descriptor'),
+                t('services.protocolFoundation.relayPoolGate.reachability'),
+                t('services.protocolFoundation.relayPoolGate.clientSelected'),
+              ].map((label) => (
+                <span
+                  key={label}
+                  className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] leading-none opacity-75"
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
           </div>
           <div className="grid gap-3 md:grid-cols-3">
             <ProtocolSignalCard
