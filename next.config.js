@@ -3,18 +3,18 @@
  * AeroNyx Next.js Configuration
  * ============================================
  * File Path: next.config.js
- * 
+ *
  * Creation Reason: Next.js configuration for the project
  * Main Functionality: Build settings, image domains, and optimizations
- * 
- * Last Modified: v1.0.0 - Initial configuration
+ *
+ * Last Modified: v1.1.0 - Add apple-app-site-association Content-Type header (Universal Links)
  * ============================================
  */
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  
+
   // Image optimization
   images: {
     remotePatterns: [
@@ -42,6 +42,18 @@ const nextConfig = {
           {
             key: 'Referrer-Policy',
             value: 'origin-when-cross-origin',
+          },
+        ],
+      },
+      {
+        // [UNIVERSAL-LINKS] The AASA file has no extension, so it would be served as
+        // octet-stream; iOS wants application/json. Force it here. assetlinks.json keeps
+        // its .json extension and needs no override.
+        source: '/.well-known/apple-app-site-association',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/json',
           },
         ],
       },

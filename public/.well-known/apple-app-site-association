@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": ["L88SHJ685N.com.amaterasu.AeroNyx"],
+        "appID": "L88SHJ685N.com.amaterasu.AeroNyx",
+        "paths": ["/p2p/*", "/i/*"],
+        "components": [
+          { "/": "/p2p/*", "comment": "P2P add-contact universal links" },
+          { "/": "/i/*", "comment": "short invite links (reserved)" }
+        ]
+      }
+    ]
+  }
+}
