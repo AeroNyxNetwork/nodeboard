@@ -401,6 +401,7 @@ import {
   useDeleteNode,
 } from '@/hooks/useNodes';
 import {
+  BlindRelayRuntimeStatus,
   ChatRelayStatus,
   DiscoverySummaryStatus,
   NodeCommand,
@@ -5212,6 +5213,170 @@ function chatRelayTimestampLabel(
     : pending;
 }
 
+function blindRelayRuntimeTone(runtime: BlindRelayRuntimeStatus | null | undefined) {
+  if (!runtime) return 'border-gray-500/20 bg-gray-500/[0.04]';
+  if (runtime.status === 'attention' || runtime.proof_counters?.failure_streak_active) {
+    return 'border-yellow-500/25 bg-yellow-500/[0.06]';
+  }
+  if (runtime.runtime_ready && runtime.quality_ready) return 'border-emerald-500/15 bg-emerald-500/[0.04]';
+  if (runtime.runtime_ready || runtime.synthetic_probe_ready || runtime.probe_counters?.two_hop_succeeded) {
+    return 'border-cyan-500/15 bg-cyan-500/[0.04]';
+  }
+  return 'border-white/5 bg-black/20';
+}
+
+function blindRelayRuntimeStatusLabel(runtime: BlindRelayRuntimeStatus | null | undefined) {
+  if (!runtime) return 'Pending';
+  if (runtime.status) return runtime.status.replaceAll('_', ' ');
+  if (runtime.runtime_ready && runtime.quality_ready) return 'Ready';
+  if (runtime.runtime_ready) return 'Warming';
+  return 'Pending';
+}
+
+function blindRelayRuntimeWarningCount(runtime: BlindRelayRuntimeStatus | null | undefined) {
+  if (!runtime) return 0;
+  const counters = runtime.relay_counters;
+  const proof = runtime.proof_counters;
+  return [
+    runtime.status === 'attention',
+    runtime.quality_ready === false && runtime.runtime_ready,
+    Boolean(proof?.failure_streak_active || proof?.failure_circuit_breaker_active),
+    Number(counters?.forward_failed ?? 0) > 0,
+    Number(counters?.route_ttl_exhausted ?? 0) > 0,
+    Number(counters?.retry_exhausted ?? 0) > 0,
+  ].filter(Boolean).length;
+}
+
+function blindRelayRuntimeAgeLabel(
+  seconds: number | null | undefined,
+  pending: string,
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
+) {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return pending;
+  if (seconds < 60) return `${formatNumber(Math.floor(seconds))}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${formatNumber(minutes)}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${formatNumber(hours)}h ago`;
+}
+
+function EncryptedRelayRuntimePanel({ runtime }: { runtime: BlindRelayRuntimeStatus | null | undefined }) {
+  const { formatNumber } = useI18n();
+  const pending = 'Pending';
+  const tone = blindRelayRuntimeTone(runtime);
+
+  if (!runtime) {
+    return (
+      <div id="encrypted-relay-runtime-panel" className={`mt-5 scroll-mt-6 rounded-xl border p-4 ${tone}`}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="text-sm font-semibold text-white">Encrypted Relay Runtime</h4>
+              <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${tone}`}>Pending</span>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-gray-500">
+              Waiting for the Rust node to report the blind relay runtime contract.
+            </p>
+          </div>
+          <p className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs leading-5 text-gray-500 lg:max-w-md">
+            This panel shows aggregate relay readiness only. It must never expose route IDs, endpoints, payloads, or social graph data.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const counters = runtime.relay_counters ?? {};
+  const proof = runtime.proof_counters ?? {};
+  const probe = runtime.probe_counters ?? {};
+  const candidates = runtime.onion_candidates ?? {};
+  const terminalDelivered = Number(counters.terminal_delivered_count ?? 0);
+  const middleForwarded = Number(counters.middle_forwarded_count ?? 0);
+  const acceptedTotal = Number(counters.accepted_total ?? counters.received ?? 0);
+  const deliveryTotal = terminalDelivered + middleForwarded;
+  const proofAttempted = Number(proof.proof_attempted ?? probe.two_hop_attempted ?? 0);
+  const proofAccepted = Number(proof.proof_accepted ?? probe.two_hop_succeeded ?? 0);
+  const twoHopReady = Boolean(candidates.two_hop_ready || proof.proof_ready || probe.two_hop_succeeded);
+  const realEvidence = runtime.real_relay_ready ? 'real relay observed' : runtime.synthetic_probe_ready ? 'synthetic probe ready' : 'waiting for relay evidence';
+  const lastSuccessAge = blindRelayRuntimeAgeLabel(
+    runtime.last_successful_blind_relay?.age_seconds
+      ?? proof.latest_success_age_seconds
+      ?? proof.latest_message_delivery_age_seconds
+      ?? runtime.last_accepted_age_seconds,
+    pending,
+    formatNumber,
+  );
+  const lastFailureAge = blindRelayRuntimeAgeLabel(
+    runtime.last_failed_blind_relay?.age_seconds ?? proof.latest_failure_age_seconds,
+    pending,
+    formatNumber,
+  );
+  const warnings = blindRelayRuntimeWarningCount(runtime);
+
+  return (
+    <div id="encrypted-relay-runtime-panel" className={`mt-5 scroll-mt-6 rounded-xl border p-4 ${tone}`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-semibold text-white">Encrypted Relay Runtime</h4>
+            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${tone}`}>
+              {blindRelayRuntimeStatusLabel(runtime)}
+            </span>
+            {warnings > 0 && (
+              <span className="inline-flex rounded-full border border-yellow-500/25 bg-yellow-500/10 px-2 py-1 text-xs text-yellow-200">
+                {formatNumber(warnings)} attention
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-xs leading-5 text-gray-500">
+            Live node evidence for encrypted multi-hop relay participation, shown without route IDs, endpoints, payloads, or social graph data.
+          </p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-gray-500 lg:max-w-md">
+          <p className="font-medium text-gray-300">{runtime.contract_version || 'blind_relay_runtime'}</p>
+          <p className="mt-1 leading-5">
+            {runtime.readiness_reason?.replaceAll('_', ' ') || realEvidence}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CapacityMetric
+          label="Runtime"
+          value={runtime.runtime_ready ? 'Online' : pending}
+          detail={runtime.quality_ready ? 'Quality gate passed' : runtime.next_action || 'Waiting for readiness evidence'}
+          tone={runtime.runtime_ready && runtime.quality_ready ? 'border-emerald-500/15 bg-emerald-500/[0.04]' : 'border-white/5 bg-black/20'}
+        />
+        <CapacityMetric
+          label="Two-hop path"
+          value={twoHopReady ? 'Ready' : 'Warming'}
+          detail={`chat ${formatNumber(candidates.routeable_chat_relays ?? 0)} · middle ${formatNumber(candidates.routeable_onion_middle_hops ?? 0)}`}
+          tone={twoHopReady ? 'border-cyan-500/15 bg-cyan-500/[0.04]' : 'border-white/5 bg-black/20'}
+        />
+        <CapacityMetric
+          label="Relay delivery"
+          value={formatNumber(deliveryTotal)}
+          detail={`middle ${formatNumber(middleForwarded)} · terminal ${formatNumber(terminalDelivered)} · accepted ${formatNumber(acceptedTotal)}`}
+          tone={deliveryTotal > 0 ? 'border-emerald-500/15 bg-emerald-500/[0.04]' : 'border-white/5 bg-black/20'}
+        />
+        <CapacityMetric
+          label="Proof window"
+          value={`${formatNumber(proofAccepted)} / ${formatNumber(proofAttempted)}`}
+          detail={`last success ${lastSuccessAge} · last failure ${lastFailureAge}`}
+          tone={proof.failure_streak_active ? 'border-yellow-500/25 bg-yellow-500/[0.06]' : proofAccepted > 0 ? 'border-emerald-500/15 bg-emerald-500/[0.04]' : 'border-white/5 bg-black/20'}
+        />
+      </div>
+
+      <div className="mt-3 rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs leading-5 text-gray-500">
+        <p className="font-medium text-gray-300">Privacy invariant</p>
+        <p className="mt-1">
+          {runtime.privacy_invariant || runtime.privacy_boundary || 'Relay nodes process opaque encrypted blobs only; nodeboard displays aggregate readiness and counters.'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function ChatRelayStatusPanel({ relay }: { relay: ChatRelayStatus | null | undefined }) {
   const { t, formatNumber, formatRelativeTime: i18nRelativeTime } = useI18n();
   const pending = t('common.status.pending');
@@ -7895,6 +8060,8 @@ function VpnHealthPanel({
   const restartRequired = Boolean(runtimeRollout?.restart_required);
   const discoveryStatus = health.system.discovery_status ?? null;
   const discoveryWarnings = discoveryWarningCount(discoveryStatus);
+  const blindRelayRuntime = health.system.blind_relay_runtime ?? null;
+  const blindRelayRuntimeWarnings = blindRelayRuntimeWarningCount(blindRelayRuntime);
   const chatRelayStatus = health.system.chat_relay_status ?? null;
   const chatRelayWarnings = chatRelayWarningCount(chatRelayStatus);
   const chatRelay = chatRelayPeer(chatRelayStatus);
@@ -7982,6 +8149,23 @@ function VpnHealthPanel({
           ? chatRelayStatusLabel(chatRelayStatus, t)
           : t('nodeDetail.operatorActions.meta.waiting'),
       tone: chatRelayWarnings > 0 ? 'warning' : chatRelay ? (chatRelay.enabled ? 'ok' : 'info') : 'pending',
+    },
+    {
+      href: '#encrypted-relay-runtime-panel',
+      label: 'Encrypted Relay',
+      detail: blindRelayRuntime
+        ? `${blindRelayRuntimeStatusLabel(blindRelayRuntime)} · ${(blindRelayRuntime.evidence_mode || 'waiting').replaceAll('_', ' ')}`
+        : 'Waiting for relay runtime telemetry',
+      meta: blindRelayRuntimeWarnings > 0
+        ? `${formatNumber(blindRelayRuntimeWarnings)} attention`
+        : blindRelayRuntime
+          ? blindRelayRuntimeStatusLabel(blindRelayRuntime)
+          : t('nodeDetail.operatorActions.meta.waiting'),
+      tone: blindRelayRuntimeWarnings > 0
+        ? 'warning'
+        : blindRelayRuntime?.runtime_ready
+          ? 'ok'
+          : 'pending',
     },
     {
       href: '#service-config-panel',
@@ -8190,6 +8374,7 @@ function VpnHealthPanel({
         discovery={health.system.discovery_status}
         summary={health.system.discovery_summary}
       />
+      <EncryptedRelayRuntimePanel runtime={health.system.blind_relay_runtime} />
       <ChatRelayStatusPanel relay={health.system.chat_relay_status} />
       <ServiceConfigurationPanel health={health} />
       <UpgradeWorkflowPanel health={health} />

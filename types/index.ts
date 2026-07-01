@@ -2276,8 +2276,22 @@ export interface VpnNodeHealth {
      * route IDs, encrypted payloads, receiver identities, client public IPs,
      * DNS contents, Memory Chain plaintext, social graph edges, private keys,
      * voucher secrets, or wallet-level traffic.
-     */
+    */
     discovery_summary?: DiscoverySummaryStatus | null;
+    /**
+     * Rust source:
+     *   /root/open/AeroNyx/crates/aeronyx-server/src/server.rs
+     * Backend pass-through:
+     *   /root/aeronyx/privacy_network/api/vpn_observability.py
+     *
+     * Aggregate encrypted relay runtime contract. Nodeboard may render this as
+     * a product-level status for multi-hop relay readiness, proof quality, and
+     * terminal/middle-hop delivery counters. It must never expose route IDs,
+     * endpoints, receiver identities, encrypted payloads, client IPs, DNS
+     * contents, Memory Chain plaintext, private keys, voucher secrets, wallet
+     * traffic, or social graph edges.
+     */
+    blind_relay_runtime?: BlindRelayRuntimeStatus | null;
     /**
      * Rust source:
      *   /root/open/AeroNyx/crates/aeronyx-server/src/management/client.rs
@@ -2739,6 +2753,125 @@ export interface DiscoverySummaryBlindRelay {
   last_event_age_seconds?: number | null;
   last_probe_age_seconds?: number | null;
   next_action?: string;
+}
+
+export interface BlindRelayRuntimeCounters {
+  received?: number;
+  accepted_total?: number;
+  terminal_delivered_count?: number;
+  middle_forwarded_count?: number;
+  rejected?: number;
+  route_ttl_exhausted?: number;
+  forward_failed?: number;
+  timestamp_rejected?: number;
+  retry_attempted?: number;
+  retry_succeeded?: number;
+  retry_exhausted?: number;
+  backpressure_dropped?: number;
+  replay_dropped?: number;
+  loop_detected?: number;
+  rate_limited?: number;
+  quarantined?: number;
+}
+
+export interface BlindRelayRuntimeProofCounters {
+  proof_ready?: boolean;
+  message_delivery_ready?: boolean;
+  recent_message_delivery_ready?: boolean;
+  proof_accepted?: number;
+  proof_rejected?: number;
+  proof_attempted?: number;
+  message_delivery_successes?: number;
+  success_percent?: number;
+  stability_ready?: boolean;
+  stability_status?: string | null;
+  stability_window_attempted?: number;
+  stability_window_succeeded?: number;
+  stability_window_failed?: number;
+  failure_streak_active?: boolean;
+  failure_circuit_breaker_active?: boolean;
+  latest_outcome?: string | null;
+  latest_reason_bucket?: string | null;
+  latest_age_seconds?: number | null;
+  latest_success_age_seconds?: number | null;
+  latest_failure_age_seconds?: number | null;
+  latest_message_delivery_age_seconds?: number | null;
+  proof_scope?: string | null;
+}
+
+export interface BlindRelayRuntimeProbeCounters {
+  single_hop_attempted?: number;
+  single_hop_succeeded?: number;
+  single_hop_failed?: number;
+  two_hop_attempted?: number;
+  two_hop_succeeded?: number;
+  two_hop_failed?: number;
+  last_probe_age_seconds?: number | null;
+  last_two_hop_probe_age_seconds?: number | null;
+}
+
+export interface BlindRelayRuntimeCandidatePool {
+  two_hop_ready?: boolean;
+  routeable_chat_relays?: number;
+  routeable_onion_middle_hops?: number;
+  min_candidates_for_two_hop?: number;
+  selection_policy?: string | null;
+  refresh_after_seconds?: number | null;
+  routeability_stale_after_seconds?: number | null;
+}
+
+export interface BlindRelayRuntimeEventSummary {
+  at?: number | string | null;
+  age_seconds?: number | null;
+  action?: string | null;
+  outcome?: string | null;
+  reason_bucket?: string | null;
+}
+
+export interface BlindRelayRuntimeLocalCapability {
+  status?: 'ready' | 'disabled' | 'misconfigured' | string;
+  chat_relay_configured?: boolean;
+  blind_relay_endpoint_ready?: boolean;
+  chat_relay_runtime_ready?: boolean;
+  safe_to_advertise_chat_relay?: boolean;
+}
+
+export interface BlindRelayRuntimeStatus {
+  /**
+   * Rust source:
+   *   /root/open/AeroNyx/crates/aeronyx-server/src/server.rs
+   * Backend pass-through:
+   *   /root/aeronyx/privacy_network/api/vpn_observability.py
+   *
+   * Product contract for nodeboard's encrypted relay runtime view. This object
+   * is intentionally aggregate-only: readiness booleans, coarse evidence
+   * buckets, counters, and freshness ages. It must never include route IDs,
+   * hop IDs, endpoints, receiver identities, encrypted payloads, client public
+   * IPs, DNS contents, Memory Chain plaintext, private keys, voucher secrets,
+   * wallet-level traffic, or social graph edges.
+   */
+  contract_version?: string;
+  status?: 'ready' | 'forming' | 'attention' | 'disabled' | 'pending' | string;
+  runtime_ready?: boolean;
+  quality_ready?: boolean;
+  real_relay_ready?: boolean;
+  synthetic_probe_ready?: boolean;
+  evidence_mode?: string;
+  readiness_reason?: string;
+  relay_counters?: BlindRelayRuntimeCounters | null;
+  proof_counters?: BlindRelayRuntimeProofCounters | null;
+  probe_counters?: BlindRelayRuntimeProbeCounters | null;
+  onion_candidates?: BlindRelayRuntimeCandidatePool | null;
+  last_successful_blind_relay?: BlindRelayRuntimeEventSummary | null;
+  last_failed_blind_relay?: BlindRelayRuntimeEventSummary | null;
+  local_capability?: BlindRelayRuntimeLocalCapability | null;
+  last_event_age_seconds?: number | null;
+  last_accepted_age_seconds?: number | null;
+  accepted_percent?: number | null;
+  next_action?: string | null;
+  privacy_invariant?: string | null;
+  privacy_boundary?: string | null;
+  source?: string | null;
 }
 
 export interface DiscoverySummaryTwoHopPathProof {

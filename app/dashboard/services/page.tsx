@@ -405,6 +405,7 @@ import { formatDuration, formatRelativeTime } from '@/lib/api';
 import { POLLING_INTERVALS } from '@/lib/constants';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import {
+  BlindRelayRuntimeStatus,
   NodeOperatorStatus,
   OperatorRisk,
   OperatorServiceStatus,
@@ -826,6 +827,13 @@ function buildFleetSummary(nodes: VpnNodeHealth[], statuses: NodeOperatorStatus[
   };
 }
 
+function blindRelayRuntimeCounter(
+  runtime: BlindRelayRuntimeStatus | null | undefined,
+  key: keyof NonNullable<BlindRelayRuntimeStatus['relay_counters']>,
+) {
+  return Number(runtime?.relay_counters?.[key] ?? 0);
+}
+
 function buildProtocolFoundationSummary(
   nodes: VpnNodeHealth[],
   backendFoundation?: VpnProtocolFoundationSummary | null,
@@ -861,14 +869,19 @@ function buildProtocolFoundationSummary(
   nodes.forEach((node) => {
     const discovery = node.system.discovery_status;
     const discoverySummary = node.system.discovery_summary;
-    if (!discovery?.peer_store && !discoverySummary) return;
+    const blindRelayRuntime = node.system.blind_relay_runtime ?? null;
+    if (!discovery?.peer_store && !discoverySummary && !blindRelayRuntime) return;
 
     reportedNodes += 1;
     const story = discovery?.peer_store?.network_story;
     const foundation = discovery?.discovery_readiness?.protocol_foundation;
     const blindRelay = discovery?.peer_store?.runtime?.blind_relay;
     const twoHopProof = discovery?.peer_store?.two_hop_path_proof_history;
+    const runtimeProof = blindRelayRuntime?.proof_counters ?? null;
+    const runtimeProbe = blindRelayRuntime?.probe_counters ?? null;
+    const runtimeCandidates = blindRelayRuntime?.onion_candidates ?? null;
     const localCapabilities = discovery?.local_capabilities;
+    const runtimeLocalCapability = blindRelayRuntime?.local_capability ?? null;
     const summaryPeerMesh = discoverySummary?.peer_mesh;
     const summaryLocalCapability = discoverySummary?.local_capability;
     const validPeers = foundation?.verified_peer_count
@@ -880,6 +893,7 @@ function buildProtocolFoundationSummary(
     maxValidPeers = Math.max(maxValidPeers, validPeers);
     if (
       foundation?.status === 'ready'
+      || blindRelayRuntime?.runtime_ready
       || story?.relay_foundation_ready
       || discovery?.peer_store?.stability?.relay_foundation_ready
     ) {
@@ -891,37 +905,57 @@ function buildProtocolFoundationSummary(
         (evidenceModeCounts.get(foundation.relay_evidence_mode) ?? 0) + 1,
       );
     }
+    if (blindRelayRuntime?.evidence_mode) {
+      evidenceModeCounts.set(
+        blindRelayRuntime.evidence_mode,
+        (evidenceModeCounts.get(blindRelayRuntime.evidence_mode) ?? 0) + 1,
+      );
+    }
     if (foundation?.relay_readiness_reason) {
       readinessReasonCounts.set(
         foundation.relay_readiness_reason,
         (readinessReasonCounts.get(foundation.relay_readiness_reason) ?? 0) + 1,
       );
     }
-    if (foundation?.real_relay_ready) {
+    if (blindRelayRuntime?.readiness_reason) {
+      readinessReasonCounts.set(
+        blindRelayRuntime.readiness_reason,
+        (readinessReasonCounts.get(blindRelayRuntime.readiness_reason) ?? 0) + 1,
+      );
+    }
+    if (foundation?.real_relay_ready || blindRelayRuntime?.real_relay_ready) {
       realRelayReadyNodes += 1;
     }
-    if (foundation?.synthetic_probe_ready) {
+    if (foundation?.synthetic_probe_ready || blindRelayRuntime?.synthetic_probe_ready) {
       syntheticProbeReadyNodes += 1;
     }
-    if (foundation?.relay_evidence_mode === 'probe_failed') {
+    if (foundation?.relay_evidence_mode === 'probe_failed' || blindRelayRuntime?.evidence_mode === 'probe_failed') {
       probeFailedNodes += 1;
     }
-    timestampRejected += Number(foundation?.timestamp_rejected ?? blindRelay?.timestamp_rejected ?? 0);
+    timestampRejected += Number(
+      foundation?.timestamp_rejected
+      ?? blindRelayRuntimeCounter(blindRelayRuntime, 'timestamp_rejected')
+      ?? blindRelay?.timestamp_rejected
+      ?? 0,
+    );
     const nodeRouteableChatRelays = Number(
-      summaryPeerMesh?.routeable_chat_relays
+      runtimeCandidates?.routeable_chat_relays
+      ?? summaryPeerMesh?.routeable_chat_relays
       ?? story?.routeable_chat_relays
       ?? foundation?.routeable_relay_count
       ?? 0,
     );
     const nodeRouteableOnionMiddleHops = Number(
-      summaryPeerMesh?.routeable_onion_middle_hops
+      runtimeCandidates?.routeable_onion_middle_hops
+      ?? summaryPeerMesh?.routeable_onion_middle_hops
       ?? story?.routeable_onion_middle_hops
       ?? 0,
     );
     relayPoolRouteableChatRelays = Math.max(relayPoolRouteableChatRelays, nodeRouteableChatRelays);
     relayPoolRouteableOnionMiddleHops = Math.max(relayPoolRouteableOnionMiddleHops, nodeRouteableOnionMiddleHops);
     if (
-      summaryPeerMesh?.chat_two_hop_onion_ready
+      runtimeCandidates?.two_hop_ready
+      || summaryPeerMesh?.chat_two_hop_onion_ready
       || story?.chat_two_hop_onion_ready
       || foundation?.two_hop_onion_ready
       || discoverySummary?.stage === 'two_hop_path_ready'
@@ -934,40 +968,63 @@ function buildProtocolFoundationSummary(
     ) {
       relayPoolRestartRecoveryNodes += 1;
     }
-    if (twoHopProof) {
+    if (runtimeProof || twoHopProof) {
+      const attempted = Number(runtimeProof?.proof_attempted ?? runtimeProbe?.two_hop_attempted ?? twoHopProof?.attempted ?? 0);
+      const succeeded = Number(runtimeProof?.proof_accepted ?? runtimeProbe?.two_hop_succeeded ?? twoHopProof?.succeeded ?? 0);
+      const retained = Number(
+        runtimeProof?.stability_window_attempted
+        ?? runtimeProof?.message_delivery_successes
+        ?? twoHopProof?.retained_events
+        ?? 0,
+      );
       twoHopProofReportedNodes += 1;
-      twoHopProofRetainedEvents += Number(twoHopProof.retained_events ?? 0);
-      twoHopProofAttempted += Number(twoHopProof.attempted ?? 0);
-      twoHopProofSucceeded += Number(twoHopProof.succeeded ?? 0);
-      if (twoHopProof.proof_ready) {
+      twoHopProofRetainedEvents += retained;
+      twoHopProofAttempted += attempted;
+      twoHopProofSucceeded += succeeded;
+      if (runtimeProof?.proof_ready || twoHopProof?.proof_ready) {
         twoHopProofReadyNodes += 1;
       }
-      if (twoHopProof.failure_streak_active) {
+      if (runtimeProof?.failure_streak_active || twoHopProof?.failure_streak_active) {
         twoHopProofFailureStreakNodes += 1;
       }
-      const freshnessBucket = twoHopProof.freshness_bucket || twoHopProof.status || 'unknown';
+      const freshnessBucket = runtimeProof?.latest_outcome || twoHopProof?.freshness_bucket || twoHopProof?.status || 'unknown';
       twoHopProofFreshnessCounts.set(
         freshnessBucket,
         (twoHopProofFreshnessCounts.get(freshnessBucket) ?? 0) + 1,
       );
-      if (typeof twoHopProof.latest_success_age_seconds === 'number') {
-        const ageSeconds = Math.max(0, Math.floor(twoHopProof.latest_success_age_seconds));
+      const latestSuccessAge = runtimeProof?.latest_success_age_seconds ?? runtimeProof?.latest_message_delivery_age_seconds ?? twoHopProof?.latest_success_age_seconds;
+      if (typeof latestSuccessAge === 'number') {
+        const ageSeconds = Math.max(0, Math.floor(latestSuccessAge));
         twoHopProofMinLatestSuccessAgeSeconds = twoHopProofMinLatestSuccessAgeSeconds === null
           ? ageSeconds
           : Math.min(twoHopProofMinLatestSuccessAgeSeconds, ageSeconds);
       }
     }
-    if (localCapabilities?.safe_to_advertise_chat_relay || summaryLocalCapability?.safe_to_advertise_chat_relay) {
+    if (
+      runtimeLocalCapability?.safe_to_advertise_chat_relay
+      || localCapabilities?.safe_to_advertise_chat_relay
+      || summaryLocalCapability?.safe_to_advertise_chat_relay
+    ) {
       safeRelayNodes += 1;
     }
-    if (localCapabilities?.chat_relay_runtime_ready || summaryLocalCapability?.chat_relay_runtime_ready) {
+    if (
+      blindRelayRuntime?.runtime_ready
+      || runtimeLocalCapability?.chat_relay_runtime_ready
+      || localCapabilities?.chat_relay_runtime_ready
+      || summaryLocalCapability?.chat_relay_runtime_ready
+    ) {
       runtimeReadyNodes += 1;
     }
-    if (localCapabilities?.blind_relay_endpoint_ready || summaryLocalCapability?.blind_relay_endpoint_ready) {
+    if (
+      runtimeLocalCapability?.blind_relay_endpoint_ready
+      || localCapabilities?.blind_relay_endpoint_ready
+      || summaryLocalCapability?.blind_relay_endpoint_ready
+    ) {
       endpointReadyNodes += 1;
     }
     if (
-      localCapabilities?.status === 'misconfigured'
+      runtimeLocalCapability?.status === 'misconfigured'
+      || localCapabilities?.status === 'misconfigured'
       || localCapabilities?.capability_config_consistent === false
       || summaryLocalCapability?.status === 'misconfigured'
       || summaryLocalCapability?.capability_config_consistent === false
@@ -981,6 +1038,8 @@ function buildProtocolFoundationSummary(
       });
     }
     privacyBoundary = privacyBoundary
+      ?? blindRelayRuntime?.privacy_boundary
+      ?? blindRelayRuntime?.privacy_invariant
       ?? discoverySummary?.privacy_boundary
       ?? discovery?.privacy_boundary
       ?? story?.privacy_boundary
