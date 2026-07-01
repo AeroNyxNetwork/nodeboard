@@ -132,22 +132,19 @@ export default function ClientInvite() {
           '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif',
       }}
     >
-      <div
-        style={{
-          width: 56,
-          height: 56,
-          borderRadius: 16,
-          background: `linear-gradient(135deg, ${C.purple}, #9b8cff)`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontWeight: 800,
-          fontSize: 26,
-          boxShadow: '0 8px 28px rgba(116,98,247,.4)',
-        }}
+      <svg
+        width="56"
+        height="56"
+        viewBox="0 0 512 512"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden="true"
+        style={{ filter: 'drop-shadow(0 8px 24px rgba(116,98,247,.45))' }}
       >
-        A
-      </div>
+        <g transform="translate(0,512) scale(0.1,-0.1)" fill="#7762F3" stroke="none">
+          <path d="M1277 3833 l-1277 -1278 0 -1275 0 -1275 1280 1280 1280 1280 -2 1273 -3 1272 -1278 -1277z" />
+          <path d="M3838 3833 l-1278 -1278 0 -1275 0 -1275 1280 1280 1280 1280 -2 1273 -3 1272 -1277 -1277z" />
+        </g>
+      </svg>
 
       <h1 style={{ fontSize: 20, fontWeight: 700, margin: '4px 0 0', lineHeight: 1.35 }}>
         {t.title}
