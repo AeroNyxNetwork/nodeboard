@@ -21,13 +21,9 @@
 import { useEffect, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 
-// TODO: set numeric App Store id → https://apps.apple.com/app/id<APP_STORE_ID>
-const APP_STORE_ID = 'APP_STORE_ID';
-// Until the numeric id is set, fall back to the site so the iOS button is never a dead link.
-const APP_STORE_URL =
-  APP_STORE_ID === 'APP_STORE_ID'
-    ? 'https://aeronyx.network'
-    : `https://apps.apple.com/app/id${APP_STORE_ID}`;
+// AeroNyx: AI · VPN · Chat · Wallet — App Store id 6736854944
+const APP_STORE_ID = '6736854944';
+const APP_STORE_URL = `https://apps.apple.com/app/id${APP_STORE_ID}`;
 const PLAY_URL =
   'https://play.google.com/store/apps/details?id=com.amaterasu.aeronyx';
 
