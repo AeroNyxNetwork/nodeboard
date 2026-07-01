@@ -18,7 +18,7 @@
  */
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 // AeroNyx: AI · VPN · Chat · Wallet — App Store id 6736854944
@@ -102,16 +102,11 @@ export default function ClientInvite() {
     window.location.href = appLink;
   }
 
-  // Best-effort auto-open on mobile; the button is the reliable path.
-  useEffect(() => {
-    if (typeof navigator === 'undefined' || !valid) return;
-    if (/iphone|ipad|ipod|android/i.test(navigator.userAgent)) {
-      const id = setTimeout(() => {
-        window.location.href = appLink;
-      }, 350);
-      return () => clearTimeout(id);
-    }
-  }, [appLink, valid]);
+  // NOTE: intentionally NO auto-redirect to aeronyx://. Auto-firing a custom scheme on
+  // load shows a browser "page not found" / scheme error for anyone WITHOUT the app —
+  // and in-app browsers (WeChat, etc.) can't open custom schemes at all. This page's
+  // whole audience is people without the app, so opening the app is a user-tapped action
+  // only. Once Universal Links are verified, the OS opens the app before this page loads.
 
   return (
     <div
