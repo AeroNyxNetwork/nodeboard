@@ -68,6 +68,7 @@ export default function ChatPage() {
   const lastTsRef = useRef(0); // max message ts seen — relay_pull since_ts
   const pendingRef = useRef<Array<{ peer: string; id: string; frame: OutgoingFrame }>>([]);
   const activeRef = useRef(''); // current open peer — so appendMessage can read it
+  const audioUrlCache = useRef<Map<string, string>>(new Map()); // blobId → object URL
 
   const appendMessage = useCallback((peer: string, msg: Msg) => {
     lastTsRef.current = Math.max(lastTsRef.current, msg.ts);
@@ -324,6 +325,35 @@ export default function ChatPage() {
     }
   }, [busyAtt]);
 
+  // Download + decrypt a voice/audio blob once, cache the object URL by blobId
+  // (a voice message is usually replayed a few times). URLs are revoked on unmount.
+  const fetchAudioUrl = useCallback(async (att: WebAttachment): Promise<string | null> => {
+    const seed = seedRef.current;
+    const pub = pubRef.current;
+    if (!seed || !pub || !att.blobId || !att.fileKey) return null;
+    const cached = audioUrlCache.current.get(att.blobId);
+    if (cached) return cached;
+    try {
+      const bytes = await fetchAttachment(seed, pub, att.blobId, att.fileKey);
+      const url = URL.createObjectURL(
+        new Blob([new Uint8Array(bytes)], { type: att.mediaType || 'audio/mp4' }),
+      );
+      audioUrlCache.current.set(att.blobId, url);
+      return url;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Revoke every cached audio object URL when the chat unmounts.
+  useEffect(() => {
+    const cache = audioUrlCache.current;
+    return () => {
+      cache.forEach((u) => URL.revokeObjectURL(u));
+      cache.clear();
+    };
+  }, []);
+
   const logout = () => {
     clientRef.current?.close();
     sessionStorage.removeItem(SEED_KEY);
@@ -383,7 +413,7 @@ export default function ChatPage() {
                   <span style={S.convPreview}>
                     {last
                       ? (last.mine ? (zh ? '你：' : 'You: ') : '') +
-                        (last.text || (last.attachments?.length ? (zh ? '📎 附件' : '📎 Attachment') : ''))
+                        (last.text || attPreview(last.attachments, zh))
                       : ''}
                   </span>
                 </span>
@@ -443,6 +473,7 @@ export default function ChatPage() {
                             att={a}
                             zh={zh}
                             onOpen={openAttachment}
+                            onAudioUrl={fetchAudioUrl}
                             busy={busyAtt === a.blobId}
                           />
                         ))}
@@ -597,6 +628,16 @@ function fmtSize(n: number): string {
   return `${(n / 1048576).toFixed(1)} MB`;
 }
 
+/** One-line conversation-list preview for a message whose body is an attachment. */
+function attPreview(atts: WebAttachment[] | undefined, zh: boolean): string {
+  if (!atts || !atts.length) return '';
+  const t = atts[0].mediaType;
+  if (t.startsWith('image/')) return zh ? '🖼 圖片' : '🖼 Photo';
+  if (t.startsWith('audio/')) return zh ? '🎤 語音' : '🎤 Voice';
+  if (t.startsWith('video/')) return zh ? '🎬 影片' : '🎬 Video';
+  return zh ? '📎 檔案' : '📎 File';
+}
+
 /** Downscale an image to a small JPEG thumbnail (base64, no data: prefix) for the
  *  wire preview. The app renders thumbs by sniffing (mime-agnostic), so JPEG
  *  interops regardless of the original type. Kept under the relay/app thumb cap;
@@ -639,15 +680,20 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 /** Render an attachment. Image → inline thumbnail (click to fetch+view full);
- *  other types → file chip (click to download+decrypt). */
-function AttachmentView({ att, zh, onOpen, busy }: {
+ *  audio → inline voice player; other types → file chip (click to download). */
+function AttachmentView({ att, zh, onOpen, onAudioUrl, busy }: {
   att: WebAttachment;
   zh: boolean;
   onOpen: (a: WebAttachment) => void;
+  onAudioUrl: (a: WebAttachment) => Promise<string | null>;
   busy: boolean;
 }) {
   const isImage = att.mediaType.startsWith('image/');
+  const isAudio = att.mediaType.startsWith('audio/');
   const canFetch = !!att.blobId && !!att.fileKey;
+  if (isAudio && canFetch) {
+    return <VoicePlayer att={att} fetchUrl={onAudioUrl} zh={zh} />;
+  }
   if (isImage && att.thumbB64) {
     return (
       <div
@@ -683,6 +729,101 @@ function AttachmentView({ att, zh, onOpen, busy }: {
     </div>
   );
 }
+
+// A voice message ships up to 96 waveform bars; downsample for the bubble width.
+const VOICE_BARS = 32;
+const DEFAULT_BARS = [0.3, 0.5, 0.4, 0.7, 0.6, 0.8, 0.5, 0.65, 0.4, 0.7,
+  0.55, 0.6, 0.45, 0.6, 0.5, 0.72, 0.42, 0.58, 0.63, 0.38];
+
+function downsampleBars(bars: number[], count: number): number[] {
+  if (bars.length <= count) return bars;
+  const out: number[] = [];
+  for (let i = 0; i < count; i++) out.push(bars[Math.floor((i * bars.length) / count)] || 0);
+  return out;
+}
+
+function fmtDur(totalSec: number): string {
+  const s = Math.max(0, Math.floor(totalSec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** Inline voice-message player: play/pause + waveform + duration. Downloads +
+ *  decrypts the blob on first play (cached by the parent), then plays from a
+ *  local object URL — audio/mp4 (the app's voice container) plays natively. */
+function VoicePlayer({ att, fetchUrl, zh }: {
+  att: WebAttachment;
+  fetchUrl: (a: WebAttachment) => Promise<string | null>;
+  zh: boolean;
+}) {
+  const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [progress, setProgress] = useState(0); // 0..1
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const durationSec = Math.round((att.durationMs || 0) / 1000);
+  const bars = downsampleBars(
+    att.waveform && att.waveform.length ? att.waveform : DEFAULT_BARS,
+    VOICE_BARS,
+  );
+
+  const toggle = async () => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (!el.paused) { el.pause(); return; }
+    if (el.src) { void el.play().catch(() => setFailed(true)); return; }
+    setLoading(true);
+    setFailed(false);
+    const url = await fetchUrl(att);
+    setLoading(false);
+    if (!url) { setFailed(true); return; }
+    el.src = url;
+    void el.play().catch(() => setFailed(true));
+  };
+
+  const shownSec = playing && durationSec ? progress * durationSec : durationSec;
+
+  return (
+    <div style={VS.wrap}>
+      <button style={VS.play} onClick={toggle} title={zh ? '播放語音' : 'Play voice'}>
+        {loading ? '…' : failed ? '⚠' : playing ? '⏸' : '▶'}
+      </button>
+      <div style={VS.bars}>
+        {bars.map((v, i) => (
+          <span
+            key={i}
+            style={{
+              ...VS.bar,
+              height: `${Math.max(3, Math.round((v || 0) * 20))}px`,
+              opacity: playing ? (i / bars.length <= progress ? 1 : 0.35) : 0.6,
+            }}
+          />
+        ))}
+      </div>
+      <span style={VS.time}>{fmtDur(shownSec)}</span>
+      <audio
+        ref={audioRef}
+        style={{ display: 'none' }}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => { setPlaying(false); setProgress(0); }}
+        onError={() => { setFailed(true); setPlaying(false); }}
+        onTimeUpdate={(e) => {
+          const el = e.currentTarget;
+          if (el.duration && Number.isFinite(el.duration)) setProgress(el.currentTime / el.duration);
+        }}
+      />
+    </div>
+  );
+}
+
+const VS: Record<string, CSSProperties> = {
+  wrap: { display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0', marginBottom: 2 },
+  play: { width: 34, height: 34, flexShrink: 0, borderRadius: 17, border: 'none', background: 'rgba(255,255,255,0.92)', color: '#4B2FE0', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  bars: { display: 'flex', alignItems: 'center', gap: 2, height: 24 },
+  bar: { width: 2, borderRadius: 2, background: '#fff' },
+  time: { fontSize: 11, color: 'rgba(255,255,255,0.75)', minWidth: 30, textAlign: 'right' },
+};
 
 const AS: Record<string, CSSProperties> = {
   img: { maxWidth: 220, maxHeight: 260, borderRadius: 10, display: 'block', marginBottom: 4, objectFit: 'cover' },

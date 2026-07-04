@@ -41,6 +41,8 @@ export interface WebAttachment {
   fileName: string;
   fileSize: number;
   thumbB64?: string; // inline preview (images/video) — render without a download
+  durationMs?: number; // voice/video length (wire: duration_ms)
+  waveform?: number[]; // voice amplitude bars 0..1 (wire: waveform)
 }
 
 export interface IncomingMessage {
@@ -177,6 +179,13 @@ function decodeWire(wire: string): WireDecoded {
           fileName: String(a.file_name ?? a.name ?? 'attachment'),
           fileSize: Number(a.file_size ?? a.size ?? 0) || 0,
           thumbB64: typeof a.thumb_b64 === 'string' ? a.thumb_b64 : undefined,
+          durationMs: Number(a.duration_ms ?? 0) || 0,
+          waveform: Array.isArray(a.waveform)
+            ? (a.waveform as unknown[])
+                .map((v) => Number(v))
+                .filter((v) => Number.isFinite(v))
+                .slice(0, 96)
+            : undefined,
         }));
         return { text: typeof j.text === 'string' ? j.text : '', attachments };
       }
@@ -248,6 +257,8 @@ function attToWire(a: WebAttachment): Record<string, unknown> {
     file_size: a.fileSize,
   };
   if (a.thumbB64) m.thumb_b64 = a.thumbB64;
+  if (a.durationMs && a.durationMs > 0) m.duration_ms = a.durationMs;
+  if (a.waveform && a.waveform.length) m.waveform = a.waveform;
   return m;
 }
 
