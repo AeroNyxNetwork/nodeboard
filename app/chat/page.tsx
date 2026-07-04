@@ -68,6 +68,8 @@ export default function ChatPage() {
   const [busyAtt, setBusyAtt] = useState(''); // blobId currently downloading
   const [uploading, setUploading] = useState(false); // an attachment send in flight
   const [pickerFor, setPickerFor] = useState(''); // msgId whose reaction palette is open
+  const [typingPeers, setTypingPeers] = useState<Record<string, boolean>>({}); // peer → is typing
+  const [presence, setPresence] = useState<Record<string, { online: boolean; lastSeenTs: number | null }>>({});
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -78,6 +80,9 @@ export default function ChatPage() {
   const audioUrlCache = useRef<Map<string, string>>(new Map()); // blobId → object URL
   const convsRef = useRef<Record<string, Conv>>({}); // mirror of convs for stable callbacks
   const readSentRef = useRef<Record<string, string>>({}); // peer → last msgId we sent a read for
+  const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}); // peer → auto-clear timer
+  const typingSentAt = useRef(0); // last time WE sent typing:true (ms) — throttle
+  const stopTypingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const appendMessage = useCallback((peer: string, msg: Msg) => {
     lastTsRef.current = Math.max(lastTsRef.current, msg.ts);
@@ -216,6 +221,9 @@ export default function ChatPage() {
         if (client.send(p.frame)) setMsgStatus(p.peer, p.id, 'sent');
         else pendingRef.current.push(p);
       }
+      // [PRESENCE] (re)subscribe to all known conversation peers on (re)connect.
+      const peers = Object.keys(convsRef.current);
+      if (peers.length) client.send({ type: 'presence_subscribe', pubkeys: peers });
     });
     client.on('pulldone', () => setSyncing(false));
     client.on('closed', () => setStatus((s) => (s === 'connected' ? 'reconnecting' : s)));
@@ -250,6 +258,38 @@ export default function ChatPage() {
       const id = (frame as { msg_id?: string })?.msg_id;
       if (id) bumpStatus(id, 'read');
     });
+    client.on('typing', (frame) => {
+      const f = frame as { sender_pubkey?: string; is_typing?: boolean; typing?: boolean };
+      const peer = (f.sender_pubkey || '').toLowerCase();
+      if (!peer) return;
+      const isTyping = f.is_typing !== false && f.typing !== false;
+      setTypingPeers((prev) => ({ ...prev, [peer]: isTyping }));
+      if (typingTimers.current[peer]) clearTimeout(typingTimers.current[peer]);
+      if (isTyping) {
+        // Auto-clear if no follow-up within 6s (older peers may omit is_typing:false).
+        typingTimers.current[peer] = setTimeout(
+          () => setTypingPeers((prev) => ({ ...prev, [peer]: false })), 6000,
+        );
+      }
+    });
+    client.on('presence', (frame) => {
+      const f = frame as { updates?: unknown[] };
+      const list = Array.isArray(f.updates) ? f.updates : [frame];
+      setPresence((prev) => {
+        const next = { ...prev };
+        for (const raw of list) {
+          const m = raw as Record<string, unknown>;
+          const pubkey = String(m.pubkey || '').toLowerCase();
+          if (!pubkey) continue;
+          const visible = (m.visible ?? m.presence_visible) === true;
+          const online = visible && m.online === true;
+          const lastSeenVisible = m.last_seen_visible === true;
+          const ts = typeof m.last_seen_ts === 'number' ? m.last_seen_ts : null;
+          next[pubkey] = { online, lastSeenTs: visible && lastSeenVisible ? ts : null };
+        }
+        return next;
+      });
+    });
     client.connect();
     // Safety: clear the syncing hint even if relay_pull_done never arrives.
     const syncTimer = setTimeout(() => setSyncing(false), 15000);
@@ -272,6 +312,7 @@ export default function ChatPage() {
   useEffect(() => { convsRef.current = convs; }, [convs]);
 
   const activeConv = active ? convs[active] : undefined;
+  const headerStatus = active ? peerStatus(active, typingPeers, presence, zh) : null;
 
   // [READ-RECEIPT] When the open conversation gains a newer inbound message,
   // tell the sender we've read up to it (metadata-only). The per-peer watermark
@@ -289,6 +330,22 @@ export default function ChatPage() {
     });
     if (ok) readSentRef.current[active] = newestInbound.id;
   }, [active, activeConv]);
+
+  // [PRESENCE] Subscribe to the open peer (covers a freshly-started chat that
+  // wasn't in the set at connect time). Idempotent on the relay.
+  useEffect(() => {
+    if (active) clientRef.current?.send({ type: 'presence_subscribe', pubkeys: [active] });
+  }, [active]);
+
+  // Clear typing timers on unmount.
+  useEffect(() => {
+    const timers = typingTimers.current;
+    const stop = stopTypingTimer;
+    return () => {
+      Object.values(timers).forEach(clearTimeout);
+      if (stop.current) clearTimeout(stop.current);
+    };
+  }, []);
   // Opening a conversation always jumps to the newest message.
   useEffect(() => {
     const el = scrollRef.current;
@@ -315,10 +372,31 @@ export default function ChatPage() {
         status: ok ? 'sent' : 'failed',
       });
       if (!ok) pendingRef.current.push({ peer: active, id: frame.msg_id, frame });
+      // Sending clears the typing state immediately.
+      if (stopTypingTimer.current) { clearTimeout(stopTypingTimer.current); stopTypingTimer.current = null; }
+      typingSentAt.current = 0;
+      clientRef.current?.send({ type: 'typing', receiver_pubkey: active, is_typing: false });
       setDraft('');
       if (inputRef.current) inputRef.current.style.height = 'auto';
     } catch { /* ignore */ }
   }, [draft, active, appendMessage]);
+
+  // [TYPING] Throttled typing:true while composing, with an auto "stopped" after
+  // ~3.5s of no keystrokes. Metadata-only (no plaintext).
+  const notifyTyping = useCallback(() => {
+    const peer = active;
+    if (!peer) return;
+    const now = Date.now();
+    if (now - typingSentAt.current > 3000) {
+      typingSentAt.current = now;
+      clientRef.current?.send({ type: 'typing', receiver_pubkey: peer, is_typing: true });
+    }
+    if (stopTypingTimer.current) clearTimeout(stopTypingTimer.current);
+    stopTypingTimer.current = setTimeout(() => {
+      typingSentAt.current = 0;
+      clientRef.current?.send({ type: 'typing', receiver_pubkey: peer, is_typing: false });
+    }, 3500);
+  }, [active]);
 
   // Encrypt + upload a picked file, then send it as an attachment message.
   // Shows an optimistic bubble immediately (image thumb / file chip), then
@@ -522,10 +600,12 @@ export default function ChatPage() {
                 <span style={S.convBody}>
                   <span style={S.convName}>{nameFor(c.peer)}</span>
                   <span style={S.convPreview}>
-                    {last
-                      ? (last.mine ? (zh ? '你：' : 'You: ') : '') +
-                        (last.text || attPreview(last.attachments, zh))
-                      : ''}
+                    {typingPeers[c.peer] ? (
+                      <span style={{ color: '#8AB4FF' }}>{zh ? '正在輸入…' : 'typing…'}</span>
+                    ) : last ? (
+                      (last.mine ? (zh ? '你：' : 'You: ') : '') +
+                      (last.text || attPreview(last.attachments, zh))
+                    ) : ''}
                   </span>
                 </span>
                 <span style={S.convRight}>
@@ -559,7 +639,9 @@ export default function ChatPage() {
                 <div style={S.threadTitle}>
                   {nameFor(activeConv.peer)} <span style={S.editHint}>✎</span>
                 </div>
-                <code style={S.threadSub}>{activeConv.peer}</code>
+                {headerStatus
+                  ? <div style={{ ...S.threadStatus, color: headerStatus.color }}>{headerStatus.text}</div>
+                  : <code style={S.threadSub}>{activeConv.peer}</code>}
               </div>
             </header>
 
@@ -664,6 +746,7 @@ export default function ChatPage() {
                 rows={1}
                 onChange={(e) => {
                   setDraft(e.target.value);
+                  if (e.target.value) notifyTyping();
                   const el = inputRef.current;
                   if (el) {
                     el.style.height = 'auto';
@@ -780,6 +863,33 @@ function attPreview(atts: WebAttachment[] | undefined, zh: boolean): string {
   if (t.startsWith('audio/')) return zh ? '🎤 語音' : '🎤 Voice';
   if (t.startsWith('video/')) return zh ? '🎬 影片' : '🎬 Video';
   return zh ? '📎 檔案' : '📎 File';
+}
+
+/** Relative "last seen" label. */
+function lastSeenLabel(ts: number, zh: boolean): string {
+  const diff = Math.floor(Date.now() / 1000) - ts;
+  if (diff < 60) return zh ? '剛剛' : 'just now';
+  if (diff < 3600) return zh ? `${Math.floor(diff / 60)} 分鐘前` : `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return zh ? `${Math.floor(diff / 3600)} 小時前` : `${Math.floor(diff / 3600)}h ago`;
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString(zh ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric' });
+}
+
+/** Header status for a peer: typing → online → last seen → (null = show pubkey). */
+function peerStatus(
+  peer: string,
+  typingPeers: Record<string, boolean>,
+  presence: Record<string, { online: boolean; lastSeenTs: number | null }>,
+  zh: boolean,
+): { text: string; color: string } | null {
+  if (typingPeers[peer]) return { text: zh ? '正在輸入…' : 'typing…', color: '#8AB4FF' };
+  const p = presence[peer];
+  if (!p) return null;
+  if (p.online) return { text: zh ? '在線' : 'online', color: '#14F195' };
+  if (p.lastSeenTs) {
+    return { text: (zh ? '最後上線 ' : 'last seen ') + lastSeenLabel(p.lastSeenTs, zh), color: 'rgba(255,255,255,0.45)' };
+  }
+  return null;
 }
 
 /** Pure idempotent update of a message's reactions map (emoji → reactor set). */
@@ -1037,6 +1147,7 @@ const S: Record<string, CSSProperties> = {
   threadTitle: { fontSize: 15, fontWeight: 600 },
   editHint: { fontSize: 11, color: 'rgba(255,255,255,0.3)' },
   threadSub: { fontFamily: 'monospace', fontSize: 10, color: 'rgba(255,255,255,0.35)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', maxWidth: 260 },
+  threadStatus: { fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 },
   messages: { flex: 1, overflowY: 'auto', padding: '10px 18px 16px', display: 'flex', flexDirection: 'column' },
   dateSep: { display: 'flex', justifyContent: 'center', margin: '12px 0 6px' },
   dateSepPill: { fontSize: 11, color: 'rgba(255,255,255,0.55)', background: 'rgba(255,255,255,0.06)', borderRadius: 10, padding: '3px 10px' },
