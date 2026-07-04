@@ -25,7 +25,9 @@ import { ed25519 } from '@noble/curves/ed25519';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { RelayClient } from '@/lib/relayClient';
 import {
-  encryptText, decryptEnvelopeFrame, fetchAttachment, bytesToHex, hexToBytes,
+  encryptText, encryptAttachmentMessage, decryptEnvelopeFrame,
+  fetchAttachment, uploadAttachment, SIMPLE_UPLOAD_MAX,
+  bytesToHex, hexToBytes,
   type OutgoingFrame, type WebAttachment,
 } from '@/lib/msgCrypto';
 
@@ -35,7 +37,7 @@ const NAMES_KEY = 'aeronyx_web_names';
 
 type Msg = {
   id: string; text: string; ts: number; mine: boolean;
-  status?: 'sent' | 'failed'; attachments?: WebAttachment[];
+  status?: 'sending' | 'sent' | 'failed'; attachments?: WebAttachment[];
 };
 type Conv = { peer: string; messages: Msg[]; lastTs: number; unread?: number };
 type Status = 'connecting' | 'connected' | 'reconnecting';
@@ -58,9 +60,11 @@ export default function ChatPage() {
   const [names, setNames] = useState<Record<string, string>>({});
   const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
   const [busyAtt, setBusyAtt] = useState(''); // blobId currently downloading
+  const [uploading, setUploading] = useState(false); // an attachment send in flight
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastTsRef = useRef(0); // max message ts seen — relay_pull since_ts
   const pendingRef = useRef<Array<{ peer: string; id: string; frame: OutgoingFrame }>>([]);
   const activeRef = useRef(''); // current open peer — so appendMessage can read it
@@ -88,6 +92,16 @@ export default function ChatPage() {
       const c = prev[peer];
       if (!c) return prev;
       return { ...prev, [peer]: { ...c, messages: c.messages.map((m) => (m.id === id ? { ...m, status } : m)) } };
+    });
+  }, []);
+
+  // Patch fields of a single message in place (used to finalize an optimistic
+  // attachment bubble once the blob has uploaded — same id, real meta + status).
+  const patchMessage = useCallback((peer: string, id: string, patch: Partial<Msg>) => {
+    setConvs((prev) => {
+      const c = prev[peer];
+      if (!c) return prev;
+      return { ...prev, [peer]: { ...c, messages: c.messages.map((m) => (m.id === id ? { ...m, ...patch } : m)) } };
     });
   }, []);
 
@@ -212,6 +226,45 @@ export default function ChatPage() {
       if (inputRef.current) inputRef.current.style.height = 'auto';
     } catch { /* ignore */ }
   }, [draft, active, appendMessage]);
+
+  // Encrypt + upload a picked file, then send it as an attachment message.
+  // Shows an optimistic bubble immediately (image thumb / file chip), then
+  // finalizes it with the real blob metadata once the upload returns.
+  const sendAttachment = useCallback(async (file: File) => {
+    const seed = seedRef.current;
+    const pub = pubRef.current;
+    const peer = active;
+    if (!seed || !pub || !peer || uploading) return;
+
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.length > SIMPLE_UPLOAD_MAX) {
+      window.alert(zh ? '檔案太大（網頁版上限 8MB，請用 App 發送大檔）' : 'File too large (8MB web limit — use the app for big files)');
+      return;
+    }
+    const mediaType = file.type || 'application/octet-stream';
+    const thumbB64 = mediaType.startsWith('image/') ? await makeThumb(bytes, mediaType) : undefined;
+
+    // Pin the message id so the optimistic bubble updates in place after upload.
+    const msgId = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+    const ts = Math.floor(Date.now() / 1000);
+    const localAtt: WebAttachment = {
+      blobId: '', fileKey: '', mediaType, fileName: file.name, fileSize: bytes.length, thumbB64,
+    };
+    appendMessage(peer, { id: msgId, text: '', ts, mine: true, status: 'sending', attachments: [localAtt] });
+
+    setUploading(true);
+    try {
+      const att = await uploadAttachment(seed, pub, { bytes, mediaType, fileName: file.name, thumbB64 });
+      const frame = encryptAttachmentMessage(seed, pub, peer, '', [att], msgId);
+      const ok = clientRef.current?.send(frame) ?? false;
+      patchMessage(peer, msgId, { attachments: [att], status: ok ? 'sent' : 'failed' });
+      if (!ok) pendingRef.current.push({ peer, id: msgId, frame });
+    } catch {
+      patchMessage(peer, msgId, { status: 'failed' });
+    } finally {
+      setUploading(false);
+    }
+  }, [active, uploading, zh, appendMessage, patchMessage]);
 
   const startNewChat = useCallback(() => {
     const input = window.prompt(zh ? '輸入對方的公鑰 (64 位十六進制)' : "Enter the peer's public key (64 hex)");
@@ -398,7 +451,7 @@ export default function ChatPage() {
                           {hhmm(m.ts)}
                           {m.mine && (
                             <span style={{ marginLeft: 4, color: m.status === 'failed' ? '#FFB4A0' : undefined }}>
-                              {m.status === 'failed' ? '⚠' : '✓'}
+                              {m.status === 'failed' ? '⚠' : m.status === 'sending' ? '⏳' : '✓'}
                             </span>
                           )}
                         </span>
@@ -410,6 +463,24 @@ export default function ChatPage() {
             </div>
 
             <div style={S.inputBar}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = ''; // allow re-picking the same file
+                  if (f) void sendAttachment(f);
+                }}
+              />
+              <button
+                style={{ ...S.attachBtn, opacity: uploading ? 0.5 : 1, cursor: uploading ? 'default' : 'pointer' }}
+                title={zh ? '傳送附件' : 'Send a file'}
+                disabled={uploading}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploading ? '…' : '📎'}
+              </button>
               <textarea
                 ref={inputRef}
                 style={S.input}
@@ -526,6 +597,47 @@ function fmtSize(n: number): string {
   return `${(n / 1048576).toFixed(1)} MB`;
 }
 
+/** Downscale an image to a small JPEG thumbnail (base64, no data: prefix) for the
+ *  wire preview. The app renders thumbs by sniffing (mime-agnostic), so JPEG
+ *  interops regardless of the original type. Kept under the relay/app thumb cap;
+ *  returns undefined on failure (send still works — the receiver just downloads). */
+async function makeThumb(bytes: Uint8Array, mediaType: string): Promise<string | undefined> {
+  try {
+    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: mediaType }));
+    try {
+      const img = await loadImage(url);
+      const max = 256;
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return undefined;
+      ctx.drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      const comma = dataUrl.indexOf(',');
+      const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : '';
+      // Guard the wire-frame budget: the relay/app strip thumbs above ~128KB.
+      return b64 && b64.length <= 120000 ? b64 : undefined;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
 /** Render an attachment. Image → inline thumbnail (click to fetch+view full);
  *  other types → file chip (click to download+decrypt). */
 function AttachmentView({ att, zh, onOpen, busy }: {
@@ -626,6 +738,7 @@ const S: Record<string, CSSProperties> = {
   inputBar: { display: 'flex', alignItems: 'flex-end', gap: 10, padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' },
   input: { flex: 1, resize: 'none', maxHeight: 120, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 18, color: '#fff', padding: '10px 14px', fontSize: 14, fontFamily: 'inherit', outline: 'none', lineHeight: 1.4 },
   sendBtn: { background: '#7462F7', color: '#fff', border: 'none', borderRadius: 18, padding: '10px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' },
+  attachBtn: { width: 40, height: 40, flexShrink: 0, borderRadius: 20, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   lightbox: {
     position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.9)',
     display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, cursor: 'zoom-out',

@@ -189,17 +189,23 @@ function decodeWire(wire: string): WireDecoded {
 
 // --- public: encrypt (send) / decrypt (receive) -----------------------------
 
-/** Build a relay_send frame for a 1:1 text message. */
-export function encryptText(
-  seed: Uint8Array, myPub: Uint8Array, receiverHex: string, text: string,
+/**
+ * Build a relay_send frame from an already-serialized wire payload (text or the
+ * attachment JSON). contentType is always Text (0) — the app sends both plain
+ * text and attachment (JSON-wire) messages as Text; the receiver distinguishes
+ * by sniffing the decrypted string (see decodeWire / decodeFromWire). A caller
+ * may pin messageId (msgIdIn) so an optimistic bubble keeps its id after upload.
+ */
+function buildRelayFrame(
+  seed: Uint8Array, myPub: Uint8Array, receiverHex: string,
+  wireBytes: Uint8Array, msgIdIn?: Uint8Array,
 ): OutgoingFrame {
   const receiver = hexToBytes(receiverHex);
   const shared = sharedSecret(seed, receiver);
   const ts = Math.floor(Date.now() / 1000);
-  const messageId = crypto.getRandomValues(new Uint8Array(16));
+  const messageId = msgIdIn ?? crypto.getRandomValues(new Uint8Array(16));
   const nonce = crypto.getRandomValues(new Uint8Array(24));
-  const wire = new TextEncoder().encode(encodeWire(text));
-  const ciphertext = xchacha20poly1305(shared, nonce).encrypt(wire); // cipher||tag16
+  const ciphertext = xchacha20poly1305(shared, nonce).encrypt(wireBytes); // cipher||tag16
 
   const signData = buildSignData(myPub, messageId, receiver, ts, CTYPE_TEXT, ciphertext);
   const envSig = ed25519.sign(sha256(signData), seed);
@@ -223,6 +229,45 @@ export function encryptText(
     timestamp: ts,
     payload_sig: bytesToHex(payloadSig),
   };
+}
+
+/** Build a relay_send frame for a 1:1 text message. */
+export function encryptText(
+  seed: Uint8Array, myPub: Uint8Array, receiverHex: string, text: string,
+): OutgoingFrame {
+  return buildRelayFrame(seed, myPub, receiverHex, new TextEncoder().encode(encodeWire(text)));
+}
+
+/** Serialize a WebAttachment to the app's snake_case wire shape. */
+function attToWire(a: WebAttachment): Record<string, unknown> {
+  const m: Record<string, unknown> = {
+    blob_id: a.blobId,
+    file_key: a.fileKey,
+    media_type: a.mediaType,
+    file_name: a.fileName,
+    file_size: a.fileSize,
+  };
+  if (a.thumbB64) m.thumb_b64 = a.thumbB64;
+  return m;
+}
+
+/**
+ * Build a relay_send frame for a 1:1 message carrying attachments (optionally
+ * with a text caption). Wire = JSON {type:'aeronyx_message', text, attachments}
+ * — byte-identical to the app's AttachmentMessagePayload.encodeForWire(), so a
+ * web-sent attachment decodes on the phone (and vice-versa).
+ */
+export function encryptAttachmentMessage(
+  seed: Uint8Array, myPub: Uint8Array, receiverHex: string,
+  text: string, attachments: WebAttachment[], msgIdHex?: string,
+): OutgoingFrame {
+  const wire = JSON.stringify({
+    type: 'aeronyx_message',
+    text: text || '',
+    attachments: attachments.map(attToWire),
+  });
+  const msgId = msgIdHex ? hexToBytes(msgIdHex) : undefined;
+  return buildRelayFrame(seed, myPub, receiverHex, new TextEncoder().encode(wire), msgId);
 }
 
 /** Decrypt an incoming relay_envelope frame (1:1). Returns null on any failure. */
@@ -313,6 +358,52 @@ export async function fetchAttachment(
   const key = b64decode(fileKeyB64);
   const nonce = enc.slice(0, 12);
   return gcm(key, nonce).decrypt(enc.slice(12)); // cipher‖tag → plaintext
+}
+
+// Matches the app's _kSimpleUploadMaxBytes. Above this the app switches to a
+// resumable chunked session; that path is App-only for now, so web rejects
+// oversized files with a clear message rather than failing opaquely.
+export const SIMPLE_UPLOAD_MAX = 8 * 1024 * 1024;
+
+/**
+ * Encrypt + upload a file as a relay blob → the wire metadata a message carries.
+ * Fresh one-time AES-256-GCM key per upload (never reused — nonce uniqueness);
+ * blob = nonce(12) ‖ cipher ‖ tag16, exactly what fetchAttachment expects. The
+ * multipart shape (fields media_type/file_name/file_size + file) mirrors the
+ * app's simple-upload POST. file_size is the PLAINTEXT length (app parity).
+ * Throws 'too-large' above SIMPLE_UPLOAD_MAX.
+ */
+export async function uploadAttachment(
+  seed: Uint8Array, pub: Uint8Array,
+  input: { bytes: Uint8Array; mediaType: string; fileName: string; thumbB64?: string },
+): Promise<WebAttachment> {
+  const { bytes, mediaType, fileName, thumbB64 } = input;
+  if (bytes.length > SIMPLE_UPLOAD_MAX) throw new Error('too-large');
+
+  const fileKey = crypto.getRandomValues(new Uint8Array(32));
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const sealed = gcm(fileKey, nonce).encrypt(bytes); // cipher‖tag16
+  const encrypted = concat(nonce, sealed); // nonce(12) ‖ cipher ‖ tag16
+
+  const form = new FormData();
+  form.append('media_type', mediaType);
+  form.append('file_name', fileName);
+  form.append('file_size', String(bytes.length)); // plaintext size (app parity)
+  form.append('file', new Blob([new Uint8Array(encrypted)], { type: 'application/octet-stream' }), fileName);
+
+  // No explicit Content-Type — the browser sets multipart/form-data + boundary.
+  const res = await fetch(`${RELAY_BASE}/blob/`, {
+    method: 'POST',
+    headers: { Authorization: authHeader(seed, pub) },
+    body: form,
+  });
+  if (!res.ok) throw new Error(`upload ${res.status}`);
+  const body = await res.json().catch(() => ({} as Record<string, unknown>));
+  const blob = body.blob as Record<string, unknown> | undefined;
+  const blobId = String(body.blob_id ?? body.id ?? blob?.id ?? '');
+  if (!blobId) throw new Error('upload: missing blob_id');
+
+  return { blobId, fileKey: b64encode(fileKey), mediaType, fileName, fileSize: bytes.length, thumbB64 };
 }
 
 // --- helpers ----------------------------------------------------------------
