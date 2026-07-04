@@ -680,6 +680,90 @@ export function decryptGroupEnvelope(
   }
 }
 
+// --- group reactions (emoji, control frame) ---------------------------------
+
+export interface GroupReactionFrame {
+  type: 'group_message_reaction';
+  group_id: string;
+  msg_id: string;
+  target_msg_id: string;
+  reaction_id: string;
+  emoji: string;
+  op: string;
+  payload_b64: string;
+  payload_sig: string;
+  key_version: number;
+  timestamp: number;
+}
+export interface IncomingGroupReaction {
+  groupId: string;
+  targetMsgId: string;
+  senderHex: string;
+  emoji: string;
+  op: string;
+  reactionId: string;
+}
+
+/** Build a group_message_reaction frame. Inner {emoji,op} is sealed with the
+ *  group key + group-signed; emoji/op are also sent in the clear (app parity,
+ *  chat_relay_ws:2656). */
+export function encryptGroupReaction(
+  seed: Uint8Array, myPub: Uint8Array, groupId: string,
+  groupKey: Uint8Array, keyVersion: number,
+  targetMsgId: string, emoji: string, op: string,
+): GroupReactionFrame {
+  const ts = Math.floor(Date.now() / 1000);
+  const payloadB64 = sealGroupPayload(groupKey, { emoji, op });
+  const sig = ed25519.sign(groupSigDigest(groupId, myPub, ts, payloadB64), seed);
+  return {
+    type: 'group_message_reaction',
+    group_id: groupId,
+    msg_id: targetMsgId,
+    target_msg_id: targetMsgId,
+    reaction_id: bytesToHex(crypto.getRandomValues(new Uint8Array(16))),
+    emoji,
+    op,
+    payload_b64: payloadB64,
+    payload_sig: bytesToHex(sig),
+    key_version: keyVersion,
+    timestamp: ts,
+  };
+}
+
+/** Decrypt + verify an inbound group_message_reaction frame. */
+export function decryptGroupReaction(
+  groupKey: Uint8Array,
+  frame: {
+    group_id?: string; sender_pubkey?: string; target_msg_id?: string; msg_id?: string;
+    reaction_id?: string; payload_b64?: string; payload_sig?: string; timestamp?: number;
+  },
+): IncomingGroupReaction | null {
+  const gid = frame.group_id;
+  const sender = frame.sender_pubkey;
+  const target = frame.target_msg_id || frame.msg_id;
+  const ts = frame.timestamp || 0;
+  if (!gid || !sender || !target || !frame.payload_b64) return null;
+  if (!frame.payload_sig || !verifyGroupSig(gid, sender, ts, frame.payload_b64, frame.payload_sig)) return null;
+
+  let plain: Uint8Array;
+  try {
+    const raw = b64decode(frame.payload_b64);
+    if (raw.length < 12 + 16) return null;
+    plain = gcm(groupKey, raw.slice(0, 12)).decrypt(raw.slice(12));
+  } catch {
+    return null;
+  }
+  try {
+    const j = JSON.parse(new TextDecoder('utf-8', { fatal: false }).decode(plain));
+    const emoji = typeof j.emoji === 'string' ? j.emoji : '';
+    if (!emoji) return null;
+    const op = typeof j.op === 'string' ? j.op : 'add';
+    return { groupId: gid, targetMsgId: target, senderHex: sender.toLowerCase(), emoji, op, reactionId: frame.reaction_id || '' };
+  } catch {
+    return null;
+  }
+}
+
 // --- group HTTP (list + key bundle) -----------------------------------------
 
 /** GET /groups/ → the groups this identity is an active member of. */

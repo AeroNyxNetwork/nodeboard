@@ -29,7 +29,9 @@ export type RelayEvent =
   | 'receipt' // inbound message_receipt (peer decrypted+stored our message)
   | 'read' // inbound message_read (peer read our message)
   | 'typing' // inbound typing indicator
-  | 'presence'; // inbound presence_update / presence_subscribe_ack
+  | 'presence' // inbound presence_update / presence_subscribe_ack
+  | 'groupreaction' // inbound group_message_reaction
+  | 'grouptyping'; // inbound group_typing
 
 export class RelayClient {
   private ws: WebSocket | null = null;
@@ -154,6 +156,12 @@ export class RelayClient {
       case 'presence_update':
       case 'presence_subscribe_ack':
         this.emit('presence', f);
+        break;
+      case 'group_message_reaction':
+        this.emit('groupreaction', f);
+        break;
+      case 'group_typing':
+        this.emit('grouptyping', f);
         break;
       // *_ack frames (message_reaction_ack / message_receipt_ack / message_read_ack)
       // are server acknowledgements that don't change UI state — ignore them.

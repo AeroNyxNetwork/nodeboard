@@ -28,6 +28,7 @@ import {
   encryptText, encryptAttachmentMessage, decryptEnvelopeFrame,
   encryptReaction, decryptReactionFrame,
   encryptGroupMessage, decryptGroupEnvelope, unsealGroupKey,
+  encryptGroupReaction, decryptGroupReaction,
   fetchGroupList, fetchGroupKeyBundle,
   fetchAttachment, uploadAttachment, SIMPLE_UPLOAD_MAX,
   bytesToHex, hexToBytes,
@@ -95,6 +96,7 @@ export default function ChatPage() {
   const [uploading, setUploading] = useState(false); // an attachment send in flight
   const [pickerFor, setPickerFor] = useState(''); // msgId whose reaction palette is open
   const [typingPeers, setTypingPeers] = useState<Record<string, boolean>>({}); // peer → is typing
+  const [groupTypers, setGroupTypers] = useState<Record<string, Record<string, boolean>>>({}); // groupId → pubkey → typing
   const [presence, setPresence] = useState<Record<string, { online: boolean; lastSeenTs: number | null }>>({});
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -109,6 +111,7 @@ export default function ChatPage() {
   const groupKeysRef = useRef<Record<string, Uint8Array>>({}); // groupId → current group key (not persisted)
   const readSentRef = useRef<Record<string, string>>({}); // peer → last msgId we sent a read for
   const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}); // peer → auto-clear timer
+  const groupTypingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}); // "gid:pubkey" → auto-clear
   const typingSentAt = useRef(0); // last time WE sent typing:true (ms) — throttle
   const stopTypingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -166,6 +169,24 @@ export default function ChatPage() {
           return { ...m, reactions: applyReactionTo(m.reactions, emoji, reactor, op) };
         });
         return changed ? { ...prev, [peer]: { ...c, messages } } : prev;
+      });
+    },
+    [],
+  );
+
+  // Apply a reaction to a group message (same idempotent set-membership).
+  const applyGroupReaction = useCallback(
+    (groupId: string, targetMsgId: string, emoji: string, reactor: string, op: string) => {
+      setGroups((prev) => {
+        const g = prev[groupId];
+        if (!g) return prev;
+        let changed = false;
+        const messages = g.messages.map((m) => {
+          if (m.id !== targetMsgId) return m;
+          changed = true;
+          return { ...m, reactions: applyReactionTo(m.reactions, emoji, reactor, op) };
+        });
+        return changed ? { ...prev, [groupId]: { ...g, messages } } : prev;
       });
     },
     [],
@@ -404,6 +425,40 @@ export default function ChatPage() {
         return next;
       });
     });
+    client.on('groupreaction', (frame) => {
+      const gid = (frame as { group_id?: string }).group_id;
+      if (!gid) return;
+      const key = groupKeysRef.current[gid];
+      if (!key) return;
+      const r = decryptGroupReaction(key, frame as never);
+      if (!r) return;
+      applyGroupReaction(r.groupId, r.targetMsgId, r.emoji, r.senderHex, r.op);
+    });
+    client.on('grouptyping', (frame) => {
+      const f = frame as { group_id?: string; sender_pubkey?: string; is_typing?: boolean; typing?: boolean };
+      const gid = f.group_id;
+      const who = (f.sender_pubkey || '').toLowerCase();
+      const myHex = pubRef.current ? bytesToHex(pubRef.current) : '';
+      if (!gid || !who || who === myHex) return; // ignore our own echo
+      const isTyping = f.is_typing !== false && f.typing !== false;
+      setGroupTypers((prev) => {
+        const g = { ...(prev[gid] || {}) };
+        if (isTyping) g[who] = true; else delete g[who];
+        return { ...prev, [gid]: g };
+      });
+      const tkey = `${gid}:${who}`;
+      if (groupTypingTimers.current[tkey]) clearTimeout(groupTypingTimers.current[tkey]);
+      if (isTyping) {
+        groupTypingTimers.current[tkey] = setTimeout(() => {
+          setGroupTypers((prev) => {
+            if (!prev[gid]?.[who]) return prev;
+            const g = { ...prev[gid] };
+            delete g[who];
+            return { ...prev, [gid]: g };
+          });
+        }, 6000);
+      }
+    });
     client.connect();
     // Safety: clear the syncing hint even if relay_pull_done never arrives.
     const syncTimer = setTimeout(() => setSyncing(false), 15000);
@@ -435,6 +490,7 @@ export default function ChatPage() {
   const activeGroup = active && isGroupId(active) ? groups[active] : undefined;
   const activeThread = activeConv ?? activeGroup; // both carry messages[] + lastTs
   const headerStatus = activeConv ? peerStatus(active, typingPeers, presence, zh) : null;
+  const groupTypingText = activeGroup ? groupTypingLabel(groupTypers[active] || {}, names, zh) : '';
 
   // [READ-RECEIPT] Tell the sender we've read up to their newest message in the
   // open conversation (metadata-only). Suppressed while the tab is hidden — you
@@ -474,9 +530,11 @@ export default function ChatPage() {
   // Clear typing timers on unmount.
   useEffect(() => {
     const timers = typingTimers.current;
+    const gTimers = groupTypingTimers.current;
     const stop = stopTypingTimer;
     return () => {
       Object.values(timers).forEach(clearTimeout);
+      Object.values(gTimers).forEach(clearTimeout);
       if (stop.current) clearTimeout(stop.current);
     };
   }, []);
@@ -511,6 +569,10 @@ export default function ChatPage() {
           id: frame.msg_id, text, ts: frame.timestamp, mine: true,
           sender: bytesToHex(pub), status: ok ? 'sent' : 'failed',
         });
+        // Sending clears the group typing state.
+        if (stopTypingTimer.current) { clearTimeout(stopTypingTimer.current); stopTypingTimer.current = null; }
+        typingSentAt.current = 0;
+        clientRef.current?.send({ type: 'group_typing', group_id: active, is_typing: false, timestamp: Math.floor(Date.now() / 1000) });
         setDraft('');
         if (inputRef.current) inputRef.current.style.height = 'auto';
       } catch { /* ignore */ }
@@ -538,16 +600,20 @@ export default function ChatPage() {
   // ~3.5s of no keystrokes. Metadata-only (no plaintext).
   const notifyTyping = useCallback(() => {
     const peer = active;
-    if (!peer || isGroupId(peer)) return; // group typing is separate (not yet on web)
+    if (!peer) return;
     const now = Date.now();
+    const grp = isGroupId(peer);
+    const frame = (typing: boolean) => grp
+      ? { type: 'group_typing', group_id: peer, is_typing: typing, timestamp: Math.floor(Date.now() / 1000) }
+      : { type: 'typing', receiver_pubkey: peer, is_typing: typing };
     if (now - typingSentAt.current > 3000) {
       typingSentAt.current = now;
-      clientRef.current?.send({ type: 'typing', receiver_pubkey: peer, is_typing: true });
+      clientRef.current?.send(frame(true));
     }
     if (stopTypingTimer.current) clearTimeout(stopTypingTimer.current);
     stopTypingTimer.current = setTimeout(() => {
       typingSentAt.current = 0;
-      clientRef.current?.send({ type: 'typing', receiver_pubkey: peer, is_typing: false });
+      clientRef.current?.send(frame(false));
     }, 3500);
   }, [active]);
 
@@ -625,6 +691,22 @@ export default function ChatPage() {
     const pub = pubRef.current;
     const peer = active;
     if (!seed || !pub || !peer || !myPubHex) return;
+
+    // Group reaction branch.
+    if (isGroupId(peer)) {
+      const g = groupsRef.current[peer];
+      const key = groupKeysRef.current[peer];
+      if (!g || !key) return;
+      const gm = g.messages.find((m) => m.id === targetMsgId);
+      const gOp = gm?.reactions?.[emoji]?.includes(myPubHex) ? 'remove' : 'add';
+      applyGroupReaction(peer, targetMsgId, emoji, myPubHex, gOp); // optimistic
+      setPickerFor('');
+      try {
+        clientRef.current?.send(encryptGroupReaction(seed, pub, peer, key, g.keyVersion, targetMsgId, emoji, gOp));
+      } catch { /* optimistic UI already reflects it */ }
+      return;
+    }
+
     const msg = convsRef.current[peer]?.messages.find((m) => m.id === targetMsgId);
     const already = !!msg?.reactions?.[emoji]?.includes(myPubHex);
     const op = already ? 'remove' : 'add';
@@ -635,7 +717,7 @@ export default function ChatPage() {
     } catch {
       /* optimistic UI already reflects it; a failed send just isn't mirrored to the peer */
     }
-  }, [active, myPubHex, applyReaction]);
+  }, [active, myPubHex, applyReaction, applyGroupReaction]);
 
   const startNewChat = useCallback(() => {
     const input = window.prompt(zh ? '輸入對方的公鑰 (64 位十六進制)' : "Enter the peer's public key (64 hex)");
@@ -797,7 +879,8 @@ export default function ChatPage() {
                 <span style={S.convBody}>
                   <span style={S.convName}>{e.name}</span>
                   <span style={S.convPreview}>
-                    {!e.isGroup && typingPeers[e.id] ? (
+                    {(!e.isGroup && typingPeers[e.id]) ||
+                    (e.isGroup && Object.values(groupTypers[e.id] || {}).some(Boolean)) ? (
                       <span style={{ color: '#8AB4FF' }}>{zh ? '正在輸入…' : 'typing…'}</span>
                     ) : last ? (
                       (last.mine ? (zh ? '你：' : 'You: ') : '') +
@@ -834,10 +917,14 @@ export default function ChatPage() {
                   <span style={{ ...S.avatar, background: '#3A2E63' }}>👥</span>
                   <div style={S.threadTitleWrap}>
                     <div style={S.threadTitle}>{activeGroup.name || short(activeGroup.groupId)}</div>
-                    <div style={S.threadSub}>
-                      {activeGroup.members.length} {zh ? '位成員' : 'members'}
-                      {activeGroup.myRole === 'owner' ? (zh ? ' · 群主' : ' · owner') : ''}
-                    </div>
+                    {groupTypingText ? (
+                      <div style={{ ...S.threadStatus, color: '#8AB4FF' }}>{groupTypingText}</div>
+                    ) : (
+                      <div style={S.threadSub}>
+                        {activeGroup.members.length} {zh ? '位成員' : 'members'}
+                        {activeGroup.myRole === 'owner' ? (zh ? ' · 群主' : ' · owner') : ''}
+                      </div>
+                    )}
                   </div>
                 </>
               ) : (
@@ -869,7 +956,7 @@ export default function ChatPage() {
                 const grouped = !showDate && !!prev && sameSender && m.ts - prev.ts < 300;
                 // Group message from someone else: label the sender above the run.
                 const showSender = !!activeGroup && !m.mine && !grouped;
-                const trigger = activeGroup ? null : (
+                const trigger = (
                   <button
                     style={S.reactTrigger}
                     title={zh ? '表情回應' : 'React'}
@@ -1091,6 +1178,16 @@ function attPreview(atts: WebAttachment[] | undefined, zh: boolean): string {
 /** Display name for a group member: a saved contact name, else a short pubkey. */
 function groupMemberName(pubkey: string, names: Record<string, string>): string {
   return names[pubkey] || short(pubkey);
+}
+
+/** "Alice is typing…" / "Alice, Bob are typing…" for a group (empty if none). */
+function groupTypingLabel(typers: Record<string, boolean>, names: Record<string, string>, zh: boolean): string {
+  const who = Object.keys(typers).filter((p) => typers[p]);
+  if (!who.length) return '';
+  const shown = who.slice(0, 2).map((p) => groupMemberName(p, names));
+  const more = who.length > 2 ? (zh ? ` 等 ${who.length} 人` : ` +${who.length - 2}`) : '';
+  const verb = zh ? '正在輸入…' : who.length > 1 ? 'are typing…' : 'is typing…';
+  return `${shown.join(zh ? '、' : ', ')}${more} ${verb}`;
 }
 
 /** Relative "last seen" label. */
