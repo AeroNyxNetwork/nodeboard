@@ -18,20 +18,26 @@
 'use client';
 
 import {
-  useCallback, useEffect, useMemo, useRef, useState, type CSSProperties,
+  useCallback, useEffect, useMemo, useRef, useState,
+  type CSSProperties, type ReactNode,
 } from 'react';
 import { ed25519 } from '@noble/curves/ed25519';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { RelayClient } from '@/lib/relayClient';
 import {
   encryptText, decryptEnvelopeFrame, bytesToHex, hexToBytes,
+  type OutgoingFrame, type WebAttachment,
 } from '@/lib/msgCrypto';
 
 const SEED_KEY = 'aeronyx_web_seed';
 const CONV_KEY = 'aeronyx_web_convs';
+const NAMES_KEY = 'aeronyx_web_names';
 
-type Msg = { id: string; text: string; ts: number; mine: boolean };
-type Conv = { peer: string; messages: Msg[]; lastTs: number };
+type Msg = {
+  id: string; text: string; ts: number; mine: boolean;
+  status?: 'sent' | 'failed'; attachments?: WebAttachment[];
+};
+type Conv = { peer: string; messages: Msg[]; lastTs: number; unread?: number };
 type Status = 'connecting' | 'connected' | 'reconnecting';
 
 export default function ChatPage() {
@@ -48,8 +54,40 @@ export default function ChatPage() {
   const [draft, setDraft] = useState('');
   const [myPubHex, setMyPubHex] = useState('');
   const [isMobile, setIsMobile] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [names, setNames] = useState<Record<string, string>>({});
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const lastTsRef = useRef(0); // max message ts seen — relay_pull since_ts
+  const pendingRef = useRef<Array<{ peer: string; id: string; frame: OutgoingFrame }>>([]);
+  const activeRef = useRef(''); // current open peer — so appendMessage can read it
+
+  const appendMessage = useCallback((peer: string, msg: Msg) => {
+    lastTsRef.current = Math.max(lastTsRef.current, msg.ts);
+    setConvs((prev) => {
+      const c = prev[peer] || { peer, messages: [], lastTs: 0 };
+      if (c.messages.some((m) => m.id === msg.id)) return prev; // dedupe
+      const messages = [...c.messages, msg].sort((a, b) => a.ts - b.ts);
+      const unread = !msg.mine && peer !== activeRef.current
+        ? (c.unread || 0) + 1
+        : c.unread || 0;
+      return { ...prev, [peer]: { ...c, messages, lastTs: Math.max(c.lastTs, msg.ts), unread } };
+    });
+  }, []);
+
+  const openConv = useCallback((peer: string) => {
+    setActive(peer);
+    setConvs((prev) => (prev[peer]?.unread ? { ...prev, [peer]: { ...prev[peer], unread: 0 } } : prev));
+  }, []);
+
+  const setMsgStatus = useCallback((peer: string, id: string, status: 'sent' | 'failed') => {
+    setConvs((prev) => {
+      const c = prev[peer];
+      if (!c) return prev;
+      return { ...prev, [peer]: { ...c, messages: c.messages.map((m) => (m.id === id ? { ...m, status } : m)) } };
+    });
+  }, []);
 
   // Responsive: single pane on narrow viewports (inline styles can't media-query).
   useEffect(() => {
@@ -79,45 +117,81 @@ export default function ChatPage() {
 
     try {
       const raw = sessionStorage.getItem(CONV_KEY);
-      if (raw) setConvs(JSON.parse(raw));
+      if (raw) {
+        const loaded: Record<string, Conv> = JSON.parse(raw);
+        setConvs(loaded);
+        for (const c of Object.values(loaded)) {
+          lastTsRef.current = Math.max(lastTsRef.current, c.lastTs || 0);
+        }
+      }
+      const rn = sessionStorage.getItem(NAMES_KEY);
+      if (rn) setNames(JSON.parse(rn));
     } catch { /* ignore */ }
 
     const client = new RelayClient(seedHex);
     clientRef.current = client;
-    client.on('connected', () => setStatus('connected'));
+    client.on('connected', () => {
+      setStatus('connected');
+      // [HISTORY] Pull offline/undelivered messages (they arrive as normal
+      // relay_envelope frames and flow through the handler below, deduped by id).
+      // ⚠️ We deliberately do NOT relay_offline_ack them: acking clears the
+      // relay's per-pubkey offline queue and would steal messages from the phone
+      // (the primary device). Re-pulls on reconnect are harmless (dedup).
+      setSyncing(true);
+      client.send({ type: 'relay_pull', since_ts: Math.max(0, lastTsRef.current - 60) });
+      // [RETRY] resend messages that failed to send while disconnected.
+      const pending = pendingRef.current;
+      pendingRef.current = [];
+      for (const p of pending) {
+        if (client.send(p.frame)) setMsgStatus(p.peer, p.id, 'sent');
+        else pendingRef.current.push(p);
+      }
+    });
+    client.on('pulldone', () => setSyncing(false));
     client.on('closed', () => setStatus((s) => (s === 'connected' ? 'reconnecting' : s)));
     client.on('envelope', (frame) => {
       const s = seedRef.current;
       if (!s) return;
       const m = decryptEnvelopeFrame(s, frame as never);
       if (!m) return;
-      appendMessage(m.senderHex, { id: m.msgId, text: m.text, ts: m.timestamp, mine: false });
+      appendMessage(m.senderHex, {
+        id: m.msgId, text: m.text, ts: m.timestamp, mine: false,
+        attachments: m.attachments,
+      });
     });
     client.connect();
-    return () => client.close();
+    // Safety: clear the syncing hint even if relay_pull_done never arrives.
+    const syncTimer = setTimeout(() => setSyncing(false), 15000);
+    return () => { clearTimeout(syncTimer); client.close(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // persist contact names
+  useEffect(() => {
+    try { sessionStorage.setItem(NAMES_KEY, JSON.stringify(names)); } catch { /* quota */ }
+  }, [names]);
 
   // persist conversations
   useEffect(() => {
     try { sessionStorage.setItem(CONV_KEY, JSON.stringify(convs)); } catch { /* quota */ }
   }, [convs]);
 
-  const appendMessage = useCallback((peer: string, msg: Msg) => {
-    setConvs((prev) => {
-      const c = prev[peer] || { peer, messages: [], lastTs: 0 };
-      if (c.messages.some((m) => m.id === msg.id)) return prev; // dedupe
-      const messages = [...c.messages, msg].sort((a, b) => a.ts - b.ts);
-      return { ...prev, [peer]: { ...c, messages, lastTs: Math.max(c.lastTs, msg.ts) } };
-    });
-  }, []);
+  // keep activeRef current so the stable appendMessage callback can read it
+  useEffect(() => { activeRef.current = active; }, [active]);
 
-  // auto-scroll to bottom when the active thread grows
   const activeConv = active ? convs[active] : undefined;
+  // Opening a conversation always jumps to the newest message.
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [activeConv?.messages.length, active]);
+  }, [active]);
+  // A new message only auto-scrolls if you're already near the bottom — don't
+  // yank you down while you're reading history (Telegram behaviour).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 140) el.scrollTop = el.scrollHeight;
+  }, [activeConv?.messages.length]);
 
   const send = useCallback(() => {
     const text = draft.trim();
@@ -126,9 +200,14 @@ export default function ChatPage() {
     if (!text || !active || !seed || !pub) return;
     try {
       const frame = encryptText(seed, pub, active, text);
-      clientRef.current?.send(frame);
-      appendMessage(active, { id: frame.msg_id, text, ts: frame.timestamp, mine: true });
+      const ok = clientRef.current?.send(frame) ?? false;
+      appendMessage(active, {
+        id: frame.msg_id, text, ts: frame.timestamp, mine: true,
+        status: ok ? 'sent' : 'failed',
+      });
+      if (!ok) pendingRef.current.push({ peer: active, id: frame.msg_id, frame });
       setDraft('');
+      if (inputRef.current) inputRef.current.style.height = 'auto';
     } catch { /* ignore */ }
   }, [draft, active, appendMessage]);
 
@@ -140,8 +219,25 @@ export default function ChatPage() {
       return;
     }
     setConvs((prev) => (prev[peer] ? prev : { ...prev, [peer]: { peer, messages: [], lastTs: 0 } }));
-    setActive(peer);
-  }, [zh]);
+    openConv(peer);
+  }, [zh, openConv]);
+
+  const renamePeer = useCallback((peer: string) => {
+    const input = window.prompt(
+      zh ? '設定備註名（留空清除）' : 'Set a name (empty to clear)',
+      names[peer] || '',
+    );
+    if (input === null) return;
+    const name = input.trim();
+    setNames((prev) => {
+      const next = { ...prev };
+      if (name) next[peer] = name;
+      else delete next[peer];
+      return next;
+    });
+  }, [names, zh]);
+
+  const nameFor = useCallback((peer: string) => names[peer] || short(peer), [names]);
 
   const logout = () => {
     clientRef.current?.close();
@@ -181,7 +277,9 @@ export default function ChatPage() {
             <button style={S.iconBtn} title={zh ? '登出' : 'Log out'} onClick={logout}>⎋</button>
           </div>
         </div>
-        <div style={S.statusLine}>{statusText}</div>
+        <div style={S.statusLine}>
+          {syncing ? (zh ? '同步歷史中…' : 'Syncing…') : statusText}
+        </div>
         <div style={S.convList}>
           {sortedConvs.length === 0 && (
             <div style={S.emptyList}>{zh ? '還沒有對話。點 ＋ 用公鑰發起。' : 'No chats yet. Tap ＋ to start with a public key.'}</div>
@@ -192,14 +290,24 @@ export default function ChatPage() {
               <button
                 key={c.peer}
                 style={{ ...S.convItem, ...(c.peer === active ? S.convItemActive : {}) }}
-                onClick={() => setActive(c.peer)}
+                onClick={() => openConv(c.peer)}
               >
                 <span style={{ ...S.avatar, background: colorFor(c.peer) }}>{c.peer.slice(0, 2)}</span>
                 <span style={S.convBody}>
-                  <span style={S.convName}>{short(c.peer)}</span>
-                  <span style={S.convPreview}>{last ? (last.mine ? (zh ? '你：' : 'You: ') : '') + last.text : ''}</span>
+                  <span style={S.convName}>{nameFor(c.peer)}</span>
+                  <span style={S.convPreview}>
+                    {last
+                      ? (last.mine ? (zh ? '你：' : 'You: ') : '') +
+                        (last.text || (last.attachments?.length ? (zh ? '📎 附件' : '📎 Attachment') : ''))
+                      : ''}
+                  </span>
                 </span>
-                {last && <span style={S.convTime}>{hhmm(last.ts)}</span>}
+                <span style={S.convRight}>
+                  {last && <span style={S.convTime}>{convTime(last.ts, zh)}</span>}
+                  {!!c.unread && (
+                    <span style={S.unreadBadge}>{c.unread > 99 ? '99+' : c.unread}</span>
+                  )}
+                </span>
               </button>
             );
           })}
@@ -217,30 +325,67 @@ export default function ChatPage() {
             <header style={S.threadHeader}>
               <button style={{ ...S.backBtn, display: isMobile ? 'block' : 'none' }} onClick={() => setActive('')}>‹</button>
               <span style={{ ...S.avatar, background: colorFor(activeConv.peer) }}>{activeConv.peer.slice(0, 2)}</span>
-              <div style={S.threadTitleWrap}>
-                <div style={S.threadTitle}>{short(activeConv.peer)}</div>
+              <div
+                style={{ ...S.threadTitleWrap, cursor: 'pointer' }}
+                onClick={() => renamePeer(activeConv.peer)}
+                title={zh ? '點擊設定備註名' : 'Click to set a name'}
+              >
+                <div style={S.threadTitle}>
+                  {nameFor(activeConv.peer)} <span style={S.editHint}>✎</span>
+                </div>
                 <code style={S.threadSub}>{activeConv.peer}</code>
               </div>
             </header>
 
             <div style={S.messages} ref={scrollRef}>
-              {activeConv.messages.map((m) => (
-                <div key={m.id} style={{ ...S.row, justifyContent: m.mine ? 'flex-end' : 'flex-start' }}>
-                  <div style={{ ...S.bubble, ...(m.mine ? S.bubbleMine : S.bubbleTheirs) }}>
-                    <span style={S.msgText}>{m.text}</span>
-                    <span style={S.msgTime}>{hhmm(m.ts)}</span>
+              {activeConv.messages.map((m, i) => {
+                const prev = activeConv.messages[i - 1];
+                const showDate = !prev || !sameDay(prev.ts, m.ts);
+                // Group consecutive same-sender messages within 5 min (Telegram).
+                const grouped = !showDate && !!prev && prev.mine === m.mine && m.ts - prev.ts < 300;
+                return (
+                  <div key={m.id}>
+                    {showDate && (
+                      <div style={S.dateSep}>
+                        <span style={S.dateSepPill}>{dateLabel(m.ts, zh)}</span>
+                      </div>
+                    )}
+                    <div style={{ ...S.row, justifyContent: m.mine ? 'flex-end' : 'flex-start', marginTop: grouped ? 2 : 8 }}>
+                      <div style={{ ...S.bubble, ...(m.mine ? S.bubbleMine : S.bubbleTheirs) }}>
+                        {m.attachments?.map((a, k) => (
+                          <AttachmentView key={k} att={a} zh={zh} />
+                        ))}
+                        {m.text ? <span style={S.msgText}>{linkify(m.text)}</span> : null}
+                        <span style={S.msgTime}>
+                          {hhmm(m.ts)}
+                          {m.mine && (
+                            <span style={{ marginLeft: 4, color: m.status === 'failed' ? '#FFB4A0' : undefined }}>
+                              {m.status === 'failed' ? '⚠' : '✓'}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div style={S.inputBar}>
               <textarea
+                ref={inputRef}
                 style={S.input}
                 value={draft}
                 placeholder={zh ? '訊息…' : 'Message…'}
                 rows={1}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  const el = inputRef.current;
+                  if (el) {
+                    el.style.height = 'auto';
+                    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+                  }
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
@@ -269,12 +414,104 @@ function hhmm(ts: number): string {
   const d = new Date(ts * 1000);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
+
+function sameDay(a: number, b: number): boolean {
+  const da = new Date(a * 1000);
+  const db = new Date(b * 1000);
+  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+}
+
+function dateLabel(ts: number, zh: boolean): string {
+  const d = new Date(ts * 1000);
+  const now = new Date();
+  const sod = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((sod(now) - sod(d)) / 86400000);
+  if (diff === 0) return zh ? '今天' : 'Today';
+  if (diff === 1) return zh ? '昨天' : 'Yesterday';
+  return d.toLocaleDateString(zh ? 'zh-CN' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+/** Relative timestamp for the conversation list (today→HH:MM, else day/date). */
+function convTime(ts: number, zh: boolean): string {
+  const d = new Date(ts * 1000);
+  const now = new Date();
+  const sod = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((sod(now) - sod(d)) / 86400000);
+  if (diff === 0) return hhmm(ts);
+  if (diff === 1) return zh ? '昨天' : 'Yst';
+  if (diff < 7) return d.toLocaleDateString(zh ? 'zh-CN' : 'en-US', { weekday: 'short' });
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+/** Render text with clickable http(s) links. */
+function linkify(text: string): ReactNode {
+  return text.split(/(https?:\/\/[^\s]+)/g).map((p, i) =>
+    /^https?:\/\//.test(p) ? (
+      <a
+        key={i}
+        href={p}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ color: '#8AB4FF', textDecoration: 'underline' }}
+      >
+        {p}
+      </a>
+    ) : (
+      p
+    ),
+  );
+}
 function colorFor(hex: string): string {
   const colors = ['#7462F7', '#14F195', '#FF6B6B', '#3EA6FF', '#FFB800', '#B9A7FF'];
   let n = 0;
   for (let i = 0; i < hex.length; i++) n = (n + hex.charCodeAt(i)) % colors.length;
   return colors[n];
 }
+
+function fmtSize(n: number): string {
+  if (n <= 0) return '';
+  if (n < 1024) return `${n} B`;
+  if (n < 1048576) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1048576).toFixed(1)} MB`;
+}
+
+/** Render an attachment: image via the inline thumbnail (no download needed);
+ *  other types as a file chip. Full-blob download+decrypt is a later phase. */
+function AttachmentView({ att, zh }: { att: WebAttachment; zh: boolean }) {
+  const isImage = att.mediaType.startsWith('image/');
+  if (isImage && att.thumbB64) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={`data:${att.mediaType};base64,${att.thumbB64}`}
+        alt={att.fileName}
+        style={AS.img}
+      />
+    );
+  }
+  const icon = att.mediaType.startsWith('video/')
+    ? '🎬'
+    : att.mediaType.startsWith('audio/')
+      ? '🎧'
+      : '📄';
+  const note = isImage ? '' : zh ? ' · 需 App 開啟' : ' · open in app';
+  return (
+    <div style={AS.chip}>
+      <span style={{ fontSize: 18 }}>{icon}</span>
+      <div style={{ minWidth: 0 }}>
+        <div style={AS.chipName}>{att.fileName}</div>
+        <div style={AS.chipMeta}>{fmtSize(att.fileSize)}{note}</div>
+      </div>
+    </div>
+  );
+}
+
+const AS: Record<string, CSSProperties> = {
+  img: { maxWidth: 220, maxHeight: 260, borderRadius: 10, display: 'block', marginBottom: 4, objectFit: 'cover' },
+  chip: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: 'rgba(0,0,0,0.18)', borderRadius: 8, marginBottom: 4 },
+  chipName: { fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 },
+  chipMeta: { fontSize: 11, color: 'rgba(255,255,255,0.5)' },
+};
 
 const S: Record<string, CSSProperties> = {
   app: { display: 'flex', height: '100vh', background: '#0A0015', color: '#fff', fontFamily: 'system-ui,-apple-system,sans-serif', overflow: 'hidden' },
@@ -297,14 +534,19 @@ const S: Record<string, CSSProperties> = {
   convName: { fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   convPreview: { fontSize: 13, color: 'rgba(255,255,255,0.45)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   convTime: { fontSize: 11, color: 'rgba(255,255,255,0.35)', flexShrink: 0 },
+  convRight: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 },
+  unreadBadge: { background: '#7462F7', color: '#fff', fontSize: 11, fontWeight: 700, minWidth: 18, height: 18, borderRadius: 9, padding: '0 5px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   thread: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 },
   threadEmpty: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 15 },
   threadHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' },
   backBtn: { display: 'none', background: 'transparent', border: 'none', color: '#fff', fontSize: 24, cursor: 'pointer', padding: 0, width: 28 },
   threadTitleWrap: { minWidth: 0 },
   threadTitle: { fontSize: 15, fontWeight: 600 },
+  editHint: { fontSize: 11, color: 'rgba(255,255,255,0.3)' },
   threadSub: { fontFamily: 'monospace', fontSize: 10, color: 'rgba(255,255,255,0.35)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', maxWidth: 260 },
-  messages: { flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 4 },
+  messages: { flex: 1, overflowY: 'auto', padding: '10px 18px 16px', display: 'flex', flexDirection: 'column' },
+  dateSep: { display: 'flex', justifyContent: 'center', margin: '12px 0 6px' },
+  dateSepPill: { fontSize: 11, color: 'rgba(255,255,255,0.55)', background: 'rgba(255,255,255,0.06)', borderRadius: 10, padding: '3px 10px' },
   row: { display: 'flex', width: '100%' },
   bubble: { maxWidth: '72%', padding: '7px 11px 5px', borderRadius: 16, fontSize: 14, lineHeight: 1.4, wordBreak: 'break-word', display: 'flex', flexDirection: 'column' },
   bubbleMine: { background: '#7462F7', borderBottomRightRadius: 5 },

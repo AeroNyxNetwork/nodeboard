@@ -23,7 +23,7 @@ import { sha256 } from '@noble/hashes/sha256';
 const WS_URL = 'wss://api.aeronyx.network/ws/relay/';
 const DOMAIN = 'AeroNyx-RelayAuth-v1';
 
-export type RelayEvent = 'connected' | 'authfail' | 'closed' | 'envelope';
+export type RelayEvent = 'connected' | 'authfail' | 'closed' | 'envelope' | 'pulldone';
 
 export class RelayClient {
   private ws: WebSocket | null = null;
@@ -129,6 +129,9 @@ export class RelayClient {
         break;
       case 'relay_envelope':
         this.emit('envelope', f);
+        break;
+      case 'relay_pull_done':
+        this.emit('pulldone', f);
         break;
       default:
         break;

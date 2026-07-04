@@ -33,9 +33,19 @@ import { xchacha20poly1305 } from '@noble/ciphers/chacha';
 const P2P_INFO = new TextEncoder().encode('AERONYX-P2P-KEY');
 const CTYPE_TEXT = 0;
 
+export interface WebAttachment {
+  blobId: string;
+  fileKey: string; // hex — AES-256-GCM key for the full blob (download phase)
+  mediaType: string;
+  fileName: string;
+  fileSize: number;
+  thumbB64?: string; // inline preview (images/video) — render without a download
+}
+
 export interface IncomingMessage {
   senderHex: string;
   text: string;
+  attachments: WebAttachment[];
   timestamp: number; // unix seconds
   msgId: string;
 }
@@ -60,10 +70,16 @@ function edPrivToX(seed: Uint8Array): Uint8Array {
   return h;
 }
 
-/** ECDH+HKDF shared secret with a peer (their Ed25519 pubkey). */
-export function sharedSecret(seed: Uint8Array, theirEdPub: Uint8Array): Uint8Array {
+/**
+ * ECDH shared secret with a peer (their Ed25519 pubkey). Messages use the HKDF
+ * form (app default useHkdf=true); the raw form exists only as a legacy
+ * receive-fallback (the app tries [hkdf, raw]).
+ */
+export function sharedSecret(
+  seed: Uint8Array, theirEdPub: Uint8Array, useHkdf = true,
+): Uint8Array {
   const raw = x25519.getSharedSecret(edPrivToX(seed), edwardsToMontgomery(theirEdPub));
-  return hkdf(sha256, raw, new Uint8Array(32), P2P_INFO, 32);
+  return useHkdf ? hkdf(sha256, raw, new Uint8Array(32), P2P_INFO, 32) : raw;
 }
 
 // --- envelope ---------------------------------------------------------------
@@ -141,17 +157,33 @@ function encodeWire(text: string): string {
   return text; // simple text: raw string (attachments/reply add JSON — later)
 }
 
-function decodeWire(wire: string): string {
+interface WireDecoded {
+  text: string;
+  attachments: WebAttachment[];
+}
+
+function decodeWire(wire: string): WireDecoded {
   const t = wire.trimStart();
   if (t.startsWith('{')) {
     try {
       const j = JSON.parse(wire);
-      if (j && j.type === 'aeronyx_message') return typeof j.text === 'string' ? j.text : '';
+      if (j && j.type === 'aeronyx_message') {
+        const raw = Array.isArray(j.attachments) ? j.attachments : [];
+        const attachments: WebAttachment[] = raw.map((a: Record<string, unknown>) => ({
+          blobId: String(a.blob_id ?? a.id ?? ''),
+          fileKey: String(a.file_key ?? ''),
+          mediaType: String(a.media_type ?? 'application/octet-stream'),
+          fileName: String(a.file_name ?? a.name ?? 'attachment'),
+          fileSize: Number(a.file_size ?? a.size ?? 0) || 0,
+          thumbB64: typeof a.thumb_b64 === 'string' ? a.thumb_b64 : undefined,
+        }));
+        return { text: typeof j.text === 'string' ? j.text : '', attachments };
+      }
     } catch {
-      /* not JSON — fall through to raw */
+      /* not JSON — fall through to raw text */
     }
   }
-  return wire;
+  return { text: wire, attachments: [] };
 }
 
 // --- public: encrypt (send) / decrypt (receive) -----------------------------
@@ -204,23 +236,49 @@ export function decryptEnvelopeFrame(
 
   const env = deserializeEnvelope(b64decode(payloadB64));
   if (!env) return null;
-  const shared = sharedSecret(seed, hexToBytes(senderHex));
-  const full = concat(env.nonce, env.ciphertext);
-  let plain: Uint8Array;
+
+  // The frame's sender must match the signed envelope's sender (no spoofing the
+  // routing header vs the signed content).
+  if (bytesToHex(env.sender) !== senderHex.toLowerCase()) return null;
+
+  // Verify the envelope Ed25519 signature over sha256(signData) — reject
+  // forgeries (parity with the app's p2pVerify; AEAD alone doesn't give this).
+  const signData = buildSignData(
+    env.sender, env.messageId, env.receiver, env.timestamp, env.contentType, env.ciphertext,
+  );
+  let sigOk = false;
   try {
-    plain = xchacha20poly1305(shared, full.slice(0, 24)).decrypt(full.slice(24));
+    sigOk = ed25519.verify(env.signature, sha256(signData), env.sender);
   } catch {
-    return null; // MAC fail — tampered / wrong key
+    sigOk = false;
   }
+  if (!sigOk) return null;
+
+  // Decrypt: try HKDF secret, then the legacy raw secret (app tries both).
+  const full = concat(env.nonce, env.ciphertext);
+  let plain: Uint8Array | null = null;
+  for (const useHkdf of [true, false]) {
+    try {
+      const sh = sharedSecret(seed, env.sender, useHkdf);
+      plain = xchacha20poly1305(sh, full.slice(0, 24)).decrypt(full.slice(24));
+      break;
+    } catch {
+      plain = null; // MAC fail with this secret — try the next
+    }
+  }
+  if (!plain) return null;
+
   let wire: string;
   try {
     wire = new TextDecoder('utf-8', { fatal: false }).decode(plain);
   } catch {
     return null;
   }
+  const decoded = decodeWire(wire);
   return {
     senderHex,
-    text: decodeWire(wire),
+    text: decoded.text,
+    attachments: decoded.attachments,
     timestamp: env.timestamp,
     msgId: frame.msg_id || bytesToHex(env.messageId),
   };
