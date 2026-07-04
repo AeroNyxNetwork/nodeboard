@@ -78,6 +78,17 @@ export class RelayClient {
     this.ws = null;
   }
 
+  /** Send a JSON frame. Returns false if the socket isn't open. */
+  send(frame: unknown): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false;
+    try {
+      this.ws.send(JSON.stringify(frame));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private scheduleReconnect(): void {
     const delay = this.reconnectMs;
     this.reconnectMs = Math.min(this.reconnectMs * 2, 15000); // capped backoff
