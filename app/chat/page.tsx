@@ -31,7 +31,7 @@ import {
   encryptGroupReaction, decryptGroupReaction,
   fetchGroupList, fetchGroupKeyBundle,
   createGroup, inviteToGroup, leaveGroup, kickMember,
-  fetchAttachment, uploadAttachment, SIMPLE_UPLOAD_MAX,
+  fetchAttachment, uploadAttachmentAuto, CHUNKED_UPLOAD_MAX,
   bytesToHex, hexToBytes,
   type OutgoingFrame, type WebAttachment,
 } from '@/lib/msgCrypto';
@@ -659,8 +659,8 @@ export default function ChatPage() {
     if (!seed || !pub || !peer || uploading) return;
 
     const bytes = new Uint8Array(await file.arrayBuffer());
-    if (bytes.length > SIMPLE_UPLOAD_MAX) {
-      window.alert(zh ? '檔案太大（網頁版上限 8MB，請用 App 發送大檔）' : 'File too large (8MB web limit — use the app for big files)');
+    if (bytes.length > CHUNKED_UPLOAD_MAX) {
+      window.alert(zh ? '檔案太大（網頁版上限 100MB）' : 'File too large (100MB web limit)');
       return;
     }
     const mediaType = file.type || 'application/octet-stream';
@@ -682,7 +682,7 @@ export default function ChatPage() {
       });
       setUploading(true);
       try {
-        const att = await uploadAttachment(seed, pub, { bytes, mediaType, fileName: file.name, thumbB64 });
+        const att = await uploadAttachmentAuto(seed, pub, { bytes, mediaType, fileName: file.name, thumbB64 });
         const frame = encryptGroupMessage(seed, pub, peer, key, g.keyVersion, '', [att], gMsgId);
         const ok = clientRef.current?.send(frame) ?? false;
         patchGroupMessage(peer, gMsgId, { attachments: [att], status: ok ? 'sent' : 'failed' });
@@ -704,7 +704,7 @@ export default function ChatPage() {
 
     setUploading(true);
     try {
-      const att = await uploadAttachment(seed, pub, { bytes, mediaType, fileName: file.name, thumbB64 });
+      const att = await uploadAttachmentAuto(seed, pub, { bytes, mediaType, fileName: file.name, thumbB64 });
       const frame = encryptAttachmentMessage(seed, pub, peer, '', [att], msgId);
       const ok = clientRef.current?.send(frame) ?? false;
       patchMessage(peer, msgId, { attachments: [att], status: ok ? 'sent' : 'failed' });

@@ -521,6 +521,75 @@ export async function uploadAttachment(
   return { blobId, fileKey: b64encode(fileKey), mediaType, fileName, fileSize: bytes.length, thumbB64 };
 }
 
+// The resumable chunked path caps at 100 MB (server BLOB_CHUNKED_MAX_BYTES).
+export const CHUNKED_UPLOAD_MAX = 100 * 1024 * 1024;
+const UPLOAD_CHUNK_BYTES = 1024 * 1024; // 1 MB, matches the app
+
+/**
+ * Encrypt + upload a large file via the resumable chunked session (8–100 MB):
+ * POST /blob/session/ → PUT each 1 MB chunk (raw octet-stream) → POST
+ * /complete/. Same AES-256-GCM envelope as the simple path, so fetchAttachment
+ * decrypts it identically. (verified vs attachment_service.dart:735)
+ */
+export async function uploadAttachmentChunked(
+  seed: Uint8Array, pub: Uint8Array,
+  input: { bytes: Uint8Array; mediaType: string; fileName: string; thumbB64?: string },
+  onProgress?: (frac: number) => void,
+): Promise<WebAttachment> {
+  const { bytes, mediaType, fileName, thumbB64 } = input;
+  const fileKey = crypto.getRandomValues(new Uint8Array(32));
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = concat(nonce, gcm(fileKey, nonce).encrypt(bytes)); // nonce ‖ cipher ‖ tag16
+  const totalSize = encrypted.length;
+
+  const create = await relayPost(seed, pub, '/blob/session/', {
+    total_size: totalSize, chunk_size: UPLOAD_CHUNK_BYTES,
+    media_type: mediaType, file_name: fileName, access_mode: 'capability',
+  });
+  if (!create) throw new Error('session create failed');
+  const uploadId = String(create.upload_id ?? '');
+  if (!uploadId) throw new Error('no upload_id');
+  const chunkSize = Number(create.chunk_size ?? UPLOAD_CHUNK_BYTES) || UPLOAD_CHUNK_BYTES;
+  const totalChunks = Math.ceil(totalSize / chunkSize);
+
+  for (let i = 0; i < totalChunks; i++) {
+    const chunk = encrypted.slice(i * chunkSize, Math.min((i + 1) * chunkSize, totalSize));
+    const res = await fetch(`${RELAY_BASE}/blob/session/${encodeURIComponent(uploadId)}/chunk/${i}/`, {
+      method: 'PUT',
+      headers: {
+        Authorization: authHeader(seed, pub),
+        'Content-Type': 'application/octet-stream',
+        'X-AeroNyx-Chunk-Index': String(i),
+      },
+      body: new Uint8Array(chunk),
+    });
+    if (!res.ok) throw new Error(`chunk ${i} ${res.status}`);
+    onProgress?.(((i + 1) / totalChunks) * 0.99);
+  }
+
+  const doneRes = await fetch(`${RELAY_BASE}/blob/session/${encodeURIComponent(uploadId)}/complete/`, {
+    method: 'POST',
+    headers: { Authorization: authHeader(seed, pub) },
+  });
+  if (!doneRes.ok) throw new Error(`complete ${doneRes.status}`);
+  const done = await doneRes.json().catch(() => ({} as Record<string, unknown>));
+  const blob = done.blob as Record<string, unknown> | undefined;
+  const blobId = String(done.blob_id ?? done.id ?? blob?.id ?? '');
+  if (!blobId) throw new Error('chunked: missing blob_id');
+  onProgress?.(1);
+  return { blobId, fileKey: b64encode(fileKey), mediaType, fileName, fileSize: bytes.length, thumbB64 };
+}
+
+/** Encrypt + upload, auto-selecting the simple (≤8 MB) or chunked (≤100 MB) path. */
+export async function uploadAttachmentAuto(
+  seed: Uint8Array, pub: Uint8Array,
+  input: { bytes: Uint8Array; mediaType: string; fileName: string; thumbB64?: string },
+): Promise<WebAttachment> {
+  if (input.bytes.length <= SIMPLE_UPLOAD_MAX) return uploadAttachment(seed, pub, input);
+  if (input.bytes.length > CHUNKED_UPLOAD_MAX) throw new Error('too-large');
+  return uploadAttachmentChunked(seed, pub, input);
+}
+
 // --- groups (discriminant 25, one shared AES-256-GCM group key) --------------
 
 export interface GroupMember { pubkey: string; role: string }
