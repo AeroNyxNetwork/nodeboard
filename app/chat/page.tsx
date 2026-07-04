@@ -43,6 +43,7 @@ const SEED_KEY = 'aeronyx_web_seed';
 const CONV_KEY = 'aeronyx_web_convs';
 const NAMES_KEY = 'aeronyx_web_names';
 const GROUPS_KEY = 'aeronyx_web_groups';
+const RR_KEY = 'aeronyx_web_readreceipts'; // '0' = read receipts off
 
 type Msg = {
   id: string; text: string; ts: number; mine: boolean;
@@ -116,6 +117,7 @@ export default function ChatPage() {
   const [uploading, setUploading] = useState(false); // an attachment send in flight
   const [pickerFor, setPickerFor] = useState(''); // msgId whose reaction palette is open
   const [showMembers, setShowMembers] = useState(false); // group members panel open
+  const [readReceipts, setReadReceipts] = useState(true); // send read receipts (reciprocal privacy)
   const [typingPeers, setTypingPeers] = useState<Record<string, boolean>>({}); // peer → is typing
   const [groupTypers, setGroupTypers] = useState<Record<string, Record<string, boolean>>>({}); // groupId → pubkey → typing
   const [presence, setPresence] = useState<Record<string, { online: boolean; lastSeenTs: number | null }>>({});
@@ -131,6 +133,7 @@ export default function ChatPage() {
   const groupsRef = useRef<Record<string, Group>>({}); // mirror of groups for stable callbacks
   const groupKeysRef = useRef<Record<string, Record<number, Uint8Array>>>({}); // groupId → keyVersion → key (not persisted)
   const readSentRef = useRef<Record<string, string>>({}); // peer → last msgId we sent a read for
+  const readReceiptsRef = useRef(true); // mirror of readReceipts for the stable sendReadReceipt
   const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}); // peer → auto-clear timer
   const groupTypingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}); // "gid:pubkey" → auto-clear
   const typingSentAt = useRef(0); // last time WE sent typing:true (ms) — throttle
@@ -336,6 +339,7 @@ export default function ChatPage() {
           lastTsRef.current = Math.max(lastTsRef.current, g.lastTs || 0);
         }
       }
+      if (sessionStorage.getItem(RR_KEY) === '0') { setReadReceipts(false); readReceiptsRef.current = false; }
     } catch { /* ignore */ }
 
     const client = new RelayClient(seedHex);
@@ -508,6 +512,10 @@ export default function ChatPage() {
   useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { convsRef.current = convs; }, [convs]);
   useEffect(() => { groupsRef.current = groups; }, [groups]);
+  useEffect(() => {
+    readReceiptsRef.current = readReceipts;
+    try { sessionStorage.setItem(RR_KEY, readReceipts ? '1' : '0'); } catch { /* quota */ }
+  }, [readReceipts]);
 
   const activeConv = active && !isGroupId(active) ? convs[active] : undefined;
   const activeGroup = active && isGroupId(active) ? groups[active] : undefined;
@@ -520,6 +528,7 @@ export default function ChatPage() {
   // haven't actually read it if you're not looking — and re-fired on refocus.
   // The per-peer watermark avoids re-sending for the same message.
   const sendReadReceipt = useCallback(() => {
+    if (!readReceiptsRef.current) return; // reciprocal privacy: off → don't send
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
     const peer = activeRef.current;
     if (!peer) return;
@@ -966,6 +975,13 @@ export default function ChatPage() {
           <div style={S.sideActions}>
             <button style={S.iconBtn} title={zh ? '發起聊天' : 'New chat'} onClick={startNewChat}>＋</button>
             <button style={{ ...S.iconBtn, fontSize: 14 }} title={zh ? '建立群組' : 'New group'} onClick={createNewGroup}>👥</button>
+            <button
+              style={{ ...S.iconBtn, fontSize: 13, opacity: readReceipts ? 1 : 0.4 }}
+              title={readReceipts ? (zh ? '已讀回執：開（點擊關閉）' : 'Read receipts: on (click to turn off)') : (zh ? '已讀回執：關' : 'Read receipts: off')}
+              onClick={() => setReadReceipts((v) => !v)}
+            >
+              👁
+            </button>
             <button style={S.iconBtn} title={zh ? '登出' : 'Log out'} onClick={logout}>⎋</button>
           </div>
         </div>
