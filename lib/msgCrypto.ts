@@ -168,29 +168,31 @@ interface WireDecoded {
   attachments: WebAttachment[];
 }
 
+/** Parse an attachment array (app snake_case shape) → WebAttachment[]. Shared by
+ *  1:1 wire decode and group message decode (identical AttachmentMeta shape). */
+function parseAttachmentList(raw: unknown): WebAttachment[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((a: Record<string, unknown>) => ({
+    blobId: String(a.blob_id ?? a.id ?? ''),
+    fileKey: String(a.file_key ?? ''),
+    mediaType: String(a.media_type ?? 'application/octet-stream'),
+    fileName: String(a.file_name ?? a.name ?? 'attachment'),
+    fileSize: Number(a.file_size ?? a.size ?? 0) || 0,
+    thumbB64: typeof a.thumb_b64 === 'string' ? a.thumb_b64 : undefined,
+    durationMs: Number(a.duration_ms ?? 0) || 0,
+    waveform: Array.isArray(a.waveform)
+      ? (a.waveform as unknown[]).map((v) => Number(v)).filter((v) => Number.isFinite(v)).slice(0, 96)
+      : undefined,
+  }));
+}
+
 function decodeWire(wire: string): WireDecoded {
   const t = wire.trimStart();
   if (t.startsWith('{')) {
     try {
       const j = JSON.parse(wire);
       if (j && j.type === 'aeronyx_message') {
-        const raw = Array.isArray(j.attachments) ? j.attachments : [];
-        const attachments: WebAttachment[] = raw.map((a: Record<string, unknown>) => ({
-          blobId: String(a.blob_id ?? a.id ?? ''),
-          fileKey: String(a.file_key ?? ''),
-          mediaType: String(a.media_type ?? 'application/octet-stream'),
-          fileName: String(a.file_name ?? a.name ?? 'attachment'),
-          fileSize: Number(a.file_size ?? a.size ?? 0) || 0,
-          thumbB64: typeof a.thumb_b64 === 'string' ? a.thumb_b64 : undefined,
-          durationMs: Number(a.duration_ms ?? 0) || 0,
-          waveform: Array.isArray(a.waveform)
-            ? (a.waveform as unknown[])
-                .map((v) => Number(v))
-                .filter((v) => Number.isFinite(v))
-                .slice(0, 96)
-            : undefined,
-        }));
-        return { text: typeof j.text === 'string' ? j.text : '', attachments };
+        return { text: typeof j.text === 'string' ? j.text : '', attachments: parseAttachmentList(j.attachments) };
       }
     } catch {
       /* not JSON — fall through to raw text */
@@ -517,6 +519,208 @@ export async function uploadAttachment(
   if (!blobId) throw new Error('upload: missing blob_id');
 
   return { blobId, fileKey: b64encode(fileKey), mediaType, fileName, fileSize: bytes.length, thumbB64 };
+}
+
+// --- groups (discriminant 25, one shared AES-256-GCM group key) --------------
+
+export interface GroupMember { pubkey: string; role: string }
+export interface GroupInfo {
+  groupId: string;
+  name: string;
+  ownerPubkey: string;
+  keyVersion: number;
+  myRole: string;
+  members: GroupMember[];
+}
+export interface GroupSendFrame {
+  type: 'group_send';
+  msg_id: string;
+  group_id: string;
+  payload_b64: string;
+  timestamp: number;
+  payload_sig: string;
+  key_version: number;
+}
+export interface IncomingGroupMessage {
+  groupId: string;
+  senderHex: string;
+  text: string;
+  attachments: WebAttachment[];
+  timestamp: number;
+  msgId: string;
+}
+
+/**
+ * Unseal a member's group-key bundle. encrypted_key_b64 = base64(nonce12 ‖
+ * AES-256-GCM(cipher32 ‖ tag16)); the AES key is ECDH(mySeed, issuer) — the SAME
+ * sharedSecret used for 1:1 (HKDF form, raw-ECDH fallback for pre-S-02 groups).
+ * Returns the 32-byte group key or null. (verified vs group_crypto_service.dart:295)
+ */
+export function unsealGroupKey(
+  seed: Uint8Array, issuedByPubHex: string, encryptedKeyB64: string,
+): Uint8Array | null {
+  let raw: Uint8Array;
+  try { raw = b64decode(encryptedKeyB64); } catch { return null; }
+  if (raw.length < 12 + 16) return null;
+  const issuer = hexToBytes(issuedByPubHex);
+  const nonce = raw.slice(0, 12);
+  const body = raw.slice(12); // cipher ‖ tag16
+  for (const useHkdf of [true, false]) {
+    try {
+      const secret = sharedSecret(seed, issuer, useHkdf);
+      const key = gcm(secret, nonce).decrypt(body);
+      if (key.length === 32) return key;
+    } catch {
+      /* MAC fail with this derivation — try the next */
+    }
+  }
+  return null;
+}
+
+/** sha256(group_id_utf8 ‖ sender32 ‖ [25] ‖ ts_u64le ‖ payloadBytes) — the group
+ *  payload-sig digest. (verified vs group_crypto_service.dart:518) */
+function groupSigDigest(
+  groupId: string, senderPub: Uint8Array, ts: number, payloadB64: string,
+): Uint8Array {
+  const signData = concat(
+    new TextEncoder().encode(groupId), senderPub,
+    new Uint8Array([25]), u64LEbytes(ts), b64decode(payloadB64),
+  );
+  return sha256(signData);
+}
+
+/** Verify a group message/reaction payload signature against its sender. */
+export function verifyGroupSig(
+  groupId: string, senderHex: string, ts: number, payloadB64: string, sigHex: string,
+): boolean {
+  try {
+    const sender = hexToBytes(senderHex);
+    if (sender.length !== 32) return false;
+    return ed25519.verify(hexToBytes(sigHex), groupSigDigest(groupId, sender, ts, payloadB64), sender);
+  } catch {
+    return false;
+  }
+}
+
+/** AES-256-GCM encrypt a JSON payload with the group key → base64(nonce‖cipher‖tag). */
+function sealGroupPayload(groupKey: Uint8Array, obj: Record<string, unknown>): string {
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const inner = new TextEncoder().encode(JSON.stringify(obj));
+  return b64encode(concat(nonce, gcm(groupKey, nonce).encrypt(inner)));
+}
+
+/**
+ * Build a group_send frame (optional attachments). Payload = JSON
+ * GroupMessagePayload sealed with the group key; signed with the group sig
+ * recipe. (verified vs group_crypto_service.dart:380 + chat_relay_ws:4228)
+ */
+export function encryptGroupMessage(
+  seed: Uint8Array, myPub: Uint8Array, groupId: string,
+  groupKey: Uint8Array, keyVersion: number,
+  text: string, attachments?: WebAttachment[], msgIdHex?: string,
+): GroupSendFrame {
+  const ts = Math.floor(Date.now() / 1000);
+  const payload: Record<string, unknown> = {
+    text: text || '', type: 'text', sender_pubkey: bytesToHex(myPub), created_at: ts,
+  };
+  if (attachments && attachments.length) payload.attachments = attachments.map(attToWire);
+
+  const payloadB64 = sealGroupPayload(groupKey, payload);
+  const sig = ed25519.sign(groupSigDigest(groupId, myPub, ts, payloadB64), seed);
+  const messageId = msgIdHex ? hexToBytes(msgIdHex) : crypto.getRandomValues(new Uint8Array(16));
+  return {
+    type: 'group_send',
+    msg_id: bytesToHex(messageId),
+    group_id: groupId,
+    payload_b64: payloadB64,
+    timestamp: ts,
+    payload_sig: bytesToHex(sig),
+    key_version: keyVersion,
+  };
+}
+
+/**
+ * Decrypt an inbound group message (relay_envelope, discriminant 25). Verifies
+ * the payload signature against sender_pubkey first (defense-in-depth), then
+ * AES-256-GCM-decrypts with the group key. Returns null on any failure.
+ */
+export function decryptGroupEnvelope(
+  groupKey: Uint8Array,
+  frame: {
+    payload_b64?: string; sender_pubkey?: string; group_id?: string;
+    msg_id?: string; timestamp?: number; payload_sig?: string;
+  },
+): IncomingGroupMessage | null {
+  const { payload_b64, sender_pubkey, group_id, msg_id, payload_sig } = frame;
+  const ts = frame.timestamp || 0;
+  if (!payload_b64 || !sender_pubkey || !group_id) return null;
+  if (!payload_sig || !verifyGroupSig(group_id, sender_pubkey, ts, payload_b64, payload_sig)) return null;
+
+  let plain: Uint8Array;
+  try {
+    const raw = b64decode(payload_b64);
+    if (raw.length < 12 + 16) return null;
+    plain = gcm(groupKey, raw.slice(0, 12)).decrypt(raw.slice(12));
+  } catch {
+    return null;
+  }
+  try {
+    const j = JSON.parse(new TextDecoder('utf-8', { fatal: false }).decode(plain));
+    const innerSender = typeof j.sender_pubkey === 'string' && j.sender_pubkey ? j.sender_pubkey : sender_pubkey;
+    return {
+      groupId: group_id,
+      senderHex: innerSender.toLowerCase(),
+      text: typeof j.text === 'string' ? j.text : '',
+      attachments: parseAttachmentList(j.attachments),
+      timestamp: ts,
+      msgId: msg_id || '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+// --- group HTTP (list + key bundle) -----------------------------------------
+
+/** GET /groups/ → the groups this identity is an active member of. */
+export async function fetchGroupList(seed: Uint8Array, pub: Uint8Array): Promise<GroupInfo[]> {
+  const res = await fetch(`${RELAY_BASE}/groups/`, { headers: { Authorization: authHeader(seed, pub) } });
+  if (!res.ok) throw new Error(`groups ${res.status}`);
+  const body = await res.json().catch(() => ({} as Record<string, unknown>));
+  const raw = Array.isArray(body.groups) ? body.groups : [];
+  return raw
+    .map((g: Record<string, unknown>): GroupInfo => ({
+      groupId: String(g.group_id ?? g.id ?? ''),
+      name: String(g.name ?? ''),
+      ownerPubkey: String(g.owner_pubkey ?? '').toLowerCase(),
+      keyVersion: Number(g.key_version ?? 1) || 1,
+      myRole: String(g.my_role ?? 'member'),
+      members: Array.isArray(g.members)
+        ? (g.members as Record<string, unknown>[]).map((m) => ({
+            pubkey: String(m.pubkey ?? '').toLowerCase(),
+            role: String(m.role ?? 'member'),
+          }))
+        : [],
+    }))
+    .filter((g: GroupInfo) => g.groupId);
+}
+
+/** GET /groups/<id>/keys/me/ → this member's sealed group-key bundle (or null). */
+export async function fetchGroupKeyBundle(
+  seed: Uint8Array, pub: Uint8Array, groupId: string,
+): Promise<{ keyVersion: number; encryptedKeyB64: string; issuedBy: string } | null> {
+  const res = await fetch(`${RELAY_BASE}/groups/${encodeURIComponent(groupId)}/keys/me/`, {
+    headers: { Authorization: authHeader(seed, pub) },
+  });
+  if (!res.ok) return null;
+  const body = await res.json().catch(() => ({} as Record<string, unknown>));
+  const key = body.key as Record<string, unknown> | undefined;
+  if (!key || typeof key.encrypted_key_b64 !== 'string') return null;
+  return {
+    keyVersion: Number(key.key_version ?? 1) || 1,
+    encryptedKeyB64: key.encrypted_key_b64,
+    issuedBy: String(key.issued_by ?? '').toLowerCase(),
+  };
 }
 
 // --- helpers ----------------------------------------------------------------

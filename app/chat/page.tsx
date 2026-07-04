@@ -27,6 +27,8 @@ import { RelayClient } from '@/lib/relayClient';
 import {
   encryptText, encryptAttachmentMessage, decryptEnvelopeFrame,
   encryptReaction, decryptReactionFrame,
+  encryptGroupMessage, decryptGroupEnvelope, unsealGroupKey,
+  fetchGroupList, fetchGroupKeyBundle,
   fetchAttachment, uploadAttachment, SIMPLE_UPLOAD_MAX,
   bytesToHex, hexToBytes,
   type OutgoingFrame, type WebAttachment,
@@ -38,15 +40,38 @@ const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const SEED_KEY = 'aeronyx_web_seed';
 const CONV_KEY = 'aeronyx_web_convs';
 const NAMES_KEY = 'aeronyx_web_names';
+const GROUPS_KEY = 'aeronyx_web_groups';
 
 type Msg = {
   id: string; text: string; ts: number; mine: boolean;
   status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
   attachments?: WebAttachment[];
   reactions?: Record<string, string[]>; // emoji → reactor pubkey hexes
+  sender?: string; // group message: sender pubkey hex (for name/avatar). Omitted for 1:1.
 };
 type Conv = { peer: string; messages: Msg[]; lastTs: number; unread?: number };
+type GroupMember = { pubkey: string; role: string };
+type Group = {
+  groupId: string;
+  name: string;
+  ownerPubkey: string;
+  myRole: string;
+  keyVersion: number;
+  members: GroupMember[];
+  messages: Msg[];
+  lastTs: number;
+  unread?: number;
+};
 type Status = 'connecting' | 'connected' | 'reconnecting';
+type SidebarEntry = {
+  id: string; isGroup: boolean; name: string;
+  last?: Msg; lastTs: number; unread: number; memberCount?: number;
+};
+
+/** Group ids are UUIDs (contain '-'); peer identities are 64-hex. */
+function isGroupId(id: string): boolean {
+  return id.includes('-');
+}
 
 export default function ChatPage() {
   const { locale } = useI18n();
@@ -58,7 +83,8 @@ export default function ChatPage() {
 
   const [status, setStatus] = useState<Status>('connecting');
   const [convs, setConvs] = useState<Record<string, Conv>>({});
-  const [active, setActive] = useState<string>(''); // peer hex
+  const [groups, setGroups] = useState<Record<string, Group>>({});
+  const [active, setActive] = useState<string>(''); // peer hex OR group id
   const [draft, setDraft] = useState('');
   const [myPubHex, setMyPubHex] = useState('');
   const [isMobile, setIsMobile] = useState(false);
@@ -79,6 +105,8 @@ export default function ChatPage() {
   const activeRef = useRef(''); // current open peer — so appendMessage can read it
   const audioUrlCache = useRef<Map<string, string>>(new Map()); // blobId → object URL
   const convsRef = useRef<Record<string, Conv>>({}); // mirror of convs for stable callbacks
+  const groupsRef = useRef<Record<string, Group>>({}); // mirror of groups for stable callbacks
+  const groupKeysRef = useRef<Record<string, Uint8Array>>({}); // groupId → current group key (not persisted)
   const readSentRef = useRef<Record<string, string>>({}); // peer → last msgId we sent a read for
   const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}); // peer → auto-clear timer
   const typingSentAt = useRef(0); // last time WE sent typing:true (ms) — throttle
@@ -97,9 +125,13 @@ export default function ChatPage() {
     });
   }, []);
 
-  const openConv = useCallback((peer: string) => {
-    setActive(peer);
-    setConvs((prev) => (prev[peer]?.unread ? { ...prev, [peer]: { ...prev[peer], unread: 0 } } : prev));
+  const openConv = useCallback((id: string) => {
+    setActive(id);
+    if (isGroupId(id)) {
+      setGroups((prev) => (prev[id]?.unread ? { ...prev, [id]: { ...prev[id], unread: 0 } } : prev));
+    } else {
+      setConvs((prev) => (prev[id]?.unread ? { ...prev, [id]: { ...prev[id], unread: 0 } } : prev));
+    }
   }, []);
 
   const setMsgStatus = useCallback((peer: string, id: string, status: 'sent' | 'failed') => {
@@ -164,6 +196,59 @@ export default function ChatPage() {
     });
   }, []);
 
+  // Append a group message (dedupe + unread when the group isn't focused).
+  const appendGroupMessage = useCallback((groupId: string, msg: Msg) => {
+    lastTsRef.current = Math.max(lastTsRef.current, msg.ts);
+    setGroups((prev) => {
+      const g = prev[groupId];
+      if (!g) return prev; // unknown group (metadata not loaded) — drop
+      if (g.messages.some((m) => m.id === msg.id)) return prev;
+      const messages = [...g.messages, msg].sort((a, b) => a.ts - b.ts);
+      const unread = !msg.mine && groupId !== activeRef.current ? (g.unread || 0) + 1 : g.unread || 0;
+      return { ...prev, [groupId]: { ...g, messages, lastTs: Math.max(g.lastTs, msg.ts), unread } };
+    });
+  }, []);
+
+  // Patch a group message in place (finalize an optimistic attachment / reaction).
+  const patchGroupMessage = useCallback((groupId: string, id: string, patch: Partial<Msg>) => {
+    setGroups((prev) => {
+      const g = prev[groupId];
+      if (!g) return prev;
+      return { ...prev, [groupId]: { ...g, messages: g.messages.map((m) => (m.id === id ? { ...m, ...patch } : m)) } };
+    });
+  }, []);
+
+  // Fetch the group list + (re)fetch and unseal each group key. Runs on connect,
+  // before history is pulled, so inbound group messages can decrypt.
+  const loadGroups = useCallback(async () => {
+    const seed = seedRef.current;
+    const pub = pubRef.current;
+    if (!seed || !pub) return;
+    let list;
+    try { list = await fetchGroupList(seed, pub); } catch { return; }
+    setGroups((prev) => {
+      const next = { ...prev };
+      for (const gi of list) {
+        const ex = next[gi.groupId];
+        next[gi.groupId] = {
+          groupId: gi.groupId, name: gi.name, ownerPubkey: gi.ownerPubkey,
+          myRole: gi.myRole, keyVersion: gi.keyVersion, members: gi.members,
+          messages: ex?.messages || [], lastTs: ex?.lastTs || 0, unread: ex?.unread || 0,
+        };
+      }
+      return next;
+    });
+    // Fetch + unseal each key (overwrite so a rotated key is picked up).
+    await Promise.all(list.map(async (gi) => {
+      try {
+        const bundle = await fetchGroupKeyBundle(seed, pub, gi.groupId);
+        if (!bundle) return;
+        const key = unsealGroupKey(seed, bundle.issuedBy, bundle.encryptedKeyB64);
+        if (key) groupKeysRef.current[gi.groupId] = key;
+      } catch { /* skip this group's key */ }
+    }));
+  }, []);
+
   // Responsive: single pane on narrow viewports (inline styles can't media-query).
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 720);
@@ -201,12 +286,25 @@ export default function ChatPage() {
       }
       const rn = sessionStorage.getItem(NAMES_KEY);
       if (rn) setNames(JSON.parse(rn));
+      const rg = sessionStorage.getItem(GROUPS_KEY);
+      if (rg) {
+        const loadedG: Record<string, Group> = JSON.parse(rg);
+        setGroups(loadedG);
+        for (const g of Object.values(loadedG)) {
+          lastTsRef.current = Math.max(lastTsRef.current, g.lastTs || 0);
+        }
+      }
     } catch { /* ignore */ }
 
     const client = new RelayClient(seedHex);
     clientRef.current = client;
-    client.on('connected', () => {
+    client.on('connected', async () => {
       setStatus('connected');
+      // Load groups + unseal their keys BEFORE pulling history, so replayed
+      // group messages (discriminant 25) have a key to decrypt with.
+      await loadGroups();
+      // [PRESENCE] (re)subscribe to all known group peers isn't needed; presence
+      // is 1:1 only. Group peers still get subscribed via the conv-peer set below.
       // [HISTORY] Pull offline/undelivered messages (they arrive as normal
       // relay_envelope frames and flow through the handler below, deduped by id).
       // ⚠️ We deliberately do NOT relay_offline_ack them: acking clears the
@@ -230,6 +328,22 @@ export default function ChatPage() {
     client.on('envelope', (frame) => {
       const s = seedRef.current;
       if (!s) return;
+      const f = frame as { discriminant?: number; group_id?: string };
+      // Group message (discriminant 25): decrypt with the group key.
+      if (f.discriminant === 25) {
+        const gid = f.group_id;
+        if (!gid) return;
+        const key = groupKeysRef.current[gid];
+        if (!key) return; // key not loaded yet — loadGroups on connect covers the norm
+        const gm = decryptGroupEnvelope(key, frame as never);
+        if (!gm) return;
+        const myHex = pubRef.current ? bytesToHex(pubRef.current) : '';
+        appendGroupMessage(gm.groupId, {
+          id: gm.msgId, text: gm.text, ts: gm.timestamp,
+          mine: gm.senderHex === myHex, sender: gm.senderHex, attachments: gm.attachments,
+        });
+        return;
+      }
       const m = decryptEnvelopeFrame(s, frame as never);
       if (!m) return;
       appendMessage(m.senderHex, {
@@ -307,12 +421,20 @@ export default function ChatPage() {
     try { sessionStorage.setItem(CONV_KEY, JSON.stringify(convs)); } catch { /* quota */ }
   }, [convs]);
 
-  // keep activeRef/convsRef current so stable callbacks can read latest state
+  // persist groups (metadata + decrypted messages; keys are re-fetched on connect)
+  useEffect(() => {
+    try { sessionStorage.setItem(GROUPS_KEY, JSON.stringify(groups)); } catch { /* quota */ }
+  }, [groups]);
+
+  // keep activeRef/convsRef/groupsRef current so stable callbacks can read latest state
   useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { convsRef.current = convs; }, [convs]);
+  useEffect(() => { groupsRef.current = groups; }, [groups]);
 
-  const activeConv = active ? convs[active] : undefined;
-  const headerStatus = active ? peerStatus(active, typingPeers, presence, zh) : null;
+  const activeConv = active && !isGroupId(active) ? convs[active] : undefined;
+  const activeGroup = active && isGroupId(active) ? groups[active] : undefined;
+  const activeThread = activeConv ?? activeGroup; // both carry messages[] + lastTs
+  const headerStatus = activeConv ? peerStatus(active, typingPeers, presence, zh) : null;
 
   // [READ-RECEIPT] Tell the sender we've read up to their newest message in the
   // open conversation (metadata-only). Suppressed while the tab is hidden — you
@@ -346,7 +468,7 @@ export default function ChatPage() {
   // [PRESENCE] Subscribe to the open peer (covers a freshly-started chat that
   // wasn't in the set at connect time). Idempotent on the relay.
   useEffect(() => {
-    if (active) clientRef.current?.send({ type: 'presence_subscribe', pubkeys: [active] });
+    if (active && !isGroupId(active)) clientRef.current?.send({ type: 'presence_subscribe', pubkeys: [active] });
   }, [active]);
 
   // Clear typing timers on unmount.
@@ -369,13 +491,32 @@ export default function ChatPage() {
     const el = scrollRef.current;
     if (!el) return;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 140) el.scrollTop = el.scrollHeight;
-  }, [activeConv?.messages.length]);
+  }, [activeThread?.messages.length]);
 
   const send = useCallback(() => {
     const text = draft.trim();
     const seed = seedRef.current;
     const pub = pubRef.current;
     if (!text || !active || !seed || !pub) return;
+
+    // Group message branch.
+    if (isGroupId(active)) {
+      const g = groupsRef.current[active];
+      const key = groupKeysRef.current[active];
+      if (!g || !key) return; // no group key yet — can't send
+      try {
+        const frame = encryptGroupMessage(seed, pub, active, key, g.keyVersion, text);
+        const ok = clientRef.current?.send(frame) ?? false;
+        appendGroupMessage(active, {
+          id: frame.msg_id, text, ts: frame.timestamp, mine: true,
+          sender: bytesToHex(pub), status: ok ? 'sent' : 'failed',
+        });
+        setDraft('');
+        if (inputRef.current) inputRef.current.style.height = 'auto';
+      } catch { /* ignore */ }
+      return;
+    }
+
     try {
       const frame = encryptText(seed, pub, active, text);
       const ok = clientRef.current?.send(frame) ?? false;
@@ -391,13 +532,13 @@ export default function ChatPage() {
       setDraft('');
       if (inputRef.current) inputRef.current.style.height = 'auto';
     } catch { /* ignore */ }
-  }, [draft, active, appendMessage]);
+  }, [draft, active, appendMessage, appendGroupMessage]);
 
   // [TYPING] Throttled typing:true while composing, with an auto "stopped" after
   // ~3.5s of no keystrokes. Metadata-only (no plaintext).
   const notifyTyping = useCallback(() => {
     const peer = active;
-    if (!peer) return;
+    if (!peer || isGroupId(peer)) return; // group typing is separate (not yet on web)
     const now = Date.now();
     if (now - typingSentAt.current > 3000) {
       typingSentAt.current = now;
@@ -427,6 +568,34 @@ export default function ChatPage() {
     const mediaType = file.type || 'application/octet-stream';
     const thumbB64 = mediaType.startsWith('image/') ? await makeThumb(bytes, mediaType) : undefined;
 
+    // Group attachment branch.
+    if (isGroupId(peer)) {
+      const g = groupsRef.current[peer];
+      const key = groupKeysRef.current[peer];
+      if (!g || !key) return;
+      const gMsgId = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+      const gTs = Math.floor(Date.now() / 1000);
+      const localAtt: WebAttachment = {
+        blobId: '', fileKey: '', mediaType, fileName: file.name, fileSize: bytes.length, thumbB64,
+      };
+      appendGroupMessage(peer, {
+        id: gMsgId, text: '', ts: gTs, mine: true, sender: bytesToHex(pub),
+        status: 'sending', attachments: [localAtt],
+      });
+      setUploading(true);
+      try {
+        const att = await uploadAttachment(seed, pub, { bytes, mediaType, fileName: file.name, thumbB64 });
+        const frame = encryptGroupMessage(seed, pub, peer, key, g.keyVersion, '', [att], gMsgId);
+        const ok = clientRef.current?.send(frame) ?? false;
+        patchGroupMessage(peer, gMsgId, { attachments: [att], status: ok ? 'sent' : 'failed' });
+      } catch {
+        patchGroupMessage(peer, gMsgId, { status: 'failed' });
+      } finally {
+        setUploading(false);
+      }
+      return;
+    }
+
     // Pin the message id so the optimistic bubble updates in place after upload.
     const msgId = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
     const ts = Math.floor(Date.now() / 1000);
@@ -447,7 +616,7 @@ export default function ChatPage() {
     } finally {
       setUploading(false);
     }
-  }, [active, uploading, zh, appendMessage, patchMessage]);
+  }, [active, uploading, zh, appendMessage, patchMessage, appendGroupMessage, patchGroupMessage]);
 
   // Toggle my reaction on a message: 'remove' if I already gave this emoji, else
   // 'add'. Optimistic locally, then a signed message_reaction over the relay.
@@ -562,10 +731,24 @@ export default function ChatPage() {
     window.location.href = '/weblogin';
   };
 
-  const sortedConvs = useMemo(
-    () => Object.values(convs).sort((a, b) => b.lastTs - a.lastTs),
-    [convs],
-  );
+  // Unified, time-sorted sidebar list of 1:1 conversations + groups.
+  const sortedEntries = useMemo<SidebarEntry[]>(() => {
+    const entries: SidebarEntry[] = [];
+    for (const c of Object.values(convs)) {
+      entries.push({
+        id: c.peer, isGroup: false, name: nameFor(c.peer),
+        last: c.messages[c.messages.length - 1], lastTs: c.lastTs, unread: c.unread || 0,
+      });
+    }
+    for (const g of Object.values(groups)) {
+      entries.push({
+        id: g.groupId, isGroup: true, name: g.name || short(g.groupId),
+        last: g.messages[g.messages.length - 1], lastTs: g.lastTs, unread: g.unread || 0,
+        memberCount: g.members.length,
+      });
+    }
+    return entries.sort((a, b) => b.lastTs - a.lastTs);
+  }, [convs, groups, nameFor]);
 
   const statusText = zh
     ? { connecting: '連接中…', connected: '在線', reconnecting: '重連中…' }[status]
@@ -597,33 +780,37 @@ export default function ChatPage() {
           {syncing ? (zh ? '同步歷史中…' : 'Syncing…') : statusText}
         </div>
         <div style={S.convList}>
-          {sortedConvs.length === 0 && (
-            <div style={S.emptyList}>{zh ? '還沒有對話。點 ＋ 用公鑰發起。' : 'No chats yet. Tap ＋ to start with a public key.'}</div>
+          {sortedEntries.length === 0 && (
+            <div style={S.emptyList}>{zh ? '還沒有對話。點 ＋ 用公鑰發起，群組會自動同步。' : 'No chats yet. Tap ＋ to start with a public key; groups sync automatically.'}</div>
           )}
-          {sortedConvs.map((c) => {
-            const last = c.messages[c.messages.length - 1];
+          {sortedEntries.map((e) => {
+            const last = e.last;
             return (
               <button
-                key={c.peer}
-                style={{ ...S.convItem, ...(c.peer === active ? S.convItemActive : {}) }}
-                onClick={() => openConv(c.peer)}
+                key={e.id}
+                style={{ ...S.convItem, ...(e.id === active ? S.convItemActive : {}) }}
+                onClick={() => openConv(e.id)}
               >
-                <span style={{ ...S.avatar, background: colorFor(c.peer) }}>{c.peer.slice(0, 2)}</span>
+                <span style={{ ...S.avatar, background: e.isGroup ? '#3A2E63' : colorFor(e.id) }}>
+                  {e.isGroup ? '👥' : e.id.slice(0, 2)}
+                </span>
                 <span style={S.convBody}>
-                  <span style={S.convName}>{nameFor(c.peer)}</span>
+                  <span style={S.convName}>{e.name}</span>
                   <span style={S.convPreview}>
-                    {typingPeers[c.peer] ? (
+                    {!e.isGroup && typingPeers[e.id] ? (
                       <span style={{ color: '#8AB4FF' }}>{zh ? '正在輸入…' : 'typing…'}</span>
                     ) : last ? (
                       (last.mine ? (zh ? '你：' : 'You: ') : '') +
                       (last.text || attPreview(last.attachments, zh))
+                    ) : e.isGroup ? (
+                      `${e.memberCount ?? 0} ${zh ? '位成員' : 'members'}`
                     ) : ''}
                   </span>
                 </span>
                 <span style={S.convRight}>
                   {last && <span style={S.convTime}>{convTime(last.ts, zh)}</span>}
-                  {!!c.unread && (
-                    <span style={S.unreadBadge}>{c.unread > 99 ? '99+' : c.unread}</span>
+                  {!!e.unread && (
+                    <span style={S.unreadBadge}>{e.unread > 99 ? '99+' : e.unread}</span>
                   )}
                 </span>
               </button>
@@ -636,34 +823,53 @@ export default function ChatPage() {
       {/* Thread */}
       {showThread && (
       <main style={{ ...S.thread, ...(isMobile ? { width: '100%' } : {}) }}>
-        {!activeConv ? (
+        {!activeThread ? (
           <div style={S.threadEmpty}>{zh ? '選擇一個對話開始' : 'Select a chat to start'}</div>
         ) : (
           <>
             <header style={S.threadHeader}>
               <button style={{ ...S.backBtn, display: isMobile ? 'block' : 'none' }} onClick={() => setActive('')}>‹</button>
-              <span style={{ ...S.avatar, background: colorFor(activeConv.peer) }}>{activeConv.peer.slice(0, 2)}</span>
-              <div
-                style={{ ...S.threadTitleWrap, cursor: 'pointer' }}
-                onClick={() => renamePeer(activeConv.peer)}
-                title={zh ? '點擊設定備註名' : 'Click to set a name'}
-              >
-                <div style={S.threadTitle}>
-                  {nameFor(activeConv.peer)} <span style={S.editHint}>✎</span>
-                </div>
-                {headerStatus
-                  ? <div style={{ ...S.threadStatus, color: headerStatus.color }}>{headerStatus.text}</div>
-                  : <code style={S.threadSub}>{activeConv.peer}</code>}
-              </div>
+              {activeGroup ? (
+                <>
+                  <span style={{ ...S.avatar, background: '#3A2E63' }}>👥</span>
+                  <div style={S.threadTitleWrap}>
+                    <div style={S.threadTitle}>{activeGroup.name || short(activeGroup.groupId)}</div>
+                    <div style={S.threadSub}>
+                      {activeGroup.members.length} {zh ? '位成員' : 'members'}
+                      {activeGroup.myRole === 'owner' ? (zh ? ' · 群主' : ' · owner') : ''}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span style={{ ...S.avatar, background: colorFor(activeConv!.peer) }}>{activeConv!.peer.slice(0, 2)}</span>
+                  <div
+                    style={{ ...S.threadTitleWrap, cursor: 'pointer' }}
+                    onClick={() => renamePeer(activeConv!.peer)}
+                    title={zh ? '點擊設定備註名' : 'Click to set a name'}
+                  >
+                    <div style={S.threadTitle}>
+                      {nameFor(activeConv!.peer)} <span style={S.editHint}>✎</span>
+                    </div>
+                    {headerStatus
+                      ? <div style={{ ...S.threadStatus, color: headerStatus.color }}>{headerStatus.text}</div>
+                      : <code style={S.threadSub}>{activeConv!.peer}</code>}
+                  </div>
+                </>
+              )}
             </header>
 
             <div style={S.messages} ref={scrollRef}>
-              {activeConv.messages.map((m, i) => {
-                const prev = activeConv.messages[i - 1];
+              {activeThread.messages.map((m, i) => {
+                const prev = activeThread.messages[i - 1];
                 const showDate = !prev || !sameDay(prev.ts, m.ts);
                 // Group consecutive same-sender messages within 5 min (Telegram).
-                const grouped = !showDate && !!prev && prev.mine === m.mine && m.ts - prev.ts < 300;
-                const trigger = (
+                // In groups, "same sender" is keyed by the sender pubkey.
+                const sameSender = activeGroup ? prev?.sender === m.sender : prev?.mine === m.mine;
+                const grouped = !showDate && !!prev && sameSender && m.ts - prev.ts < 300;
+                // Group message from someone else: label the sender above the run.
+                const showSender = !!activeGroup && !m.mine && !grouped;
+                const trigger = activeGroup ? null : (
                   <button
                     style={S.reactTrigger}
                     title={zh ? '表情回應' : 'React'}
@@ -677,6 +883,11 @@ export default function ChatPage() {
                     {showDate && (
                       <div style={S.dateSep}>
                         <span style={S.dateSepPill}>{dateLabel(m.ts, zh)}</span>
+                      </div>
+                    )}
+                    {showSender && (
+                      <div style={{ ...S.groupSender, color: colorFor(m.sender || '') }}>
+                        {groupMemberName(m.sender || '', names)}
                       </div>
                     )}
                     <div style={{ ...S.row, justifyContent: m.mine ? 'flex-end' : 'flex-start', marginTop: grouped ? 2 : 8 }}>
@@ -875,6 +1086,11 @@ function attPreview(atts: WebAttachment[] | undefined, zh: boolean): string {
   if (t.startsWith('audio/')) return zh ? '🎤 語音' : '🎤 Voice';
   if (t.startsWith('video/')) return zh ? '🎬 影片' : '🎬 Video';
   return zh ? '📎 檔案' : '📎 File';
+}
+
+/** Display name for a group member: a saved contact name, else a short pubkey. */
+function groupMemberName(pubkey: string, names: Record<string, string>): string {
+  return names[pubkey] || short(pubkey);
 }
 
 /** Relative "last seen" label. */
@@ -1161,6 +1377,7 @@ const S: Record<string, CSSProperties> = {
   threadSub: { fontFamily: 'monospace', fontSize: 10, color: 'rgba(255,255,255,0.35)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', maxWidth: 260 },
   threadStatus: { fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 },
   messages: { flex: 1, overflowY: 'auto', padding: '10px 18px 16px', display: 'flex', flexDirection: 'column' },
+  groupSender: { fontSize: 12, fontWeight: 600, margin: '4px 0 1px 4px' },
   dateSep: { display: 'flex', justifyContent: 'center', margin: '12px 0 6px' },
   dateSepPill: { fontSize: 11, color: 'rgba(255,255,255,0.55)', background: 'rgba(255,255,255,0.06)', borderRadius: 10, padding: '3px 10px' },
   row: { display: 'flex', width: '100%', alignItems: 'flex-end', gap: 4 },
