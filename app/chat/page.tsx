@@ -30,6 +30,7 @@ import {
   encryptGroupMessage, decryptGroupEnvelope, unsealGroupKey,
   encryptGroupReaction, decryptGroupReaction,
   fetchGroupList, fetchGroupKeyBundle,
+  createGroup, inviteToGroup, leaveGroup,
   fetchAttachment, uploadAttachment, SIMPLE_UPLOAD_MAX,
   bytesToHex, hexToBytes,
   type OutgoingFrame, type WebAttachment,
@@ -730,6 +731,70 @@ export default function ChatPage() {
     openConv(peer);
   }, [zh, openConv]);
 
+  // Create a new group (owner = me), then open it. Members are invited after.
+  const createNewGroup = useCallback(async () => {
+    const seed = seedRef.current;
+    const pub = pubRef.current;
+    if (!seed || !pub) return;
+    const name = (window.prompt(zh ? '群組名稱' : 'Group name') || '').trim();
+    if (!name) return;
+    const res = await createGroup(seed, pub, name);
+    if (!res) { window.alert(zh ? '建立群組失敗' : 'Failed to create group'); return; }
+    groupKeysRef.current[res.groupId] = res.groupKey;
+    const myHex = bytesToHex(pub);
+    setGroups((prev) => ({
+      ...prev,
+      [res.groupId]: {
+        groupId: res.groupId, name, ownerPubkey: myHex, myRole: 'owner',
+        keyVersion: res.keyVersion, members: [{ pubkey: myHex, role: 'owner' }],
+        messages: [], lastTs: Math.floor(Date.now() / 1000), unread: 0,
+      },
+    }));
+    openConv(res.groupId);
+  }, [zh, openConv]);
+
+  // Invite a member to the open group (owner seals the current key to them).
+  const inviteMember = useCallback(async () => {
+    const seed = seedRef.current;
+    const pub = pubRef.current;
+    const gid = activeRef.current;
+    if (!seed || !pub || !gid || !isGroupId(gid)) return;
+    const g = groupsRef.current[gid];
+    const key = groupKeysRef.current[gid];
+    if (!g || !key) return;
+    const input = (window.prompt(zh ? '邀請成員：輸入公鑰 (64 位十六進制)' : "Invite: enter the member's public key (64 hex)") || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(input)) {
+      if (input) window.alert(zh ? '公鑰格式不對' : 'Invalid public key');
+      return;
+    }
+    if (g.members.some((m) => m.pubkey === input)) { window.alert(zh ? '已是成員' : 'Already a member'); return; }
+    const ok = await inviteToGroup(seed, pub, gid, key, g.keyVersion, input);
+    if (!ok) { window.alert(zh ? '邀請失敗' : 'Invite failed'); return; }
+    setGroups((prev) => {
+      const cur = prev[gid];
+      if (!cur || cur.members.some((m) => m.pubkey === input)) return prev;
+      return { ...prev, [gid]: { ...cur, members: [...cur.members, { pubkey: input, role: 'member' }] } };
+    });
+  }, [zh]);
+
+  // Leave the open group.
+  const leaveActiveGroup = useCallback(async () => {
+    const seed = seedRef.current;
+    const pub = pubRef.current;
+    const gid = activeRef.current;
+    if (!seed || !pub || !gid || !isGroupId(gid)) return;
+    if (!window.confirm(zh ? '確定離開此群組？' : 'Leave this group?')) return;
+    const ok = await leaveGroup(seed, pub, gid);
+    if (!ok) { window.alert(zh ? '離開失敗' : 'Failed to leave the group'); return; }
+    delete groupKeysRef.current[gid];
+    setActive('');
+    setGroups((prev) => {
+      const next = { ...prev };
+      delete next[gid];
+      return next;
+    });
+  }, [zh]);
+
   const renamePeer = useCallback((peer: string) => {
     const input = window.prompt(
       zh ? '設定備註名（留空清除）' : 'Set a name (empty to clear)',
@@ -855,6 +920,7 @@ export default function ChatPage() {
           </div>
           <div style={S.sideActions}>
             <button style={S.iconBtn} title={zh ? '發起聊天' : 'New chat'} onClick={startNewChat}>＋</button>
+            <button style={{ ...S.iconBtn, fontSize: 14 }} title={zh ? '建立群組' : 'New group'} onClick={createNewGroup}>👥</button>
             <button style={S.iconBtn} title={zh ? '登出' : 'Log out'} onClick={logout}>⎋</button>
           </div>
         </div>
@@ -925,6 +991,12 @@ export default function ChatPage() {
                         {activeGroup.myRole === 'owner' ? (zh ? ' · 群主' : ' · owner') : ''}
                       </div>
                     )}
+                  </div>
+                  <div style={S.headerActions}>
+                    {activeGroup.myRole === 'owner' && (
+                      <button style={S.headerBtn} onClick={inviteMember}>{zh ? '邀請' : 'Invite'}</button>
+                    )}
+                    <button style={S.headerBtn} onClick={leaveActiveGroup}>{zh ? '離開' : 'Leave'}</button>
                   </div>
                 </>
               ) : (
@@ -1468,6 +1540,8 @@ const S: Record<string, CSSProperties> = {
   threadEmpty: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 15 },
   threadHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' },
   backBtn: { display: 'none', background: 'transparent', border: 'none', color: '#fff', fontSize: 24, cursor: 'pointer', padding: 0, width: 28 },
+  headerActions: { marginLeft: 'auto', display: 'flex', gap: 6, flexShrink: 0 },
+  headerBtn: { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.85)', fontSize: 12.5, borderRadius: 8, padding: '5px 11px', cursor: 'pointer', whiteSpace: 'nowrap' },
   threadTitleWrap: { minWidth: 0 },
   threadTitle: { fontSize: 15, fontWeight: 600 },
   editHint: { fontSize: 11, color: 'rgba(255,255,255,0.3)' },

@@ -577,6 +577,18 @@ export function unsealGroupKey(
   return null;
 }
 
+/**
+ * Seal a 32-byte group key TO a member (the inverse of unsealGroupKey):
+ * base64(nonce12 ‖ AES-256-GCM(groupKey)) keyed by ECDH(mySeed, memberPub) in
+ * HKDF form (S-02). (verified vs group_crypto_service.dart:237 encryptGroupKey)
+ */
+export function encryptGroupKey(seed: Uint8Array, memberPubHex: string, groupKey: Uint8Array): string {
+  const secret = sharedSecret(seed, hexToBytes(memberPubHex), true); // HKDF
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const sealed = gcm(secret, nonce).encrypt(groupKey); // cipher32 ‖ tag16
+  return b64encode(concat(nonce, sealed));
+}
+
 /** sha256(group_id_utf8 ‖ sender32 ‖ [25] ‖ ts_u64le ‖ payloadBytes) — the group
  *  payload-sig digest. (verified vs group_crypto_service.dart:518) */
 function groupSigDigest(
@@ -805,6 +817,77 @@ export async function fetchGroupKeyBundle(
     encryptedKeyB64: key.encrypted_key_b64,
     issuedBy: String(key.issued_by ?? '').toLowerCase(),
   };
+}
+
+/** Authenticated JSON POST to a relay path. Returns the parsed body or null. */
+async function relayPost(
+  seed: Uint8Array, pub: Uint8Array, path: string, body: unknown,
+): Promise<Record<string, unknown> | null> {
+  const res = await fetch(`${RELAY_BASE}${path}`, {
+    method: 'POST',
+    headers: { Authorization: authHeader(seed, pub), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return null;
+  return res.json().catch(() => ({} as Record<string, unknown>));
+}
+
+/**
+ * Create a group with just me as owner: POST /groups/ → mint a fresh 32-byte
+ * group key → seal it to myself → POST /groups/<id>/keys/. Returns the new group
+ * id + key (v1). Members are added afterwards via inviteToGroup.
+ * (verified vs group_service.dart:374 createGroup)
+ */
+export async function createGroup(
+  seed: Uint8Array, pub: Uint8Array, name: string,
+): Promise<{ groupId: string; keyVersion: number; groupKey: Uint8Array } | null> {
+  const myPubHex = bytesToHex(pub);
+  const created = await relayPost(seed, pub, '/groups/', { name, max_members: 200 });
+  if (!created || created.success !== true) return null;
+  const g = created.group as Record<string, unknown> | undefined;
+  const groupId = String(g?.group_id ?? g?.id ?? '');
+  if (!groupId) return null;
+
+  const groupKey = crypto.getRandomValues(new Uint8Array(32));
+  const encKey = encryptGroupKey(seed, myPubHex, groupKey);
+  const up = await relayPost(seed, pub, `/groups/${encodeURIComponent(groupId)}/keys/`, {
+    key_bundles: [{ member_pubkey: myPubHex, encrypted_key_b64: encKey }],
+    key_version: 1,
+  });
+  if (!up || up.success !== true) return null;
+  return { groupId, keyVersion: 1, groupKey };
+}
+
+/**
+ * Invite a member: POST /groups/<id>/members/ (activate) → seal the current
+ * group key to them → POST /groups/<id>/keys/. 'already_member' is non-fatal
+ * (re-provision the key). (verified vs group_service.dart:881 inviteMembers)
+ */
+export async function inviteToGroup(
+  seed: Uint8Array, pub: Uint8Array, groupId: string,
+  groupKey: Uint8Array, keyVersion: number, memberPubHex: string,
+): Promise<boolean> {
+  const add = await relayPost(seed, pub, `/groups/${encodeURIComponent(groupId)}/members/`, {
+    member_pubkey: memberPubHex,
+  });
+  if (!add || add.success !== true) {
+    if (!add || add.error !== 'already_member') return false;
+  }
+  const encKey = encryptGroupKey(seed, memberPubHex, groupKey);
+  const up = await relayPost(seed, pub, `/groups/${encodeURIComponent(groupId)}/keys/`, {
+    key_bundles: [{ member_pubkey: memberPubHex, encrypted_key_b64: encKey }],
+    key_version: keyVersion,
+  });
+  return !!up && up.success === true;
+}
+
+/** Leave a group: DELETE /groups/<id>/members/me/. */
+export async function leaveGroup(seed: Uint8Array, pub: Uint8Array, groupId: string): Promise<boolean> {
+  const res = await fetch(`${RELAY_BASE}/groups/${encodeURIComponent(groupId)}/members/me/`, {
+    method: 'DELETE',
+    headers: { Authorization: authHeader(seed, pub) },
+  });
+  return res.ok;
 }
 
 // --- helpers ----------------------------------------------------------------
