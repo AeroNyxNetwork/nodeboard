@@ -25,7 +25,7 @@ import { ed25519 } from '@noble/curves/ed25519';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { RelayClient } from '@/lib/relayClient';
 import {
-  encryptText, decryptEnvelopeFrame, bytesToHex, hexToBytes,
+  encryptText, decryptEnvelopeFrame, fetchAttachment, bytesToHex, hexToBytes,
   type OutgoingFrame, type WebAttachment,
 } from '@/lib/msgCrypto';
 
@@ -56,6 +56,8 @@ export default function ChatPage() {
   const [isMobile, setIsMobile] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
+  const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
+  const [busyAtt, setBusyAtt] = useState(''); // blobId currently downloading
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -239,6 +241,36 @@ export default function ChatPage() {
 
   const nameFor = useCallback((peer: string) => names[peer] || short(peer), [names]);
 
+  const openAttachment = useCallback(async (att: WebAttachment) => {
+    const seed = seedRef.current;
+    const pub = pubRef.current;
+    if (!seed || !pub || !att.blobId || !att.fileKey || busyAtt) return;
+    setBusyAtt(att.blobId);
+    try {
+      const bytes = await fetchAttachment(seed, pub, att.blobId, att.fileKey);
+      // Copy into a fresh Uint8Array so the Blob part is backed by a plain
+      // ArrayBuffer (TS 5.7's generic Uint8Array<ArrayBufferLike> isn't a BlobPart).
+      const url = URL.createObjectURL(
+        new Blob([new Uint8Array(bytes)], { type: att.mediaType || 'application/octet-stream' }),
+      );
+      if (att.mediaType.startsWith('image/')) {
+        setLightbox({ url, name: att.fileName });
+      } else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = att.fileName || 'file';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      }
+    } catch {
+      /* download/decrypt failed — leave the thumbnail as-is */
+    } finally {
+      setBusyAtt('');
+    }
+  }, [busyAtt]);
+
   const logout = () => {
     clientRef.current?.close();
     sessionStorage.removeItem(SEED_KEY);
@@ -353,7 +385,13 @@ export default function ChatPage() {
                     <div style={{ ...S.row, justifyContent: m.mine ? 'flex-end' : 'flex-start', marginTop: grouped ? 2 : 8 }}>
                       <div style={{ ...S.bubble, ...(m.mine ? S.bubbleMine : S.bubbleTheirs) }}>
                         {m.attachments?.map((a, k) => (
-                          <AttachmentView key={k} att={a} zh={zh} />
+                          <AttachmentView
+                            key={k}
+                            att={a}
+                            zh={zh}
+                            onOpen={openAttachment}
+                            busy={busyAtt === a.blobId}
+                          />
                         ))}
                         {m.text ? <span style={S.msgText}>{linkify(m.text)}</span> : null}
                         <span style={S.msgTime}>
@@ -400,6 +438,19 @@ export default function ChatPage() {
           </>
         )}
       </main>
+      )}
+
+      {lightbox && (
+        <div
+          style={S.lightbox}
+          onClick={() => {
+            URL.revokeObjectURL(lightbox.url);
+            setLightbox(null);
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightbox.url} alt={lightbox.name} style={S.lightboxImg} />
+        </div>
       )}
     </div>
   );
@@ -475,18 +526,26 @@ function fmtSize(n: number): string {
   return `${(n / 1048576).toFixed(1)} MB`;
 }
 
-/** Render an attachment: image via the inline thumbnail (no download needed);
- *  other types as a file chip. Full-blob download+decrypt is a later phase. */
-function AttachmentView({ att, zh }: { att: WebAttachment; zh: boolean }) {
+/** Render an attachment. Image → inline thumbnail (click to fetch+view full);
+ *  other types → file chip (click to download+decrypt). */
+function AttachmentView({ att, zh, onOpen, busy }: {
+  att: WebAttachment;
+  zh: boolean;
+  onOpen: (a: WebAttachment) => void;
+  busy: boolean;
+}) {
   const isImage = att.mediaType.startsWith('image/');
+  const canFetch = !!att.blobId && !!att.fileKey;
   if (isImage && att.thumbB64) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={`data:${att.mediaType};base64,${att.thumbB64}`}
-        alt={att.fileName}
-        style={AS.img}
-      />
+      <div
+        style={{ position: 'relative', cursor: canFetch ? 'pointer' : 'default' }}
+        onClick={() => canFetch && onOpen(att)}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={`data:${att.mediaType};base64,${att.thumbB64}`} alt={att.fileName} style={AS.img} />
+        {busy && <div style={AS.attBusy}>…</div>}
+      </div>
     );
   }
   const icon = att.mediaType.startsWith('video/')
@@ -494,9 +553,16 @@ function AttachmentView({ att, zh }: { att: WebAttachment; zh: boolean }) {
     : att.mediaType.startsWith('audio/')
       ? '🎧'
       : '📄';
-  const note = isImage ? '' : zh ? ' · 需 App 開啟' : ' · open in app';
+  const note = canFetch
+    ? busy
+      ? zh ? ' · 下載中…' : ' · downloading…'
+      : zh ? ' · 點擊下載' : ' · click to download'
+    : zh ? ' · 需 App 開啟' : ' · open in app';
   return (
-    <div style={AS.chip}>
+    <div
+      style={{ ...AS.chip, cursor: canFetch ? 'pointer' : 'default' }}
+      onClick={() => canFetch && onOpen(att)}
+    >
       <span style={{ fontSize: 18 }}>{icon}</span>
       <div style={{ minWidth: 0 }}>
         <div style={AS.chipName}>{att.fileName}</div>
@@ -511,6 +577,10 @@ const AS: Record<string, CSSProperties> = {
   chip: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: 'rgba(0,0,0,0.18)', borderRadius: 8, marginBottom: 4 },
   chipName: { fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 },
   chipMeta: { fontSize: 11, color: 'rgba(255,255,255,0.5)' },
+  attBusy: {
+    position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'rgba(0,0,0,0.35)', borderRadius: 10, fontSize: 22, letterSpacing: 2, color: '#fff',
+  },
 };
 
 const S: Record<string, CSSProperties> = {
@@ -556,5 +626,10 @@ const S: Record<string, CSSProperties> = {
   inputBar: { display: 'flex', alignItems: 'flex-end', gap: 10, padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' },
   input: { flex: 1, resize: 'none', maxHeight: 120, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 18, color: '#fff', padding: '10px 14px', fontSize: 14, fontFamily: 'inherit', outline: 'none', lineHeight: 1.4 },
   sendBtn: { background: '#7462F7', color: '#fff', border: 'none', borderRadius: 18, padding: '10px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' },
+  lightbox: {
+    position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.9)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, cursor: 'zoom-out',
+  },
+  lightboxImg: { maxWidth: '100%', maxHeight: '100%', borderRadius: 8, objectFit: 'contain' },
   hideOnMobile: {}, // replaced by CSS below on mobile
 };

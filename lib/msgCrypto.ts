@@ -29,13 +29,14 @@ import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha256';
 import { sha512 } from '@noble/hashes/sha512';
 import { xchacha20poly1305 } from '@noble/ciphers/chacha';
+import { gcm } from '@noble/ciphers/aes';
 
 const P2P_INFO = new TextEncoder().encode('AERONYX-P2P-KEY');
 const CTYPE_TEXT = 0;
 
 export interface WebAttachment {
   blobId: string;
-  fileKey: string; // hex — AES-256-GCM key for the full blob (download phase)
+  fileKey: string; // base64 — AES-256-GCM key for the full blob (download phase)
   mediaType: string;
   fileName: string;
   fileSize: number;
@@ -282,6 +283,36 @@ export function decryptEnvelopeFrame(
     timestamp: env.timestamp,
     msgId: frame.msg_id || bytesToHex(env.messageId),
   };
+}
+
+// --- attachments (full blob download + decrypt) -----------------------------
+
+const RELAY_BASE = 'https://api.aeronyx.network/api/relay';
+
+/** Relay HTTP auth header — same sig recipe as the WS auth frame (verified). */
+export function authHeader(seed: Uint8Array, pub: Uint8Array): string {
+  const ts = Math.floor(Date.now() / 1000);
+  const digest = sha256(concat(new TextEncoder().encode('AeroNyx-RelayAuth-v1'), pub, u64LEbytes(ts)));
+  const sig = ed25519.sign(digest, seed);
+  return `Relay ${bytesToHex(pub)}:${ts}:${bytesToHex(sig)}`;
+}
+
+/**
+ * Download + decrypt an attachment blob → the original file bytes.
+ * Blob wire format = nonce(12) ‖ AES-256-GCM(cipher ‖ tag16). file_key is base64.
+ */
+export async function fetchAttachment(
+  seed: Uint8Array, pub: Uint8Array, blobId: string, fileKeyB64: string,
+): Promise<Uint8Array> {
+  const res = await fetch(`${RELAY_BASE}/blob/${encodeURIComponent(blobId)}/`, {
+    headers: { Authorization: authHeader(seed, pub) },
+  });
+  if (!res.ok) throw new Error(`blob ${res.status}`);
+  const enc = new Uint8Array(await res.arrayBuffer());
+  if (enc.length < 12 + 16) throw new Error('blob too small');
+  const key = b64decode(fileKeyB64);
+  const nonce = enc.slice(0, 12);
+  return gcm(key, nonce).decrypt(enc.slice(12)); // cipher‖tag → plaintext
 }
 
 // --- helpers ----------------------------------------------------------------
