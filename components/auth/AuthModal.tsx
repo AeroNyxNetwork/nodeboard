@@ -54,7 +54,7 @@ interface AuthModalProps {
 // ============================================
 
 export default function AuthModal({ isOpen }: AuthModalProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   return (
     <AnimatePresence>
       {isOpen && (
@@ -100,6 +100,20 @@ export default function AuthModal({ isOpen }: AuthModalProps) {
 
             {/* WalletConnect Component */}
             <WalletConnect />
+
+            {/* Phone login — scan a QR with the AeroNyx app */}
+            <div className="mt-5 flex items-center gap-3">
+              <div className="h-px flex-1 bg-white/10" />
+              <span className="text-xs text-gray-500">{locale.startsWith('zh') ? '或' : 'or'}</span>
+              <div className="h-px flex-1 bg-white/10" />
+            </div>
+            <a
+              href="/weblogin"
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] py-3 text-sm text-white/90 transition-colors hover:bg-white/[0.06]"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" /><path d="M12 18h.01" /></svg>
+              {locale.startsWith('zh') ? '用手機掃碼登錄' : 'Log in with your phone'}
+            </a>
 
             {/* Footer Note */}
             <p className="mt-6 text-center text-xs text-gray-500">

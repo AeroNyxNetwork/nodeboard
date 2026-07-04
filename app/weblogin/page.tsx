@@ -22,8 +22,9 @@
  */
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import QRCode from 'qrcode';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 import {
   genEphemeral,
   genSessionId,
@@ -39,6 +40,18 @@ const POLL_MS = 2000;
 type Phase = 'init' | 'waiting' | 'success' | 'expired' | 'error';
 
 export default function WebLoginPage() {
+  const { locale } = useI18n();
+  const zh = (locale || '').toLowerCase().startsWith('zh');
+  const T = useMemo(() => makeStrings(zh), [zh]);
+  // A phone can't scan its own screen — this desktop→phone flow needs a second
+  // device. Detect a mobile UA to show a hint instead of an unusable QR.
+  const isMobile = useMemo(
+    () =>
+      typeof navigator !== 'undefined' &&
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent),
+    [],
+  );
+
   const [phase, setPhase] = useState<Phase>('init');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [result, setResult] = useState<UnsealResult | null>(null);
@@ -132,38 +145,39 @@ export default function WebLoginPage() {
   return (
     <div style={S.page}>
       <div style={S.card}>
-        <h1 style={S.title}>Log in to AeroNyx Web</h1>
+        <h1 style={S.title}>{T.title}</h1>
 
-        {phase === 'init' && <p style={S.sub}>Preparing secure session…</p>}
+        {phase === 'init' && <p style={S.sub}>{T.preparing}</p>}
 
         {phase === 'waiting' && (
           <>
-            <p style={S.sub}>
-              Open AeroNyx on your phone → Identities → “Log in to Web”, then scan:
-            </p>
-            {qrDataUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={qrDataUrl} alt="Login QR" width={240} height={240} style={S.qr} />
+            {isMobile ? (
+              // Same-device QR is unusable (can't scan your own screen).
+              <p style={S.notice}>{T.mobileHint}</p>
+            ) : (
+              <>
+                <p style={S.sub}>{T.scanHint}</p>
+                {qrDataUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={qrDataUrl} alt="Login QR" width={240} height={240} style={S.qr} />
+                )}
+                <div style={S.spinnerRow}>
+                  <span style={S.dot} />
+                  <span style={S.subDim}>{T.waiting}</span>
+                </div>
+              </>
             )}
-            <div style={S.spinnerRow}>
-              <span style={S.dot} />
-              <span style={S.subDim}>Waiting for your phone…</span>
-            </div>
           </>
         )}
 
         {phase === 'success' && result && (
           <>
-            <div style={S.okBadge}>✓ Identity received</div>
-            <p style={S.sub}>Confirm this code matches your phone:</p>
+            <div style={S.okBadge}>{T.received}</div>
+            <p style={S.sub}>{T.confirmCode}</p>
             <div style={S.vc}>{result.verificationCode.split('').join(' ')}</div>
-            <p style={S.subDim}>Identity</p>
+            <p style={S.subDim}>{T.identity}</p>
             <code style={S.pub}>{shortHex(result.pubkeyHex)}</code>
-            <p style={S.notice}>
-              Chat on web is the next step. A logged-in web session can read your
-              messages — this is the standard (weaker) web tier; the phone app
-              keeps its key in secure hardware.
-            </p>
+            <p style={S.notice}>{T.securityNotice}</p>
           </>
         )}
 
@@ -171,17 +185,54 @@ export default function WebLoginPage() {
           <>
             <p style={S.err}>
               {phase === 'expired'
-                ? 'This code expired.'
-                : `Could not start pairing${error ? `: ${error}` : ''}.`}
+                ? T.expired
+                : `${T.couldNotStart}${error ? `: ${error}` : ''}`}
             </p>
             <button style={S.btn} onClick={start}>
-              Try again
+              {T.tryAgain}
             </button>
           </>
         )}
       </div>
     </div>
   );
+}
+
+/** Inline zh-Hant / en strings (the site is bilingual; keep this page consistent). */
+function makeStrings(zh: boolean) {
+  return zh
+    ? {
+        title: '登錄 AeroNyx 網頁版',
+        preparing: '正在建立安全會話…',
+        scanHint: '在手機打開 AeroNyx → 身份管理 →「掃碼登錄網頁」，然後掃描：',
+        waiting: '等待手機確認…',
+        mobileHint:
+          '請在電腦瀏覽器打開 app.aeronyx.network/weblogin，再用這支手機掃描頁面上的二維碼登錄。',
+        received: '✓ 已接收身份',
+        confirmCode: '請確認此驗證碼與手機一致：',
+        identity: '身份',
+        securityNotice:
+          '網頁聊天是下一步。已登錄的網頁會話能讀取你的訊息 —— 這是標準（較弱）的網頁層；手機 App 的密鑰保存在安全硬件中。',
+        expired: '此二維碼已過期。',
+        couldNotStart: '無法開始配對',
+        tryAgain: '重試',
+      }
+    : {
+        title: 'Log in to AeroNyx Web',
+        preparing: 'Preparing secure session…',
+        scanHint: 'Open AeroNyx on your phone → Identities → “Log in to Web”, then scan:',
+        waiting: 'Waiting for your phone…',
+        mobileHint:
+          'Open app.aeronyx.network/weblogin in a desktop browser, then scan the QR code there with this phone.',
+        received: '✓ Identity received',
+        confirmCode: 'Confirm this code matches your phone:',
+        identity: 'Identity',
+        securityNotice:
+          'Chat on web is the next step. A logged-in web session can read your messages — this is the standard (weaker) web tier; the phone app keeps its key in secure hardware.',
+        expired: 'This code expired.',
+        couldNotStart: 'Could not start pairing',
+        tryAgain: 'Try again',
+      };
 }
 
 function shortHex(h: string): string {
