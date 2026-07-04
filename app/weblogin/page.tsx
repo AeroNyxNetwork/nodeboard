@@ -177,6 +177,17 @@ export default function WebLoginPage() {
             <div style={S.vc}>{result.verificationCode.split('').join(' ')}</div>
             <p style={S.subDim}>{T.identity}</p>
             <code style={S.pub}>{shortHex(result.pubkeyHex)}</code>
+            <button
+              style={{ ...S.btn, marginTop: 20, width: '100%' }}
+              onClick={() => {
+                // Hand the imported seed to the chat session (session lifetime
+                // only — the deliberate weaker web tier).
+                sessionStorage.setItem('aeronyx_web_seed', result.seedHex);
+                window.location.href = '/chat';
+              }}
+            >
+              {T.continueChat}
+            </button>
             <p style={S.notice}>{T.securityNotice}</p>
           </>
         )}
@@ -211,6 +222,7 @@ function makeStrings(zh: boolean) {
         received: '✓ 已接收身份',
         confirmCode: '請確認此驗證碼與手機一致：',
         identity: '身份',
+        continueChat: '進入聊天',
         securityNotice:
           '網頁聊天是下一步。已登錄的網頁會話能讀取你的訊息 —— 這是標準（較弱）的網頁層；手機 App 的密鑰保存在安全硬件中。',
         expired: '此二維碼已過期。',
@@ -227,6 +239,7 @@ function makeStrings(zh: boolean) {
         received: '✓ Identity received',
         confirmCode: 'Confirm this code matches your phone:',
         identity: 'Identity',
+        continueChat: 'Continue to chat',
         securityNotice:
           'Chat on web is the next step. A logged-in web session can read your messages — this is the standard (weaker) web tier; the phone app keeps its key in secure hardware.',
         expired: 'This code expired.',
