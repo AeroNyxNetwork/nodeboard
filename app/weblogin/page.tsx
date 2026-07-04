@@ -262,7 +262,9 @@ const S: Record<string, CSSProperties> = {
   title: { fontSize: 20, fontWeight: 700, margin: '0 0 12px' },
   sub: { fontSize: 14, color: 'rgba(255,255,255,0.7)', margin: '0 0 16px', lineHeight: 1.5 },
   subDim: { fontSize: 13, color: 'rgba(255,255,255,0.45)' },
-  qr: { borderRadius: 12, background: '#fff', padding: 8 },
+  // Tailwind's preflight sets `img { display:block }`, which ignores the card's
+  // text-align:center → the QR was left-aligned. Center the block img explicitly.
+  qr: { borderRadius: 12, background: '#fff', padding: 8, display: 'block', margin: '0 auto' },
   spinnerRow: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 16 },
   dot: {
     width: 8, height: 8, borderRadius: 4, background: '#14F195',
