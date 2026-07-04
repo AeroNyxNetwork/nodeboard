@@ -30,7 +30,7 @@ import {
   encryptGroupMessage, decryptGroupEnvelope, unsealGroupKey,
   encryptGroupReaction, decryptGroupReaction,
   fetchGroupList, fetchGroupKeyBundle,
-  createGroup, inviteToGroup, leaveGroup,
+  createGroup, inviteToGroup, leaveGroup, kickMember,
   fetchAttachment, uploadAttachment, SIMPLE_UPLOAD_MAX,
   bytesToHex, hexToBytes,
   type OutgoingFrame, type WebAttachment,
@@ -75,6 +75,25 @@ function isGroupId(id: string): boolean {
   return id.includes('-');
 }
 
+/** Decrypt with the frame's key_version first, then fall back to every held
+ *  version — tolerates a rotation race where the sender used a version we
+ *  haven't matched to this message yet. */
+function decryptWithKeys<T>(
+  keys: Record<number, Uint8Array>,
+  keyVersion: number | undefined,
+  fn: (k: Uint8Array) => T | null,
+): T | null {
+  if (keyVersion != null && keys[keyVersion]) {
+    const r = fn(keys[keyVersion]);
+    if (r) return r;
+  }
+  for (const k of Object.values(keys)) {
+    const r = fn(k);
+    if (r) return r;
+  }
+  return null;
+}
+
 export default function ChatPage() {
   const { locale } = useI18n();
   const zh = (locale || '').toLowerCase().startsWith('zh');
@@ -96,6 +115,7 @@ export default function ChatPage() {
   const [busyAtt, setBusyAtt] = useState(''); // blobId currently downloading
   const [uploading, setUploading] = useState(false); // an attachment send in flight
   const [pickerFor, setPickerFor] = useState(''); // msgId whose reaction palette is open
+  const [showMembers, setShowMembers] = useState(false); // group members panel open
   const [typingPeers, setTypingPeers] = useState<Record<string, boolean>>({}); // peer → is typing
   const [groupTypers, setGroupTypers] = useState<Record<string, Record<string, boolean>>>({}); // groupId → pubkey → typing
   const [presence, setPresence] = useState<Record<string, { online: boolean; lastSeenTs: number | null }>>({});
@@ -109,7 +129,7 @@ export default function ChatPage() {
   const audioUrlCache = useRef<Map<string, string>>(new Map()); // blobId → object URL
   const convsRef = useRef<Record<string, Conv>>({}); // mirror of convs for stable callbacks
   const groupsRef = useRef<Record<string, Group>>({}); // mirror of groups for stable callbacks
-  const groupKeysRef = useRef<Record<string, Uint8Array>>({}); // groupId → current group key (not persisted)
+  const groupKeysRef = useRef<Record<string, Record<number, Uint8Array>>>({}); // groupId → keyVersion → key (not persisted)
   const readSentRef = useRef<Record<string, string>>({}); // peer → last msgId we sent a read for
   const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}); // peer → auto-clear timer
   const groupTypingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}); // "gid:pubkey" → auto-clear
@@ -266,7 +286,7 @@ export default function ChatPage() {
         const bundle = await fetchGroupKeyBundle(seed, pub, gi.groupId);
         if (!bundle) return;
         const key = unsealGroupKey(seed, bundle.issuedBy, bundle.encryptedKeyB64);
-        if (key) groupKeysRef.current[gi.groupId] = key;
+        if (key) (groupKeysRef.current[gi.groupId] ||= {})[bundle.keyVersion] = key;
       } catch { /* skip this group's key */ }
     }));
   }, []);
@@ -355,9 +375,10 @@ export default function ChatPage() {
       if (f.discriminant === 25) {
         const gid = f.group_id;
         if (!gid) return;
-        const key = groupKeysRef.current[gid];
-        if (!key) return; // key not loaded yet — loadGroups on connect covers the norm
-        const gm = decryptGroupEnvelope(key, frame as never);
+        const keys = groupKeysRef.current[gid];
+        if (!keys) return; // no keys loaded yet — loadGroups on connect covers the norm
+        const kv = (frame as { key_version?: number }).key_version;
+        const gm = decryptWithKeys(keys, kv, (k) => decryptGroupEnvelope(k, frame as never));
         if (!gm) return;
         const myHex = pubRef.current ? bytesToHex(pubRef.current) : '';
         appendGroupMessage(gm.groupId, {
@@ -429,9 +450,10 @@ export default function ChatPage() {
     client.on('groupreaction', (frame) => {
       const gid = (frame as { group_id?: string }).group_id;
       if (!gid) return;
-      const key = groupKeysRef.current[gid];
-      if (!key) return;
-      const r = decryptGroupReaction(key, frame as never);
+      const keys = groupKeysRef.current[gid];
+      if (!keys) return;
+      const kv = (frame as { key_version?: number }).key_version;
+      const r = decryptWithKeys(keys, kv, (k) => decryptGroupReaction(k, frame as never));
       if (!r) return;
       applyGroupReaction(r.groupId, r.targetMsgId, r.emoji, r.senderHex, r.op);
     });
@@ -561,7 +583,7 @@ export default function ChatPage() {
     // Group message branch.
     if (isGroupId(active)) {
       const g = groupsRef.current[active];
-      const key = groupKeysRef.current[active];
+      const key = g ? groupKeysRef.current[active]?.[g.keyVersion] : undefined;
       if (!g || !key) return; // no group key yet — can't send
       try {
         const frame = encryptGroupMessage(seed, pub, active, key, g.keyVersion, text);
@@ -638,7 +660,7 @@ export default function ChatPage() {
     // Group attachment branch.
     if (isGroupId(peer)) {
       const g = groupsRef.current[peer];
-      const key = groupKeysRef.current[peer];
+      const key = g ? groupKeysRef.current[peer]?.[g.keyVersion] : undefined;
       if (!g || !key) return;
       const gMsgId = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
       const gTs = Math.floor(Date.now() / 1000);
@@ -696,7 +718,7 @@ export default function ChatPage() {
     // Group reaction branch.
     if (isGroupId(peer)) {
       const g = groupsRef.current[peer];
-      const key = groupKeysRef.current[peer];
+      const key = g ? groupKeysRef.current[peer]?.[g.keyVersion] : undefined;
       if (!g || !key) return;
       const gm = g.messages.find((m) => m.id === targetMsgId);
       const gOp = gm?.reactions?.[emoji]?.includes(myPubHex) ? 'remove' : 'add';
@@ -740,7 +762,7 @@ export default function ChatPage() {
     if (!name) return;
     const res = await createGroup(seed, pub, name);
     if (!res) { window.alert(zh ? '建立群組失敗' : 'Failed to create group'); return; }
-    groupKeysRef.current[res.groupId] = res.groupKey;
+    groupKeysRef.current[res.groupId] = { [res.keyVersion]: res.groupKey };
     const myHex = bytesToHex(pub);
     setGroups((prev) => ({
       ...prev,
@@ -760,7 +782,7 @@ export default function ChatPage() {
     const gid = activeRef.current;
     if (!seed || !pub || !gid || !isGroupId(gid)) return;
     const g = groupsRef.current[gid];
-    const key = groupKeysRef.current[gid];
+    const key = g ? groupKeysRef.current[gid]?.[g.keyVersion] : undefined;
     if (!g || !key) return;
     const input = (window.prompt(zh ? '邀請成員：輸入公鑰 (64 位十六進制)' : "Invite: enter the member's public key (64 hex)") || '').trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(input)) {
@@ -792,6 +814,29 @@ export default function ChatPage() {
       const next = { ...prev };
       delete next[gid];
       return next;
+    });
+  }, [zh]);
+
+  // Owner removes a member, then the group key rotates so the removed member
+  // can't read future messages. New key is stored at the new version.
+  const kickGroupMember = useCallback(async (memberPubHex: string) => {
+    const seed = seedRef.current;
+    const pub = pubRef.current;
+    const gid = activeRef.current;
+    if (!seed || !pub || !gid || !isGroupId(gid)) return;
+    const g = groupsRef.current[gid];
+    if (!g || g.myRole !== 'owner') return;
+    if (!window.confirm(zh ? '移除此成員並輪換群組密鑰？' : 'Remove this member and rotate the group key?')) return;
+    const res = await kickMember(seed, pub, gid, memberPubHex);
+    if (!res) { window.alert(zh ? '移除失敗（或密鑰輪換失敗）' : 'Failed to remove (or key rotation failed)'); return; }
+    (groupKeysRef.current[gid] ||= {})[res.newKeyVersion] = res.newGroupKey;
+    setGroups((prev) => {
+      const cur = prev[gid];
+      if (!cur) return prev;
+      const members = res.members.map(
+        (pk) => cur.members.find((m) => m.pubkey === pk) || { pubkey: pk, role: 'member' },
+      );
+      return { ...prev, [gid]: { ...cur, members, keyVersion: res.newKeyVersion } };
     });
   }, [zh]);
 
@@ -981,7 +1026,11 @@ export default function ChatPage() {
               {activeGroup ? (
                 <>
                   <span style={{ ...S.avatar, background: '#3A2E63' }}>👥</span>
-                  <div style={S.threadTitleWrap}>
+                  <div
+                    style={{ ...S.threadTitleWrap, cursor: 'pointer' }}
+                    onClick={() => setShowMembers(true)}
+                    title={zh ? '查看成員' : 'View members'}
+                  >
                     <div style={S.threadTitle}>{activeGroup.name || short(activeGroup.groupId)}</div>
                     {groupTypingText ? (
                       <div style={{ ...S.threadStatus, color: '#8AB4FF' }}>{groupTypingText}</div>
@@ -1149,6 +1198,34 @@ export default function ChatPage() {
           </>
         )}
       </main>
+      )}
+
+      {showMembers && activeGroup && (
+        <div style={S.overlay} onClick={() => setShowMembers(false)}>
+          <div style={S.memberPanel} onClick={(e) => e.stopPropagation()}>
+            <div style={S.memberPanelHead}>
+              <span>{zh ? '群組成員' : 'Members'} · {activeGroup.members.length}</span>
+              <button style={S.memberClose} onClick={() => setShowMembers(false)}>×</button>
+            </div>
+            <div style={S.memberList}>
+              {activeGroup.members.map((m) => (
+                <div key={m.pubkey} style={S.memberRow}>
+                  <span style={{ ...S.avatar, width: 32, height: 32, fontSize: 11, background: colorFor(m.pubkey) }}>{m.pubkey.slice(0, 2)}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={S.memberName}>
+                      {m.pubkey === myPubHex ? (zh ? '你' : 'You') : groupMemberName(m.pubkey, names)}
+                      {m.role === 'owner' && <span style={S.roleBadge}>{zh ? '群主' : 'owner'}</span>}
+                    </div>
+                    <code style={S.memberPub}>{short(m.pubkey)}</code>
+                  </div>
+                  {activeGroup.myRole === 'owner' && m.pubkey !== myPubHex && m.role !== 'owner' && (
+                    <button style={S.kickBtn} onClick={() => kickGroupMember(m.pubkey)}>{zh ? '移除' : 'Remove'}</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {lightbox && (
@@ -1573,6 +1650,25 @@ const S: Record<string, CSSProperties> = {
     position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.9)',
     display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, cursor: 'zoom-out',
   },
+  overlay: {
+    position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(0,0,0,0.6)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+  },
+  memberPanel: {
+    width: 'min(420px, 100%)', maxHeight: '80vh', display: 'flex', flexDirection: 'column',
+    background: '#150f22', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, overflow: 'hidden',
+  },
+  memberPanelHead: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.08)', fontSize: 15, fontWeight: 600,
+  },
+  memberClose: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: 22, cursor: 'pointer', lineHeight: 1, padding: 0 },
+  memberList: { overflowY: 'auto', padding: '6px 0' },
+  memberRow: { display: 'flex', alignItems: 'center', gap: 11, padding: '9px 18px' },
+  memberName: { fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 },
+  roleBadge: { fontSize: 10, fontWeight: 700, color: '#c9bdff', background: 'rgba(116,98,247,0.22)', padding: '1px 7px', borderRadius: 8, textTransform: 'uppercase', letterSpacing: 0.4 },
+  memberPub: { fontFamily: 'monospace', fontSize: 11, color: 'rgba(255,255,255,0.4)' },
+  kickBtn: { flexShrink: 0, background: 'rgba(255,107,107,0.12)', border: '1px solid rgba(255,107,107,0.4)', color: '#FFB4A0', fontSize: 12, borderRadius: 8, padding: '5px 10px', cursor: 'pointer' },
   lightboxImg: { maxWidth: '100%', maxHeight: '100%', borderRadius: 8, objectFit: 'contain' },
   hideOnMobile: {}, // replaced by CSS below on mobile
 };

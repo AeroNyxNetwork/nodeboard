@@ -890,6 +890,58 @@ export async function leaveGroup(seed: Uint8Array, pub: Uint8Array, groupId: str
   return res.ok;
 }
 
+/**
+ * Rotate a group's key: mint a fresh key, seal it to every CURRENT member
+ * (fetched authoritatively from GET /groups/<id>/), and POST
+ * /groups/<id>/keys/rotate/ — the server assigns the next version. Returns the
+ * new version + key + remaining members. (verified vs group_service.dart:_rotateGroupKeyForActiveMembers)
+ */
+export async function rotateGroupKey(
+  seed: Uint8Array, pub: Uint8Array, groupId: string,
+): Promise<{ newKeyVersion: number; newGroupKey: Uint8Array; members: string[] } | null> {
+  const res = await fetch(`${RELAY_BASE}/groups/${encodeURIComponent(groupId)}/`, {
+    headers: { Authorization: authHeader(seed, pub) },
+  });
+  if (!res.ok) return null;
+  const body = await res.json().catch(() => ({} as Record<string, unknown>));
+  const g = body.group as Record<string, unknown> | undefined;
+  if (!g) return null;
+  const members = (Array.isArray(g.members) ? (g.members as Record<string, unknown>[]) : [])
+    .map((m) => String(m.pubkey ?? '').toLowerCase())
+    .filter((pk) => /^[0-9a-f]{64}$/.test(pk));
+  if (!members.length) return null;
+
+  const newGroupKey = crypto.getRandomValues(new Uint8Array(32));
+  const keyBundles = members.map((pk) => ({
+    member_pubkey: pk,
+    encrypted_key_b64: encryptGroupKey(seed, pk, newGroupKey),
+  }));
+  const rot = await relayPost(seed, pub, `/groups/${encodeURIComponent(groupId)}/keys/rotate/`, {
+    key_bundles: keyBundles,
+  });
+  if (!rot || rot.success !== true) return null;
+  const newKeyVersion = Number(rot.new_key_version ?? 0);
+  if (newKeyVersion <= 0) return null;
+  return { newKeyVersion, newGroupKey, members };
+}
+
+/**
+ * Kick a member (owner) then rotate the group key so the removed member can't
+ * read new messages: DELETE /groups/<id>/members/<pubkey>/ → rotateGroupKey.
+ * (verified vs group_service.dart:1332 kickMember)
+ */
+export async function kickMember(
+  seed: Uint8Array, pub: Uint8Array, groupId: string, memberPubHex: string,
+): Promise<{ newKeyVersion: number; newGroupKey: Uint8Array; members: string[] } | null> {
+  const del = await fetch(
+    `${RELAY_BASE}/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(memberPubHex)}/`,
+    { method: 'DELETE', headers: { Authorization: authHeader(seed, pub) } },
+  );
+  if (!del.ok) return null;
+  // Rotate immediately (retry once) — forward secrecy on the removal.
+  return (await rotateGroupKey(seed, pub, groupId)) ?? (await rotateGroupKey(seed, pub, groupId));
+}
+
 // --- helpers ----------------------------------------------------------------
 
 function setU64LE(dv: DataView, off: number, v: number): void {
