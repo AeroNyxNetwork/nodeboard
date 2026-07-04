@@ -32,7 +32,10 @@ import { xchacha20poly1305 } from '@noble/ciphers/chacha';
 import { gcm } from '@noble/ciphers/aes';
 
 const P2P_INFO = new TextEncoder().encode('AERONYX-P2P-KEY');
-const CTYPE_TEXT = 0;
+const CTYPE_TEXT = 0; // ChatContentType.text
+const CTYPE_SYSTEM = 2; // ChatContentType.system — used by reactions (control frames)
+const DISC_MESSAGE = 11; // relay_send / relay_envelope discriminant (1:1 message)
+const DISC_REACTION = 12; // message_reaction discriminant (1:1 reaction)
 
 export interface WebAttachment {
   blobId: string;
@@ -199,6 +202,35 @@ function decodeWire(wire: string): WireDecoded {
 // --- public: encrypt (send) / decrypt (receive) -----------------------------
 
 /**
+ * Encrypt + sign an envelope and produce its relay-frame parts (payload_b64 +
+ * payload_sig). Shared by 1:1 messages (contentType Text, discriminant 11) and
+ * reactions (contentType System, discriminant 12) — the only differences are
+ * those two constants and the inner plaintext.
+ */
+function sealEnvelope(
+  seed: Uint8Array, myPub: Uint8Array, receiver: Uint8Array, ts: number,
+  messageId: Uint8Array, innerBytes: Uint8Array, contentType: number, discriminant: number,
+): { payloadB64: string; payloadSigHex: string } {
+  const shared = sharedSecret(seed, receiver);
+  const nonce = crypto.getRandomValues(new Uint8Array(24));
+  const ciphertext = xchacha20poly1305(shared, nonce).encrypt(innerBytes); // cipher||tag16
+
+  const signData = buildSignData(myPub, messageId, receiver, ts, contentType, ciphertext);
+  const envSig = ed25519.sign(sha256(signData), seed);
+
+  const env: Envelope = {
+    messageId, sender: myPub, receiver, timestamp: ts,
+    ciphertext, nonce, contentType, signature: envSig,
+  };
+  const payload = serializeEnvelope(env);
+
+  const discByte = new Uint8Array([discriminant]);
+  const psInput = concat(receiver, myPub, discByte, u64LEbytes(ts), payload);
+  const payloadSig = ed25519.sign(sha256(psInput), seed);
+  return { payloadB64: b64encode(payload), payloadSigHex: bytesToHex(payloadSig) };
+}
+
+/**
  * Build a relay_send frame from an already-serialized wire payload (text or the
  * attachment JSON). contentType is always Text (0) — the app sends both plain
  * text and attachment (JSON-wire) messages as Text; the receiver distinguishes
@@ -210,33 +242,19 @@ function buildRelayFrame(
   wireBytes: Uint8Array, msgIdIn?: Uint8Array,
 ): OutgoingFrame {
   const receiver = hexToBytes(receiverHex);
-  const shared = sharedSecret(seed, receiver);
   const ts = Math.floor(Date.now() / 1000);
   const messageId = msgIdIn ?? crypto.getRandomValues(new Uint8Array(16));
-  const nonce = crypto.getRandomValues(new Uint8Array(24));
-  const ciphertext = xchacha20poly1305(shared, nonce).encrypt(wireBytes); // cipher||tag16
-
-  const signData = buildSignData(myPub, messageId, receiver, ts, CTYPE_TEXT, ciphertext);
-  const envSig = ed25519.sign(sha256(signData), seed);
-
-  const env: Envelope = {
-    messageId, sender: myPub, receiver, timestamp: ts,
-    ciphertext, nonce, contentType: CTYPE_TEXT, signature: envSig,
-  };
-  const payload = serializeEnvelope(env);
-
-  const discByte = new Uint8Array([11]);
-  const psInput = concat(receiver, myPub, discByte, u64LEbytes(ts), payload);
-  const payloadSig = ed25519.sign(sha256(psInput), seed);
-
+  const { payloadB64, payloadSigHex } = sealEnvelope(
+    seed, myPub, receiver, ts, messageId, wireBytes, CTYPE_TEXT, DISC_MESSAGE,
+  );
   return {
     type: 'relay_send',
     msg_id: bytesToHex(messageId),
     receiver_pubkey: receiverHex,
     discriminant: 11,
-    payload_b64: b64encode(payload),
+    payload_b64: payloadB64,
     timestamp: ts,
-    payload_sig: bytesToHex(payloadSig),
+    payload_sig: payloadSigHex,
   };
 }
 
@@ -281,16 +299,15 @@ export function encryptAttachmentMessage(
   return buildRelayFrame(seed, myPub, receiverHex, new TextEncoder().encode(wire), msgId);
 }
 
-/** Decrypt an incoming relay_envelope frame (1:1). Returns null on any failure. */
-export function decryptEnvelopeFrame(
-  seed: Uint8Array,
-  frame: { payload_b64?: string; sender_pubkey?: string; msg_id?: string; discriminant?: number },
-): IncomingMessage | null {
-  if (frame.discriminant != null && frame.discriminant !== 11) return null; // 1:1 only
-  const payloadB64 = frame.payload_b64;
-  const senderHex = frame.sender_pubkey;
-  if (!payloadB64 || !senderHex) return null;
-
+/**
+ * Deserialize an envelope, enforce the sender binding, verify the Ed25519
+ * signature over sha256(signData), and decrypt (HKDF secret, then the legacy raw
+ * secret — the app tries both). Returns the parsed envelope + plaintext, or null
+ * on any failure. Shared by messages and reactions.
+ */
+function openEnvelope(
+  seed: Uint8Array, payloadB64: string, senderHex: string,
+): { env: Envelope; plain: Uint8Array } | null {
   const env = deserializeEnvelope(b64decode(payloadB64));
   if (!env) return null;
 
@@ -311,23 +328,34 @@ export function decryptEnvelopeFrame(
   }
   if (!sigOk) return null;
 
-  // Decrypt: try HKDF secret, then the legacy raw secret (app tries both).
   const full = concat(env.nonce, env.ciphertext);
-  let plain: Uint8Array | null = null;
   for (const useHkdf of [true, false]) {
     try {
       const sh = sharedSecret(seed, env.sender, useHkdf);
-      plain = xchacha20poly1305(sh, full.slice(0, 24)).decrypt(full.slice(24));
-      break;
+      return { env, plain: xchacha20poly1305(sh, full.slice(0, 24)).decrypt(full.slice(24)) };
     } catch {
-      plain = null; // MAC fail with this secret — try the next
+      /* MAC fail with this secret — try the next */
     }
   }
-  if (!plain) return null;
+  return null;
+}
+
+/** Decrypt an incoming relay_envelope frame (1:1). Returns null on any failure. */
+export function decryptEnvelopeFrame(
+  seed: Uint8Array,
+  frame: { payload_b64?: string; sender_pubkey?: string; msg_id?: string; discriminant?: number },
+): IncomingMessage | null {
+  if (frame.discriminant != null && frame.discriminant !== 11) return null; // 1:1 only
+  const payloadB64 = frame.payload_b64;
+  const senderHex = frame.sender_pubkey;
+  if (!payloadB64 || !senderHex) return null;
+
+  const opened = openEnvelope(seed, payloadB64, senderHex);
+  if (!opened) return null;
 
   let wire: string;
   try {
-    wire = new TextDecoder('utf-8', { fatal: false }).decode(plain);
+    wire = new TextDecoder('utf-8', { fatal: false }).decode(opened.plain);
   } catch {
     return null;
   }
@@ -336,9 +364,80 @@ export function decryptEnvelopeFrame(
     senderHex,
     text: decoded.text,
     attachments: decoded.attachments,
-    timestamp: env.timestamp,
-    msgId: frame.msg_id || bytesToHex(env.messageId),
+    timestamp: opened.env.timestamp,
+    msgId: frame.msg_id || bytesToHex(opened.env.messageId),
   };
+}
+
+// --- reactions (emoji, control frame) ---------------------------------------
+
+export interface ReactionFrame {
+  type: 'message_reaction';
+  msg_id: string; // TARGET message being reacted to
+  receiver_pubkey: string;
+  reaction_id: string; // this reaction's own random id
+  timestamp: number;
+  payload_b64: string;
+  payload_sig: string;
+}
+
+export interface IncomingReaction {
+  targetMsgId: string;
+  senderHex: string;
+  emoji: string;
+  op: string; // 'add' | 'remove'
+  reactionId: string;
+}
+
+/**
+ * Build a message_reaction frame. The inner plaintext is {emoji, op}, sealed in
+ * a System-contentType envelope with the reaction discriminant (12) — matching
+ * the app's sendReaction exactly (verified: chat_relay_websocket_service.dart).
+ */
+export function encryptReaction(
+  seed: Uint8Array, myPub: Uint8Array, receiverHex: string,
+  targetMsgId: string, emoji: string, op: string,
+): ReactionFrame {
+  const receiver = hexToBytes(receiverHex);
+  const ts = Math.floor(Date.now() / 1000);
+  const reactionId = crypto.getRandomValues(new Uint8Array(16));
+  const inner = new TextEncoder().encode(JSON.stringify({ emoji, op }));
+  const { payloadB64, payloadSigHex } = sealEnvelope(
+    seed, myPub, receiver, ts, reactionId, inner, CTYPE_SYSTEM, DISC_REACTION,
+  );
+  return {
+    type: 'message_reaction',
+    msg_id: targetMsgId,
+    receiver_pubkey: receiverHex,
+    reaction_id: bytesToHex(reactionId),
+    timestamp: ts,
+    payload_b64: payloadB64,
+    payload_sig: payloadSigHex,
+  };
+}
+
+/** Decrypt an incoming message_reaction frame. Returns null on any failure. */
+export function decryptReactionFrame(
+  seed: Uint8Array,
+  frame: { payload_b64?: string; sender_pubkey?: string; msg_id?: string; reaction_id?: string },
+): IncomingReaction | null {
+  const payloadB64 = frame.payload_b64;
+  const senderHex = frame.sender_pubkey;
+  const targetMsgId = frame.msg_id;
+  if (!payloadB64 || !senderHex || !targetMsgId) return null;
+
+  const opened = openEnvelope(seed, payloadB64, senderHex);
+  if (!opened) return null;
+
+  try {
+    const obj = JSON.parse(new TextDecoder('utf-8', { fatal: false }).decode(opened.plain));
+    const emoji = typeof obj.emoji === 'string' ? obj.emoji : '';
+    if (!emoji) return null;
+    const op = typeof obj.op === 'string' ? obj.op : 'add';
+    return { targetMsgId, senderHex, emoji, op, reactionId: frame.reaction_id || '' };
+  } catch {
+    return null;
+  }
 }
 
 // --- attachments (full blob download + decrypt) -----------------------------

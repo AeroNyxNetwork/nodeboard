@@ -26,10 +26,14 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { RelayClient } from '@/lib/relayClient';
 import {
   encryptText, encryptAttachmentMessage, decryptEnvelopeFrame,
+  encryptReaction, decryptReactionFrame,
   fetchAttachment, uploadAttachment, SIMPLE_UPLOAD_MAX,
   bytesToHex, hexToBytes,
   type OutgoingFrame, type WebAttachment,
 } from '@/lib/msgCrypto';
+
+// Emoji palette offered by the quick-reaction picker.
+const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 const SEED_KEY = 'aeronyx_web_seed';
 const CONV_KEY = 'aeronyx_web_convs';
@@ -37,7 +41,9 @@ const NAMES_KEY = 'aeronyx_web_names';
 
 type Msg = {
   id: string; text: string; ts: number; mine: boolean;
-  status?: 'sending' | 'sent' | 'failed'; attachments?: WebAttachment[];
+  status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+  attachments?: WebAttachment[];
+  reactions?: Record<string, string[]>; // emoji → reactor pubkey hexes
 };
 type Conv = { peer: string; messages: Msg[]; lastTs: number; unread?: number };
 type Status = 'connecting' | 'connected' | 'reconnecting';
@@ -61,6 +67,7 @@ export default function ChatPage() {
   const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
   const [busyAtt, setBusyAtt] = useState(''); // blobId currently downloading
   const [uploading, setUploading] = useState(false); // an attachment send in flight
+  const [pickerFor, setPickerFor] = useState(''); // msgId whose reaction palette is open
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -69,6 +76,8 @@ export default function ChatPage() {
   const pendingRef = useRef<Array<{ peer: string; id: string; frame: OutgoingFrame }>>([]);
   const activeRef = useRef(''); // current open peer — so appendMessage can read it
   const audioUrlCache = useRef<Map<string, string>>(new Map()); // blobId → object URL
+  const convsRef = useRef<Record<string, Conv>>({}); // mirror of convs for stable callbacks
+  const readSentRef = useRef<Record<string, string>>({}); // peer → last msgId we sent a read for
 
   const appendMessage = useCallback((peer: string, msg: Msg) => {
     lastTsRef.current = Math.max(lastTsRef.current, msg.ts);
@@ -103,6 +112,50 @@ export default function ChatPage() {
       const c = prev[peer];
       if (!c) return prev;
       return { ...prev, [peer]: { ...c, messages: c.messages.map((m) => (m.id === id ? { ...m, ...patch } : m)) } };
+    });
+  }, []);
+
+  // Apply a reaction (add/remove) to a message. Idempotent set-membership keyed
+  // by (emoji, reactor) — matches the app's P2PMessageStore.applyReaction.
+  const applyReaction = useCallback(
+    (peer: string, targetMsgId: string, emoji: string, reactor: string, op: string) => {
+      setConvs((prev) => {
+        const c = prev[peer];
+        if (!c) return prev;
+        let changed = false;
+        const messages = c.messages.map((m) => {
+          if (m.id !== targetMsgId) return m;
+          changed = true;
+          return { ...m, reactions: applyReactionTo(m.reactions, emoji, reactor, op) };
+        });
+        return changed ? { ...prev, [peer]: { ...c, messages } } : prev;
+      });
+    },
+    [],
+  );
+
+  // Advance a sent message's delivery status (sent → delivered → read), never
+  // downgrading. msg_id is globally unique, so we find it across conversations
+  // (the receipt frame may not carry the peer pubkey).
+  const bumpStatus = useCallback((msgId: string, to: 'delivered' | 'read') => {
+    const rank: Record<string, number> = { sending: 0, failed: 0, sent: 1, delivered: 2, read: 3 };
+    setConvs((prev) => {
+      const next = { ...prev };
+      let found = false;
+      for (const peer of Object.keys(next)) {
+        const c = next[peer];
+        let changed = false;
+        const messages = c.messages.map((m) => {
+          if (m.id !== msgId || !m.mine) return m;
+          const cur = m.status || 'sent';
+          if ((rank[to] ?? 0) <= (rank[cur] ?? 1)) return m; // don't downgrade
+          changed = true;
+          found = true;
+          return { ...m, status: to };
+        });
+        if (changed) next[peer] = { ...c, messages };
+      }
+      return found ? next : prev;
     });
   }, []);
 
@@ -175,6 +228,27 @@ export default function ChatPage() {
         id: m.msgId, text: m.text, ts: m.timestamp, mine: false,
         attachments: m.attachments,
       });
+      // Delivery receipt (metadata-only; does NOT ack the offline queue, so the
+      // phone still receives its copy). Tells the sender we decrypted + stored it.
+      client.send({
+        type: 'message_receipt', receiver_pubkey: m.senderHex,
+        msg_id: m.msgId, timestamp: Math.floor(Date.now() / 1000),
+      });
+    });
+    client.on('reaction', (frame) => {
+      const s = seedRef.current;
+      if (!s) return;
+      const r = decryptReactionFrame(s, frame as never);
+      if (!r) return;
+      applyReaction(r.senderHex, r.targetMsgId, r.emoji, r.senderHex, r.op);
+    });
+    client.on('receipt', (frame) => {
+      const id = (frame as { msg_id?: string })?.msg_id;
+      if (id) bumpStatus(id, 'delivered');
+    });
+    client.on('read', (frame) => {
+      const id = (frame as { msg_id?: string })?.msg_id;
+      if (id) bumpStatus(id, 'read');
     });
     client.connect();
     // Safety: clear the syncing hint even if relay_pull_done never arrives.
@@ -193,10 +267,28 @@ export default function ChatPage() {
     try { sessionStorage.setItem(CONV_KEY, JSON.stringify(convs)); } catch { /* quota */ }
   }, [convs]);
 
-  // keep activeRef current so the stable appendMessage callback can read it
+  // keep activeRef/convsRef current so stable callbacks can read latest state
   useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { convsRef.current = convs; }, [convs]);
 
   const activeConv = active ? convs[active] : undefined;
+
+  // [READ-RECEIPT] When the open conversation gains a newer inbound message,
+  // tell the sender we've read up to it (metadata-only). The per-peer watermark
+  // avoids re-sending for the same newest message on unrelated re-renders.
+  useEffect(() => {
+    if (!active || !activeConv) return;
+    let newestInbound: Msg | undefined;
+    for (let i = activeConv.messages.length - 1; i >= 0; i--) {
+      if (!activeConv.messages[i].mine) { newestInbound = activeConv.messages[i]; break; }
+    }
+    if (!newestInbound || readSentRef.current[active] === newestInbound.id) return;
+    const ok = clientRef.current?.send({
+      type: 'message_read', receiver_pubkey: active, msg_id: newestInbound.id,
+      timestamp: Math.floor(Date.now() / 1000), enabled: true,
+    });
+    if (ok) readSentRef.current[active] = newestInbound.id;
+  }, [active, activeConv]);
   // Opening a conversation always jumps to the newest message.
   useEffect(() => {
     const el = scrollRef.current;
@@ -266,6 +358,25 @@ export default function ChatPage() {
       setUploading(false);
     }
   }, [active, uploading, zh, appendMessage, patchMessage]);
+
+  // Toggle my reaction on a message: 'remove' if I already gave this emoji, else
+  // 'add'. Optimistic locally, then a signed message_reaction over the relay.
+  const toggleReaction = useCallback((targetMsgId: string, emoji: string) => {
+    const seed = seedRef.current;
+    const pub = pubRef.current;
+    const peer = active;
+    if (!seed || !pub || !peer || !myPubHex) return;
+    const msg = convsRef.current[peer]?.messages.find((m) => m.id === targetMsgId);
+    const already = !!msg?.reactions?.[emoji]?.includes(myPubHex);
+    const op = already ? 'remove' : 'add';
+    applyReaction(peer, targetMsgId, emoji, myPubHex, op); // optimistic
+    setPickerFor('');
+    try {
+      clientRef.current?.send(encryptReaction(seed, pub, peer, targetMsgId, emoji, op));
+    } catch {
+      /* optimistic UI already reflects it; a failed send just isn't mirrored to the peer */
+    }
+  }, [active, myPubHex, applyReaction]);
 
   const startNewChat = useCallback(() => {
     const input = window.prompt(zh ? '輸入對方的公鑰 (64 位十六進制)' : "Enter the peer's public key (64 hex)");
@@ -458,6 +569,15 @@ export default function ChatPage() {
                 const showDate = !prev || !sameDay(prev.ts, m.ts);
                 // Group consecutive same-sender messages within 5 min (Telegram).
                 const grouped = !showDate && !!prev && prev.mine === m.mine && m.ts - prev.ts < 300;
+                const trigger = (
+                  <button
+                    style={S.reactTrigger}
+                    title={zh ? '表情回應' : 'React'}
+                    onClick={() => setPickerFor(pickerFor === m.id ? '' : m.id)}
+                  >
+                    ☺
+                  </button>
+                );
                 return (
                   <div key={m.id}>
                     {showDate && (
@@ -466,6 +586,7 @@ export default function ChatPage() {
                       </div>
                     )}
                     <div style={{ ...S.row, justifyContent: m.mine ? 'flex-end' : 'flex-start', marginTop: grouped ? 2 : 8 }}>
+                      {m.mine && trigger}
                       <div style={{ ...S.bubble, ...(m.mine ? S.bubbleMine : S.bubbleTheirs) }}>
                         {m.attachments?.map((a, k) => (
                           <AttachmentView
@@ -480,14 +601,37 @@ export default function ChatPage() {
                         {m.text ? <span style={S.msgText}>{linkify(m.text)}</span> : null}
                         <span style={S.msgTime}>
                           {hhmm(m.ts)}
-                          {m.mine && (
-                            <span style={{ marginLeft: 4, color: m.status === 'failed' ? '#FFB4A0' : undefined }}>
-                              {m.status === 'failed' ? '⚠' : m.status === 'sending' ? '⏳' : '✓'}
-                            </span>
-                          )}
+                          {m.mine && <MsgTick status={m.status} />}
                         </span>
+                        {m.reactions && Object.keys(m.reactions).length > 0 && (
+                          <div style={S.reactionRow}>
+                            {Object.entries(m.reactions).map(([emoji, reactors]) => (
+                              <button
+                                key={emoji}
+                                style={{ ...S.reactionChip, ...(reactors.includes(myPubHex) ? S.reactionChipMine : {}) }}
+                                onClick={() => toggleReaction(m.id, emoji)}
+                                title={reactors.includes(myPubHex) ? (zh ? '取消' : 'Remove') : (zh ? '回應' : 'React')}
+                              >
+                                <span>{emoji}</span>
+                                {reactors.length > 1 && <span style={S.reactionCount}>{reactors.length}</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
+                      {!m.mine && trigger}
                     </div>
+                    {pickerFor === m.id && (
+                      <div style={{ ...S.reactPaletteRow, justifyContent: m.mine ? 'flex-end' : 'flex-start' }}>
+                        <div style={S.reactPalette}>
+                          {REACTIONS.map((e) => (
+                            <button key={e} style={S.reactPaletteBtn} onClick={() => toggleReaction(m.id, e)}>
+                              {e}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -636,6 +780,32 @@ function attPreview(atts: WebAttachment[] | undefined, zh: boolean): string {
   if (t.startsWith('audio/')) return zh ? '🎤 語音' : '🎤 Voice';
   if (t.startsWith('video/')) return zh ? '🎬 影片' : '🎬 Video';
   return zh ? '📎 檔案' : '📎 File';
+}
+
+/** Pure idempotent update of a message's reactions map (emoji → reactor set). */
+function applyReactionTo(
+  reactions: Record<string, string[]> | undefined,
+  emoji: string, reactor: string, op: string,
+): Record<string, string[]> {
+  const next: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(reactions || {})) next[k] = [...v];
+  const set = new Set(next[emoji] || []);
+  if (op === 'remove') set.delete(reactor);
+  else set.add(reactor);
+  const arr = [...set];
+  if (arr.length) next[emoji] = arr;
+  else delete next[emoji];
+  return next;
+}
+
+/** Delivery tick for my sent messages: ⏳ sending · ✓ sent · ✓✓ delivered ·
+ *  ✓✓(blue) read · ⚠ failed. */
+function MsgTick({ status }: { status?: Msg['status'] }) {
+  if (status === 'failed') return <span style={{ marginLeft: 4, color: '#FFB4A0' }}>⚠</span>;
+  if (status === 'sending') return <span style={{ marginLeft: 4 }}>⏳</span>;
+  if (status === 'read') return <span style={{ marginLeft: 4, color: '#8AB4FF', letterSpacing: -2 }}>✓✓</span>;
+  if (status === 'delivered') return <span style={{ marginLeft: 4, letterSpacing: -2 }}>✓✓</span>;
+  return <span style={{ marginLeft: 4 }}>✓</span>; // sent
 }
 
 /** Downscale an image to a small JPEG thumbnail (base64, no data: prefix) for the
@@ -870,12 +1040,20 @@ const S: Record<string, CSSProperties> = {
   messages: { flex: 1, overflowY: 'auto', padding: '10px 18px 16px', display: 'flex', flexDirection: 'column' },
   dateSep: { display: 'flex', justifyContent: 'center', margin: '12px 0 6px' },
   dateSepPill: { fontSize: 11, color: 'rgba(255,255,255,0.55)', background: 'rgba(255,255,255,0.06)', borderRadius: 10, padding: '3px 10px' },
-  row: { display: 'flex', width: '100%' },
+  row: { display: 'flex', width: '100%', alignItems: 'flex-end', gap: 4 },
   bubble: { maxWidth: '72%', padding: '7px 11px 5px', borderRadius: 16, fontSize: 14, lineHeight: 1.4, wordBreak: 'break-word', display: 'flex', flexDirection: 'column' },
   bubbleMine: { background: '#7462F7', borderBottomRightRadius: 5 },
   bubbleTheirs: { background: 'rgba(255,255,255,0.09)', borderBottomLeftRadius: 5 },
   msgText: { whiteSpace: 'pre-wrap' },
   msgTime: { alignSelf: 'flex-end', fontSize: 10, color: 'rgba(255,255,255,0.55)', marginTop: 2 },
+  reactTrigger: { flexShrink: 0, width: 22, height: 22, borderRadius: 11, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.35)', fontSize: 14, cursor: 'pointer', padding: 0, lineHeight: 1 },
+  reactionRow: { display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 },
+  reactionChip: { display: 'flex', alignItems: 'center', gap: 3, padding: '1px 6px', borderRadius: 10, border: '1px solid transparent', background: 'rgba(0,0,0,0.22)', color: '#fff', fontSize: 12, cursor: 'pointer', lineHeight: 1.6 },
+  reactionChipMine: { background: 'rgba(138,180,255,0.28)', border: '1px solid rgba(138,180,255,0.55)' },
+  reactionCount: { fontSize: 11, color: 'rgba(255,255,255,0.75)' },
+  reactPaletteRow: { display: 'flex', width: '100%', padding: '2px 0' },
+  reactPalette: { display: 'flex', gap: 2, padding: '3px 5px', background: '#1b1030', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 18, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' },
+  reactPaletteBtn: { width: 30, height: 30, borderRadius: 15, border: 'none', background: 'transparent', fontSize: 17, cursor: 'pointer', padding: 0, lineHeight: 1 },
   inputBar: { display: 'flex', alignItems: 'flex-end', gap: 10, padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' },
   input: { flex: 1, resize: 'none', maxHeight: 120, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 18, color: '#fff', padding: '10px 14px', fontSize: 14, fontFamily: 'inherit', outline: 'none', lineHeight: 1.4 },
   sendBtn: { background: '#7462F7', color: '#fff', border: 'none', borderRadius: 18, padding: '10px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' },

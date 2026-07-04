@@ -23,7 +23,11 @@ import { sha256 } from '@noble/hashes/sha256';
 const WS_URL = 'wss://api.aeronyx.network/ws/relay/';
 const DOMAIN = 'AeroNyx-RelayAuth-v1';
 
-export type RelayEvent = 'connected' | 'authfail' | 'closed' | 'envelope' | 'pulldone';
+export type RelayEvent =
+  | 'connected' | 'authfail' | 'closed' | 'envelope' | 'pulldone'
+  | 'reaction' // inbound message_reaction (emoji)
+  | 'receipt' // inbound message_receipt (peer decrypted+stored our message)
+  | 'read'; // inbound message_read (peer read our message)
 
 export class RelayClient {
   private ws: WebSocket | null = null;
@@ -133,6 +137,17 @@ export class RelayClient {
       case 'relay_pull_done':
         this.emit('pulldone', f);
         break;
+      case 'message_reaction':
+        this.emit('reaction', f);
+        break;
+      case 'message_receipt':
+        this.emit('receipt', f);
+        break;
+      case 'message_read':
+        this.emit('read', f);
+        break;
+      // *_ack frames (message_reaction_ack / message_receipt_ack / message_read_ack)
+      // are server acknowledgements that don't change UI state — ignore them.
       default:
         break;
     }
