@@ -49,7 +49,9 @@ export interface WebAttachment {
 }
 
 export interface IncomingMessage {
-  senderHex: string;
+  senderHex: string; // the actual signer of the envelope
+  peerHex: string; // conversation counterparty (env.receiver if `mine`, else the sender)
+  mine: boolean; // true = a self-echo of a message WE sent (multi-device sync)
   text: string;
   attachments: WebAttachment[];
   timestamp: number; // unix seconds
@@ -267,6 +269,21 @@ export function encryptText(
   return buildRelayFrame(seed, myPub, receiverHex, new TextEncoder().encode(encodeWire(text)));
 }
 
+/**
+ * [MULTI-DEVICE] Build a self-echo copy of an outgoing frame: the SAME envelope
+ * (still encrypted + signed for the real receiver), re-addressed to our OWN
+ * pubkey with a fresh payload_sig (receiver=self), so our other linked devices
+ * receive messages we send. The relay verifies payload_sig against the frame's
+ * receiver, so the re-sign is required.
+ */
+export function selfEchoFrame(seed: Uint8Array, myPub: Uint8Array, frame: OutgoingFrame): OutgoingFrame {
+  const payload = b64decode(frame.payload_b64);
+  const discByte = new Uint8Array([frame.discriminant]);
+  const psInput = concat(myPub, myPub, discByte, u64LEbytes(frame.timestamp), payload);
+  const payloadSig = ed25519.sign(sha256(psInput), seed);
+  return { ...frame, receiver_pubkey: bytesToHex(myPub), payload_sig: bytesToHex(payloadSig) };
+}
+
 /** Serialize a WebAttachment to the app's snake_case wire shape. */
 function attToWire(a: WebAttachment): Record<string, unknown> {
   const m: Record<string, unknown> = {
@@ -330,10 +347,17 @@ function openEnvelope(
   }
   if (!sigOk) return null;
 
+  // Decrypt with the ECDH counterparty. Normally that's env.sender; but for a
+  // SELF-ECHO (a message WE signed, delivered to our own pubkey so linked devices
+  // sync sent messages) the counterparty is env.receiver — ECDH(us, sender=us)
+  // would be the wrong secret. ECDH is symmetric so ECDH(us, receiver) recovers
+  // the same key the message was sealed with.
+  const myHex = bytesToHex(ed25519.getPublicKey(seed));
+  const decryptPeer = bytesToHex(env.sender) === myHex ? env.receiver : env.sender;
   const full = concat(env.nonce, env.ciphertext);
   for (const useHkdf of [true, false]) {
     try {
-      const sh = sharedSecret(seed, env.sender, useHkdf);
+      const sh = sharedSecret(seed, decryptPeer, useHkdf);
       return { env, plain: xchacha20poly1305(sh, full.slice(0, 24)).decrypt(full.slice(24)) };
     } catch {
       /* MAC fail with this secret — try the next */
@@ -355,6 +379,16 @@ export function decryptEnvelopeFrame(
   const opened = openEnvelope(seed, payloadB64, senderHex);
   if (!opened) return null;
 
+  const myHex = bytesToHex(ed25519.getPublicKey(seed));
+  const sender = bytesToHex(opened.env.sender);
+  const receiver = bytesToHex(opened.env.receiver);
+  // True self-loop (we are both sender and receiver) — ignore, as the app does.
+  if (sender === myHex && receiver === myHex) return null;
+  // Self-echo: a message WE sent to `receiver`, mirrored to our own pubkey so
+  // this device syncs it as a sent bubble in the `receiver` conversation.
+  const mine = sender === myHex;
+  const peerHex = mine ? receiver : sender;
+
   let wire: string;
   try {
     wire = new TextDecoder('utf-8', { fatal: false }).decode(opened.plain);
@@ -363,9 +397,9 @@ export function decryptEnvelopeFrame(
   }
   const decoded = decodeWire(wire);
   return {
-    // Use the verified envelope sender (canonical lowercase hex) as the identity,
-    // not the raw routing header — keeps conversation keys consistent everywhere.
-    senderHex: bytesToHex(opened.env.sender),
+    senderHex: sender, // verified envelope signer (canonical lowercase hex)
+    peerHex,
+    mine,
     text: decoded.text,
     attachments: decoded.attachments,
     timestamp: opened.env.timestamp,

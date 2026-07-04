@@ -25,7 +25,7 @@ import { ed25519 } from '@noble/curves/ed25519';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { RelayClient } from '@/lib/relayClient';
 import {
-  encryptText, encryptAttachmentMessage, decryptEnvelopeFrame,
+  encryptText, encryptAttachmentMessage, decryptEnvelopeFrame, selfEchoFrame,
   encryptReaction, decryptReactionFrame,
   encryptGroupMessage, decryptGroupEnvelope, unsealGroupKey,
   encryptGroupReaction, decryptGroupReaction,
@@ -362,8 +362,14 @@ export default function ChatPage() {
       const pending = pendingRef.current;
       pendingRef.current = [];
       for (const p of pending) {
-        if (client.send(p.frame)) setMsgStatus(p.peer, p.id, 'sent');
-        else pendingRef.current.push(p);
+        if (client.send(p.frame)) {
+          const rs = seedRef.current;
+          const rp = pubRef.current;
+          if (rs && rp) client.send(selfEchoFrame(rs, rp, p.frame)); // [MULTI-DEVICE]
+          setMsgStatus(p.peer, p.id, 'sent');
+        } else {
+          pendingRef.current.push(p);
+        }
       }
       // [PRESENCE] (re)subscribe to all known conversation peers on (re)connect.
       const peers = Object.keys(convsRef.current);
@@ -393,16 +399,21 @@ export default function ChatPage() {
       }
       const m = decryptEnvelopeFrame(s, frame as never);
       if (!m) return;
-      appendMessage(m.senderHex, {
-        id: m.msgId, text: m.text, ts: m.timestamp, mine: false,
+      // m.mine = a self-echo of a message we sent from another device → show it
+      // as a sent bubble in the m.peerHex conversation (dedup drops our own copy).
+      appendMessage(m.peerHex, {
+        id: m.msgId, text: m.text, ts: m.timestamp, mine: m.mine,
         attachments: m.attachments,
+        status: m.mine ? 'sent' : undefined,
       });
-      // Delivery receipt (metadata-only; does NOT ack the offline queue, so the
-      // phone still receives its copy). Tells the sender we decrypted + stored it.
-      client.send({
-        type: 'message_receipt', receiver_pubkey: m.senderHex,
-        msg_id: m.msgId, timestamp: Math.floor(Date.now() / 1000),
-      });
+      // Delivery receipt only for a message actually FROM the peer — never for
+      // our own self-echo. Metadata-only; does NOT ack the offline queue.
+      if (!m.mine) {
+        client.send({
+          type: 'message_receipt', receiver_pubkey: m.peerHex,
+          msg_id: m.msgId, timestamp: Math.floor(Date.now() / 1000),
+        });
+      }
     });
     client.on('reaction', (frame) => {
       const s = seedRef.current;
@@ -614,6 +625,7 @@ export default function ChatPage() {
     try {
       const frame = encryptText(seed, pub, active, text);
       const ok = clientRef.current?.send(frame) ?? false;
+      if (ok) clientRef.current?.send(selfEchoFrame(seed, pub, frame)); // [MULTI-DEVICE] sync to our own devices
       appendMessage(active, {
         id: frame.msg_id, text, ts: frame.timestamp, mine: true,
         status: ok ? 'sent' : 'failed',
@@ -707,6 +719,7 @@ export default function ChatPage() {
       const att = await uploadAttachmentAuto(seed, pub, { bytes, mediaType, fileName: file.name, thumbB64 });
       const frame = encryptAttachmentMessage(seed, pub, peer, '', [att], msgId);
       const ok = clientRef.current?.send(frame) ?? false;
+      if (ok) clientRef.current?.send(selfEchoFrame(seed, pub, frame)); // [MULTI-DEVICE] sync to our own devices
       patchMessage(peer, msgId, { attachments: [att], status: ok ? 'sent' : 'failed' });
       if (!ok) pendingRef.current.push({ peer, id: msgId, frame });
     } catch {
