@@ -314,22 +314,34 @@ export default function ChatPage() {
   const activeConv = active ? convs[active] : undefined;
   const headerStatus = active ? peerStatus(active, typingPeers, presence, zh) : null;
 
-  // [READ-RECEIPT] When the open conversation gains a newer inbound message,
-  // tell the sender we've read up to it (metadata-only). The per-peer watermark
-  // avoids re-sending for the same newest message on unrelated re-renders.
-  useEffect(() => {
-    if (!active || !activeConv) return;
-    let newestInbound: Msg | undefined;
-    for (let i = activeConv.messages.length - 1; i >= 0; i--) {
-      if (!activeConv.messages[i].mine) { newestInbound = activeConv.messages[i]; break; }
+  // [READ-RECEIPT] Tell the sender we've read up to their newest message in the
+  // open conversation (metadata-only). Suppressed while the tab is hidden — you
+  // haven't actually read it if you're not looking — and re-fired on refocus.
+  // The per-peer watermark avoids re-sending for the same message.
+  const sendReadReceipt = useCallback(() => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    const peer = activeRef.current;
+    if (!peer) return;
+    const c = convsRef.current[peer];
+    if (!c) return;
+    let newest: Msg | undefined;
+    for (let i = c.messages.length - 1; i >= 0; i--) {
+      if (!c.messages[i].mine) { newest = c.messages[i]; break; }
     }
-    if (!newestInbound || readSentRef.current[active] === newestInbound.id) return;
+    if (!newest || readSentRef.current[peer] === newest.id) return;
     const ok = clientRef.current?.send({
-      type: 'message_read', receiver_pubkey: active, msg_id: newestInbound.id,
+      type: 'message_read', receiver_pubkey: peer, msg_id: newest.id,
       timestamp: Math.floor(Date.now() / 1000), enabled: true,
     });
-    if (ok) readSentRef.current[active] = newestInbound.id;
-  }, [active, activeConv]);
+    if (ok) readSentRef.current[peer] = newest.id;
+  }, []);
+
+  useEffect(() => { sendReadReceipt(); }, [active, activeConv, sendReadReceipt]);
+  useEffect(() => {
+    const onVis = () => { if (document.visibilityState === 'visible') sendReadReceipt(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [sendReadReceipt]);
 
   // [PRESENCE] Subscribe to the open peer (covers a freshly-started chat that
   // wasn't in the set at connect time). Idempotent on the relay.

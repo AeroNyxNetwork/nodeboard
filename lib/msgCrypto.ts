@@ -361,7 +361,9 @@ export function decryptEnvelopeFrame(
   }
   const decoded = decodeWire(wire);
   return {
-    senderHex,
+    // Use the verified envelope sender (canonical lowercase hex) as the identity,
+    // not the raw routing header — keeps conversation keys consistent everywhere.
+    senderHex: bytesToHex(opened.env.sender),
     text: decoded.text,
     attachments: decoded.attachments,
     timestamp: opened.env.timestamp,
@@ -434,7 +436,8 @@ export function decryptReactionFrame(
     const emoji = typeof obj.emoji === 'string' ? obj.emoji : '';
     if (!emoji) return null;
     const op = typeof obj.op === 'string' ? obj.op : 'add';
-    return { targetMsgId, senderHex, emoji, op, reactionId: frame.reaction_id || '' };
+    // Verified envelope sender (canonical lowercase) — matches message conv keys.
+    return { targetMsgId, senderHex: bytesToHex(opened.env.sender), emoji, op, reactionId: frame.reaction_id || '' };
   } catch {
     return null;
   }
