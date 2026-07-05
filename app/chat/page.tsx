@@ -30,7 +30,7 @@ import {
   encryptGroupMessage, decryptGroupEnvelope, unsealGroupKey,
   encryptGroupReaction, decryptGroupReaction,
   fetchGroupList, fetchGroupKeyBundle,
-  createGroup, inviteToGroup, leaveGroup, kickMember,
+  createGroup, inviteToGroup, leaveGroup, kickMember, fetchContacts,
   fetchAttachment, uploadAttachmentAuto, CHUNKED_UPLOAD_MAX,
   bytesToHex, hexToBytes,
   type OutgoingFrame, type WebAttachment,
@@ -44,6 +44,7 @@ const CONV_KEY = 'aeronyx_web_convs';
 const NAMES_KEY = 'aeronyx_web_names';
 const GROUPS_KEY = 'aeronyx_web_groups';
 const RR_KEY = 'aeronyx_web_readreceipts'; // '0' = read receipts off
+const SNAMES_KEY = 'aeronyx_web_servernames'; // server-synced contact display names
 
 type Msg = {
   id: string; text: string; ts: number; mine: boolean;
@@ -112,6 +113,7 @@ export default function ChatPage() {
   const [isMobile, setIsMobile] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
+  const [serverNames, setServerNames] = useState<Record<string, string>>({}); // from GET /contacts/
   const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
   const [busyAtt, setBusyAtt] = useState(''); // blobId currently downloading
   const [uploading, setUploading] = useState(false); // an attachment send in flight
@@ -294,6 +296,40 @@ export default function ChatPage() {
     }));
   }, []);
 
+  // [CONTACTS] Load the server-synced friend list (the app uploads it on every
+  // add-friend) so the sidebar shows your contacts even before any message —
+  // an empty conversation row per contact + their saved display name. A local
+  // rename (NAMES_KEY) always wins over the server name.
+  const loadContacts = useCallback(async (): Promise<string[]> => {
+    const seed = seedRef.current;
+    const pub = pubRef.current;
+    if (!seed || !pub) return [];
+    try {
+      const list = await fetchContacts(seed, pub);
+      if (!list.length) return [];
+      setConvs((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        for (const c of list) {
+          if (!next[c.pubkey]) {
+            next[c.pubkey] = { peer: c.pubkey, messages: [], lastTs: 0 };
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+      setServerNames((prev) => {
+        const next = { ...prev };
+        for (const c of list) {
+          if (c.displayName) next[c.pubkey] = c.displayName;
+        }
+        return next;
+      });
+      return list.map((c) => c.pubkey);
+    } catch { /* contacts fetch is best-effort; chat works without it */ }
+    return [];
+  }, []);
+
   // Responsive: single pane on narrow viewports (inline styles can't media-query).
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 720);
@@ -340,6 +376,8 @@ export default function ChatPage() {
         }
       }
       if (sessionStorage.getItem(RR_KEY) === '0') { setReadReceipts(false); readReceiptsRef.current = false; }
+      const sn = sessionStorage.getItem(SNAMES_KEY);
+      if (sn) setServerNames(JSON.parse(sn));
     } catch { /* ignore */ }
 
     const client = new RelayClient(seedHex);
@@ -347,8 +385,10 @@ export default function ChatPage() {
     client.on('connected', async () => {
       setStatus('connected');
       // Load groups + unseal their keys BEFORE pulling history, so replayed
-      // group messages (discriminant 25) have a key to decrypt with.
-      await loadGroups();
+      // group messages (discriminant 25) have a key to decrypt with. Contacts
+      // load in the same barrier so the friend list + names paint immediately
+      // and the presence subscribe below covers contact peers too.
+      const [, contactPks] = await Promise.all([loadGroups(), loadContacts()]);
       // [PRESENCE] (re)subscribe to all known group peers isn't needed; presence
       // is 1:1 only. Group peers still get subscribed via the conv-peer set below.
       // [HISTORY] Pull offline/undelivered messages (they arrive as normal
@@ -372,8 +412,10 @@ export default function ChatPage() {
         }
       }
       // [PRESENCE] (re)subscribe to all known conversation peers on (re)connect.
-      const peers = Object.keys(convsRef.current);
-      if (peers.length) client.send({ type: 'presence_subscribe', pubkeys: peers });
+      // Contacts fetched a moment ago are merged in explicitly — convsRef may
+      // not have committed the new rows yet (React batches the setState).
+      const peers = new Set([...Object.keys(convsRef.current), ...contactPks]);
+      if (peers.size) client.send({ type: 'presence_subscribe', pubkeys: [...peers] });
     });
     client.on('pulldone', () => setSyncing(false));
     client.on('closed', () => setStatus((s) => (s === 'connected' ? 'reconnecting' : s)));
@@ -509,6 +551,11 @@ export default function ChatPage() {
     try { sessionStorage.setItem(NAMES_KEY, JSON.stringify(names)); } catch { /* quota */ }
   }, [names]);
 
+  // persist server-synced contact display names (repaint instantly next load)
+  useEffect(() => {
+    try { sessionStorage.setItem(SNAMES_KEY, JSON.stringify(serverNames)); } catch { /* quota */ }
+  }, [serverNames]);
+
   // persist conversations
   useEffect(() => {
     try { sessionStorage.setItem(CONV_KEY, JSON.stringify(convs)); } catch { /* quota */ }
@@ -528,11 +575,19 @@ export default function ChatPage() {
     try { sessionStorage.setItem(RR_KEY, readReceipts ? '1' : '0'); } catch { /* quota */ }
   }, [readReceipts]);
 
+  // Display-name resolution: local rename > server contact name > short pubkey.
+  // Declared before the header/typing computations below that read it.
+  const mergedNames = useMemo(() => ({ ...serverNames, ...names }), [serverNames, names]);
+  const nameFor = useCallback(
+    (peer: string) => mergedNames[peer] || short(peer),
+    [mergedNames],
+  );
+
   const activeConv = active && !isGroupId(active) ? convs[active] : undefined;
   const activeGroup = active && isGroupId(active) ? groups[active] : undefined;
   const activeThread = activeConv ?? activeGroup; // both carry messages[] + lastTs
   const headerStatus = activeConv ? peerStatus(active, typingPeers, presence, zh) : null;
-  const groupTypingText = activeGroup ? groupTypingLabel(groupTypers[active] || {}, names, zh) : '';
+  const groupTypingText = activeGroup ? groupTypingLabel(groupTypers[active] || {}, mergedNames, zh) : '';
 
   // [READ-RECEIPT] Tell the sender we've read up to their newest message in the
   // open conversation (metadata-only). Suppressed while the tab is hidden — you
@@ -877,7 +932,6 @@ export default function ChatPage() {
     });
   }, [names, zh]);
 
-  const nameFor = useCallback((peer: string) => names[peer] || short(peer), [names]);
 
   const openAttachment = useCallback(async (att: WebAttachment) => {
     const seed = seedRef.current;
@@ -1124,7 +1178,7 @@ export default function ChatPage() {
                     )}
                     {showSender && (
                       <div style={{ ...S.groupSender, color: colorFor(m.sender || '') }}>
-                        {groupMemberName(m.sender || '', names)}
+                        {groupMemberName(m.sender || '', mergedNames)}
                       </div>
                     )}
                     <div style={{ ...S.row, justifyContent: m.mine ? 'flex-end' : 'flex-start', marginTop: grouped ? 2 : 8 }}>
@@ -1242,7 +1296,7 @@ export default function ChatPage() {
                   <span style={{ ...S.avatar, width: 32, height: 32, fontSize: 11, background: colorFor(m.pubkey) }}>{m.pubkey.slice(0, 2)}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={S.memberName}>
-                      {m.pubkey === myPubHex ? (zh ? '你' : 'You') : groupMemberName(m.pubkey, names)}
+                      {m.pubkey === myPubHex ? (zh ? '你' : 'You') : groupMemberName(m.pubkey, mergedNames)}
                       {m.role === 'owner' && <span style={S.roleBadge}>{zh ? '群主' : 'owner'}</span>}
                     </div>
                     <code style={S.memberPub}>{short(m.pubkey)}</code>

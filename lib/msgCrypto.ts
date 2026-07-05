@@ -879,6 +879,35 @@ export function decryptGroupReaction(
   }
 }
 
+// --- contacts (friend list the app syncs on add-friend) ----------------------
+
+export interface RelayContactInfo {
+  pubkey: string;
+  displayName: string;
+}
+
+/**
+ * GET /contacts/ — the server-synced contact list (the app uploads on every
+ * add-friend). Relay-auth'd; response {contacts:[{contact_pubkey, display_name,
+ * note, is_deleted, updated_at}], ...}. Deleted + malformed entries filtered.
+ * (verified vs app relay_api_service.fetchContacts + RelayContact model)
+ */
+export async function fetchContacts(seed: Uint8Array, pub: Uint8Array): Promise<RelayContactInfo[]> {
+  const res = await fetch(`${RELAY_BASE}/contacts/`, {
+    headers: { Authorization: authHeader(seed, pub) },
+  });
+  if (!res.ok) return [];
+  const body = await res.json().catch(() => ({} as Record<string, unknown>));
+  const raw = Array.isArray(body.contacts) ? body.contacts : [];
+  const out: RelayContactInfo[] = [];
+  for (const c of raw as Record<string, unknown>[]) {
+    const pubkey = String(c.contact_pubkey ?? '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(pubkey) || c.is_deleted === true) continue;
+    out.push({ pubkey, displayName: String(c.display_name ?? '') });
+  }
+  return out;
+}
+
 // --- group HTTP (list + key bundle) -----------------------------------------
 
 /** GET /groups/ → the groups this identity is an active member of. */
