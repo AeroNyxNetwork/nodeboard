@@ -486,7 +486,7 @@ const RELAY_BASE = 'https://api.aeronyx.network/api/relay';
 /** fetch with a hard timeout — a hung request must never wedge the UI's busy
  *  states (download spinner, optimistic 'sending' bubble, kick/leave buttons)
  *  forever. Aborts via AbortController; callers' existing catch paths handle it. */
-async function tFetch(url: string, opts: RequestInit, timeoutMs: number): Promise<Response> {
+export async function tFetch(url: string, opts: RequestInit, timeoutMs: number): Promise<Response> {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeoutMs);
   try {

@@ -32,7 +32,7 @@ import {
   encryptGroupReaction, decryptGroupReaction,
   fetchGroupList, fetchGroupKeyBundle,
   createGroup, inviteToGroup, leaveGroup, kickMember, fetchContacts,
-  fetchAttachment, uploadAttachmentAuto, CHUNKED_UPLOAD_MAX,
+  fetchAttachment, uploadAttachmentAuto, CHUNKED_UPLOAD_MAX, tFetch,
   bytesToHex, hexToBytes,
   type OutgoingFrame, type WebAttachment,
 } from '@/lib/msgCrypto';
@@ -659,8 +659,9 @@ export default function ChatPage() {
     (async () => {
       try {
         for (let i = 0; i < 8 && !cancelled; i++) {
-          const res = await fetch(
+          const res = await tFetch(
             `https://api.aeronyx.network/api/relay/web_pair/history?sid=${encodeURIComponent(pending.sid)}`,
+            {}, 15000,
           );
           const data = await res.json().catch(() => ({} as Record<string, unknown>));
           if (data?.status === 'ready' && typeof data.sealed === 'string') {
