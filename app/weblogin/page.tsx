@@ -30,6 +30,7 @@ import {
   genSessionId,
   buildQrUrl,
   unseal,
+  b64uEncode,
   type WebEphemeral,
   type UnsealResult,
 } from '@/lib/webLoginCrypto';
@@ -84,6 +85,18 @@ export default function WebLoginPage() {
         stopPolling();
         try {
           const r = unseal(eph.priv, eph.pubB64, data.eph_pub, data.sealed);
+          // [WEB-HISTORY] The phone may be uploading a sealed recent-history
+          // snapshot right now (best-effort, opt-out on the phone). Stash the
+          // pairing material so /chat can fetch + unseal it even if the user
+          // clicks Continue immediately. Consumed + removed by /chat.
+          try {
+            sessionStorage.setItem('aeronyx_web_hist_pending', JSON.stringify({
+              sid,
+              webPriv: b64uEncode(eph.priv),
+              webPub: eph.pubB64,
+              phoneEph: data.eph_pub,
+            }));
+          } catch { /* quota — history is optional */ }
           setResult(r);
           setPhase('success');
         } catch {

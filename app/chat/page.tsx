@@ -24,6 +24,7 @@ import {
 import { ed25519 } from '@noble/curves/ed25519';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { RelayClient } from '@/lib/relayClient';
+import { unsealHistory, b64uDecode } from '@/lib/webLoginCrypto';
 import {
   encryptText, encryptAttachmentMessage, decryptEnvelopeFrame, selfEchoFrame,
   encryptReaction, decryptReactionFrame,
@@ -45,6 +46,7 @@ const NAMES_KEY = 'aeronyx_web_names';
 const GROUPS_KEY = 'aeronyx_web_groups';
 const RR_KEY = 'aeronyx_web_readreceipts'; // '0' = read receipts off
 const SNAMES_KEY = 'aeronyx_web_servernames'; // server-synced contact display names
+const HIST_PENDING_KEY = 'aeronyx_web_hist_pending'; // pairing material for the history snapshot fetch
 
 type Msg = {
   id: string; text: string; ts: number; mine: boolean;
@@ -330,6 +332,99 @@ export default function ChatPage() {
     return [];
   }, []);
 
+  // [WEB-HISTORY] Merge the phone's recent-history snapshot (already decrypted
+  // on the phone, sealed to this session) into local state. Dedup by msg id;
+  // ⚠️ deliberately does NOT touch lastTsRef — the relay_pull window must stay
+  // driven by live/pulled envelopes only, or an unacked queued message older
+  // than the snapshot's newest line would never be pulled. Unread untouched.
+  const ingestHistory = useCallback((pkgRaw: unknown) => {
+    const pkg = pkgRaw as {
+      convs?: Array<Record<string, unknown>>;
+      groups?: Array<Record<string, unknown>>;
+    };
+    const mapAtt = (a: Record<string, unknown>): WebAttachment => ({
+      blobId: String(a.blob_id ?? ''),
+      fileKey: String(a.file_key ?? ''),
+      mediaType: String(a.media_type ?? 'application/octet-stream'),
+      fileName: String(a.file_name ?? 'attachment'),
+      fileSize: Number(a.file_size ?? 0) || 0,
+      thumbB64: typeof a.thumb_b64 === 'string' ? a.thumb_b64 : undefined,
+      durationMs: Number(a.duration_ms ?? 0) || 0,
+      waveform: Array.isArray(a.waveform)
+        ? (a.waveform as unknown[]).map(Number).filter(Number.isFinite).slice(0, 96)
+        : undefined,
+    });
+    const mapMsg = (m: Record<string, unknown>, group: boolean): Msg | null => {
+      const id = String(m.id ?? '');
+      const ts = Number(m.ts ?? 0) || 0;
+      if (!id || !ts) return null;
+      const mine = m.mine === true;
+      const att = Array.isArray(m.att) ? (m.att as Record<string, unknown>[]).map(mapAtt) : [];
+      return {
+        id, ts, mine,
+        text: String(m.text ?? ''),
+        status: mine ? 'sent' : undefined,
+        ...(group ? { sender: String(m.sender ?? '').toLowerCase() } : {}),
+        ...(att.length ? { attachments: att } : {}),
+      };
+    };
+    const names: Record<string, string> = {};
+
+    setConvs((prev) => {
+      const next = { ...prev };
+      for (const c of pkg.convs || []) {
+        const peer = String(c.peer ?? '').toLowerCase();
+        if (!/^[0-9a-f]{64}$/.test(peer)) continue;
+        if (typeof c.name === 'string' && c.name) names[peer] = c.name;
+        const ex = next[peer] || { peer, messages: [], lastTs: 0 };
+        const seen = new Set(ex.messages.map((m) => m.id));
+        const merged = [...ex.messages];
+        for (const rm of (c.messages as Record<string, unknown>[]) || []) {
+          const mm = mapMsg(rm, false);
+          if (mm && !seen.has(mm.id)) { seen.add(mm.id); merged.push(mm); }
+        }
+        if (merged.length === ex.messages.length && next[peer]) continue;
+        merged.sort((a, b) => a.ts - b.ts);
+        next[peer] = {
+          ...ex, messages: merged,
+          lastTs: Math.max(ex.lastTs, merged.length ? merged[merged.length - 1].ts : 0),
+        };
+      }
+      return next;
+    });
+
+    setGroups((prev) => {
+      const next = { ...prev };
+      for (const g of pkg.groups || []) {
+        const gid = String(g.id ?? '');
+        if (!gid || !isGroupId(gid)) continue;
+        // Minimal placeholder if the group isn't loaded yet — loadGroups
+        // overwrites metadata on connect and PRESERVES messages.
+        const ex = next[gid] || {
+          groupId: gid, name: typeof g.name === 'string' ? g.name : '',
+          ownerPubkey: '', myRole: 'member', keyVersion: 1, members: [],
+          messages: [], lastTs: 0, unread: 0,
+        };
+        const seen = new Set(ex.messages.map((m) => m.id));
+        const merged = [...ex.messages];
+        for (const rm of (g.messages as Record<string, unknown>[]) || []) {
+          const mm = mapMsg(rm, true);
+          if (mm && !seen.has(mm.id)) { seen.add(mm.id); merged.push(mm); }
+        }
+        merged.sort((a, b) => a.ts - b.ts);
+        next[gid] = {
+          ...ex, messages: merged,
+          lastTs: Math.max(ex.lastTs, merged.length ? merged[merged.length - 1].ts : 0),
+        };
+      }
+      return next;
+    });
+
+    if (Object.keys(names).length) {
+      setServerNames((prev) => ({ ...names, ...prev })); // existing server names win
+    }
+  }, []);
+
   // Responsive: single pane on narrow viewports (inline styles can't media-query).
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 720);
@@ -543,6 +638,46 @@ export default function ChatPage() {
     // Safety: clear the syncing hint even if relay_pull_done never arrives.
     const syncTimer = setTimeout(() => setSyncing(false), 15000);
     return () => { clearTimeout(syncTimer); client.close(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // [WEB-HISTORY] Right after pairing, the phone uploads a sealed snapshot of
+  // recent messages (opt-out on the phone's approve card). /weblogin stashed
+  // the pairing material; poll the rendezvous a few times (the phone exports
+  // asynchronously), unseal, merge. One-shot: the key is removed either way.
+  useEffect(() => {
+    const raw = typeof window !== 'undefined' ? sessionStorage.getItem(HIST_PENDING_KEY) : null;
+    if (!raw) return;
+    let pending: { sid: string; webPriv: string; webPub: string; phoneEph: string };
+    try {
+      pending = JSON.parse(raw);
+    } catch {
+      sessionStorage.removeItem(HIST_PENDING_KEY);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        for (let i = 0; i < 8 && !cancelled; i++) {
+          const res = await fetch(
+            `https://api.aeronyx.network/api/relay/web_pair/history?sid=${encodeURIComponent(pending.sid)}`,
+          );
+          const data = await res.json().catch(() => ({} as Record<string, unknown>));
+          if (data?.status === 'ready' && typeof data.sealed === 'string') {
+            const pkg = unsealHistory(
+              b64uDecode(pending.webPriv), pending.webPub, pending.phoneEph, data.sealed,
+            );
+            if (pkg && !cancelled) ingestHistory(pkg);
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      } catch { /* best-effort — chat works without history */ }
+      finally {
+        sessionStorage.removeItem(HIST_PENDING_KEY);
+      }
+    })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -30,6 +30,11 @@ import { xchacha20poly1305 } from '@noble/ciphers/chacha';
 
 const _PAIR_SALT = 'AeroNyx-WebLogin-v1';
 const _VC_TAG = 'AeroNyx-WebLogin-VC';
+// [WEB-HISTORY] Second key derived from the SAME pairing ECDH, domain-separated
+// by this salt — seals the phone's recent-history snapshot (WhatsApp-style
+// primary-device handoff; the relay stores no history so this is the only way
+// the web can show past messages).
+const _HISTORY_SALT = 'AeroNyx-WebHistory-v1';
 
 // --- base64url (no padding) --------------------------------------------------
 
@@ -139,4 +144,36 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
   out.set(a, 0);
   out.set(b, a.length);
   return out;
+}
+
+/**
+ * [WEB-HISTORY] Unseal the phone's recent-history snapshot (same ECDH as the
+ * seed, different HKDF salt). Returns the parsed JSON package
+ * {v, convs:[{peer,name,messages:[...]}], groups:[{id,name,messages:[...]}]}
+ * or null on any failure (bad tag / malformed JSON) — history is best-effort,
+ * never blocks login.
+ */
+export function unsealHistory(
+  webPriv: Uint8Array,
+  webPubB64: string,
+  phoneEphB64: string,
+  sealedB64: string,
+): unknown | null {
+  try {
+    const webPub = b64uDecode(webPubB64);
+    const phoneEph = b64uDecode(phoneEphB64);
+    const ct = b64uDecode(sealedB64);
+    if (ct.length < 24 + 16) return null;
+
+    const shared = x25519.getSharedSecret(webPriv, phoneEph);
+    const info = new Uint8Array(phoneEph.length + webPub.length);
+    info.set(phoneEph, 0);
+    info.set(webPub, phoneEph.length);
+    const key = hkdf(sha256, shared, new TextEncoder().encode(_HISTORY_SALT), info, 32);
+
+    const pt = xchacha20poly1305(key, ct.slice(0, 24)).decrypt(ct.slice(24));
+    return JSON.parse(new TextDecoder().decode(pt));
+  } catch {
+    return null;
+  }
 }
