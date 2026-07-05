@@ -556,15 +556,35 @@ export default function ChatPage() {
     try { sessionStorage.setItem(SNAMES_KEY, JSON.stringify(serverNames)); } catch { /* quota */ }
   }, [serverNames]);
 
-  // persist conversations
+  // persist conversations. [QUOTA] Cap at the newest 150 messages per conv when
+  // persisting (in-memory history stays full for this session): image messages
+  // carry ≤64KB thumbs, so a few dozen would blow sessionStorage's ~5MB quota —
+  // the setItem then throws forever and a refresh would lose EVERYTHING.
   useEffect(() => {
-    try { sessionStorage.setItem(CONV_KEY, JSON.stringify(convs)); } catch { /* quota */ }
+    try {
+      const slim = Object.fromEntries(Object.entries(convs).map(
+        ([k, c]) => [k, { ...c, messages: c.messages.slice(-150) }],
+      ));
+      sessionStorage.setItem(CONV_KEY, JSON.stringify(slim));
+    } catch { /* quota */ }
   }, [convs]);
 
   // persist groups (metadata + decrypted messages; keys are re-fetched on connect)
   useEffect(() => {
-    try { sessionStorage.setItem(GROUPS_KEY, JSON.stringify(groups)); } catch { /* quota */ }
+    try {
+      const slim = Object.fromEntries(Object.entries(groups).map(
+        ([k, g]) => [k, { ...g, messages: g.messages.slice(-150) }],
+      ));
+      sessionStorage.setItem(GROUPS_KEY, JSON.stringify(slim));
+    } catch { /* quota */ }
   }, [groups]);
+
+  // [UX] Tab-title unread badge — "(3) AeroNyx" while other tabs are focused.
+  useEffect(() => {
+    const n = Object.values(convs).reduce((s, c) => s + (c.unread || 0), 0)
+      + Object.values(groups).reduce((s, g) => s + (g.unread || 0), 0);
+    document.title = n > 0 ? `(${n}) AeroNyx` : 'AeroNyx Chat';
+  }, [convs, groups]);
 
   // keep activeRef/convsRef/groupsRef current so stable callbacks can read latest state
   useEffect(() => { activeRef.current = active; }, [active]);
@@ -994,8 +1014,14 @@ export default function ChatPage() {
 
   const logout = () => {
     clientRef.current?.close();
+    // [PRIVACY] Log out must clear EVERYTHING this identity decrypted or knew —
+    // group messages, names, prefs — not just the seed (shared-computer case).
     sessionStorage.removeItem(SEED_KEY);
     sessionStorage.removeItem(CONV_KEY);
+    sessionStorage.removeItem(GROUPS_KEY);
+    sessionStorage.removeItem(NAMES_KEY);
+    sessionStorage.removeItem(SNAMES_KEY);
+    sessionStorage.removeItem(RR_KEY);
     window.location.href = '/weblogin';
   };
 
@@ -1027,7 +1053,11 @@ export default function ChatPage() {
   const showThread = !isMobile || !!active;
 
   return (
-    <div style={S.app}>
+    <div className="anxChatApp" style={S.app}>
+      {/* [COMPAT] iOS Safari: 100vh includes the collapsed URL bar → the input
+          bar hides behind the bottom toolbar. dvh (iOS 15.4+) tracks the real
+          visible viewport; older browsers keep the 100vh fallback. */}
+      <style>{`.anxChatApp{height:100vh}@supports(height:100dvh){.anxChatApp{height:100dvh}}`}</style>
       {/* Sidebar */}
       {showSidebar && (
       <aside style={{ ...S.sidebar, ...(isMobile ? { width: '100%', minWidth: 0, borderRight: 'none' } : {}) }}>
@@ -1081,7 +1111,9 @@ export default function ChatPage() {
                       (last.text || attPreview(last.attachments, zh))
                     ) : e.isGroup ? (
                       `${e.memberCount ?? 0} ${zh ? '位成員' : 'members'}`
-                    ) : ''}
+                    ) : (
+                      zh ? '開始加密聊天' : 'Start an encrypted chat'
+                    )}
                   </span>
                 </span>
                 <span style={S.convRight}>
@@ -1674,7 +1706,10 @@ const AS: Record<string, CSSProperties> = {
 };
 
 const S: Record<string, CSSProperties> = {
-  app: { display: 'flex', height: '100vh', background: '#0A0015', color: '#fff', fontFamily: 'system-ui,-apple-system,sans-serif', overflow: 'hidden' },
+  // height lives in the .anxChatApp class (100vh + @supports 100dvh) — iOS
+  // Safari's 100vh includes the collapsed URL bar, hiding the composer behind
+  // the bottom toolbar; dvh tracks the real visible viewport.
+  app: { display: 'flex', background: '#0A0015', color: '#fff', fontFamily: 'system-ui,-apple-system,sans-serif', overflow: 'hidden' },
   sidebar: { width: 320, minWidth: 320, borderRight: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)' },
   sideHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
   meRow: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 },

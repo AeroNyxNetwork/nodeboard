@@ -483,6 +483,19 @@ export function decryptReactionFrame(
 
 const RELAY_BASE = 'https://api.aeronyx.network/api/relay';
 
+/** fetch with a hard timeout — a hung request must never wedge the UI's busy
+ *  states (download spinner, optimistic 'sending' bubble, kick/leave buttons)
+ *  forever. Aborts via AbortController; callers' existing catch paths handle it. */
+async function tFetch(url: string, opts: RequestInit, timeoutMs: number): Promise<Response> {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: ctl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 /** Relay HTTP auth header — same sig recipe as the WS auth frame (verified). */
 export function authHeader(seed: Uint8Array, pub: Uint8Array): string {
   const ts = Math.floor(Date.now() / 1000);
@@ -498,9 +511,9 @@ export function authHeader(seed: Uint8Array, pub: Uint8Array): string {
 export async function fetchAttachment(
   seed: Uint8Array, pub: Uint8Array, blobId: string, fileKeyB64: string,
 ): Promise<Uint8Array> {
-  const res = await fetch(`${RELAY_BASE}/blob/${encodeURIComponent(blobId)}/`, {
+  const res = await tFetch(`${RELAY_BASE}/blob/${encodeURIComponent(blobId)}/`, {
     headers: { Authorization: authHeader(seed, pub) },
-  });
+  }, 45000);
   if (!res.ok) throw new Error(`blob ${res.status}`);
   const enc = new Uint8Array(await res.arrayBuffer());
   if (enc.length < 12 + 16) throw new Error('blob too small');
@@ -541,11 +554,11 @@ export async function uploadAttachment(
   form.append('file', new Blob([new Uint8Array(encrypted)], { type: 'application/octet-stream' }), fileName);
 
   // No explicit Content-Type — the browser sets multipart/form-data + boundary.
-  const res = await fetch(`${RELAY_BASE}/blob/`, {
+  const res = await tFetch(`${RELAY_BASE}/blob/`, {
     method: 'POST',
     headers: { Authorization: authHeader(seed, pub) },
     body: form,
-  });
+  }, 120000);
   if (!res.ok) throw new Error(`upload ${res.status}`);
   const body = await res.json().catch(() => ({} as Record<string, unknown>));
   const blob = body.blob as Record<string, unknown> | undefined;
@@ -588,7 +601,7 @@ export async function uploadAttachmentChunked(
 
   for (let i = 0; i < totalChunks; i++) {
     const chunk = encrypted.slice(i * chunkSize, Math.min((i + 1) * chunkSize, totalSize));
-    const res = await fetch(`${RELAY_BASE}/blob/session/${encodeURIComponent(uploadId)}/chunk/${i}/`, {
+    const res = await tFetch(`${RELAY_BASE}/blob/session/${encodeURIComponent(uploadId)}/chunk/${i}/`, {
       method: 'PUT',
       headers: {
         Authorization: authHeader(seed, pub),
@@ -596,15 +609,15 @@ export async function uploadAttachmentChunked(
         'X-AeroNyx-Chunk-Index': String(i),
       },
       body: new Uint8Array(chunk),
-    });
+    }, 60000);
     if (!res.ok) throw new Error(`chunk ${i} ${res.status}`);
     onProgress?.(((i + 1) / totalChunks) * 0.99);
   }
 
-  const doneRes = await fetch(`${RELAY_BASE}/blob/session/${encodeURIComponent(uploadId)}/complete/`, {
+  const doneRes = await tFetch(`${RELAY_BASE}/blob/session/${encodeURIComponent(uploadId)}/complete/`, {
     method: 'POST',
     headers: { Authorization: authHeader(seed, pub) },
-  });
+  }, 30000);
   if (!doneRes.ok) throw new Error(`complete ${doneRes.status}`);
   const done = await doneRes.json().catch(() => ({} as Record<string, unknown>));
   const blob = done.blob as Record<string, unknown> | undefined;
@@ -893,9 +906,9 @@ export interface RelayContactInfo {
  * (verified vs app relay_api_service.fetchContacts + RelayContact model)
  */
 export async function fetchContacts(seed: Uint8Array, pub: Uint8Array): Promise<RelayContactInfo[]> {
-  const res = await fetch(`${RELAY_BASE}/contacts/`, {
+  const res = await tFetch(`${RELAY_BASE}/contacts/`, {
     headers: { Authorization: authHeader(seed, pub) },
-  });
+  }, 20000);
   if (!res.ok) return [];
   const body = await res.json().catch(() => ({} as Record<string, unknown>));
   const raw = Array.isArray(body.contacts) ? body.contacts : [];
@@ -912,7 +925,7 @@ export async function fetchContacts(seed: Uint8Array, pub: Uint8Array): Promise<
 
 /** GET /groups/ → the groups this identity is an active member of. */
 export async function fetchGroupList(seed: Uint8Array, pub: Uint8Array): Promise<GroupInfo[]> {
-  const res = await fetch(`${RELAY_BASE}/groups/`, { headers: { Authorization: authHeader(seed, pub) } });
+  const res = await tFetch(`${RELAY_BASE}/groups/`, { headers: { Authorization: authHeader(seed, pub) } }, 20000);
   if (!res.ok) throw new Error(`groups ${res.status}`);
   const body = await res.json().catch(() => ({} as Record<string, unknown>));
   const raw = Array.isArray(body.groups) ? body.groups : [];
@@ -937,9 +950,9 @@ export async function fetchGroupList(seed: Uint8Array, pub: Uint8Array): Promise
 export async function fetchGroupKeyBundle(
   seed: Uint8Array, pub: Uint8Array, groupId: string,
 ): Promise<{ keyVersion: number; encryptedKeyB64: string; issuedBy: string } | null> {
-  const res = await fetch(`${RELAY_BASE}/groups/${encodeURIComponent(groupId)}/keys/me/`, {
+  const res = await tFetch(`${RELAY_BASE}/groups/${encodeURIComponent(groupId)}/keys/me/`, {
     headers: { Authorization: authHeader(seed, pub) },
-  });
+  }, 20000);
   if (!res.ok) return null;
   const body = await res.json().catch(() => ({} as Record<string, unknown>));
   const key = body.key as Record<string, unknown> | undefined;
@@ -955,11 +968,11 @@ export async function fetchGroupKeyBundle(
 async function relayPost(
   seed: Uint8Array, pub: Uint8Array, path: string, body: unknown,
 ): Promise<Record<string, unknown> | null> {
-  const res = await fetch(`${RELAY_BASE}${path}`, {
+  const res = await tFetch(`${RELAY_BASE}${path}`, {
     method: 'POST',
     headers: { Authorization: authHeader(seed, pub), 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }, 25000);
   if (!res.ok) return null;
   return res.json().catch(() => ({} as Record<string, unknown>));
 }
@@ -1015,10 +1028,10 @@ export async function inviteToGroup(
 
 /** Leave a group: DELETE /groups/<id>/members/me/. */
 export async function leaveGroup(seed: Uint8Array, pub: Uint8Array, groupId: string): Promise<boolean> {
-  const res = await fetch(`${RELAY_BASE}/groups/${encodeURIComponent(groupId)}/members/me/`, {
+  const res = await tFetch(`${RELAY_BASE}/groups/${encodeURIComponent(groupId)}/members/me/`, {
     method: 'DELETE',
     headers: { Authorization: authHeader(seed, pub) },
-  });
+  }, 20000);
   return res.ok;
 }
 
@@ -1031,9 +1044,9 @@ export async function leaveGroup(seed: Uint8Array, pub: Uint8Array, groupId: str
 export async function rotateGroupKey(
   seed: Uint8Array, pub: Uint8Array, groupId: string,
 ): Promise<{ newKeyVersion: number; newGroupKey: Uint8Array; members: string[] } | null> {
-  const res = await fetch(`${RELAY_BASE}/groups/${encodeURIComponent(groupId)}/`, {
+  const res = await tFetch(`${RELAY_BASE}/groups/${encodeURIComponent(groupId)}/`, {
     headers: { Authorization: authHeader(seed, pub) },
-  });
+  }, 20000);
   if (!res.ok) return null;
   const body = await res.json().catch(() => ({} as Record<string, unknown>));
   const g = body.group as Record<string, unknown> | undefined;
@@ -1065,9 +1078,10 @@ export async function rotateGroupKey(
 export async function kickMember(
   seed: Uint8Array, pub: Uint8Array, groupId: string, memberPubHex: string,
 ): Promise<{ newKeyVersion: number; newGroupKey: Uint8Array; members: string[] } | null> {
-  const del = await fetch(
+  const del = await tFetch(
     `${RELAY_BASE}/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(memberPubHex)}/`,
     { method: 'DELETE', headers: { Authorization: authHeader(seed, pub) } },
+    20000,
   );
   if (!del.ok) return null;
   // Rotate immediately (retry once) — forward secrecy on the removal.
