@@ -101,14 +101,17 @@ export default function AuthModal({ isOpen }: AuthModalProps) {
             {/* WalletConnect Component */}
             <WalletConnect />
 
-            {/* Phone login — scan a QR with the AeroNyx app */}
+            {/* Phone login — sign in to the DASHBOARD by scanning with the
+                AeroNyx app (wallet signs remotely, key stays on the phone).
+                Points at /oplogin, NOT /weblogin: /weblogin imports the chat
+                identity and would NOT authenticate the operator dashboard. */}
             <div className="mt-5 flex items-center gap-3">
               <div className="h-px flex-1 bg-white/10" />
               <span className="text-xs text-gray-500">{locale.startsWith('zh') ? '或' : 'or'}</span>
               <div className="h-px flex-1 bg-white/10" />
             </div>
             <a
-              href="/weblogin"
+              href="/oplogin"
               className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] py-3 text-sm text-white/90 transition-colors hover:bg-white/[0.06]"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" /><path d="M12 18h.01" /></svg>
