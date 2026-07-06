@@ -47,6 +47,7 @@ const GROUPS_KEY = 'aeronyx_web_groups';
 const RR_KEY = 'aeronyx_web_readreceipts'; // '0' = read receipts off
 const SNAMES_KEY = 'aeronyx_web_servernames'; // server-synced contact display names
 const HIST_PENDING_KEY = 'aeronyx_web_hist_pending'; // pairing material for the history snapshot fetch
+const NOTIF_KEY = 'aeronyx_web_notifs'; // '1' = desktop notifications enabled
 
 type Msg = {
   id: string; text: string; ts: number; mine: boolean;
@@ -207,8 +208,13 @@ export default function ChatPage() {
   const [toast, setToastState] = useState<{ text: string; kind: 'info' | 'error' } | null>(null);
   const [atBottom, setAtBottom] = useState(true); // thread scrolled to newest → hide the jump button
   const [msgMenu, setMsgMenu] = useState<{ x: number; y: number; text: string; hasText: boolean } | null>(null);
+  const [notifsOn, setNotifsOn] = useState(false); // desktop notifications when the tab is hidden
+  const [unreadDivider, setUnreadDivider] = useState<{ convId: string; msgId: string } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notifsOnRef = useRef(false); // mirror for the stable envelope handler
+  const mergedNamesRef = useRef<Record<string, string>>({}); // mirror for notification titles
+  const openConvRef = useRef<(id: string) => void>(() => {}); // avoids a TDZ dep in notifyIncoming
 
   const showToast = useCallback((text: string, kind: 'info' | 'error' = 'info') => {
     setToastState({ text, kind });
@@ -250,6 +256,36 @@ export default function ChatPage() {
     [copyToClipboard, zh],
   );
 
+  // [POLISH] Fire a desktop notification for an incoming message while the tab
+  // is hidden. Reads refs only, so the stable relay handler can call it. Never
+  // shows message plaintext beyond what the user would see on-screen anyway.
+  const notifyIncoming = useCallback((convId: string, senderHex: string, text: string, isGroup: boolean) => {
+    if (!notifsOnRef.current) return;
+    if (typeof document === 'undefined' || !document.hidden) return; // only when unfocused
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    const name = mergedNamesRef.current[senderHex] || short(senderHex);
+    const preview = text || '📎';
+    const title = isGroup ? (groupsRef.current[convId]?.name || 'Group') : name;
+    const body = isGroup ? `${name}: ${preview}` : preview;
+    try {
+      const n = new Notification(title, { body, tag: convId });
+      n.onclick = () => { window.focus(); openConvRef.current(convId); n.close(); };
+    } catch { /* notifications unavailable — ignore */ }
+  }, []);
+
+  // Toggle desktop notifications; requests permission on first enable.
+  const toggleNotifs = useCallback(async () => {
+    if (notifsOn) { setNotifsOn(false); return; }
+    if (typeof Notification === 'undefined') {
+      showToast(zh ? '此瀏覽器不支援通知' : 'Notifications not supported here', 'error');
+      return;
+    }
+    let perm = Notification.permission;
+    if (perm === 'default') { try { perm = await Notification.requestPermission(); } catch { /* ignore */ } }
+    if (perm === 'granted') { setNotifsOn(true); showToast(zh ? '桌面通知已開啟' : 'Desktop notifications on'); }
+    else showToast(zh ? '通知權限被拒' : 'Notification permission denied', 'error');
+  }, [notifsOn, zh, showToast]);
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -285,7 +321,19 @@ export default function ChatPage() {
 
   const openConv = useCallback((id: string) => {
     setActive(id);
-    if (isGroupId(id)) {
+    // [POLISH] Place the "new messages" divider before the first unread message
+    // (captured now, before we clear the count). Best-effort: the unread ones are
+    // the most-recent `u` messages.
+    const isG = isGroupId(id);
+    const entry = isG ? groupsRef.current[id] : convsRef.current[id];
+    const u = entry?.unread || 0;
+    if (entry && u > 0 && entry.messages.length >= u) {
+      const first = entry.messages[entry.messages.length - u];
+      setUnreadDivider(first ? { convId: id, msgId: first.id } : null);
+    } else {
+      setUnreadDivider(null);
+    }
+    if (isG) {
       setGroups((prev) => (prev[id]?.unread ? { ...prev, [id]: { ...prev[id], unread: 0 } } : prev));
     } else {
       setConvs((prev) => (prev[id]?.unread ? { ...prev, [id]: { ...prev[id], unread: 0 } } : prev));
@@ -598,6 +646,10 @@ export default function ChatPage() {
         }
       }
       if (sessionStorage.getItem(RR_KEY) === '0') { setReadReceipts(false); readReceiptsRef.current = false; }
+      // Restore desktop-notifs pref only if the browser still grants permission.
+      if (sessionStorage.getItem(NOTIF_KEY) === '1' && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        setNotifsOn(true); notifsOnRef.current = true;
+      }
       const sn = sessionStorage.getItem(SNAMES_KEY);
       if (sn) setServerNames(JSON.parse(sn));
     } catch { /* ignore */ }
@@ -655,10 +707,12 @@ export default function ChatPage() {
         const gm = decryptWithKeys(keys, kv, (k) => decryptGroupEnvelope(k, frame as never));
         if (!gm) return;
         const myHex = pubRef.current ? bytesToHex(pubRef.current) : '';
+        const gMine = gm.senderHex === myHex;
         appendGroupMessage(gm.groupId, {
           id: gm.msgId, text: gm.text, ts: gm.timestamp,
-          mine: gm.senderHex === myHex, sender: gm.senderHex, attachments: gm.attachments,
+          mine: gMine, sender: gm.senderHex, attachments: gm.attachments,
         });
+        if (!gMine) notifyIncoming(gm.groupId, gm.senderHex, gm.text, true);
         return;
       }
       const m = decryptEnvelopeFrame(s, frame as never);
@@ -677,6 +731,7 @@ export default function ChatPage() {
           type: 'message_receipt', receiver_pubkey: m.peerHex,
           msg_id: m.msgId, timestamp: Math.floor(Date.now() / 1000),
         });
+        notifyIncoming(m.peerHex, m.senderHex, m.text, false);
       }
     });
     client.on('reaction', (frame) => {
@@ -863,10 +918,16 @@ export default function ChatPage() {
     readReceiptsRef.current = readReceipts;
     try { sessionStorage.setItem(RR_KEY, readReceipts ? '1' : '0'); } catch { /* quota */ }
   }, [readReceipts]);
+  useEffect(() => {
+    notifsOnRef.current = notifsOn;
+    try { sessionStorage.setItem(NOTIF_KEY, notifsOn ? '1' : '0'); } catch { /* quota */ }
+  }, [notifsOn]);
 
   // Display-name resolution: local rename > server contact name > short pubkey.
   // Declared before the header/typing computations below that read it.
   const mergedNames = useMemo(() => ({ ...serverNames, ...names }), [serverNames, names]);
+  useEffect(() => { mergedNamesRef.current = mergedNames; }, [mergedNames]);
+  useEffect(() => { openConvRef.current = openConv; }, [openConv]);
   const nameFor = useCallback(
     (peer: string) => mergedNames[peer] || short(peer),
     [mergedNames],
@@ -1488,6 +1549,14 @@ export default function ChatPage() {
             >
               👁
             </button>
+            <button
+              className="anxIconBtn"
+              style={{ ...S.iconBtn, fontSize: 13, opacity: notifsOn ? 1 : 0.4 }}
+              title={notifsOn ? (zh ? '桌面通知：開（點擊關閉）' : 'Desktop notifications: on (click to turn off)') : (zh ? '桌面通知：關（後台收訊提醒）' : 'Desktop notifications: off')}
+              onClick={toggleNotifs}
+            >
+              {notifsOn ? '🔔' : '🔕'}
+            </button>
             <button className="anxIconBtn" style={{ ...S.iconBtn, display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={zh ? '登出' : 'Log out'} onClick={logout}><Icon name="logout" size={15} /></button>
           </div>
         </div>
@@ -1657,6 +1726,13 @@ export default function ChatPage() {
                     {showDate && (
                       <div style={S.dateSep}>
                         <span style={S.dateSepPill}>{dateLabel(m.ts, zh)}</span>
+                      </div>
+                    )}
+                    {unreadDivider && unreadDivider.convId === active && unreadDivider.msgId === m.id && (
+                      <div style={S.unreadSep}>
+                        <span style={S.unreadSepLine} />
+                        <span style={S.unreadSepText}>{zh ? '新訊息' : 'New messages'}</span>
+                        <span style={S.unreadSepLine} />
                       </div>
                     )}
                     {showSender && (
@@ -2384,6 +2460,9 @@ const S: Record<string, CSSProperties> = {
   groupSender: { fontSize: 12, fontWeight: 600, margin: '4px 0 1px 4px' },
   dateSep: { display: 'flex', justifyContent: 'center', margin: '12px 0 6px' },
   dateSepPill: { fontSize: 11, color: 'rgba(255,255,255,0.55)', background: 'rgba(255,255,255,0.06)', borderRadius: 10, padding: '3px 10px' },
+  unreadSep: { display: 'flex', alignItems: 'center', gap: 10, margin: '10px 2px 4px' },
+  unreadSepLine: { flex: 1, height: 1, background: 'rgba(116,98,247,0.35)' },
+  unreadSepText: { fontSize: 11, fontWeight: 600, color: '#B9A7FF', letterSpacing: 0.3, whiteSpace: 'nowrap' },
   row: { display: 'flex', width: '100%', alignItems: 'flex-end', gap: 4 },
   bubble: { maxWidth: '72%', padding: '7px 11px 5px', borderRadius: 16, fontSize: 14, lineHeight: 1.4, wordBreak: 'break-word', display: 'flex', flexDirection: 'column' },
   bubbleMine: { background: '#7462F7', borderBottomRightRadius: 5 },
