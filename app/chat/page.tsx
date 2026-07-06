@@ -125,6 +125,12 @@ const ANX_CSS = `
 /* Touch devices (no hover): keep the react trigger faintly visible so it's tappable. */
 @media(hover:none){.anxReactTrigger{opacity:0.5}}
 .anxIconBtn,.anxHeaderBtn,.anxSendBtn,.anxAttachBtn,.anxJumpBtn,.anxDialogConfirm,.anxDialogCancel,.anxReactTrigger,.anxKickBtn{transition:background .12s ease,border-color .12s ease,transform .12s ease,filter .12s ease}
+@media(hover:hover){.anxMenuItem:hover{background:rgba(255,255,255,0.08)!important}}
+/* Live typing indicator: three bouncing dots. */
+.anxTypingDot{width:5px;height:5px;border-radius:3px;background:currentColor;animation:anxBounce 1.3s infinite ease-in-out}
+.anxTyping .anxTypingDot:nth-child(2){animation-delay:.18s}
+.anxTyping .anxTypingDot:nth-child(3){animation-delay:.36s}
+@keyframes anxBounce{0%,60%,100%{transform:translateY(0);opacity:.5}30%{transform:translateY(-4px);opacity:1}}
 `;
 
 /** Inline-SVG icon — renders identically on every platform (unlike the obscure
@@ -200,7 +206,9 @@ export default function ChatPage() {
   const [confirm, setConfirmState] = useState<ConfirmSpec | null>(null);
   const [toast, setToastState] = useState<{ text: string; kind: 'info' | 'error' } | null>(null);
   const [atBottom, setAtBottom] = useState(true); // thread scrolled to newest → hide the jump button
+  const [msgMenu, setMsgMenu] = useState<{ x: number; y: number; text: string; hasText: boolean } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((text: string, kind: 'info' | 'error' = 'info') => {
     setToastState({ text, kind });
@@ -208,16 +216,16 @@ export default function ChatPage() {
     toastTimer.current = setTimeout(() => setToastState(null), 2600);
   }, []);
 
-  // [POLISH] Copy a full pubkey to the clipboard (sharing your key is the first
-  // thing a new user needs). Prefer the async Clipboard API; fall back to a
-  // hidden-textarea execCommand for in-app webviews where it's blocked.
-  const copyPub = useCallback((hex: string) => {
-    if (!hex) return;
-    const ok = () => showToast(zh ? '已複製公鑰' : 'Public key copied');
+  // [POLISH] Clipboard write with a hidden-textarea execCommand fallback for
+  // in-app webviews where navigator.clipboard is blocked. Shared by pubkey copy
+  // and message-text copy.
+  const copyToClipboard = useCallback((text: string, okMsg: string) => {
+    if (!text) return;
+    const ok = () => showToast(okMsg);
     const fallback = () => {
       try {
         const ta = document.createElement('textarea');
-        ta.value = hex;
+        ta.value = text;
         ta.style.position = 'fixed';
         ta.style.opacity = '0';
         document.body.appendChild(ta);
@@ -230,11 +238,17 @@ export default function ChatPage() {
       }
     };
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(hex).then(ok, fallback);
+      navigator.clipboard.writeText(text).then(ok, fallback);
     } else {
       fallback();
     }
   }, [zh, showToast]);
+
+  // Copy a full pubkey (sharing your key is the first thing a new user needs).
+  const copyPub = useCallback(
+    (hex: string) => copyToClipboard(hex, zh ? '已複製公鑰' : 'Public key copied'),
+    [copyToClipboard, zh],
+  );
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1006,6 +1020,40 @@ export default function ChatPage() {
     patch(peer, msgId, { status: 'sent' });
   }, [zh, showToast, patchGroupMessage, patchMessage]);
 
+  // [POLISH] Message context menu (right-click / long-press) — clamp within the
+  // viewport so it never opens off-screen.
+  const openMsgMenu = useCallback((clientX: number, clientY: number, m: Msg) => {
+    const W = 180;
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 400;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+    setMsgMenu({
+      x: Math.max(8, Math.min(clientX, vw - W - 8)),
+      y: Math.min(clientY, vh - 80),
+      text: m.text || '',
+      hasText: !!m.text,
+    });
+  }, []);
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  }, []);
+  // Dismiss the menu on any outside interaction. Deferred by a tick so the very
+  // event that opened it (contextmenu / long-press) doesn't instantly close it.
+  useEffect(() => {
+    if (!msgMenu) return;
+    const close = () => setMsgMenu(null);
+    const id = setTimeout(() => {
+      document.addEventListener('click', close);
+      document.addEventListener('contextmenu', close);
+      document.addEventListener('scroll', close, true);
+    }, 0);
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener('click', close);
+      document.removeEventListener('contextmenu', close);
+      document.removeEventListener('scroll', close, true);
+    };
+  }, [msgMenu]);
+
   // [TYPING] Throttled typing:true while composing, with an auto "stopped" after
   // ~3.5s of no keystrokes. Metadata-only (no plaintext).
   const notifyTyping = useCallback(() => {
@@ -1557,7 +1605,9 @@ export default function ChatPage() {
                     <div style={S.threadTitle}>
                       {nameFor(activeConv!.peer)} <span style={S.editHint}>✎</span>
                     </div>
-                    {headerStatus
+                    {typingPeers[activeConv!.peer]
+                      ? <div style={{ ...S.threadStatus, color: '#8AB4FF', display: 'flex', alignItems: 'center', gap: 5 }}>{zh ? '正在輸入' : 'typing'} <TypingDots /></div>
+                      : headerStatus
                       ? <div style={{ ...S.threadStatus, color: headerStatus.color }}>{headerStatus.text}</div>
                       : <code
                           style={{ ...S.threadSub, cursor: 'pointer' }}
@@ -1590,6 +1640,8 @@ export default function ChatPage() {
                 const grouped = !showDate && !!prev && sameSender && m.ts - prev.ts < 300;
                 // Group message from someone else: label the sender above the run.
                 const showSender = !!activeGroup && !m.mine && !grouped;
+                // Emoji-only text (no attachment) → render large + bubble-less.
+                const bigEmoji = !m.attachments?.length && isEmojiOnly(m.text);
                 const trigger = (
                   <button
                     className="anxReactTrigger"
@@ -1612,9 +1664,20 @@ export default function ChatPage() {
                         {groupMemberName(m.sender || '', mergedNames)}
                       </div>
                     )}
-                    <div className="anxMsgRow" style={{ ...S.row, justifyContent: m.mine ? 'flex-end' : 'flex-start', marginTop: grouped ? 2 : 8 }}>
+                    <div
+                      className="anxMsgRow"
+                      style={{ ...S.row, justifyContent: m.mine ? 'flex-end' : 'flex-start', marginTop: grouped ? 2 : 8 }}
+                      onContextMenu={(e) => { e.preventDefault(); openMsgMenu(e.clientX, e.clientY, m); }}
+                      onTouchStart={(e) => {
+                        const t = e.touches[0];
+                        cancelLongPress();
+                        longPressTimer.current = setTimeout(() => openMsgMenu(t.clientX, t.clientY, m), 480);
+                      }}
+                      onTouchMove={cancelLongPress}
+                      onTouchEnd={cancelLongPress}
+                    >
                       {m.mine && trigger}
-                      <div style={{ ...S.bubble, ...(m.mine ? S.bubbleMine : S.bubbleTheirs) }}>
+                      <div style={{ ...S.bubble, ...(bigEmoji ? S.bubbleEmoji : m.mine ? S.bubbleMine : S.bubbleTheirs) }}>
                         {m.attachments?.map((a, k) => (
                           <AttachmentView
                             key={k}
@@ -1625,7 +1688,7 @@ export default function ChatPage() {
                             busy={busyAtt === a.blobId}
                           />
                         ))}
-                        {m.text ? <span style={S.msgText}>{linkify(m.text)}</span> : null}
+                        {m.text ? <span style={bigEmoji ? S.msgTextBig : S.msgText}>{linkify(m.text)}</span> : null}
                         <span style={S.msgTime}>
                           {hhmm(m.ts)}
                           {m.mine && (
@@ -1824,6 +1887,29 @@ export default function ChatPage() {
           {toast.text}
         </div>
       )}
+
+      {/* [POLISH] Message context menu (right-click / long-press). */}
+      {msgMenu && (
+        <div
+          style={{ ...S.msgMenu, left: msgMenu.x, top: msgMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {msgMenu.hasText && (
+            <button
+              className="anxMenuItem"
+              style={S.msgMenuItem}
+              onClick={() => { copyToClipboard(msgMenu.text, zh ? '已複製訊息' : 'Message copied'); setMsgMenu(null); }}
+            >
+              {zh ? '複製文字' : 'Copy text'}
+            </button>
+          )}
+          {!msgMenu.hasText && (
+            <div style={{ ...S.msgMenuItem, color: 'rgba(255,255,255,0.4)', cursor: 'default' }}>
+              {zh ? '無文字可複製' : 'No text to copy'}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1867,6 +1953,32 @@ function PromptModal({ spec, zh, onClose }: {
 
 function short(h: string): string {
   return h && h.length > 12 ? `${h.slice(0, 6)}…${h.slice(-4)}` : h || '—';
+}
+
+/** True if a message is only emoji (up to a few) — rendered large + bubble-less,
+ *  Telegram-style. Guards with try/catch since \p{} needs a Unicode-aware engine. */
+function isEmojiOnly(text: string): boolean {
+  const t = (text || '').trim();
+  if (!t || t.length > 12) return false;
+  try {
+    // Extended_Pictographic + variation selector (FE0F) + ZWJ (200D) + skin tones.
+    const only = /^(?:\p{Extended_Pictographic}|\uFE0F|\u200D|[\u{1F3FB}-\u{1F3FF}]|\s)+$/u;
+    const hasPict = /\p{Extended_Pictographic}/u;
+    return only.test(t) && hasPict.test(t);
+  } catch {
+    return false;
+  }
+}
+
+/** Three animated dots for a live "typing" indicator. */
+function TypingDots() {
+  return (
+    <span className="anxTyping" style={{ display: 'inline-flex', gap: 3, alignItems: 'flex-end' }}>
+      <span className="anxTypingDot" />
+      <span className="anxTypingDot" />
+      <span className="anxTypingDot" />
+    </span>
+  );
 }
 function hhmm(ts: number): string {
   const d = new Date(ts * 1000);
@@ -2276,7 +2388,9 @@ const S: Record<string, CSSProperties> = {
   bubble: { maxWidth: '72%', padding: '7px 11px 5px', borderRadius: 16, fontSize: 14, lineHeight: 1.4, wordBreak: 'break-word', display: 'flex', flexDirection: 'column' },
   bubbleMine: { background: '#7462F7', borderBottomRightRadius: 5 },
   bubbleTheirs: { background: 'rgba(255,255,255,0.09)', borderBottomLeftRadius: 5 },
+  bubbleEmoji: { background: 'transparent', padding: '2px 2px 0' }, // emoji-only: no bubble
   msgText: { whiteSpace: 'pre-wrap' },
+  msgTextBig: { whiteSpace: 'pre-wrap', fontSize: 40, lineHeight: 1.1 },
   msgTime: { alignSelf: 'flex-end', fontSize: 10, color: 'rgba(255,255,255,0.55)', marginTop: 2 },
   reactTrigger: { flexShrink: 0, width: 22, height: 22, borderRadius: 11, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.35)', fontSize: 14, cursor: 'pointer', padding: 0, lineHeight: 1 },
   reactionRow: { display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 },
@@ -2334,5 +2448,8 @@ const S: Record<string, CSSProperties> = {
   // [POLISH] toast
   toast: { position: 'fixed', left: '50%', bottom: 28, transform: 'translateX(-50%)', zIndex: 120, background: 'rgba(28,20,48,0.96)', border: '1px solid rgba(255,255,255,0.14)', color: '#fff', fontSize: 13.5, padding: '10px 18px', borderRadius: 12, boxShadow: '0 6px 24px rgba(0,0,0,0.45)', maxWidth: '80vw', textAlign: 'center' },
   toastError: { border: '1px solid rgba(229,72,77,0.55)', background: 'rgba(58,20,26,0.96)' },
+  // [POLISH] message context menu
+  msgMenu: { position: 'fixed', zIndex: 130, minWidth: 150, background: '#1b1030', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 12, padding: 5, boxShadow: '0 8px 28px rgba(0,0,0,0.5)' },
+  msgMenuItem: { display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: '#fff', fontSize: 13.5, padding: '9px 12px', borderRadius: 8, cursor: 'pointer' },
   hideOnMobile: {}, // replaced by CSS below on mobile
 };
