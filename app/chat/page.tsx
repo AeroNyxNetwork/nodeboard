@@ -102,7 +102,7 @@ const ANX_CSS = `
 /* Contain overscroll so flinging past the newest message doesn't bounce the page. */
 .anxMessages{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 /* Focus rings (we removed the native outline) — keyboard users need these. */
-.anxInput:focus,.anxDialogInput:focus{border-color:rgba(116,98,247,0.65)!important;box-shadow:0 0 0 3px rgba(116,98,247,0.16)}
+.anxInput:focus,.anxDialogInput:focus,.anxSearchInput:focus{border-color:rgba(116,98,247,0.65)!important;box-shadow:0 0 0 3px rgba(116,98,247,0.16)}
 /* Hover feedback — pointer devices only, so touch doesn't get sticky states. */
 @media(hover:hover){
   .anxIconBtn:hover{background:rgba(255,255,255,0.10)!important;border-color:rgba(255,255,255,0.24)!important}
@@ -179,6 +179,7 @@ export default function ChatPage() {
   const [groups, setGroups] = useState<Record<string, Group>>({});
   const [active, setActive] = useState<string>(''); // peer hex OR group id
   const [draft, setDraft] = useState('');
+  const [search, setSearch] = useState(''); // sidebar conversation filter
   const [myPubHex, setMyPubHex] = useState('');
   const [isMobile, setIsMobile] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -246,6 +247,9 @@ export default function ChatPage() {
   const groupsRef = useRef<Record<string, Group>>({}); // mirror of groups for stable callbacks
   const groupKeysRef = useRef<Record<string, Record<number, Uint8Array>>>({}); // groupId → keyVersion → key (not persisted)
   const readSentRef = useRef<Record<string, string>>({}); // peer → last msgId we sent a read for
+  const draftsRef = useRef<Record<string, string>>({}); // [POLISH] per-conversation unsent draft
+  // [POLISH] frames of failed sends, kept for one-tap manual retry (the ⚠ tick).
+  const retryFrames = useRef<Record<string, { peer: string; frame: unknown; canEcho: boolean }>>({});
   const readReceiptsRef = useRef(true); // mirror of readReceipts for the stable sendReadReceipt
   const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}); // peer → auto-clear timer
   const groupTypingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}); // "gid:pubkey" → auto-clear
@@ -833,6 +837,12 @@ export default function ChatPage() {
 
   // keep activeRef/convsRef/groupsRef current so stable callbacks can read latest state
   useEffect(() => { activeRef.current = active; }, [active]);
+  // [POLISH] Restore this conversation's unsent draft when switching into it.
+  useEffect(() => {
+    setDraft(draftsRef.current[active] || '');
+    const el = inputRef.current;
+    if (el) { el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 120)}px`; }
+  }, [active]);
   useEffect(() => { convsRef.current = convs; }, [convs]);
   useEffect(() => { groupsRef.current = groups; }, [groups]);
   useEffect(() => {
@@ -945,10 +955,12 @@ export default function ChatPage() {
           id: frame.msg_id, text, ts: frame.timestamp, mine: true,
           sender: bytesToHex(pub), status: ok ? 'sent' : 'failed',
         });
+        if (!ok) retryFrames.current[frame.msg_id] = { peer: active, frame, canEcho: false };
         // Sending clears the group typing state.
         if (stopTypingTimer.current) { clearTimeout(stopTypingTimer.current); stopTypingTimer.current = null; }
         typingSentAt.current = 0;
         clientRef.current?.send({ type: 'group_typing', group_id: active, is_typing: false, timestamp: Math.floor(Date.now() / 1000) });
+        delete draftsRef.current[active];
         setDraft('');
         if (inputRef.current) inputRef.current.style.height = 'auto';
       } catch { /* ignore */ }
@@ -963,15 +975,36 @@ export default function ChatPage() {
         id: frame.msg_id, text, ts: frame.timestamp, mine: true,
         status: ok ? 'sent' : 'failed',
       });
-      if (!ok) pendingRef.current.push({ peer: active, id: frame.msg_id, frame });
+      if (!ok) {
+        pendingRef.current.push({ peer: active, id: frame.msg_id, frame });
+        retryFrames.current[frame.msg_id] = { peer: active, frame, canEcho: true };
+      }
       // Sending clears the typing state immediately.
       if (stopTypingTimer.current) { clearTimeout(stopTypingTimer.current); stopTypingTimer.current = null; }
       typingSentAt.current = 0;
       clientRef.current?.send({ type: 'typing', receiver_pubkey: active, is_typing: false });
+      delete draftsRef.current[active];
       setDraft('');
       if (inputRef.current) inputRef.current.style.height = 'auto';
     } catch { /* ignore */ }
   }, [draft, active, appendMessage, appendGroupMessage]);
+
+  // [POLISH] Manually retry a failed send (tap the ⚠ tick). Resends the stored
+  // frame + a self-echo for 1:1 text; on success flips the bubble back to sent.
+  const retryMessage = useCallback((peer: string, msgId: string) => {
+    const entry = retryFrames.current[msgId];
+    if (!entry) return;
+    const ok = clientRef.current?.send(entry.frame) ?? false;
+    if (!ok) { showToast(zh ? '仍無法送出，請稍後再試' : 'Still offline — try again shortly', 'error'); return; }
+    if (entry.canEcho) {
+      const seed = seedRef.current; const pub = pubRef.current;
+      if (seed && pub) clientRef.current?.send(selfEchoFrame(seed, pub, entry.frame as OutgoingFrame));
+    }
+    delete retryFrames.current[msgId];
+    pendingRef.current = pendingRef.current.filter((p) => p.id !== msgId);
+    const patch = isGroupId(peer) ? patchGroupMessage : patchMessage;
+    patch(peer, msgId, { status: 'sent' });
+  }, [zh, showToast, patchGroupMessage, patchMessage]);
 
   // [TYPING] Throttled typing:true while composing, with an auto "stopped" after
   // ~3.5s of no keystrokes. Metadata-only (no plaintext).
@@ -1030,6 +1063,7 @@ export default function ChatPage() {
         const att = await uploadAttachmentAuto(seed, pub, { bytes, mediaType, fileName: file.name, thumbB64 });
         const frame = encryptGroupMessage(seed, pub, peer, key, g.keyVersion, '', [att], gMsgId);
         const ok = clientRef.current?.send(frame) ?? false;
+        if (!ok) retryFrames.current[gMsgId] = { peer, frame, canEcho: false };
         patchGroupMessage(peer, gMsgId, { attachments: [att], status: ok ? 'sent' : 'failed' });
       } catch {
         patchGroupMessage(peer, gMsgId, { status: 'failed' });
@@ -1054,7 +1088,10 @@ export default function ChatPage() {
       const ok = clientRef.current?.send(frame) ?? false;
       if (ok) clientRef.current?.send(selfEchoFrame(seed, pub, frame)); // [MULTI-DEVICE] sync to our own devices
       patchMessage(peer, msgId, { attachments: [att], status: ok ? 'sent' : 'failed' });
-      if (!ok) pendingRef.current.push({ peer, id: msgId, frame });
+      if (!ok) {
+        pendingRef.current.push({ peer, id: msgId, frame });
+        retryFrames.current[msgId] = { peer, frame, canEcho: true };
+      }
     } catch {
       patchMessage(peer, msgId, { status: 'failed' });
     } finally {
@@ -1355,6 +1392,13 @@ export default function ChatPage() {
     return entries.sort((a, b) => b.lastTs - a.lastTs);
   }, [convs, groups, nameFor]);
 
+  // [POLISH] Sidebar search — filter by name or pubkey/group-id substring.
+  const filteredEntries = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return sortedEntries;
+    return sortedEntries.filter((e) => e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q));
+  }, [sortedEntries, search]);
+
   const statusText = zh
     ? { connecting: '連接中…', connected: '在線', reconnecting: '重連中…' }[status]
     : { connecting: 'Connecting…', connected: 'Online', reconnecting: 'Reconnecting…' }[status];
@@ -1402,11 +1446,28 @@ export default function ChatPage() {
         <div style={S.statusLine}>
           {syncing ? (zh ? '同步歷史中…' : 'Syncing…') : statusText}
         </div>
+        {sortedEntries.length > 0 && (
+          <div style={S.searchWrap}>
+            <input
+              className="anxSearchInput"
+              style={S.searchInput}
+              value={search}
+              placeholder={zh ? '搜尋對話…' : 'Search chats…'}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button style={S.searchClear} onClick={() => setSearch('')} title={zh ? '清除' : 'Clear'}>×</button>
+            )}
+          </div>
+        )}
         <div style={S.convList}>
           {sortedEntries.length === 0 && (
             <div style={S.emptyList}>{zh ? '還沒有對話。點 ＋ 用公鑰發起，群組會自動同步。' : 'No chats yet. Tap ＋ to start with a public key; groups sync automatically.'}</div>
           )}
-          {sortedEntries.map((e) => {
+          {sortedEntries.length > 0 && filteredEntries.length === 0 && (
+            <div style={S.emptyList}>{zh ? '沒有符合的對話' : 'No matching chats'}</div>
+          )}
+          {filteredEntries.map((e) => {
             const last = e.last;
             return (
               <button
@@ -1451,7 +1512,11 @@ export default function ChatPage() {
       {showThread && (
       <main style={{ ...S.thread, ...(isMobile ? { width: '100%' } : {}) }}>
         {!activeThread ? (
-          <div style={S.threadEmpty}>{zh ? '選擇一個對話開始' : 'Select a chat to start'}</div>
+          <div style={S.threadEmpty}>
+            <div style={S.threadEmptyIcon}>💬</div>
+            <div style={S.threadEmptyTitle}>{zh ? '選擇一個對話開始' : 'Select a chat to start'}</div>
+            <div style={S.threadEmptyHint}>{zh ? '🔒 訊息端到端加密，僅你與對方可讀' : '🔒 Messages are end-to-end encrypted'}</div>
+          </div>
         ) : (
           <>
             <header style={S.threadHeader}>
@@ -1563,7 +1628,13 @@ export default function ChatPage() {
                         {m.text ? <span style={S.msgText}>{linkify(m.text)}</span> : null}
                         <span style={S.msgTime}>
                           {hhmm(m.ts)}
-                          {m.mine && <MsgTick status={m.status} />}
+                          {m.mine && (
+                            <MsgTick
+                              status={m.status}
+                              onRetry={m.status === 'failed' ? () => retryMessage(active, m.id) : undefined}
+                              retryLabel={zh ? '點擊重試' : 'Tap to retry'}
+                            />
+                          )}
                         </span>
                         {m.reactions && Object.keys(m.reactions).length > 0 && (
                           <div style={S.reactionRow}>
@@ -1636,6 +1707,7 @@ export default function ChatPage() {
                 rows={1}
                 onChange={(e) => {
                   setDraft(e.target.value);
+                  draftsRef.current[active] = e.target.value; // [POLISH] keep per-peer draft
                   if (e.target.value) notifyTyping();
                   const el = inputRef.current;
                   if (el) {
@@ -1695,13 +1767,31 @@ export default function ChatPage() {
       {lightbox && (
         <div
           style={S.lightbox}
-          onClick={() => {
-            URL.revokeObjectURL(lightbox.url);
-            setLightbox(null);
-          }}
+          onClick={() => { URL.revokeObjectURL(lightbox.url); setLightbox(null); }}
         >
+          <div style={S.lightboxBar} onClick={(e) => e.stopPropagation()}>
+            <span style={S.lightboxName}>{lightbox.name}</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <a
+                href={lightbox.url}
+                download={lightbox.name || 'image'}
+                className="anxHeaderBtn"
+                style={{ ...S.headerBtn, ...S.lightboxBtn }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {zh ? '下載' : 'Download'}
+              </a>
+              <button
+                className="anxHeaderBtn"
+                style={{ ...S.headerBtn, ...S.lightboxBtn }}
+                onClick={() => { URL.revokeObjectURL(lightbox.url); setLightbox(null); }}
+              >
+                {zh ? '關閉' : 'Close'}
+              </button>
+            </div>
+          </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightbox.url} alt={lightbox.name} style={S.lightboxImg} />
+          <img src={lightbox.url} alt={lightbox.name} style={S.lightboxImg} onClick={(e) => e.stopPropagation()} />
         </div>
       )}
 
@@ -1912,9 +2002,21 @@ function applyReactionTo(
 }
 
 /** Delivery tick for my sent messages: ⏳ sending · ✓ sent · ✓✓ delivered ·
- *  ✓✓(blue) read · ⚠ failed. */
-function MsgTick({ status }: { status?: Msg['status'] }) {
-  if (status === 'failed') return <span style={{ marginLeft: 4, color: '#FFB4A0' }}>⚠</span>;
+ *  ✓✓(blue) read · ⚠ failed (tap to retry). */
+function MsgTick({ status, onRetry, retryLabel }: {
+  status?: Msg['status']; onRetry?: () => void; retryLabel?: string;
+}) {
+  if (status === 'failed') {
+    return (
+      <button
+        onClick={onRetry}
+        title={retryLabel}
+        style={{ marginLeft: 4, color: '#FFB4A0', background: 'transparent', border: 'none', cursor: onRetry ? 'pointer' : 'default', font: 'inherit', padding: 0 }}
+      >
+        ⚠ ⟳
+      </button>
+    );
+  }
   if (status === 'sending') return <span style={{ marginLeft: 4 }}>⏳</span>;
   if (status === 'read') return <span style={{ marginLeft: 4, color: '#8AB4FF', letterSpacing: -2 }}>✓✓</span>;
   if (status === 'delivered') return <span style={{ marginLeft: 4, letterSpacing: -2 }}>✓✓</span>;
@@ -2147,7 +2249,16 @@ const S: Record<string, CSSProperties> = {
   convRight: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 },
   unreadBadge: { background: '#7462F7', color: '#fff', fontSize: 11, fontWeight: 700, minWidth: 18, height: 18, borderRadius: 9, padding: '0 5px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   thread: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' },
-  threadEmpty: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 15 },
+  threadEmpty: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'rgba(255,255,255,0.4)', fontSize: 15, padding: 24, textAlign: 'center' },
+  threadEmptyIcon: { fontSize: 44, opacity: 0.7 },
+  threadEmptyTitle: { fontSize: 15, color: 'rgba(255,255,255,0.55)' },
+  threadEmptyHint: { fontSize: 12.5, color: 'rgba(255,255,255,0.3)' },
+  searchWrap: { position: 'relative', padding: '2px 12px 8px' },
+  searchInput: { width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, color: '#fff', padding: '8px 30px 8px 12px', fontSize: 16, outline: 'none', fontFamily: 'inherit' },
+  searchClear: { position: 'absolute', right: 20, top: 6, width: 22, height: 22, borderRadius: 11, border: 'none', background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', fontSize: 15, cursor: 'pointer', lineHeight: 1, padding: 0 },
+  lightboxBar: { position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 18px', background: 'linear-gradient(rgba(0,0,0,0.55),transparent)' },
+  lightboxName: { fontSize: 13, color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '55vw' },
+  lightboxBtn: { textDecoration: 'none', display: 'inline-block' },
   threadHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' },
   backBtn: { display: 'none', background: 'transparent', border: 'none', color: '#fff', fontSize: 24, cursor: 'pointer', padding: 0, width: 28 },
   headerActions: { marginLeft: 'auto', display: 'flex', gap: 6, flexShrink: 0 },
