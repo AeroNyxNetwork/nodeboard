@@ -229,6 +229,33 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               </Link>
             );
           })}
+
+          {/* [CHAT 2026-07-05] Jump out of the operator console into the web chat.
+              Chat runs on a separate (phone-paired) P2P identity, not the wallet
+              login — so it's set apart with a divider + purple accent + a "→"
+              rather than listed as a peer operator page. First visit forwards to
+              /weblogin to scan the phone; a live session lands straight in chat. */}
+          <div className="pt-2 mt-2 border-t border-white/5">
+            <Link
+              href="/chat"
+              onClick={handleNavClick}
+              className="
+                flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200
+                text-purple-200 border-purple-500/25 bg-purple-500/10
+                hover:bg-purple-500/20 hover:border-purple-500/40
+              "
+            >
+              <span className="text-purple-300">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12a9 9 0 01-9 9 8.96 8.96 0 01-4.4-1.15L3 21l1.15-4.6A8.96 8.96 0 013 12a9 9 0 019-9 9 9 0 019 9z" />
+                </svg>
+              </span>
+              <span className="font-medium">{t('nav.chat')}</span>
+              <svg className="ml-auto w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
+            </Link>
+          </div>
         </nav>
 
         {/* User Section */}
