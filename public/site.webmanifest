@@ -1,0 +1,27 @@
+{
+  "name": "AeroNyx Nodeboard",
+  "short_name": "Nodeboard",
+  "description": "Operator dashboard for AeroNyx Privacy Network decentralized nodes.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0A0A0F",
+  "theme_color": "#0A0A0F",
+  "icons": [
+    {
+      "src": "/favicon-16x16.png",
+      "sizes": "16x16",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

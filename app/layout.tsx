@@ -2,7 +2,7 @@
  * ============================================
  * AeroNyx Root Layout
  * ============================================
- * File Path: src/app/layout.tsx
+ * File Path: app/layout.tsx
  * 
  * Creation Reason: Next.js 14 App Router root layout
  * Main Functionality: Wrap app with providers, fonts, and global styles
@@ -23,6 +23,7 @@
  * - Metadata is defined for SEO
  * 
  * Last Modified: v1.0.0 - Initial root layout
+ * Last Modified: v1.1.0 - Dashboard icon and app-domain metadata alignment
  * ============================================
  */
 
@@ -47,21 +48,21 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: 'AeroNyx Privacy Network',
+    default: 'AeroNyx Nodeboard',
     template: '%s | AeroNyx',
   },
-  description: 'Decentralized privacy network powered by Web3. Manage your nodes, monitor sessions, and earn rewards.',
-  keywords: ['privacy', 'network', 'web3', 'decentralized', 'vpn', 'nodes', 'crypto'],
+  description: 'Operator dashboard for AeroNyx Privacy Network decentralized nodes. Manage nodes, monitor aggregate protocol health, and review operational readiness.',
+  keywords: ['AeroNyx Nodeboard', 'AeroNyx Privacy Network', 'AeroNyx Privacy Protocol', 'decentralized nodes', 'node operator dashboard', 'protocol health', 'encrypted relay'],
   authors: [{ name: 'AeroNyx' }],
   creator: 'AeroNyx',
-  metadataBase: new URL('https://aeronyx.network'),
+  metadataBase: new URL('https://app.aeronyx.network'),
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: 'https://aeronyx.network',
-    siteName: 'AeroNyx Privacy Network',
-    title: 'AeroNyx Privacy Network',
-    description: 'Decentralized privacy network powered by Web3',
+    url: 'https://app.aeronyx.network',
+    siteName: 'AeroNyx Nodeboard',
+    title: 'AeroNyx Nodeboard',
+    description: 'Operator dashboard for AeroNyx Privacy Network decentralized nodes.',
     images: [
       {
         url: '/og-image.png',
@@ -73,8 +74,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'AeroNyx Privacy Network',
-    description: 'Decentralized privacy network powered by Web3',
+    title: 'AeroNyx Nodeboard',
+    description: 'Operator dashboard for AeroNyx Privacy Network decentralized nodes.',
     images: ['/og-image.png'],
   },
   robots: {
@@ -82,9 +83,13 @@ export const metadata: Metadata = {
     follow: true,
   },
   icons: {
-    icon: '/favicon.ico',
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon.ico', type: 'image/x-icon' },
+      { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+    ],
     shortcut: '/favicon-16x16.png',
-    apple: '/apple-touch-icon.png',
+    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
   },
   manifest: '/site.webmanifest',
 };
