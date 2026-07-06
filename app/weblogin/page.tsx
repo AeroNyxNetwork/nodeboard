@@ -40,6 +40,18 @@ const POLL_MS = 2000;
 
 type Phase = 'init' | 'waiting' | 'success' | 'expired' | 'error';
 
+/** fetch with a hard timeout — a stalled request must never wedge the page on
+ *  "Preparing…" (create) or silently freeze the poll loop. */
+async function tfetch(url: string, opts: RequestInit, ms: number): Promise<Response> {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ctl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 export default function WebLoginPage() {
   const { locale } = useI18n();
   const zh = (locale || '').toLowerCase().startsWith('zh');
@@ -61,6 +73,7 @@ export default function WebLoginPage() {
   const ephRef = useRef<WebEphemeral | null>(null);
   const sidRef = useRef<string>('');
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startRef = useRef<() => void>(() => {}); // set below — lets poll auto-refresh without a dep cycle
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -74,9 +87,9 @@ export default function WebLoginPage() {
     const sid = sidRef.current;
     if (!eph || !sid) return;
     try {
-      const res = await fetch(
+      const res = await tfetch(
         `${RENDEZVOUS}/status?sid=${encodeURIComponent(sid)}`,
-        { method: 'GET' },
+        { method: 'GET' }, 10000,
       );
       const data = await res.json().catch(() => ({}));
       if (!data || !data.success) return;
@@ -105,8 +118,10 @@ export default function WebLoginPage() {
           setPhase('error');
         }
       } else if (data.status === 'expired') {
+        // Session lapsed before a scan — mint a fresh QR silently instead of
+        // dead-ending on "expired".
         stopPolling();
-        setPhase('expired');
+        startRef.current();
       }
     } catch {
       // transient network error — keep polling
@@ -124,11 +139,11 @@ export default function WebLoginPage() {
       ephRef.current = eph;
       sidRef.current = sid;
 
-      const res = await fetch(`${RENDEZVOUS}/create`, {
+      const res = await tfetch(`${RENDEZVOUS}/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sid, web_pub: eph.pubB64 }),
-      });
+      }, 15000);
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
         throw new Error(data.error || `create failed (${res.status})`);
@@ -148,6 +163,8 @@ export default function WebLoginPage() {
       setPhase('error');
     }
   }, [stopPolling, poll]);
+
+  useEffect(() => { startRef.current = start; }, [start]);
 
   useEffect(() => {
     start();
