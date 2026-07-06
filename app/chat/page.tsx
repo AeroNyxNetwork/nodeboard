@@ -73,6 +73,16 @@ type SidebarEntry = {
   id: string; isGroup: boolean; name: string;
   last?: Msg; lastTs: number; unread: number; memberCount?: number;
 };
+// [POLISH] In-app dialog specs (replace native window.prompt/confirm).
+type PromptSpec = {
+  title: string; label?: string; placeholder?: string; initial?: string;
+  confirmText: string; mono?: boolean; // mono = monospace input (pubkeys)
+  onSubmit: (value: string) => void;
+};
+type ConfirmSpec = {
+  title: string; body?: string; confirmText: string; danger?: boolean;
+  onConfirm: () => void;
+};
 
 /** Group ids are UUIDs (contain '-'); peer identities are 64-hex. */
 function isGroupId(id: string): boolean {
@@ -125,6 +135,30 @@ export default function ChatPage() {
   const [typingPeers, setTypingPeers] = useState<Record<string, boolean>>({}); // peer → is typing
   const [groupTypers, setGroupTypers] = useState<Record<string, Record<string, boolean>>>({}); // groupId → pubkey → typing
   const [presence, setPresence] = useState<Record<string, { online: boolean; lastSeenTs: number | null }>>({});
+  // [POLISH] In-app dialogs + toast replace window.prompt/confirm/alert (native
+  // browser popups broke the dark theme + are unusable on mobile).
+  const [prompt, setPromptState] = useState<PromptSpec | null>(null);
+  const [confirm, setConfirmState] = useState<ConfirmSpec | null>(null);
+  const [toast, setToastState] = useState<{ text: string; kind: 'info' | 'error' } | null>(null);
+  const [atBottom, setAtBottom] = useState(true); // thread scrolled to newest → hide the jump button
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback((text: string, kind: 'info' | 'error' = 'info') => {
+    setToastState({ text, kind });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToastState(null), 2600);
+  }, []);
+
+  // [POLISH] Copy a full pubkey to the clipboard (sharing your key is the first
+  // thing a new user needs). navigator.clipboard needs a secure context — the
+  // site is https, so it's available.
+  const copyPub = useCallback((hex: string) => {
+    if (!hex) return;
+    navigator.clipboard?.writeText(hex).then(
+      () => showToast(zh ? '已複製公鑰' : 'Public key copied'),
+      () => showToast(zh ? '複製失敗' : 'Copy failed', 'error'),
+    );
+  }, [zh, showToast]);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -786,16 +820,19 @@ export default function ChatPage() {
     const timers = typingTimers.current;
     const gTimers = groupTypingTimers.current;
     const stop = stopTypingTimer;
+    const tt = toastTimer;
     return () => {
       Object.values(timers).forEach(clearTimeout);
       Object.values(gTimers).forEach(clearTimeout);
       if (stop.current) clearTimeout(stop.current);
+      if (tt.current) clearTimeout(tt.current);
     };
   }, []);
   // Opening a conversation always jumps to the newest message.
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
+    setAtBottom(true);
   }, [active]);
   // A new message only auto-scrolls if you're already near the bottom — don't
   // yank you down while you're reading history (Telegram behaviour).
@@ -804,6 +841,16 @@ export default function ChatPage() {
     if (!el) return;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 140) el.scrollTop = el.scrollHeight;
   }, [activeThread?.messages.length]);
+  // [POLISH] Track whether the thread is scrolled to the newest message so the
+  // floating "jump to latest" button appears only when you've scrolled up.
+  const onThreadScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 120);
+  }, []);
+  const jumpToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  }, []);
 
   const send = useCallback(() => {
     const text = draft.trim();
@@ -883,7 +930,7 @@ export default function ChatPage() {
 
     const bytes = new Uint8Array(await file.arrayBuffer());
     if (bytes.length > CHUNKED_UPLOAD_MAX) {
-      window.alert(zh ? '檔案太大（網頁版上限 100MB）' : 'File too large (100MB web limit)');
+      showToast(zh ? '檔案太大（網頁版上限 100MB）' : 'File too large (100MB web limit)', 'error');
       return;
     }
     const mediaType = file.type || 'application/octet-stream';
@@ -938,7 +985,7 @@ export default function ChatPage() {
     } finally {
       setUploading(false);
     }
-  }, [active, uploading, zh, appendMessage, patchMessage, appendGroupMessage, patchGroupMessage]);
+  }, [active, uploading, zh, appendMessage, patchMessage, appendGroupMessage, patchGroupMessage, showToast]);
 
   // Toggle my reaction on a message: 'remove' if I already gave this emoji, else
   // 'add'. Optimistic locally, then a signed message_reaction over the relay.
@@ -976,37 +1023,52 @@ export default function ChatPage() {
   }, [active, myPubHex, applyReaction, applyGroupReaction]);
 
   const startNewChat = useCallback(() => {
-    const input = window.prompt(zh ? '輸入對方的公鑰 (64 位十六進制)' : "Enter the peer's public key (64 hex)");
-    const peer = (input || '').trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(peer)) {
-      if (input) window.alert(zh ? '公鑰格式不對' : 'Invalid public key');
-      return;
-    }
-    setConvs((prev) => (prev[peer] ? prev : { ...prev, [peer]: { peer, messages: [], lastTs: 0 } }));
-    openConv(peer);
-  }, [zh, openConv]);
+    setPromptState({
+      title: zh ? '發起聊天' : 'New chat',
+      label: zh ? '對方的公鑰' : "Peer's public key",
+      placeholder: zh ? '64 位十六進制' : '64 hex characters',
+      confirmText: zh ? '開始' : 'Start',
+      mono: true,
+      onSubmit: (input) => {
+        const peer = input.trim().toLowerCase();
+        if (!/^[0-9a-f]{64}$/.test(peer)) {
+          showToast(zh ? '公鑰格式不對' : 'Invalid public key', 'error');
+          return;
+        }
+        setConvs((prev) => (prev[peer] ? prev : { ...prev, [peer]: { peer, messages: [], lastTs: 0 } }));
+        openConv(peer);
+      },
+    });
+  }, [zh, openConv, showToast]);
 
   // Create a new group (owner = me), then open it. Members are invited after.
-  const createNewGroup = useCallback(async () => {
-    const seed = seedRef.current;
-    const pub = pubRef.current;
-    if (!seed || !pub) return;
-    const name = (window.prompt(zh ? '群組名稱' : 'Group name') || '').trim();
-    if (!name) return;
-    const res = await createGroup(seed, pub, name);
-    if (!res) { window.alert(zh ? '建立群組失敗' : 'Failed to create group'); return; }
-    groupKeysRef.current[res.groupId] = { [res.keyVersion]: res.groupKey };
-    const myHex = bytesToHex(pub);
-    setGroups((prev) => ({
-      ...prev,
-      [res.groupId]: {
-        groupId: res.groupId, name, ownerPubkey: myHex, myRole: 'owner',
-        keyVersion: res.keyVersion, members: [{ pubkey: myHex, role: 'owner' }],
-        messages: [], lastTs: Math.floor(Date.now() / 1000), unread: 0,
+  const createNewGroup = useCallback(() => {
+    setPromptState({
+      title: zh ? '建立群組' : 'New group',
+      label: zh ? '群組名稱' : 'Group name',
+      placeholder: zh ? '例如：設計小組' : 'e.g. Design team',
+      confirmText: zh ? '建立' : 'Create',
+      onSubmit: async (raw) => {
+        const seed = seedRef.current;
+        const pub = pubRef.current;
+        const name = raw.trim();
+        if (!seed || !pub || !name) return;
+        const res = await createGroup(seed, pub, name);
+        if (!res) { showToast(zh ? '建立群組失敗' : 'Failed to create group', 'error'); return; }
+        groupKeysRef.current[res.groupId] = { [res.keyVersion]: res.groupKey };
+        const myHex = bytesToHex(pub);
+        setGroups((prev) => ({
+          ...prev,
+          [res.groupId]: {
+            groupId: res.groupId, name, ownerPubkey: myHex, myRole: 'owner',
+            keyVersion: res.keyVersion, members: [{ pubkey: myHex, role: 'owner' }],
+            messages: [], lastTs: Math.floor(Date.now() / 1000), unread: 0,
+          },
+        }));
+        openConv(res.groupId);
       },
-    }));
-    openConv(res.groupId);
-  }, [zh, openConv]);
+    });
+  }, [zh, openConv, showToast]);
 
   // Invite a member to the open group (owner seals the current key to them).
   const inviteMember = useCallback(async () => {
@@ -1017,38 +1079,59 @@ export default function ChatPage() {
     const g = groupsRef.current[gid];
     const key = g ? groupKeysRef.current[gid]?.[g.keyVersion] : undefined;
     if (!g || !key) return;
-    const input = (window.prompt(zh ? '邀請成員：輸入公鑰 (64 位十六進制)' : "Invite: enter the member's public key (64 hex)") || '').trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(input)) {
-      if (input) window.alert(zh ? '公鑰格式不對' : 'Invalid public key');
-      return;
-    }
-    if (g.members.some((m) => m.pubkey === input)) { window.alert(zh ? '已是成員' : 'Already a member'); return; }
-    const ok = await inviteToGroup(seed, pub, gid, key, g.keyVersion, input);
-    if (!ok) { window.alert(zh ? '邀請失敗' : 'Invite failed'); return; }
-    setGroups((prev) => {
-      const cur = prev[gid];
-      if (!cur || cur.members.some((m) => m.pubkey === input)) return prev;
-      return { ...prev, [gid]: { ...cur, members: [...cur.members, { pubkey: input, role: 'member' }] } };
+    setPromptState({
+      title: zh ? '邀請成員' : 'Invite member',
+      label: zh ? '成員的公鑰' : "Member's public key",
+      placeholder: zh ? '64 位十六進制' : '64 hex characters',
+      confirmText: zh ? '邀請' : 'Invite',
+      mono: true,
+      onSubmit: async (raw) => {
+        const input = raw.trim().toLowerCase();
+        if (!/^[0-9a-f]{64}$/.test(input)) {
+          showToast(zh ? '公鑰格式不對' : 'Invalid public key', 'error');
+          return;
+        }
+        if (g.members.some((m) => m.pubkey === input)) { showToast(zh ? '已是成員' : 'Already a member', 'error'); return; }
+        const ok = await inviteToGroup(seed, pub, gid, key, g.keyVersion, input);
+        if (!ok) { showToast(zh ? '邀請失敗' : 'Invite failed', 'error'); return; }
+        setGroups((prev) => {
+          const cur = prev[gid];
+          if (!cur || cur.members.some((m) => m.pubkey === input)) return prev;
+          return { ...prev, [gid]: { ...cur, members: [...cur.members, { pubkey: input, role: 'member' }] } };
+        });
+        showToast(zh ? '已邀請' : 'Invited');
+      },
     });
-  }, [zh]);
+  }, [zh, showToast]);
 
   // Leave the open group.
-  const leaveActiveGroup = useCallback(async () => {
-    const seed = seedRef.current;
-    const pub = pubRef.current;
+  const leaveActiveGroup = useCallback(() => {
     const gid = activeRef.current;
-    if (!seed || !pub || !gid || !isGroupId(gid)) return;
-    if (!window.confirm(zh ? '確定離開此群組？' : 'Leave this group?')) return;
-    const ok = await leaveGroup(seed, pub, gid);
-    if (!ok) { window.alert(zh ? '離開失敗' : 'Failed to leave the group'); return; }
-    delete groupKeysRef.current[gid];
-    setActive('');
-    setGroups((prev) => {
-      const next = { ...prev };
-      delete next[gid];
-      return next;
+    if (!gid || !isGroupId(gid)) return;
+    const gName = groupsRef.current[gid]?.name || '';
+    setConfirmState({
+      title: zh ? '離開群組' : 'Leave group',
+      body: gName
+        ? (zh ? `確定離開「${gName}」？` : `Leave "${gName}"?`)
+        : (zh ? '確定離開此群組？' : 'Leave this group?'),
+      confirmText: zh ? '離開' : 'Leave',
+      danger: true,
+      onConfirm: async () => {
+        const seed = seedRef.current;
+        const pub = pubRef.current;
+        if (!seed || !pub) return;
+        const ok = await leaveGroup(seed, pub, gid);
+        if (!ok) { showToast(zh ? '離開失敗' : 'Failed to leave the group', 'error'); return; }
+        delete groupKeysRef.current[gid];
+        setActive('');
+        setGroups((prev) => {
+          const next = { ...prev };
+          delete next[gid];
+          return next;
+        });
+      },
     });
-  }, [zh]);
+  }, [zh, showToast]);
 
   // Owner removes a member, then the group key rotates so the removed member
   // can't read future messages. New key is stored at the new version.
@@ -1059,32 +1142,49 @@ export default function ChatPage() {
     if (!seed || !pub || !gid || !isGroupId(gid)) return;
     const g = groupsRef.current[gid];
     if (!g || g.myRole !== 'owner') return;
-    if (!window.confirm(zh ? '移除此成員並輪換群組密鑰？' : 'Remove this member and rotate the group key?')) return;
-    const res = await kickMember(seed, pub, gid, memberPubHex);
-    if (!res) { window.alert(zh ? '移除失敗（或密鑰輪換失敗）' : 'Failed to remove (or key rotation failed)'); return; }
-    (groupKeysRef.current[gid] ||= {})[res.newKeyVersion] = res.newGroupKey;
-    setGroups((prev) => {
-      const cur = prev[gid];
-      if (!cur) return prev;
-      const members = res.members.map(
-        (pk) => cur.members.find((m) => m.pubkey === pk) || { pubkey: pk, role: 'member' },
-      );
-      return { ...prev, [gid]: { ...cur, members, keyVersion: res.newKeyVersion } };
+    const who = groupMemberName(memberPubHex, mergedNames);
+    setConfirmState({
+      title: zh ? '移除成員' : 'Remove member',
+      body: zh
+        ? `移除「${who}」並輪換群組密鑰？他們將無法讀取之後的訊息。`
+        : `Remove "${who}" and rotate the group key? They won't be able to read future messages.`,
+      confirmText: zh ? '移除' : 'Remove',
+      danger: true,
+      onConfirm: async () => {
+        const seed = seedRef.current;
+        const pub = pubRef.current;
+        if (!seed || !pub) return;
+        const res = await kickMember(seed, pub, gid, memberPubHex);
+        if (!res) { showToast(zh ? '移除失敗（或密鑰輪換失敗）' : 'Failed to remove (or key rotation failed)', 'error'); return; }
+        (groupKeysRef.current[gid] ||= {})[res.newKeyVersion] = res.newGroupKey;
+        setGroups((prev) => {
+          const cur = prev[gid];
+          if (!cur) return prev;
+          const members = res.members.map(
+            (pk) => cur.members.find((m) => m.pubkey === pk) || { pubkey: pk, role: 'member' },
+          );
+          return { ...prev, [gid]: { ...cur, members, keyVersion: res.newKeyVersion } };
+        });
+      },
     });
-  }, [zh]);
+  }, [zh, mergedNames, showToast]);
 
   const renamePeer = useCallback((peer: string) => {
-    const input = window.prompt(
-      zh ? '設定備註名（留空清除）' : 'Set a name (empty to clear)',
-      names[peer] || '',
-    );
-    if (input === null) return;
-    const name = input.trim();
-    setNames((prev) => {
-      const next = { ...prev };
-      if (name) next[peer] = name;
-      else delete next[peer];
-      return next;
+    setPromptState({
+      title: zh ? '備註名' : 'Set a name',
+      label: zh ? '顯示名稱（留空清除）' : 'Display name (empty to clear)',
+      placeholder: short(peer),
+      initial: names[peer] || '',
+      confirmText: zh ? '儲存' : 'Save',
+      onSubmit: (input) => {
+        const name = input.trim();
+        setNames((prev) => {
+          const next = { ...prev };
+          if (name) next[peer] = name;
+          else delete next[peer];
+          return next;
+        });
+      },
     });
   }, [names, zh]);
 
@@ -1193,18 +1293,22 @@ export default function ChatPage() {
       {/* [COMPAT] iOS Safari: 100vh includes the collapsed URL bar → the input
           bar hides behind the bottom toolbar. dvh (iOS 15.4+) tracks the real
           visible viewport; older browsers keep the 100vh fallback. */}
-      <style>{`.anxChatApp{height:100vh}@supports(height:100dvh){.anxChatApp{height:100dvh}}`}</style>
+      <style>{`.anxChatApp{height:100vh}@supports(height:100dvh){.anxChatApp{height:100dvh}}@keyframes anxPulse{0%,100%{opacity:1}50%{opacity:0.35}}`}</style>
       {/* Sidebar */}
       {showSidebar && (
       <aside style={{ ...S.sidebar, ...(isMobile ? { width: '100%', minWidth: 0, borderRight: 'none' } : {}) }}>
         <div style={S.sideHeader}>
-          <div style={S.meRow}>
+          <button
+            style={S.meRow}
+            onClick={() => copyPub(myPubHex)}
+            title={zh ? '點擊複製你的公鑰' : 'Click to copy your public key'}
+          >
             <span style={{ ...S.dot, background: dot, boxShadow: `0 0 6px ${dot}` }} />
             <div style={S.meText}>
               <div style={S.meTitle}>{zh ? '我的身份' : 'My identity'}</div>
-              <code style={S.mePub}>{short(myPubHex)}</code>
+              <code style={S.mePub}>{short(myPubHex)} <span style={S.copyHint}>⧉</span></code>
             </div>
-          </div>
+          </button>
           <div style={S.sideActions}>
             <button style={S.iconBtn} title={zh ? '發起聊天' : 'New chat'} onClick={startNewChat}>＋</button>
             <button style={{ ...S.iconBtn, fontSize: 14 }} title={zh ? '建立群組' : 'New group'} onClick={createNewGroup}>👥</button>
@@ -1312,13 +1416,28 @@ export default function ChatPage() {
                     </div>
                     {headerStatus
                       ? <div style={{ ...S.threadStatus, color: headerStatus.color }}>{headerStatus.text}</div>
-                      : <code style={S.threadSub}>{activeConv!.peer}</code>}
+                      : <code
+                          style={{ ...S.threadSub, cursor: 'pointer' }}
+                          onClick={(e) => { e.stopPropagation(); copyPub(activeConv!.peer); }}
+                          title={zh ? '點擊複製公鑰' : 'Click to copy public key'}
+                        >{activeConv!.peer}</code>}
                   </div>
                 </>
               )}
             </header>
 
-            <div style={S.messages} ref={scrollRef}>
+            {/* [POLISH] Connection banner — the only disconnect cue on mobile,
+                where the sidebar status line is off-screen. */}
+            {status !== 'connected' && (
+              <div style={S.connBanner}>
+                <span style={S.connBannerDot} />
+                {status === 'reconnecting'
+                  ? (zh ? '連線中斷，重新連線中…' : 'Connection lost — reconnecting…')
+                  : (zh ? '連線中…' : 'Connecting…')}
+              </div>
+            )}
+
+            <div style={S.messages} ref={scrollRef} onScroll={onThreadScroll}>
               {activeThread.messages.map((m, i) => {
                 const prev = activeThread.messages[i - 1];
                 const showDate = !prev || !sameDay(prev.ts, m.ts);
@@ -1400,6 +1519,13 @@ export default function ChatPage() {
                 );
               })}
             </div>
+
+            {/* [POLISH] Jump-to-latest — appears only when scrolled up. */}
+            {!atBottom && (
+              <button style={S.jumpBtn} onClick={jumpToBottom} title={zh ? '回到最新' : 'Jump to latest'}>
+                ⌄
+              </button>
+            )}
 
             <div style={S.inputBar}>
               <input
@@ -1491,6 +1617,69 @@ export default function ChatPage() {
           <img src={lightbox.url} alt={lightbox.name} style={S.lightboxImg} />
         </div>
       )}
+
+      {/* [POLISH] In-app prompt / confirm / toast (replace native dialogs). */}
+      {prompt && (
+        <PromptModal spec={prompt} zh={zh} onClose={() => setPromptState(null)} />
+      )}
+      {confirm && (
+        <div style={S.overlay} onClick={() => setConfirmState(null)}>
+          <div style={S.dialog} onClick={(e) => e.stopPropagation()}>
+            <div style={S.dialogTitle}>{confirm.title}</div>
+            {confirm.body && <div style={S.dialogBody}>{confirm.body}</div>}
+            <div style={S.dialogActions}>
+              <button style={S.dialogCancel} onClick={() => setConfirmState(null)}>
+                {zh ? '取消' : 'Cancel'}
+              </button>
+              <button
+                style={{ ...S.dialogConfirm, ...(confirm.danger ? S.dialogDanger : {}) }}
+                onClick={() => { const fn = confirm.onConfirm; setConfirmState(null); fn(); }}
+              >
+                {confirm.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {toast && (
+        <div style={{ ...S.toast, ...(toast.kind === 'error' ? S.toastError : {}) }}>
+          {toast.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** In-app replacement for window.prompt — a styled modal with a single text
+ *  field, Enter-to-submit, autofocus, and validation left to the caller. */
+function PromptModal({ spec, zh, onClose }: {
+  spec: PromptSpec; zh: boolean; onClose: () => void;
+}) {
+  const [value, setValue] = useState(spec.initial || '');
+  const ref = useRef<HTMLInputElement | null>(null);
+  useEffect(() => { ref.current?.focus(); }, []);
+  const submit = () => { const fn = spec.onSubmit; onClose(); fn(value); };
+  return (
+    <div style={S.overlay} onClick={onClose}>
+      <div style={S.dialog} onClick={(e) => e.stopPropagation()}>
+        <div style={S.dialogTitle}>{spec.title}</div>
+        {spec.label && <div style={S.dialogLabel}>{spec.label}</div>}
+        <input
+          ref={ref}
+          style={{ ...S.dialogInput, ...(spec.mono ? { fontFamily: 'monospace', fontSize: 13 } : {}) }}
+          value={value}
+          placeholder={spec.placeholder}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); submit(); }
+            if (e.key === 'Escape') onClose();
+          }}
+        />
+        <div style={S.dialogActions}>
+          <button style={S.dialogCancel} onClick={onClose}>{zh ? '取消' : 'Cancel'}</button>
+          <button style={S.dialogConfirm} onClick={submit}>{spec.confirmText}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1848,7 +2037,8 @@ const S: Record<string, CSSProperties> = {
   app: { display: 'flex', background: '#0A0015', color: '#fff', fontFamily: 'system-ui,-apple-system,sans-serif', overflow: 'hidden' },
   sidebar: { width: 320, minWidth: 320, borderRight: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)' },
   sideHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
-  meRow: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 },
+  meRow: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, textAlign: 'left' },
+  copyHint: { color: 'rgba(255,255,255,0.3)', fontSize: 10 },
   dot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
   meText: { minWidth: 0 },
   meTitle: { fontSize: 13, fontWeight: 600 },
@@ -1867,7 +2057,7 @@ const S: Record<string, CSSProperties> = {
   convTime: { fontSize: 11, color: 'rgba(255,255,255,0.35)', flexShrink: 0 },
   convRight: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 },
   unreadBadge: { background: '#7462F7', color: '#fff', fontSize: 11, fontWeight: 700, minWidth: 18, height: 18, borderRadius: 9, padding: '0 5px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  thread: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 },
+  thread: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' },
   threadEmpty: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 15 },
   threadHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' },
   backBtn: { display: 'none', background: 'transparent', border: 'none', color: '#fff', fontSize: 24, cursor: 'pointer', padding: 0, width: 28 },
@@ -1924,5 +2114,23 @@ const S: Record<string, CSSProperties> = {
   memberPub: { fontFamily: 'monospace', fontSize: 11, color: 'rgba(255,255,255,0.4)' },
   kickBtn: { flexShrink: 0, background: 'rgba(255,107,107,0.12)', border: '1px solid rgba(255,107,107,0.4)', color: '#FFB4A0', fontSize: 12, borderRadius: 8, padding: '5px 10px', cursor: 'pointer' },
   lightboxImg: { maxWidth: '100%', maxHeight: '100%', borderRadius: 8, objectFit: 'contain' },
+  // [POLISH] connection banner (thread, mobile-visible)
+  connBanner: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '6px 12px', fontSize: 12.5, color: '#FFD08A', background: 'rgba(255,184,0,0.12)', borderBottom: '1px solid rgba(255,184,0,0.18)' },
+  connBannerDot: { width: 7, height: 7, borderRadius: 4, background: '#FFB800', animation: 'anxPulse 1.2s ease-in-out infinite' },
+  // [POLISH] jump-to-latest floating button
+  jumpBtn: { position: 'absolute', right: 20, bottom: 82, width: 40, height: 40, borderRadius: 20, border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(28,20,48,0.92)', color: '#fff', fontSize: 22, lineHeight: 1, cursor: 'pointer', boxShadow: '0 4px 16px rgba(0,0,0,0.4)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', paddingBottom: 4 },
+  // [POLISH] in-app dialog (prompt/confirm)
+  dialog: { width: 'min(400px, 100%)', background: '#150f22', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, padding: 20, boxShadow: '0 12px 48px rgba(0,0,0,0.5)' },
+  dialogTitle: { fontSize: 16, fontWeight: 700, marginBottom: 10 },
+  dialogLabel: { fontSize: 12.5, color: 'rgba(255,255,255,0.55)', marginBottom: 6 },
+  dialogBody: { fontSize: 13.5, color: 'rgba(255,255,255,0.7)', lineHeight: 1.5, marginBottom: 4 },
+  dialogInput: { width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 10, color: '#fff', padding: '10px 12px', fontSize: 14, outline: 'none', fontFamily: 'inherit' },
+  dialogActions: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 },
+  dialogCancel: { background: 'transparent', border: '1px solid rgba(255,255,255,0.16)', color: 'rgba(255,255,255,0.8)', fontSize: 13.5, borderRadius: 10, padding: '8px 16px', cursor: 'pointer' },
+  dialogConfirm: { background: '#7462F7', border: 'none', color: '#fff', fontSize: 13.5, fontWeight: 600, borderRadius: 10, padding: '8px 18px', cursor: 'pointer' },
+  dialogDanger: { background: '#E5484D' },
+  // [POLISH] toast
+  toast: { position: 'fixed', left: '50%', bottom: 28, transform: 'translateX(-50%)', zIndex: 120, background: 'rgba(28,20,48,0.96)', border: '1px solid rgba(255,255,255,0.14)', color: '#fff', fontSize: 13.5, padding: '10px 18px', borderRadius: 12, boxShadow: '0 6px 24px rgba(0,0,0,0.45)', maxWidth: '80vw', textAlign: 'center' },
+  toastError: { border: '1px solid rgba(229,72,77,0.55)', background: 'rgba(58,20,26,0.96)' },
   hideOnMobile: {}, // replaced by CSS below on mobile
 };
