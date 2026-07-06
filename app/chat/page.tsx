@@ -89,6 +89,64 @@ function isGroupId(id: string): boolean {
   return id.includes('-');
 }
 
+// [COMPAT/INTERACTION] Inline stylesheet — the only place we can express :hover,
+// :focus, tap-highlight and touch-action (inline styles can't). CSP-safe (a
+// literal <style> child, no external sheet).
+const ANX_CSS = `
+.anxChatApp{height:100vh}
+@supports(height:100dvh){.anxChatApp{height:100dvh}}
+@keyframes anxPulse{0%,100%{opacity:1}50%{opacity:0.35}}
+/* Kill the mobile grey tap flash + the 300ms double-tap delay everywhere. */
+.anxChatApp button,.anxChatApp a,.anxChatApp textarea,.anxChatApp input{-webkit-tap-highlight-color:transparent}
+.anxChatApp button{touch-action:manipulation}
+/* Contain overscroll so flinging past the newest message doesn't bounce the page. */
+.anxMessages{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+/* Focus rings (we removed the native outline) — keyboard users need these. */
+.anxInput:focus,.anxDialogInput:focus{border-color:rgba(116,98,247,0.65)!important;box-shadow:0 0 0 3px rgba(116,98,247,0.16)}
+/* Hover feedback — pointer devices only, so touch doesn't get sticky states. */
+@media(hover:hover){
+  .anxIconBtn:hover{background:rgba(255,255,255,0.10)!important;border-color:rgba(255,255,255,0.24)!important}
+  .anxConvItem:hover{background:rgba(255,255,255,0.05)}
+  .anxHeaderBtn:hover{background:rgba(255,255,255,0.12)!important}
+  .anxSendBtn:not(:disabled):hover{filter:brightness(1.08)}
+  .anxAttachBtn:not(:disabled):hover{background:rgba(255,255,255,0.11)!important}
+  .anxJumpBtn:hover{background:rgba(42,31,70,0.96)!important;transform:translateY(-1px)}
+  .anxDialogConfirm:hover{filter:brightness(1.08)}
+  .anxDialogCancel:hover{background:rgba(255,255,255,0.06)!important}
+  .anxKickBtn:hover{background:rgba(255,107,107,0.2)!important}
+  .anxReactChip:hover{filter:brightness(1.15)}
+  .anxPaletteBtn:hover{background:rgba(255,255,255,0.12)!important;transform:scale(1.12)}
+  .anxMeRow:hover .anxCopyHint{color:rgba(255,255,255,0.6)}
+  /* React trigger: hidden until you hover the message row (Telegram) — no clutter. */
+  .anxReactTrigger{opacity:0;transition:opacity .12s ease}
+  .anxMsgRow:hover .anxReactTrigger{opacity:1}
+  .anxReactTrigger:hover{color:rgba(255,255,255,0.85)!important;background:rgba(255,255,255,0.08)!important}
+}
+/* Touch devices (no hover): keep the react trigger faintly visible so it's tappable. */
+@media(hover:none){.anxReactTrigger{opacity:0.5}}
+.anxIconBtn,.anxHeaderBtn,.anxSendBtn,.anxAttachBtn,.anxJumpBtn,.anxDialogConfirm,.anxDialogCancel,.anxReactTrigger,.anxKickBtn{transition:background .12s ease,border-color .12s ease,transform .12s ease,filter .12s ease}
+`;
+
+/** Inline-SVG icon — renders identically on every platform (unlike the obscure
+ *  Unicode glyphs ⎋/⌄/⧉ that show as tofu boxes in many Windows/Android fonts).
+ *  Feather-style geometric paths; inherits the parent's color via currentColor. */
+function Icon({ name, size = 16 }: { name: 'logout' | 'chevron-down' | 'copy'; size?: number }) {
+  const p = {
+    width: size, height: size, viewBox: '0 0 24 24', fill: 'none',
+    stroke: 'currentColor', strokeWidth: 2,
+    strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
+    style: { display: 'block' } as CSSProperties,
+  };
+  if (name === 'logout') {
+    return (<svg {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>);
+  }
+  if (name === 'chevron-down') {
+    return (<svg {...p}><polyline points="6 9 12 15 18 9" /></svg>);
+  }
+  // copy
+  return (<svg {...p}><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>);
+}
+
 /** Decrypt with the frame's key_version first, then fall back to every held
  *  version — tolerates a rotation race where the sender used a version we
  *  haven't matched to this message yet. */
@@ -150,14 +208,31 @@ export default function ChatPage() {
   }, []);
 
   // [POLISH] Copy a full pubkey to the clipboard (sharing your key is the first
-  // thing a new user needs). navigator.clipboard needs a secure context — the
-  // site is https, so it's available.
+  // thing a new user needs). Prefer the async Clipboard API; fall back to a
+  // hidden-textarea execCommand for in-app webviews where it's blocked.
   const copyPub = useCallback((hex: string) => {
     if (!hex) return;
-    navigator.clipboard?.writeText(hex).then(
-      () => showToast(zh ? '已複製公鑰' : 'Public key copied'),
-      () => showToast(zh ? '複製失敗' : 'Copy failed', 'error'),
-    );
+    const ok = () => showToast(zh ? '已複製公鑰' : 'Public key copied');
+    const fallback = () => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = hex;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const done = document.execCommand('copy');
+        ta.remove();
+        if (done) ok(); else showToast(zh ? '複製失敗' : 'Copy failed', 'error');
+      } catch {
+        showToast(zh ? '複製失敗' : 'Copy failed', 'error');
+      }
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(hex).then(ok, fallback);
+    } else {
+      fallback();
+    }
   }, [zh, showToast]);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -1293,12 +1368,13 @@ export default function ChatPage() {
       {/* [COMPAT] iOS Safari: 100vh includes the collapsed URL bar → the input
           bar hides behind the bottom toolbar. dvh (iOS 15.4+) tracks the real
           visible viewport; older browsers keep the 100vh fallback. */}
-      <style>{`.anxChatApp{height:100vh}@supports(height:100dvh){.anxChatApp{height:100dvh}}@keyframes anxPulse{0%,100%{opacity:1}50%{opacity:0.35}}`}</style>
+      <style>{ANX_CSS}</style>
       {/* Sidebar */}
       {showSidebar && (
       <aside style={{ ...S.sidebar, ...(isMobile ? { width: '100%', minWidth: 0, borderRight: 'none' } : {}) }}>
         <div style={S.sideHeader}>
           <button
+            className="anxMeRow"
             style={S.meRow}
             onClick={() => copyPub(myPubHex)}
             title={zh ? '點擊複製你的公鑰' : 'Click to copy your public key'}
@@ -1306,20 +1382,21 @@ export default function ChatPage() {
             <span style={{ ...S.dot, background: dot, boxShadow: `0 0 6px ${dot}` }} />
             <div style={S.meText}>
               <div style={S.meTitle}>{zh ? '我的身份' : 'My identity'}</div>
-              <code style={S.mePub}>{short(myPubHex)} <span style={S.copyHint}>⧉</span></code>
+              <code style={S.mePub}>{short(myPubHex)} <span className="anxCopyHint" style={S.copyHint}><Icon name="copy" size={10} /></span></code>
             </div>
           </button>
           <div style={S.sideActions}>
-            <button style={S.iconBtn} title={zh ? '發起聊天' : 'New chat'} onClick={startNewChat}>＋</button>
-            <button style={{ ...S.iconBtn, fontSize: 14 }} title={zh ? '建立群組' : 'New group'} onClick={createNewGroup}>👥</button>
+            <button className="anxIconBtn" style={S.iconBtn} title={zh ? '發起聊天' : 'New chat'} onClick={startNewChat}>＋</button>
+            <button className="anxIconBtn" style={{ ...S.iconBtn, fontSize: 14 }} title={zh ? '建立群組' : 'New group'} onClick={createNewGroup}>👥</button>
             <button
+              className="anxIconBtn"
               style={{ ...S.iconBtn, fontSize: 13, opacity: readReceipts ? 1 : 0.4 }}
               title={readReceipts ? (zh ? '已讀回執：開（點擊關閉）' : 'Read receipts: on (click to turn off)') : (zh ? '已讀回執：關' : 'Read receipts: off')}
               onClick={() => setReadReceipts((v) => !v)}
             >
               👁
             </button>
-            <button style={S.iconBtn} title={zh ? '登出' : 'Log out'} onClick={logout}>⎋</button>
+            <button className="anxIconBtn" style={{ ...S.iconBtn, display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={zh ? '登出' : 'Log out'} onClick={logout}><Icon name="logout" size={15} /></button>
           </div>
         </div>
         <div style={S.statusLine}>
@@ -1334,6 +1411,7 @@ export default function ChatPage() {
             return (
               <button
                 key={e.id}
+                className="anxConvItem"
                 style={{ ...S.convItem, ...(e.id === active ? S.convItemActive : {}) }}
                 onClick={() => openConv(e.id)}
               >
@@ -1398,9 +1476,9 @@ export default function ChatPage() {
                   </div>
                   <div style={S.headerActions}>
                     {activeGroup.myRole === 'owner' && (
-                      <button style={S.headerBtn} onClick={inviteMember}>{zh ? '邀請' : 'Invite'}</button>
+                      <button className="anxHeaderBtn" style={S.headerBtn} onClick={inviteMember}>{zh ? '邀請' : 'Invite'}</button>
                     )}
-                    <button style={S.headerBtn} onClick={leaveActiveGroup}>{zh ? '離開' : 'Leave'}</button>
+                    <button className="anxHeaderBtn" style={S.headerBtn} onClick={leaveActiveGroup}>{zh ? '離開' : 'Leave'}</button>
                   </div>
                 </>
               ) : (
@@ -1437,7 +1515,7 @@ export default function ChatPage() {
               </div>
             )}
 
-            <div style={S.messages} ref={scrollRef} onScroll={onThreadScroll}>
+            <div className="anxMessages" style={S.messages} ref={scrollRef} onScroll={onThreadScroll}>
               {activeThread.messages.map((m, i) => {
                 const prev = activeThread.messages[i - 1];
                 const showDate = !prev || !sameDay(prev.ts, m.ts);
@@ -1449,6 +1527,7 @@ export default function ChatPage() {
                 const showSender = !!activeGroup && !m.mine && !grouped;
                 const trigger = (
                   <button
+                    className="anxReactTrigger"
                     style={S.reactTrigger}
                     title={zh ? '表情回應' : 'React'}
                     onClick={() => setPickerFor(pickerFor === m.id ? '' : m.id)}
@@ -1468,7 +1547,7 @@ export default function ChatPage() {
                         {groupMemberName(m.sender || '', mergedNames)}
                       </div>
                     )}
-                    <div style={{ ...S.row, justifyContent: m.mine ? 'flex-end' : 'flex-start', marginTop: grouped ? 2 : 8 }}>
+                    <div className="anxMsgRow" style={{ ...S.row, justifyContent: m.mine ? 'flex-end' : 'flex-start', marginTop: grouped ? 2 : 8 }}>
                       {m.mine && trigger}
                       <div style={{ ...S.bubble, ...(m.mine ? S.bubbleMine : S.bubbleTheirs) }}>
                         {m.attachments?.map((a, k) => (
@@ -1491,6 +1570,7 @@ export default function ChatPage() {
                             {Object.entries(m.reactions).map(([emoji, reactors]) => (
                               <button
                                 key={emoji}
+                                className="anxReactChip"
                                 style={{ ...S.reactionChip, ...(reactors.includes(myPubHex) ? S.reactionChipMine : {}) }}
                                 onClick={() => toggleReaction(m.id, emoji)}
                                 title={reactors.includes(myPubHex) ? (zh ? '取消' : 'Remove') : (zh ? '回應' : 'React')}
@@ -1508,7 +1588,7 @@ export default function ChatPage() {
                       <div style={{ ...S.reactPaletteRow, justifyContent: m.mine ? 'flex-end' : 'flex-start' }}>
                         <div style={S.reactPalette}>
                           {REACTIONS.map((e) => (
-                            <button key={e} style={S.reactPaletteBtn} onClick={() => toggleReaction(m.id, e)}>
+                            <button key={e} className="anxPaletteBtn" style={S.reactPaletteBtn} onClick={() => toggleReaction(m.id, e)}>
                               {e}
                             </button>
                           ))}
@@ -1522,8 +1602,8 @@ export default function ChatPage() {
 
             {/* [POLISH] Jump-to-latest — appears only when scrolled up. */}
             {!atBottom && (
-              <button style={S.jumpBtn} onClick={jumpToBottom} title={zh ? '回到最新' : 'Jump to latest'}>
-                ⌄
+              <button className="anxJumpBtn" style={S.jumpBtn} onClick={jumpToBottom} title={zh ? '回到最新' : 'Jump to latest'}>
+                <Icon name="chevron-down" size={22} />
               </button>
             )}
 
@@ -1539,6 +1619,7 @@ export default function ChatPage() {
                 }}
               />
               <button
+                className="anxAttachBtn"
                 style={{ ...S.attachBtn, opacity: uploading ? 0.5 : 1, cursor: uploading ? 'default' : 'pointer' }}
                 title={zh ? '傳送附件' : 'Send a file'}
                 disabled={uploading}
@@ -1548,6 +1629,7 @@ export default function ChatPage() {
               </button>
               <textarea
                 ref={inputRef}
+                className="anxInput"
                 style={S.input}
                 value={draft}
                 placeholder={zh ? '訊息…' : 'Message…'}
@@ -1568,7 +1650,12 @@ export default function ChatPage() {
                   }
                 }}
               />
-              <button style={{ ...S.sendBtn, opacity: draft.trim() ? 1 : 0.5 }} onClick={send}>
+              <button
+                className="anxSendBtn"
+                style={{ ...S.sendBtn, opacity: draft.trim() ? 1 : 0.45, cursor: draft.trim() ? 'pointer' : 'default' }}
+                disabled={!draft.trim()}
+                onClick={send}
+              >
                 {zh ? '發送' : 'Send'}
               </button>
             </div>
@@ -1596,7 +1683,7 @@ export default function ChatPage() {
                     <code style={S.memberPub}>{short(m.pubkey)}</code>
                   </div>
                   {activeGroup.myRole === 'owner' && m.pubkey !== myPubHex && m.role !== 'owner' && (
-                    <button style={S.kickBtn} onClick={() => kickGroupMember(m.pubkey)}>{zh ? '移除' : 'Remove'}</button>
+                    <button className="anxKickBtn" style={S.kickBtn} onClick={() => kickGroupMember(m.pubkey)}>{zh ? '移除' : 'Remove'}</button>
                   )}
                 </div>
               ))}
@@ -1628,10 +1715,11 @@ export default function ChatPage() {
             <div style={S.dialogTitle}>{confirm.title}</div>
             {confirm.body && <div style={S.dialogBody}>{confirm.body}</div>}
             <div style={S.dialogActions}>
-              <button style={S.dialogCancel} onClick={() => setConfirmState(null)}>
+              <button className="anxDialogCancel" style={S.dialogCancel} onClick={() => setConfirmState(null)}>
                 {zh ? '取消' : 'Cancel'}
               </button>
               <button
+                className="anxDialogConfirm"
                 style={{ ...S.dialogConfirm, ...(confirm.danger ? S.dialogDanger : {}) }}
                 onClick={() => { const fn = confirm.onConfirm; setConfirmState(null); fn(); }}
               >
@@ -1666,7 +1754,8 @@ function PromptModal({ spec, zh, onClose }: {
         {spec.label && <div style={S.dialogLabel}>{spec.label}</div>}
         <input
           ref={ref}
-          style={{ ...S.dialogInput, ...(spec.mono ? { fontFamily: 'monospace', fontSize: 13 } : {}) }}
+          className="anxDialogInput"
+          style={{ ...S.dialogInput, ...(spec.mono ? { fontFamily: 'monospace' } : {}) }}
           value={value}
           placeholder={spec.placeholder}
           onChange={(e) => setValue(e.target.value)}
@@ -1676,8 +1765,8 @@ function PromptModal({ spec, zh, onClose }: {
           }}
         />
         <div style={S.dialogActions}>
-          <button style={S.dialogCancel} onClick={onClose}>{zh ? '取消' : 'Cancel'}</button>
-          <button style={S.dialogConfirm} onClick={submit}>{spec.confirmText}</button>
+          <button className="anxDialogCancel" style={S.dialogCancel} onClick={onClose}>{zh ? '取消' : 'Cancel'}</button>
+          <button className="anxDialogConfirm" style={S.dialogConfirm} onClick={submit}>{spec.confirmText}</button>
         </div>
       </div>
     </div>
@@ -2038,7 +2127,7 @@ const S: Record<string, CSSProperties> = {
   sidebar: { width: 320, minWidth: 320, borderRight: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)' },
   sideHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
   meRow: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, textAlign: 'left' },
-  copyHint: { color: 'rgba(255,255,255,0.3)', fontSize: 10 },
+  copyHint: { color: 'rgba(255,255,255,0.3)', display: 'inline-flex', verticalAlign: 'middle', transition: 'color .12s ease' },
   dot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
   meText: { minWidth: 0 },
   meTitle: { fontSize: 13, fontWeight: 600 },
@@ -2087,7 +2176,9 @@ const S: Record<string, CSSProperties> = {
   reactPalette: { display: 'flex', gap: 2, padding: '3px 5px', background: '#1b1030', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 18, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' },
   reactPaletteBtn: { width: 30, height: 30, borderRadius: 15, border: 'none', background: 'transparent', fontSize: 17, cursor: 'pointer', padding: 0, lineHeight: 1 },
   inputBar: { display: 'flex', alignItems: 'flex-end', gap: 10, padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' },
-  input: { flex: 1, resize: 'none', maxHeight: 120, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 18, color: '#fff', padding: '10px 14px', fontSize: 14, fontFamily: 'inherit', outline: 'none', lineHeight: 1.4 },
+  // fontSize 16: iOS Safari auto-zooms the page when focusing an input under
+  // 16px. Keeping it at 16 blocks that jarring zoom-on-focus.
+  input: { flex: 1, resize: 'none', maxHeight: 120, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 18, color: '#fff', padding: '9px 14px', fontSize: 16, fontFamily: 'inherit', outline: 'none', lineHeight: 1.35 },
   sendBtn: { background: '#7462F7', color: '#fff', border: 'none', borderRadius: 18, padding: '10px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' },
   attachBtn: { width: 40, height: 40, flexShrink: 0, borderRadius: 20, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   lightbox: {
@@ -2124,7 +2215,7 @@ const S: Record<string, CSSProperties> = {
   dialogTitle: { fontSize: 16, fontWeight: 700, marginBottom: 10 },
   dialogLabel: { fontSize: 12.5, color: 'rgba(255,255,255,0.55)', marginBottom: 6 },
   dialogBody: { fontSize: 13.5, color: 'rgba(255,255,255,0.7)', lineHeight: 1.5, marginBottom: 4 },
-  dialogInput: { width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 10, color: '#fff', padding: '10px 12px', fontSize: 14, outline: 'none', fontFamily: 'inherit' },
+  dialogInput: { width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 10, color: '#fff', padding: '10px 12px', fontSize: 16, outline: 'none', fontFamily: 'inherit' },
   dialogActions: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 },
   dialogCancel: { background: 'transparent', border: '1px solid rgba(255,255,255,0.16)', color: 'rgba(255,255,255,0.8)', fontSize: 13.5, borderRadius: 10, padding: '8px 16px', cursor: 'pointer' },
   dialogConfirm: { background: '#7462F7', border: 'none', color: '#fff', fontSize: 13.5, fontWeight: 600, borderRadius: 10, padding: '8px 18px', cursor: 'pointer' },
