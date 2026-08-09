@@ -18,13 +18,18 @@
  *   The browser never sends token contracts, decimals, recipient addresses, or
  *   paid status. Those are authoritative only when returned by the backend.
  *
- * Last Modified: v1.0.0 - [USDT-PAYMENTS 2026-08-07 by Codex] Initial client.
+ * Last Modified: v1.1.0 - [USDT-CAPABILITY-RECOVERY 2026-08-09 by Codex]
+ *   Moved checkout capabilities out of URLs/request bodies, added recovery
+ *   evidence fields, and exposed the authenticated one-time checkout handoff.
+ * Previous: v1.0.0 - [USDT-PAYMENTS 2026-08-07 by Codex] Initial client.
  * ============================================
  */
 
 const MEMBERSHIP_API_BASE =
   process.env.NEXT_PUBLIC_MEMBERSHIP_API_BASE_URL ||
   'https://api.aeronyx.network/api/membership';
+
+const NODEBOARD_API_KEY_STORAGE = 'aeronyx_api_key';
 
 export type PaymentNetworkId = 'solana' | 'bsc' | 'tron';
 export type PaymentStatus =
@@ -97,7 +102,19 @@ export interface CryptoPayment {
   detected_at: string | null;
   confirmed_at: string | null;
   fulfilled_at: string | null;
+  transaction_hint_bound: boolean;
+  recovery_until: string;
+  can_still_recover: boolean;
   is_terminal: boolean;
+}
+
+export interface MembershipTopUpHandoff {
+  topup_code: string;
+  membership_code: string;
+  status: string;
+  expires_at: string | null;
+  payment_url: string | null;
+  payment_enabled: boolean;
 }
 
 interface ApiEnvelope<T> {
@@ -130,8 +147,10 @@ async function request<T>(
   const response = await fetch(`${MEMBERSHIP_API_BASE}${path}`, {
     ...init,
     cache: 'no-store',
+    credentials: 'omit',
+    referrerPolicy: 'no-referrer',
     headers: {
-      'Content-Type': 'application/json',
+      Accept: 'application/json',
       ...init.headers,
     },
   });
@@ -156,9 +175,12 @@ async function request<T>(
 }
 
 export async function loadCheckout(code: string): Promise<CheckoutSummary> {
-  const payload = await request<CheckoutSummary>(
-    `/payment/checkout/?code=${encodeURIComponent(code)}`,
-  );
+  // [USDT-CAPABILITY-RECOVERY 2026-08-09 by Codex] A checkout code is a
+  // bearer capability. Headers keep it out of access logs, referrers, and
+  // browser history while preserving the legacy backend contract internally.
+  const payload = await request<CheckoutSummary>('/payment/checkout/', {
+    headers: { 'X-Checkout-Code': code },
+  });
   if (!payload.checkout) throw new Error('Missing checkout response');
   return payload.checkout;
 }
@@ -170,7 +192,11 @@ export async function createPaymentIntent(input: {
 }): Promise<{ payment: CryptoPayment; clientToken: string }> {
   const payload = await request<CryptoPayment>('/payment/intents/', {
     method: 'POST',
-    body: JSON.stringify(input),
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Checkout-Code': input.code,
+    },
+    body: JSON.stringify({ plan: input.plan, network: input.network }),
   });
   if (!payload.payment || !payload.client_token) {
     throw new Error('Missing payment intent response');
@@ -184,8 +210,13 @@ export async function loadPaymentStatus(input: {
   clientToken: string;
 }): Promise<CryptoPayment> {
   const payload = await request<CryptoPayment>(
-    `/payment/intents/${encodeURIComponent(input.id)}/?code=${encodeURIComponent(input.code)}`,
-    { headers: { 'X-Payment-Token': input.clientToken } },
+    `/payment/intents/${encodeURIComponent(input.id)}/`,
+    {
+      headers: {
+        'X-Checkout-Code': input.code,
+        'X-Payment-Token': input.clientToken,
+      },
+    },
   );
   if (!payload.payment) throw new Error('Missing payment status response');
   return payload.payment;
@@ -201,10 +232,58 @@ export async function submitTransactionHint(input: {
     `/payment/intents/${encodeURIComponent(input.id)}/transaction-hint/`,
     {
       method: 'POST',
-      headers: { 'X-Payment-Token': input.clientToken },
-      body: JSON.stringify({ code: input.code, tx_hash: input.txHash }),
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Checkout-Code': input.code,
+        'X-Payment-Token': input.clientToken,
+      },
+      body: JSON.stringify({ tx_hash: input.txHash }),
     },
   );
   if (!payload.payment) throw new Error('Missing transaction response');
   return payload.payment;
+}
+
+/**
+ * Create a short-lived checkout handoff for the currently authenticated
+ * Nodeboard wallet. The wallet identity stays on the authenticated API; only
+ * the random one-time code crosses into the public checkout page.
+ */
+export async function createMembershipTopUpHandoff(
+  plan: 'premium_monthly' | 'premium_yearly',
+): Promise<MembershipTopUpHandoff> {
+  const apiKey = typeof window === 'undefined'
+    ? null
+    : window.localStorage.getItem(NODEBOARD_API_KEY_STORAGE);
+  if (!apiKey) {
+    throw new MembershipPaymentApiError(
+      'authentication_required',
+      'Reconnect your wallet before creating a payment.',
+      401,
+    );
+  }
+
+  const response = await fetch(`${MEMBERSHIP_API_BASE}/payment/topup-code/`, {
+    method: 'POST',
+    cache: 'no-store',
+    credentials: 'omit',
+    referrerPolicy: 'no-referrer',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ plan, currency: 'USDT' }),
+  });
+  const payload = await response.json().catch(() => null) as
+    | (Partial<MembershipTopUpHandoff> & { error?: string; detail?: string })
+    | null;
+  if (!response.ok || !payload) {
+    throw new MembershipPaymentApiError(
+      payload?.error || 'checkout_handoff_failed',
+      payload?.detail || 'The secure checkout could not be prepared.',
+      response.status,
+    );
+  }
+  return payload as MembershipTopUpHandoff;
 }

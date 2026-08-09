@@ -15,6 +15,8 @@
  *     /root/aeronyx/privacy_network/api/vpn_billing.py
  *   - GET /api/privacy_network/vpn/servers/
  *     /root/aeronyx/privacy_network/api/vpn_servers.py
+ *   - POST /api/membership/payment/topup-code/
+ *     /root/aeronyx/membership/api/payment_alias.py
  *
  * Rust sources behind the VPN snapshot:
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/api/vpn_health.rs
@@ -22,7 +24,9 @@
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/handlers/packet.rs
  *
- * Last Modified: v1.0.2 - Documented VPN backend/Rust data sources
+ * Last Modified: v1.1.0 - [USDT-DASHBOARD-HANDOFF 2026-08-09 by Codex]
+ *   Added authenticated one-time membership checkout handoff.
+ * Previous: v1.0.2 - Documented VPN backend/Rust data sources
  * ============================================
  */
 
@@ -34,6 +38,7 @@ import { useNodes, useAggregatedStats, useDeleteNode, useVpnOverview, useVpnEven
 import { useAuthStore } from '@/stores/authStore';
 import { Node, VpnEvent, VpnEventSeverity, VpnHealthStatus, VpnServerPlacementGroup } from '@/types';
 import { formatBytes, truncateAddress } from '@/lib/api';
+import { createMembershipTopUpHandoff } from '@/lib/membershipPayments';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import Card, { StatCard, EmptyState } from '@/components/common/Card';
 import Button from '@/components/common/Button';
@@ -136,6 +141,74 @@ function StatsGrid() {
         }
       />
     </div>
+  );
+}
+
+// ============================================
+// Membership Checkout Handoff
+// ============================================
+
+function MembershipCheckoutCard() {
+  const { t } = useI18n();
+  const [cycle, setCycle] = useState<'monthly' | 'yearly'>('monthly');
+  const [isPreparing, setIsPreparing] = useState(false);
+  const [notice, setNotice] = useState('');
+
+  const openCheckout = useCallback(async () => {
+    setIsPreparing(true);
+    setNotice('');
+    try {
+      const handoff = await createMembershipTopUpHandoff(
+        cycle === 'yearly' ? 'premium_yearly' : 'premium_monthly',
+      );
+      if (!handoff.payment_enabled || !handoff.payment_url) {
+        setNotice(t('dashboard.membership.unavailable'));
+        return;
+      }
+      // [USDT-DASHBOARD-HANDOFF 2026-08-09 by Codex] The backend authors the
+      // one-time URL, but the browser still constrains navigation to this app.
+      const destination = new URL(handoff.payment_url, window.location.origin);
+      if (destination.origin !== window.location.origin || destination.pathname !== '/topup') {
+        throw new Error(t('dashboard.membership.invalidLink'));
+      }
+      window.location.assign(destination.href);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : t('dashboard.membership.error'));
+    } finally {
+      setIsPreparing(false);
+    }
+  }, [cycle, t]);
+
+  return (
+    <Card variant="outline" padding="md" className="mb-8 border-emerald-400/15">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="max-w-2xl">
+          <p className="text-xs font-medium uppercase tracking-wide text-emerald-300/80">{t('dashboard.membership.eyebrow')}</p>
+          <h2 className="mt-2 text-base font-semibold text-white">{t('dashboard.membership.title')}</h2>
+          <p className="mt-1 text-sm leading-6 text-gray-400">{t('dashboard.membership.description')}</p>
+        </div>
+        <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto">
+          <div className="grid h-11 grid-cols-2 rounded-lg border border-white/10 bg-black/20 p-1 sm:w-56" aria-label={t('dashboard.membership.billingCycle')}>
+            {(['monthly', 'yearly'] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={cycle === value}
+                onClick={() => setCycle(value)}
+                className={`rounded-md px-3 text-sm transition-colors ${cycle === value ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+              >
+                {t(`dashboard.membership.${value}`)}
+              </button>
+            ))}
+          </div>
+          <Button variant="primary" onClick={openCheckout} isLoading={isPreparing}>
+            {isPreparing ? t('dashboard.membership.preparing') : t('dashboard.membership.open')}
+          </Button>
+        </div>
+      </div>
+      {notice && <p role="status" className="mt-4 border-t border-white/5 pt-4 text-sm text-amber-200">{notice}</p>}
+      <p className="mt-4 text-xs leading-5 text-gray-600">{t('dashboard.membership.privacy')}</p>
+    </Card>
   );
 }
 
@@ -630,6 +703,9 @@ export default function DashboardPage() {
 
       {/* Stats Grid */}
       <StatsGrid />
+
+      {/* Authenticated membership checkout handoff */}
+      <MembershipCheckoutCard />
 
       {/* AeroNyx Privacy Protocol Operations Snapshot */}
       <VpnOperationsSnapshot />
