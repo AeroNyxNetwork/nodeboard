@@ -18,7 +18,10 @@
  *   The browser never sends token contracts, decimals, recipient addresses, or
  *   paid status. Those are authoritative only when returned by the backend.
  *
- * Last Modified: v1.1.0 - [USDT-CAPABILITY-RECOVERY 2026-08-09 by Codex]
+ * Last Modified: v1.1.1 - [USDT-TOPUP-BINDING 2026-08-09 by Codex]
+ *   Clarified that every public payment intent is authorized by its checkout
+ *   capability; recipient addresses remain authoritative backend output.
+ * Previous: v1.1.0 - [USDT-CAPABILITY-RECOVERY 2026-08-09 by Codex]
  *   Moved checkout capabilities out of URLs/request bodies, added recovery
  *   evidence fields, and exposed the authenticated one-time checkout handoff.
  * Previous: v1.0.0 - [USDT-PAYMENTS 2026-08-07 by Codex] Initial client.
@@ -190,6 +193,9 @@ export async function createPaymentIntent(input: {
   plan: string;
   network: PaymentNetworkId;
 }): Promise<{ payment: CryptoPayment; clientToken: string }> {
+  // [USDT-TOPUP-BINDING 2026-08-09 by Codex] The checkout capability is the
+  // authority for this payment. The browser never supplies a recipient; the
+  // backend binds code, plan, network, amount, and address atomically.
   const payload = await request<CryptoPayment>('/payment/intents/', {
     method: 'POST',
     headers: {
