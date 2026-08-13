@@ -18,7 +18,10 @@
  *   The browser never sends token contracts, decimals, recipient addresses, or
  *   paid status. Those are authoritative only when returned by the backend.
  *
- * Last Modified: v1.2.0 - [USDT-CHECKOUT-LIFECYCLE 2026-08-13 by Codex]
+ * Last Modified: v1.3.0 - [USDT-CHECKOUT-SESSION 2026-08-13 by Codex]
+ *   Centralized checkout-code routing and recoverable browser-session storage
+ *   so authenticated handoff and public checkout cannot drift apart.
+ * Previous: v1.2.0 - [USDT-CHECKOUT-LIFECYCLE 2026-08-13 by Codex]
  *   Centralized payment lifecycle policy, added abortable status reads, and
  *   distinguished invalid recovery credentials from transient API failures.
  * Previous: v1.1.1 - [USDT-TOPUP-BINDING 2026-08-09 by Codex]
@@ -36,6 +39,8 @@ const MEMBERSHIP_API_BASE =
   'https://api.aeronyx.network/api/membership';
 
 const NODEBOARD_API_KEY_STORAGE = 'aeronyx_api_key';
+const PAYMENT_SESSION_STORAGE_KEY = 'aeronyx.membership.payment.current';
+const CHECKOUT_CODE_PATTERN = /^(?:TOP-)?NYX-[A-Z0-9-]{8,40}$/;
 
 export type PaymentNetworkId = 'solana' | 'bsc' | 'tron';
 export type PaymentStatus =
@@ -123,6 +128,13 @@ export interface MembershipTopUpHandoff {
   payment_enabled: boolean;
 }
 
+/** Browser-held capability required to recover one authoritative payment. */
+export interface MembershipPaymentSession {
+  code: string;
+  id: string;
+  token: string;
+}
+
 /** Product-safe lifecycle phases shared by checkout presentation surfaces. */
 export type PaymentLifecyclePhase =
   | 'transfer'
@@ -152,6 +164,95 @@ export class MembershipPaymentApiError extends Error {
     this.code = code;
     this.httpStatus = httpStatus;
   }
+}
+
+function browserSessionStorage(storage?: Storage | null): Storage | null {
+  if (storage !== undefined) return storage;
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function isBoundedOpaqueValue(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 512;
+}
+
+/** Normalize a checkout bearer capability without exposing it in a query. */
+export function normalizeMembershipCheckoutCode(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const normalized = raw.trim().toUpperCase();
+  return CHECKOUT_CODE_PATTERN.test(normalized) ? normalized : null;
+}
+
+/** Build the only allowed in-app checkout route for a validated capability. */
+export function membershipCheckoutHref(rawCode: unknown): string | null {
+  const code = normalizeMembershipCheckoutCode(rawCode);
+  return code ? `/topup#code=${encodeURIComponent(code)}` : null;
+}
+
+/**
+ * Read the current recoverable payment session without throwing.
+ *
+ * [USDT-CHECKOUT-SESSION 2026-08-13 by Codex] A malformed browser value is
+ * removed, while a valid session for another checkout is preserved. Merely
+ * opening a second link must never destroy recovery for an already-funded one.
+ */
+export function readMembershipPaymentSession(
+  expectedCode?: string,
+  storage?: Storage | null,
+): MembershipPaymentSession | null {
+  const target = browserSessionStorage(storage);
+  if (!target) return null;
+  try {
+    const raw = target.getItem(PAYMENT_SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<MembershipPaymentSession>;
+    const code = normalizeMembershipCheckoutCode(parsed.code);
+    if (!code || !isBoundedOpaqueValue(parsed.id) || !isBoundedOpaqueValue(parsed.token)) {
+      target.removeItem(PAYMENT_SESSION_STORAGE_KEY);
+      return null;
+    }
+    const expected = expectedCode
+      ? normalizeMembershipCheckoutCode(expectedCode)
+      : null;
+    if (expectedCode && expected !== code) return null;
+    return { code, id: parsed.id, token: parsed.token };
+  } catch {
+    try { target.removeItem(PAYMENT_SESSION_STORAGE_KEY); } catch { /* no-op */ }
+    return null;
+  }
+}
+
+/** Persist a recovery capability only after the backend creates an intent. */
+export function writeMembershipPaymentSession(
+  session: MembershipPaymentSession,
+  storage?: Storage | null,
+): boolean {
+  const target = browserSessionStorage(storage);
+  const code = normalizeMembershipCheckoutCode(session.code);
+  if (!target || !code || !isBoundedOpaqueValue(session.id) || !isBoundedOpaqueValue(session.token)) {
+    return false;
+  }
+  try {
+    target.setItem(PAYMENT_SESSION_STORAGE_KEY, JSON.stringify({
+      code,
+      id: session.id,
+      token: session.token,
+    }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Remove the local recovery capability after explicit lifecycle closure. */
+export function clearMembershipPaymentSession(storage?: Storage | null): void {
+  const target = browserSessionStorage(storage);
+  if (!target) return;
+  try { target.removeItem(PAYMENT_SESSION_STORAGE_KEY); } catch { /* no-op */ }
 }
 
 const TRANSFER_OPEN_STATUSES = new Set<PaymentStatus>([

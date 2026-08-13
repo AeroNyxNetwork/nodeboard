@@ -25,7 +25,10 @@
  *   Never animate fake payment progress or infer paid state in the browser.
  *   Only backend status=fulfilled may render the success state.
  *
- * Last Modified: v2.3.0 - [USDT-CHECKOUT-LIFECYCLE 2026-08-13 by Codex]
+ * Last Modified: v2.4.0 - [USDT-CHECKOUT-SESSION 2026-08-13 by Codex]
+ *   Reused the shared recovery-session boundary and added an explicit,
+ *   capability-clearing return action after membership activation.
+ * Previous: v2.3.0 - [USDT-CHECKOUT-LIFECYCLE 2026-08-13 by Codex]
  *   Prevented duplicate-payment cues after detection, preserved recoverable
  *   sessions across transient failures, and added resilient status controls.
  * Previous: v2.2.0 - [USDT-TOPUP-BINDING 2026-08-09 by Codex]
@@ -53,15 +56,19 @@ import {
   PaymentNetworkId,
   PaymentStatus,
   canSubmitPaymentTransactionHint,
+  clearMembershipPaymentSession,
   createPaymentIntent,
   isPaymentRecoverable,
   isPaymentRecoveryCredentialRejected,
   isPaymentTransferOpen,
   loadCheckout,
   loadPaymentStatus,
+  normalizeMembershipCheckoutCode,
   paymentLifecyclePhase,
+  readMembershipPaymentSession,
   shouldPollPayment,
   submitTransactionHint,
+  writeMembershipPaymentSession,
 } from '@/lib/membershipPayments';
 
 type Copy = {
@@ -258,16 +265,8 @@ const copyByLocale: Record<Locale, Copy> = {
 const REVIEW_STATUSES = new Set<PaymentStatus>([
   'underpaid', 'overpaid', 'wrong_asset', 'needs_review',
 ]);
-const PAYMENT_SESSION_KEY = 'aeronyx.membership.payment.current';
-const CHECKOUT_CODE_PATTERN = /^(?:TOP-)?NYX-[A-Z0-9-]{8,40}$/;
 const STATUS_POLL_INTERVAL_MS = 5000;
 const STATUS_POLL_MAX_BACKOFF_MS = 30000;
-
-type StoredPaymentSession = {
-  code: string;
-  id: string;
-  token: string;
-};
 
 function formatCountdown(expiresAt: string, now: number) {
   const seconds = Math.max(0, Math.floor((new Date(expiresAt).getTime() - now) / 1000));
@@ -314,9 +313,8 @@ export default function TopUpPage() {
     const url = new URL(window.location.href);
     const fragmentCode = new URLSearchParams(url.hash.replace(/^#/, '')).get('code');
     const queryCode = url.searchParams.get('code');
-    const raw = fragmentCode || queryCode || '';
-    const normalized = raw.trim().toUpperCase();
-    if (!CHECKOUT_CODE_PATTERN.test(normalized)) {
+    const normalized = normalizeMembershipCheckoutCode(fragmentCode || queryCode);
+    if (!normalized) {
       setLoading(false);
       return;
     }
@@ -360,43 +358,34 @@ export default function TopUpPage() {
         setCheckout(summary);
         setSelectedPlan(summary.plans[0]?.id || '');
         setSelectedNetwork(summary.networks.find((item) => item.available)?.id || '');
-        const saved = window.sessionStorage.getItem(PAYMENT_SESSION_KEY);
+        const saved = readMembershipPaymentSession(code);
         if (saved) {
-          let parsed: Partial<StoredPaymentSession> = {};
+          setClientToken(saved.token);
+          setPendingPaymentId(saved.id);
           try {
-            parsed = JSON.parse(saved) as typeof parsed;
-          } catch {
-            // Corrupt or legacy browser state must never block a new checkout.
-            window.sessionStorage.removeItem(PAYMENT_SESSION_KEY);
-          }
-          if (parsed.code === code && parsed.id && parsed.token) {
-            setClientToken(parsed.token);
-            setPendingPaymentId(parsed.id);
-            try {
-              const restored = await refreshPayment(
-                parsed.id,
-                parsed.token,
-                code,
-                requestController.signal,
-              );
-              if (cancelled) return;
-              setPayment(restored);
+            const restored = await refreshPayment(
+              saved.id,
+              saved.token,
+              code,
+              requestController.signal,
+            );
+            if (cancelled) return;
+            setPayment(restored);
+            setPendingPaymentId('');
+          } catch (restoreError) {
+            if (cancelled || requestController.signal.aborted) return;
+            // [USDT-CHECKOUT-LIFECYCLE 2026-08-13 by Codex] Transient
+            // network/server failures must not destroy the only browser
+            // capability able to recover an already-funded payment.
+            if (isPaymentRecoveryCredentialRejected(restoreError)) {
+              clearMembershipPaymentSession();
+              setClientToken('');
               setPendingPaymentId('');
-            } catch (restoreError) {
-              if (cancelled || requestController.signal.aborted) return;
-              // [USDT-CHECKOUT-LIFECYCLE 2026-08-13 by Codex] Transient
-              // network/server failures must not destroy the only browser
-              // capability able to recover an already-funded payment.
-              if (isPaymentRecoveryCredentialRejected(restoreError)) {
-                window.sessionStorage.removeItem(PAYMENT_SESSION_KEY);
-                setClientToken('');
-                setPendingPaymentId('');
-                setError(friendlyError(restoreError));
-              } else {
-                setStatusWarning(friendlyError(restoreError));
-              }
+              setError(friendlyError(restoreError));
+            } else {
+              setStatusWarning(friendlyError(restoreError));
             }
-          } else window.sessionStorage.removeItem(PAYMENT_SESSION_KEY);
+          }
         }
       } catch (requestError) {
         if (!cancelled && !requestController.signal.aborted) {
@@ -521,10 +510,11 @@ export default function TopUpPage() {
       setClientToken(result.clientToken);
       setPendingPaymentId('');
       setStatusWarning('');
-      window.sessionStorage.setItem(
-        PAYMENT_SESSION_KEY,
-        JSON.stringify({ code, id: result.payment.id, token: result.clientToken }),
-      );
+      writeMembershipPaymentSession({
+        code,
+        id: result.payment.id,
+        token: result.clientToken,
+      });
     } catch (requestError) {
       setError(friendlyError(requestError));
     } finally {
@@ -558,7 +548,7 @@ export default function TopUpPage() {
       setError('');
     } catch (requestError) {
       if (isPaymentRecoveryCredentialRejected(requestError)) {
-        window.sessionStorage.removeItem(PAYMENT_SESSION_KEY);
+        clearMembershipPaymentSession();
         setClientToken('');
         setPendingPaymentId('');
         setError(friendlyError(requestError));
@@ -586,8 +576,15 @@ export default function TopUpPage() {
     } finally { setSubmitting(false); }
   }
 
+  function finishCheckout() {
+    // [USDT-CHECKOUT-SESSION 2026-08-13 by Codex] Completion is the only
+    // positive lifecycle state that automatically closes local recovery.
+    clearMembershipPaymentSession();
+    window.location.assign('/dashboard');
+  }
+
   function restartCheckout() {
-    window.sessionStorage.removeItem(PAYMENT_SESSION_KEY);
+    clearMembershipPaymentSession();
     if (checkout?.code_type === 'one_time') {
       // A consumed one-time capability cannot safely create another intent.
       // [USDT-CHECKOUT-LIFECYCLE 2026-08-13 by Codex] A deterministic route
@@ -872,6 +869,7 @@ export default function TopUpPage() {
 
               <div className="mt-6 flex flex-wrap gap-3">
                 {payment.explorer_url && <a href={payment.explorer_url} target="_blank" rel="noreferrer" className="rounded-lg border border-white/15 px-4 py-2 text-sm hover:bg-white/10">{text.explorer}</a>}
+                {payment.status === 'fulfilled' && <button type="button" onClick={finishCheckout} className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-400/60">{text.backToDashboard}</button>}
                 {(REVIEW_STATUSES.has(payment.status) || payment.status === 'failed') && <a href="mailto:hi@aeronyx.network" className="rounded-lg border border-amber-300/25 px-4 py-2 text-sm text-amber-100 hover:bg-amber-300/10">{text.support}</a>}
                 {((payment.status === 'expired' && !paymentRecoverable) || payment.status === 'failed' || payment.status === 'cancelled') && <button type="button" onClick={restartCheckout} className="rounded-lg border border-white/15 px-4 py-2 text-sm hover:bg-white/10">{text.retry}</button>}
               </div>

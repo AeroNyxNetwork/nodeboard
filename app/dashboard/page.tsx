@@ -24,7 +24,10 @@
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/handlers/packet.rs
  *
- * Last Modified: v1.1.0 - [USDT-DASHBOARD-HANDOFF 2026-08-09 by Codex]
+ * Last Modified: v1.2.0 - [USDT-CHECKOUT-SESSION 2026-08-13 by Codex]
+ *   Added same-device payment resumption and derived the public checkout route
+ *   from the validated one-time capability instead of a backend-authored URL.
+ * Previous: v1.1.0 - [USDT-DASHBOARD-HANDOFF 2026-08-09 by Codex]
  *   Added authenticated one-time membership checkout handoff.
  * Previous: v1.0.2 - Documented VPN backend/Rust data sources
  * ============================================
@@ -32,13 +35,17 @@
 
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { useNodes, useAggregatedStats, useDeleteNode, useVpnOverview, useVpnEvents, useVpnBilling, useVpnServers } from '@/hooks/useNodes';
 import { useAuthStore } from '@/stores/authStore';
 import { Node, VpnEvent, VpnEventSeverity, VpnHealthStatus, VpnServerPlacementGroup } from '@/types';
 import { formatBytes, truncateAddress } from '@/lib/api';
-import { createMembershipTopUpHandoff } from '@/lib/membershipPayments';
+import {
+  createMembershipTopUpHandoff,
+  membershipCheckoutHref,
+  readMembershipPaymentSession,
+} from '@/lib/membershipPayments';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import Card, { StatCard, EmptyState } from '@/components/common/Card';
 import Button from '@/components/common/Button';
@@ -153,25 +160,40 @@ function MembershipCheckoutCard() {
   const [cycle, setCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [isPreparing, setIsPreparing] = useState(false);
   const [notice, setNotice] = useState('');
+  const [resumeHref, setResumeHref] = useState<string | null>(null);
+
+  useEffect(() => {
+    const saved = readMembershipPaymentSession();
+    setResumeHref(saved ? membershipCheckoutHref(saved.code) : null);
+  }, []);
 
   const openCheckout = useCallback(async () => {
+    // [USDT-CHECKOUT-SESSION 2026-08-13 by Codex] Resume before minting a new
+    // one-time capability. This prevents accidental parallel payment orders
+    // when an operator returns to the dashboard during chain confirmation.
+    const saved = readMembershipPaymentSession();
+    const savedHref = saved ? membershipCheckoutHref(saved.code) : null;
+    if (savedHref) {
+      window.location.assign(savedHref);
+      return;
+    }
     setIsPreparing(true);
     setNotice('');
     try {
       const handoff = await createMembershipTopUpHandoff(
         cycle === 'yearly' ? 'premium_yearly' : 'premium_monthly',
       );
-      if (!handoff.payment_enabled || !handoff.payment_url) {
+      if (!handoff.payment_enabled) {
         setNotice(t('dashboard.membership.unavailable'));
         return;
       }
-      // [USDT-DASHBOARD-HANDOFF 2026-08-09 by Codex] The backend authors the
-      // one-time URL, but the browser still constrains navigation to this app.
-      const destination = new URL(handoff.payment_url, window.location.origin);
-      if (destination.origin !== window.location.origin || destination.pathname !== '/topup') {
+      // The backend grants the opaque code; the browser owns the fixed local
+      // route and keeps the capability in a URL fragment, outside HTTP logs.
+      const destination = membershipCheckoutHref(handoff.topup_code);
+      if (!destination) {
         throw new Error(t('dashboard.membership.invalidLink'));
       }
-      window.location.assign(destination.href);
+      window.location.assign(destination);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t('dashboard.membership.error'));
     } finally {
@@ -188,24 +210,31 @@ function MembershipCheckoutCard() {
           <p className="mt-1 text-sm leading-6 text-gray-400">{t('dashboard.membership.description')}</p>
         </div>
         <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto">
-          <div className="grid h-11 grid-cols-2 rounded-lg border border-white/10 bg-black/20 p-1 sm:w-56" aria-label={t('dashboard.membership.billingCycle')}>
-            {(['monthly', 'yearly'] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={cycle === value}
-                onClick={() => setCycle(value)}
-                className={`rounded-md px-3 text-sm transition-colors ${cycle === value ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-              >
-                {t(`dashboard.membership.${value}`)}
-              </button>
-            ))}
-          </div>
+          {!resumeHref && (
+            <div className="grid h-11 grid-cols-2 rounded-lg border border-white/10 bg-black/20 p-1 sm:w-56" aria-label={t('dashboard.membership.billingCycle')}>
+              {(['monthly', 'yearly'] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={cycle === value}
+                  onClick={() => setCycle(value)}
+                  className={`rounded-md px-3 text-sm transition-colors ${cycle === value ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  {t(`dashboard.membership.${value}`)}
+                </button>
+              ))}
+            </div>
+          )}
           <Button variant="primary" onClick={openCheckout} isLoading={isPreparing}>
-            {isPreparing ? t('dashboard.membership.preparing') : t('dashboard.membership.open')}
+            {isPreparing
+              ? t('dashboard.membership.preparing')
+              : resumeHref
+                ? t('dashboard.membership.resume')
+                : t('dashboard.membership.open')}
           </Button>
         </div>
       </div>
+      {resumeHref && <p role="status" className="mt-4 border-t border-emerald-300/10 pt-4 text-sm text-emerald-200">{t('dashboard.membership.resumeNotice')}</p>}
       {notice && <p role="status" className="mt-4 border-t border-white/5 pt-4 text-sm text-amber-200">{notice}</p>}
       <p className="mt-4 text-xs leading-5 text-gray-600">{t('dashboard.membership.privacy')}</p>
     </Card>

@@ -20,7 +20,9 @@
  *   public keys, wallet secrets, client IPs, destinations, DNS contents,
  *   packet payloads, browsing history, or traffic metadata.
  *
- * Last Modified: v1.0.18 - [USDT-DASHBOARD-HANDOFF 2026-08-09 by Codex]
+ * Last Modified: v1.0.19 - [USDT-CHECKOUT-SESSION 2026-08-13 by Codex]
+ *   Added multilingual same-device payment resumption copy.
+ * Previous: v1.0.18 - [USDT-DASHBOARD-HANDOFF 2026-08-09 by Codex]
  *   Added multilingual authenticated membership checkout handoff copy.
  * Previous: v1.0.17 - Added Protocol Foundation App E2E readiness gate copy
  * Previous: v1.0.16 - Reworked Protocol Foundation evidence panel copy
@@ -160,6 +162,8 @@ const en: Dictionary = {
   'dashboard.membership.yearly': 'Yearly',
   'dashboard.membership.open': 'Continue to payment',
   'dashboard.membership.preparing': 'Preparing',
+  'dashboard.membership.resume': 'Resume payment',
+  'dashboard.membership.resumeNotice': 'A payment is already in progress on this device. Resume it before creating another order.',
   'dashboard.membership.unavailable': 'USDT checkout is not accepting transfers yet. No receiving address has been issued.',
   'dashboard.membership.invalidLink': 'The payment service returned an invalid checkout link.',
   'dashboard.membership.error': 'The secure checkout could not be prepared.',
@@ -2701,6 +2705,8 @@ const zhCN: Dictionary = {
   'dashboard.membership.yearly': '年付',
   'dashboard.membership.open': '继续支付',
   'dashboard.membership.preparing': '正在准备',
+  'dashboard.membership.resume': '继续未完成的支付',
+  'dashboard.membership.resumeNotice': '此设备上已有一笔支付正在进行。请先继续该支付，不要重复创建订单。',
   'dashboard.membership.unavailable': 'USDT 结账尚未接收转账，系统没有签发任何收款地址。',
   'dashboard.membership.invalidLink': '支付服务返回了无效的结账链接。',
   'dashboard.membership.error': '无法准备安全结账。',
@@ -4973,6 +4979,8 @@ const zhTW: Dictionary = {
   'dashboard.membership.yearly': '年付',
   'dashboard.membership.open': '繼續支付',
   'dashboard.membership.preparing': '正在準備',
+  'dashboard.membership.resume': '繼續未完成的支付',
+  'dashboard.membership.resumeNotice': '此裝置上已有一筆支付正在進行。請先繼續該支付，不要重複建立訂單。',
   'dashboard.membership.unavailable': 'USDT 結帳尚未接收轉帳，系統沒有簽發任何收款地址。',
   'dashboard.membership.invalidLink': '支付服務回傳了無效的結帳連結。',
   'dashboard.membership.error': '無法準備安全結帳。',
@@ -7259,6 +7267,8 @@ const ja: Dictionary = {
   'dashboard.membership.yearly': '年額',
   'dashboard.membership.open': '支払いへ進む',
   'dashboard.membership.preparing': '準備中',
+  'dashboard.membership.resume': '支払いを再開',
+  'dashboard.membership.resumeNotice': 'この端末で支払いが進行中です。新しい注文を作る前に再開してください。',
   'dashboard.membership.unavailable': 'USDT決済はまだ送金を受け付けておらず、受取アドレスは発行されていません。',
   'dashboard.membership.invalidLink': '支払いサービスが無効な決済リンクを返しました。',
   'dashboard.membership.error': '安全な決済を準備できませんでした。',
@@ -9549,6 +9559,8 @@ const ko: Dictionary = {
   'dashboard.membership.yearly': '연간',
   'dashboard.membership.open': '결제 계속',
   'dashboard.membership.preparing': '준비 중',
+  'dashboard.membership.resume': '결제 계속하기',
+  'dashboard.membership.resumeNotice': '이 기기에서 결제가 진행 중입니다. 새 주문을 만들기 전에 먼저 계속하세요.',
   'dashboard.membership.unavailable': 'USDT 결제는 아직 송금을 받지 않으며 수신 주소도 발급되지 않았습니다.',
   'dashboard.membership.invalidLink': '결제 서비스가 잘못된 결제 링크를 반환했습니다.',
   'dashboard.membership.error': '안전한 결제를 준비할 수 없습니다.',
@@ -11839,6 +11851,8 @@ const ru: Dictionary = {
   'dashboard.membership.yearly': 'Ежегодно',
   'dashboard.membership.open': 'Перейти к оплате',
   'dashboard.membership.preparing': 'Подготовка',
+  'dashboard.membership.resume': 'Продолжить оплату',
+  'dashboard.membership.resumeNotice': 'На этом устройстве уже есть активный платёж. Продолжите его перед созданием нового заказа.',
   'dashboard.membership.unavailable': 'Оплата USDT пока не принимает переводы; адрес получателя не выдавался.',
   'dashboard.membership.invalidLink': 'Платёжный сервис вернул недействительную ссылку.',
   'dashboard.membership.error': 'Не удалось подготовить безопасную оплату.',
