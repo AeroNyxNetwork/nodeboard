@@ -10,6 +10,12 @@
  * Layer, and SuperNode diagnostics opened only when needed.
  *
  * Modification Reason:
+ *   v1.1.83 - [FLEET-OPERATION-LIFECYCLE 2026-08-13 by Codex] Replaced
+ *     browser-native maintenance/restart confirmations with the shared,
+ *     accessible operator dialog. Every destructive fleet action now
+ *     revalidates a fresh backend snapshot before mutation, keeps queued
+ *     commands distinct from Rust execution, and cannot misreport an accepted
+ *     operation as failed only because a follow-up snapshot refresh failed.
  *   v1.1.82 - Added an Onion Relay Pool admission detail panel under the
  *     Services Layers module. The detail panel explains the permissionless
  *     admission model, warm-up gates, client-selected routing, and honest
@@ -404,12 +410,14 @@ import { useCancelNodeCommand, useRunNodeCommand, useUpdateNode, useVpnOverview,
 import { formatDuration, formatRelativeTime } from '@/lib/api';
 import { POLLING_INTERVALS } from '@/lib/constants';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { ConfirmDialog } from '@/components/common/Modal';
 import {
   BlindRelayRuntimeStatus,
   NodeOperatorStatus,
   OperatorRisk,
   OperatorServiceStatus,
   RuntimeRolloutStatus,
+  VpnOverview,
   VpnNodeHealth,
   VpnRestartCommandState,
   VpnRestartCutoverProblemNode,
@@ -568,8 +576,34 @@ interface PageHeaderProps {
 }
 
 interface OperationNotice {
-  type: 'success' | 'error';
+  type: 'success' | 'warning' | 'error';
   message: string;
+}
+
+type FleetOperationConfirmation =
+  | { kind: 'enable_maintenance'; nodeId: string; nodeName: string }
+  | { kind: 'end_maintenance'; nodeId: string; nodeName: string }
+  | { kind: 'queue_restart'; nodeId: string; nodeName: string }
+  | { kind: 'cancel_restart'; nodeId: string; nodeName: string; commandId: string };
+
+interface QueryRefreshResult<T> {
+  data?: T;
+  isError?: boolean;
+}
+
+// [FLEET-OPERATION-LIFECYCLE 2026-08-13 by Codex] React Query refetch is
+// intentionally typed as unknown by the shared hook. Narrow it once here so
+// safety gates fail closed when a fresh authoritative snapshot is unavailable.
+function refreshResultData<T>(result: unknown): T | null {
+  if (!result || typeof result !== 'object') return null;
+  const refreshResult = result as QueryRefreshResult<T>;
+  return refreshResult.isError || !refreshResult.data ? null : refreshResult.data;
+}
+
+function refreshResultSucceeded(result: PromiseSettledResult<unknown>): boolean {
+  if (result.status !== 'fulfilled') return false;
+  if (!result.value || typeof result.value !== 'object') return true;
+  return !(result.value as QueryRefreshResult<unknown>).isError;
 }
 
 interface RiskView extends OperatorRisk {
@@ -5096,6 +5130,7 @@ function FleetRestartReadinessPanel({
   endingMaintenanceNodeId,
   restartingNodeId,
   cancellingCommandId,
+  operationBusy,
   onEnableMaintenance,
   onEndMaintenance,
   onQueueRestart,
@@ -5107,6 +5142,7 @@ function FleetRestartReadinessPanel({
   endingMaintenanceNodeId: string | null;
   restartingNodeId: string | null;
   cancellingCommandId: string | null;
+  operationBusy: boolean;
   onEnableMaintenance: (nodeId: string, nodeName: string) => void;
   onEndMaintenance: (nodeId: string, nodeName: string) => void;
   onQueueRestart: (nodeId: string, nodeName: string) => void;
@@ -6149,7 +6185,7 @@ function FleetRestartReadinessPanel({
                     <button
                       type="button"
                       onClick={() => onEndMaintenance(node.id, node.name)}
-                      disabled={Boolean(endingMaintenanceNodeId)}
+                      disabled={operationBusy}
                       className="inline-flex items-center justify-center rounded-md border border-emerald-300/20 px-2.5 py-1 font-medium text-emerald-100 transition hover:border-emerald-200/40 hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isEndingMaintenance ? 'Ending...' : node.recommended_action?.label ?? 'End maintenance'}
@@ -6428,7 +6464,7 @@ function FleetRestartReadinessPanel({
                           <button
                             type="button"
                             onClick={() => onEnableMaintenance(item.id, item.name)}
-                            disabled={Boolean(enablingMaintenanceNodeId)}
+                            disabled={operationBusy}
                             className="inline-flex items-center justify-center rounded-md border border-yellow-300/20 px-2.5 py-1 font-medium text-yellow-100 transition hover:border-yellow-200/40 hover:bg-yellow-300/10 disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             {isEnablingMaintenance ? t('services.restartQueue.enabling') : t('services.restartQueue.enableMaintenance')}
@@ -6438,7 +6474,7 @@ function FleetRestartReadinessPanel({
                           <button
                             type="button"
                             onClick={() => onQueueRestart(item.id, item.name)}
-                            disabled={Boolean(restartingNodeId)}
+                            disabled={operationBusy}
                             className="inline-flex items-center justify-center rounded-md border border-emerald-300/20 px-2.5 py-1 font-medium text-emerald-100 transition hover:border-emerald-200/40 hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             {isRestarting ? t('services.restartQueue.queueing') : t('services.restartQueue.queueRestart')}
@@ -6448,7 +6484,7 @@ function FleetRestartReadinessPanel({
                           <button
                             type="button"
                             onClick={() => onCancelRestartCommand(item.id, item.name, cancellableRestartCommand.id)}
-                            disabled={Boolean(cancellingCommandId)}
+                            disabled={operationBusy}
                             className="inline-flex items-center justify-center rounded-md border border-red-300/20 px-2.5 py-1 font-medium text-red-100 transition hover:border-red-200/40 hover:bg-red-300/10 disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             {isCancellingCommand ? t('services.restartQueue.cancelling') : t('services.restartQueue.cancelCommand')}
@@ -6490,7 +6526,7 @@ function FleetRestartReadinessPanel({
                       <button
                         type="button"
                         onClick={() => onCancelRestartCommand(node.id, node.name, node.activeRestartCommand!.id)}
-                        disabled={Boolean(cancellingCommandId)}
+                        disabled={operationBusy}
                         className="inline-flex items-center justify-center rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-medium text-red-100 transition hover:border-red-400/40 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {cancellingCommandId === node.activeRestartCommand.id ? t('services.restartQueue.cancelling') : t('services.restartQueue.cancelCommand')}
@@ -6501,7 +6537,7 @@ function FleetRestartReadinessPanel({
                   <button
                     type="button"
                     onClick={() => onQueueRestart(node.id, node.name)}
-                    disabled={Boolean(restartingNodeId)}
+                    disabled={operationBusy}
                     className="inline-flex items-center justify-center rounded-lg border border-emerald-500/20 px-3 py-1.5 text-xs font-medium text-emerald-100 transition hover:border-emerald-400/40 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {restartingNodeId === node.id ? 'Queueing...' : 'Queue restart'}
@@ -6511,7 +6547,7 @@ function FleetRestartReadinessPanel({
                   <button
                     type="button"
                     onClick={() => onEnableMaintenance(node.id, node.name)}
-                    disabled={Boolean(enablingMaintenanceNodeId)}
+                    disabled={operationBusy}
                     className="inline-flex items-center justify-center rounded-lg border border-yellow-500/20 px-3 py-1.5 text-xs font-medium text-yellow-100 transition hover:border-yellow-400/40 hover:bg-yellow-500/10 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {enablingMaintenanceNodeId === node.id ? t('services.actions.enablingMaintenance') : t('services.actions.enableMaintenance')}
@@ -6912,6 +6948,8 @@ export default function NodeServicesPage() {
   const [restartingNodeId, setRestartingNodeId] = useState<string | null>(null);
   const [cancellingCommandId, setCancellingCommandId] = useState<string | null>(null);
   const [operationNotice, setOperationNotice] = useState<OperationNotice | null>(null);
+  const [confirmation, setConfirmation] = useState<FleetOperationConfirmation | null>(null);
+  const [confirmationError, setConfirmationError] = useState<string | null>(null);
   const activeDetailSection = parseServiceDetailSection(searchParams.get('section'));
   const setActiveDetailSection = useCallback((section: ServiceDetailSection | null) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -6925,132 +6963,150 @@ export default function NodeServicesPage() {
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }, [pathname, router, searchParams]);
 
-  const refreshOperationalSnapshots = async () => {
-    await refetch();
-    await refetchPlacement();
+  const nodes = overview?.nodes ?? [];
+  const restartReadinessSummary = overview?.summary.restart_readiness ?? null;
+  const restartReadinessNodes = useMemo(() => collectRestartReadinessNodes(nodes), [nodes]);
+
+  const refreshOperationalSnapshots = async (): Promise<boolean> => {
+    const results = await Promise.allSettled([refetch(), refetchPlacement()]);
+    return results.every(refreshResultSucceeded);
   };
 
   const handleRefresh = () => {
     void refreshOperationalSnapshots();
   };
 
-  const handleEnableMaintenance = async (nodeId: string, nodeName: string) => {
-    if (!window.confirm(`Enable maintenance mode for ${nodeName}? New placement should stop while active sessions drain before restart.`)) {
-      return;
-    }
+  const confirmationBusy = Boolean(
+    enablingMaintenanceNodeId
+    || endingMaintenanceNodeId
+    || restartingNodeId
+    || cancellingCommandId,
+  );
 
-    setEnablingMaintenanceNodeId(nodeId);
+  const openConfirmation = (nextConfirmation: FleetOperationConfirmation) => {
+    if (confirmationBusy) return;
+    setConfirmationError(null);
+    setConfirmation(nextConfirmation);
+  };
+
+  const handleEnableMaintenance = (nodeId: string, nodeName: string) => {
+    openConfirmation({ kind: 'enable_maintenance', nodeId, nodeName });
+  };
+
+  const handleEndMaintenance = (nodeId: string, nodeName: string) => {
+    openConfirmation({ kind: 'end_maintenance', nodeId, nodeName });
+  };
+
+  const handleQueueRestart = (nodeId: string, nodeName: string) => {
+    openConfirmation({ kind: 'queue_restart', nodeId, nodeName });
+  };
+
+  const handleCancelRestartCommand = (nodeId: string, nodeName: string, commandId: string) => {
+    openConfirmation({ kind: 'cancel_restart', nodeId, nodeName, commandId });
+  };
+
+  const closeConfirmation = () => {
+    if (confirmationBusy) return;
+    setConfirmation(null);
+    setConfirmationError(null);
+  };
+
+  // [FLEET-OPERATION-LIFECYCLE 2026-08-13 by Codex] Re-fetch and evaluate the
+  // backend-owned gate immediately before mutation. A dialog opened from an
+  // older poll must never restart a node that has since gained active traffic.
+  const executeConfirmedOperation = async () => {
+    if (!confirmation) return;
+
+    const currentConfirmation = confirmation;
+    const { nodeId, nodeName } = currentConfirmation;
+    if (currentConfirmation.kind === 'enable_maintenance') setEnablingMaintenanceNodeId(nodeId);
+    if (currentConfirmation.kind === 'end_maintenance') setEndingMaintenanceNodeId(nodeId);
+    if (currentConfirmation.kind === 'queue_restart') setRestartingNodeId(nodeId);
+    if (currentConfirmation.kind === 'cancel_restart') setCancellingCommandId(currentConfirmation.commandId);
     setOperationNotice(null);
+    setConfirmationError(null);
 
     try {
-      await updateNode.mutateAsync({
-        nodeId,
-        data: { maintenance_mode: true },
-      });
+      const latestOverview = refreshResultData<VpnOverview>(await refetch());
+      if (!latestOverview) {
+        setConfirmationError(t('services.operations.snapshotUnavailable'));
+        return;
+      }
+
+      const latestReadinessNodes = collectRestartReadinessNodes(latestOverview.nodes);
+      const latestTarget = latestReadinessNodes.find((node) => node.id === nodeId) ?? null;
+      const latestExitCandidates = latestOverview.summary.restart_readiness?.maintenance_exit_candidates ?? [];
+      const isLatestExitCandidate = latestExitCandidates.some((node) => node.id === nodeId);
+
+      if (
+        !latestTarget
+        || (currentConfirmation.kind === 'enable_maintenance' && latestTarget.maintenanceMode)
+        || (currentConfirmation.kind === 'end_maintenance' && (!latestTarget.maintenanceMode || !isLatestExitCandidate))
+        || (
+          currentConfirmation.kind === 'queue_restart'
+          && (!latestTarget.canRestart || Boolean(latestTarget.activeRestartCommand))
+        )
+        || (
+          currentConfirmation.kind === 'cancel_restart'
+          && (
+            latestTarget.activeRestartCommand?.id !== currentConfirmation.commandId
+            || !restartCommandCanCancel(latestTarget.activeRestartCommand)
+          )
+        )
+      ) {
+        setConfirmationError(t('services.operations.stateChanged'));
+        return;
+      }
+
+      let acceptedMessage: string;
+      if (currentConfirmation.kind === 'enable_maintenance') {
+        await updateNode.mutateAsync({ nodeId, data: { maintenance_mode: true } });
+        acceptedMessage = t('services.operations.enableAccepted', { node: nodeName });
+      } else if (currentConfirmation.kind === 'end_maintenance') {
+        await updateNode.mutateAsync({ nodeId, data: { maintenance_mode: false } });
+        acceptedMessage = t('services.operations.endAccepted', { node: nodeName });
+      } else if (currentConfirmation.kind === 'queue_restart') {
+        await runCommand.mutateAsync({
+          nodeId,
+          data: {
+            action: 'restart_service',
+            params: { confirm: 'restart' },
+            priority: 1,
+          },
+        });
+        acceptedMessage = t('services.operations.restartAccepted', { node: nodeName });
+      } else {
+        await cancelCommand.mutateAsync({ nodeId, commandId: currentConfirmation.commandId });
+        acceptedMessage = t('services.operations.cancelAccepted', { node: nodeName });
+      }
+
+      setConfirmation(null);
       setOperationNotice({
         type: 'success',
-        message: `${nodeName} maintenance mode enabled. Restart readiness and client placement capacity were refreshed from backend snapshots.`,
+        message: acceptedMessage,
       });
-      await refreshOperationalSnapshots();
+
+      const snapshotsRefreshed = await refreshOperationalSnapshots();
+      if (!snapshotsRefreshed) {
+        setOperationNotice({
+          type: 'warning',
+          message: `${acceptedMessage} ${t('services.operations.refreshWarning')}`,
+        });
+      }
     } catch (error) {
-      setOperationNotice({
-        type: 'error',
-        message: error instanceof Error ? error.message : `Failed to enable maintenance mode for ${nodeName}.`,
-      });
+      setConfirmationError(
+        error instanceof Error
+          ? error.message
+          : t('services.operations.actionFailed', { node: nodeName }),
+      );
     } finally {
       setEnablingMaintenanceNodeId(null);
-    }
-  };
-
-  const handleEndMaintenance = async (nodeId: string, nodeName: string) => {
-    if (!window.confirm(`End maintenance mode for ${nodeName}? This returns the node to client placement if policy and health remain eligible.`)) {
-      return;
-    }
-
-    setEndingMaintenanceNodeId(nodeId);
-    setOperationNotice(null);
-
-    try {
-      await updateNode.mutateAsync({
-        nodeId,
-        data: { maintenance_mode: false },
-      });
-      setOperationNotice({
-        type: 'success',
-        message: `${nodeName} maintenance mode ended. Restart readiness and client placement capacity were refreshed from backend snapshots.`,
-      });
-      await refreshOperationalSnapshots();
-    } catch (error) {
-      setOperationNotice({
-        type: 'error',
-        message: error instanceof Error ? error.message : `Failed to end maintenance mode for ${nodeName}.`,
-      });
-    } finally {
       setEndingMaintenanceNodeId(null);
-    }
-  };
-
-  const handleQueueRestart = async (nodeId: string, nodeName: string) => {
-    if (!window.confirm(`Queue a controlled Rust restart for ${nodeName}? The backend gate reports this node is restart-ready.`)) {
-      return;
-    }
-
-    setRestartingNodeId(nodeId);
-    setOperationNotice(null);
-
-    try {
-      await runCommand.mutateAsync({
-        nodeId,
-        data: {
-          action: 'restart_service',
-          params: {
-            confirm: 'restart',
-          },
-          priority: 1,
-        },
-      });
-      setOperationNotice({
-        type: 'success',
-        message: `${nodeName} restart_service command queued. Watch command status on the node detail page before ending maintenance mode.`,
-      });
-      await refetch();
-    } catch (error) {
-      setOperationNotice({
-        type: 'error',
-        message: error instanceof Error ? error.message : `Failed to queue restart for ${nodeName}.`,
-      });
-    } finally {
       setRestartingNodeId(null);
-    }
-  };
-
-  const handleCancelRestartCommand = async (nodeId: string, nodeName: string, commandId: string) => {
-    if (!window.confirm(`Cancel the active restart_service command for ${nodeName}? Only commands that have not reached a terminal state can be cancelled.`)) {
-      return;
-    }
-
-    setCancellingCommandId(commandId);
-    setOperationNotice(null);
-
-    try {
-      await cancelCommand.mutateAsync({ nodeId, commandId });
-      setOperationNotice({
-        type: 'success',
-        message: `${nodeName} restart_service command cancellation requested. The fleet overview will refresh after backend acknowledgement.`,
-      });
-      await refetch();
-    } catch (error) {
-      setOperationNotice({
-        type: 'error',
-        message: error instanceof Error ? error.message : `Failed to cancel restart command for ${nodeName}.`,
-      });
-    } finally {
       setCancellingCommandId(null);
     }
   };
 
-  const nodes = overview?.nodes ?? [];
-  const restartReadinessSummary = overview?.summary.restart_readiness ?? null;
   const operatorStatuses = useMemo(() => collectOperatorStatuses(nodes), [nodes]);
   const fleetSummary = useMemo(() => buildFleetSummary(nodes, operatorStatuses), [nodes, operatorStatuses]);
   const protocolFoundation = useMemo(
@@ -7063,7 +7119,6 @@ export default function NodeServicesPage() {
   const services = useMemo(() => buildServiceViews(nodes, operatorStatuses), [nodes, operatorStatuses]);
   const nodesById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const risks = useMemo(() => collectRisks(nodes), [nodes]);
-  const restartReadinessNodes = useMemo(() => collectRestartReadinessNodes(nodes), [nodes]);
   const pendingOperatorNodes = useMemo(() => collectPendingOperatorNodes(nodes), [nodes]);
   const runtimeRolloutNodes = useMemo(() => collectRuntimeRolloutNodes(nodes), [nodes]);
   const sessionCleanupRolloutNodes = useMemo(() => collectSessionCleanupRolloutNodes(nodes), [nodes]);
@@ -7085,6 +7140,33 @@ export default function NodeServicesPage() {
     + pendingOperatorNodes.length
     + runtimeRolloutNodes.length
   );
+  const confirmationTarget = confirmation
+    ? restartReadinessNodes.find((node) => node.id === confirmation.nodeId) ?? null
+    : null;
+  const confirmationTitle = confirmation?.kind === 'queue_restart'
+    ? t('nodeDetail.commands.confirmRestartTitle')
+    : confirmation?.kind === 'cancel_restart'
+      ? t('nodeDetail.commands.confirmCancelTitle')
+      : t('nodeDetail.commands.confirmMaintenanceTitle');
+  const confirmationMessage = confirmation?.kind === 'enable_maintenance'
+    ? t('services.operations.enableMessage')
+    : confirmation?.kind === 'end_maintenance'
+      ? t('services.operations.endMessage')
+      : confirmation?.kind === 'queue_restart'
+        ? t('services.operations.restartMessage')
+        : t('services.operations.cancelMessage');
+  const confirmationAction = confirmation?.kind === 'enable_maintenance'
+    ? t('services.restartQueue.enableMaintenance')
+    : confirmation?.kind === 'end_maintenance'
+      ? t('services.operations.endMaintenance')
+      : confirmation?.kind === 'queue_restart'
+        ? t('services.restartQueue.queueRestart')
+        : t('services.restartQueue.cancelCommand');
+  const confirmationState = confirmationTarget
+    ? `${t(confirmationTarget.maintenanceMode
+      ? 'nodeDetail.commands.maintenanceEnabled'
+      : 'nodeDetail.commands.maintenanceDisabled')} · ${confirmationTarget.status}`
+    : t('common.status.pending');
 
   if (isLoading) {
     return (
@@ -7142,7 +7224,9 @@ export default function NodeServicesPage() {
         <div className={`mb-6 rounded-xl border p-4 text-sm ${
           operationNotice.type === 'success'
             ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100'
-            : 'border-red-500/20 bg-red-500/10 text-red-100'
+            : operationNotice.type === 'warning'
+              ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-100'
+              : 'border-red-500/20 bg-red-500/10 text-red-100'
         }`}>
           {operationNotice.message}
         </div>
@@ -7204,6 +7288,7 @@ export default function NodeServicesPage() {
             endingMaintenanceNodeId={endingMaintenanceNodeId}
             restartingNodeId={restartingNodeId}
             cancellingCommandId={cancellingCommandId}
+            operationBusy={confirmationBusy}
             onEnableMaintenance={handleEnableMaintenance}
             onEndMaintenance={handleEndMaintenance}
             onQueueRestart={handleQueueRestart}
@@ -7339,6 +7424,52 @@ export default function NodeServicesPage() {
           </div>
         </section>
       )}
+
+      <ConfirmDialog
+        isOpen={Boolean(confirmation)}
+        onClose={closeConfirmation}
+        onConfirm={executeConfirmedOperation}
+        title={confirmationTitle}
+        message={confirmationMessage}
+        confirmText={confirmationAction}
+        variant={confirmation?.kind === 'cancel_restart' ? 'danger' : 'warning'}
+        isLoading={confirmationBusy}
+        errorMessage={confirmationError || undefined}
+        details={confirmation ? (
+          <div className="rounded-lg border border-white/10 bg-black/20 p-3 text-xs">
+            <dl className="space-y-2">
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-gray-500">{t('nodeDetail.commands.confirmationNode')}</dt>
+                <dd className="max-w-[65%] break-words text-right font-medium text-gray-200">
+                  {confirmation.nodeName}
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-gray-500">{t('nodeDetail.commands.confirmationOperation')}</dt>
+                <dd className="text-right text-gray-200">{confirmationAction}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-gray-500">{t('nodeDetail.commands.confirmationCurrentState')}</dt>
+                <dd className="text-right text-gray-200">{confirmationState}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-gray-500">{t('nodeDetail.commands.confirmationActiveSessions')}</dt>
+                <dd className="text-right tabular-nums text-gray-200">
+                  {formatNumber(confirmationTarget?.activeSessions ?? 0)}
+                </dd>
+              </div>
+              {confirmation.kind === 'cancel_restart' ? (
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="text-gray-500">{t('sessions.command')}</dt>
+                  <dd className="max-w-[65%] break-all text-right font-mono text-gray-200">
+                    {confirmation.commandId}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          </div>
+        ) : undefined}
+      />
     </div>
   );
 }

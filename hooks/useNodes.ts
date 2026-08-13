@@ -5,6 +5,9 @@
  * File Path: hooks/useNodes.ts
  *
  * Modification Reason:
+ *   v1.5.9 - [OPERATION-PREFLIGHT 2026-08-13 by Codex] Corrected the VPN
+ *     sessions refetch contract to remain awaitable, allowing destructive
+ *     session actions to validate a fresh backend snapshot before queueing.
  *   v1.5.8 - [COMMAND-LIFECYCLE 2026-08-13 by Codex] Exposed command query
  *     cache/fetch state so destructive-operation surfaces can distinguish an
  *     authoritative empty history from a temporarily unavailable API and a
@@ -71,7 +74,8 @@
  * - Detail/history hooks use immutable caching selectively; the fleet list must
  *   stay refreshable so a completed registration is visible without reload.
  *
- * Last Modified: v1.5.8 - Command history availability state
+ * Last Modified: v1.5.9 - Awaitable session operation preflight
+ * Previous: v1.5.8 - Command history availability state
  * Previous: v1.5.7 - Dashboard aggregate truth source
  * Previous: v1.5.6 - Fleet refresh and mutation reconciliation
  * Previous: v1.5.4 - Refresh VPN overview after node updates
@@ -499,7 +503,9 @@ interface UseVpnSessionsResult {
   isLoading: boolean;
   isError: boolean;
   error: Error | null;
-  refetch: () => void;
+  // [OPERATION-PREFLIGHT 2026-08-13 by Codex] Keep the React Query result
+  // awaitable so callers can fail closed when a fresh session snapshot fails.
+  refetch: () => Promise<unknown>;
 }
 
 export function useVpnSessions(options: UseVpnSessionsOptions = {}): UseVpnSessionsResult {

@@ -5,6 +5,10 @@
  * File Path: app/dashboard/sessions/page.tsx
  *
  * Modification Reason:
+ *   v1.1.6 - [SESSION-POLICY-LIFECYCLE 2026-08-13 by Codex] Replaced native
+ *     kick/ban prompts with the shared accessible confirmation dialog, added
+ *     fresh-session preflight validation, and separated command acceptance
+ *     from eventual Rust execution and follow-up snapshot refresh.
  *   v1.1.5 - Route restart drain context back to the Services Workbench
  *     `section=restart` deep link so operators return to the exact recovery
  *     module instead of the high-level Services landing page.
@@ -63,21 +67,48 @@ import {
   VpnHealthStatus,
   VpnNodeHealth,
   VpnSession,
+  VpnSessionListResponse,
   VpnSessionQualitySummary,
 } from '@/types';
 import { formatBytes, formatDuration, truncateAddress } from '@/lib/api';
 import Card, { EmptyState, LoadingCard, StatCard } from '@/components/common/Card';
 import Button from '@/components/common/Button';
+import { ConfirmDialog } from '@/components/common/Modal';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 
 type SessionFilter = 'all' | 'active' | 'completed' | 'error';
 type QualityFilter = 'all' | SessionQualityStatus;
 type OperationNotice = {
+  type: 'success' | 'warning' | 'error';
   message: string;
   nodeId?: string;
   commandId?: string;
   commandAction?: 'kick_session' | 'ban_wallet';
 };
+
+type SessionOperationConfirmation =
+  | { kind: 'kick'; session: VpnSession }
+  | { kind: 'ban'; session: VpnSession };
+
+interface QueryRefreshResult<T> {
+  data?: T;
+  isError?: boolean;
+}
+
+// [SESSION-POLICY-LIFECYCLE 2026-08-13 by Codex] Session actions are fail
+// closed: an untyped React Query refetch must contain a fresh, successful API
+// snapshot before Nodeboard can queue a disconnect or wallet policy command.
+function refreshResultData<T>(result: unknown): T | null {
+  if (!result || typeof result !== 'object') return null;
+  const refreshResult = result as QueryRefreshResult<T>;
+  return refreshResult.isError || !refreshResult.data ? null : refreshResult.data;
+}
+
+function refreshResultSucceeded(result: PromiseSettledResult<unknown>): boolean {
+  if (result.status !== 'fulfilled') return false;
+  if (!result.value || typeof result.value !== 'object') return true;
+  return !(result.value as QueryRefreshResult<unknown>).isError;
+}
 
 const SESSION_FILTERS: SessionFilter[] = ['all', 'active', 'completed', 'error'];
 const QUALITY_FILTERS: QualityFilter[] = ['all', 'healthy', 'degraded', 'stale', 'error', 'pending', 'completed'];
@@ -841,6 +872,8 @@ export default function SessionsPage() {
   const [kickingSessionId, setKickingSessionId] = useState<string | null>(null);
   const [banningSessionId, setBanningSessionId] = useState<string | null>(null);
   const [operationNotice, setOperationNotice] = useState<OperationNotice | null>(null);
+  const [confirmation, setConfirmation] = useState<SessionOperationConfirmation | null>(null);
+  const [confirmationError, setConfirmationError] = useState<string | null>(null);
 
   // Keep URL filters shareable with Services blocked-node links while mapping
   // node/status/quality to the backend node_id/status/quality_status filters in
@@ -902,78 +935,118 @@ export default function SessionsPage() {
     refetchSessions();
   };
 
-  const handleKickSession = async (session: VpnSession) => {
-    setKickingSessionId(session.id);
-    setOperationNotice(null);
-
-    try {
-      const response = await runCommand.mutateAsync({
-        nodeId: session.node_id,
-        data: {
-          action: 'kick_session',
-          params: {
-            session_id: session.session_id,
-            reason: 'operator_kick',
-          },
-          priority: 1,
-        },
-      });
-      setOperationNotice({
-        message: t('sessions.kickQueued', { id: truncateAddress(session.session_id, 8) }),
-        nodeId: session.node_id,
-        commandId: response.data.command.id,
-        commandAction: 'kick_session',
-      });
-      refetchOverview();
-      refetchSessions();
-    } catch (error) {
-      setOperationNotice({
-        message: error instanceof Error ? error.message : t('sessions.kickFailed'),
-      });
-    } finally {
-      setKickingSessionId(null);
-    }
+  const openConfirmation = (nextConfirmation: SessionOperationConfirmation) => {
+    setConfirmationError(null);
+    setConfirmation(nextConfirmation);
   };
 
-  const handleBanWallet = async (session: VpnSession) => {
-    if (!window.confirm(t('sessions.confirmBan', {
-      wallet: truncateAddress(session.client_wallet, 6),
-      node: session.node_name,
-    }))) {
-      return;
-    }
+  const handleKickSession = (session: VpnSession) => {
+    openConfirmation({ kind: 'kick', session });
+  };
 
-    setBanningSessionId(session.id);
+  const handleBanWallet = (session: VpnSession) => {
+    openConfirmation({ kind: 'ban', session });
+  };
+
+  const confirmationBusy = Boolean(kickingSessionId || banningSessionId);
+
+  const closeConfirmation = () => {
+    if (confirmationBusy) return;
+    setConfirmation(null);
+    setConfirmationError(null);
+  };
+
+  // [SESSION-POLICY-LIFECYCLE 2026-08-13 by Codex] Revalidate the selected
+  // tunnel immediately before queueing. Polling can complete a session while
+  // its confirmation is open; stale actions must never target that old row.
+  const executeConfirmedOperation = async () => {
+    if (!confirmation) return;
+
+    const currentConfirmation = confirmation;
+    const session = currentConfirmation.session;
+    if (currentConfirmation.kind === 'kick') setKickingSessionId(session.id);
+    if (currentConfirmation.kind === 'ban') setBanningSessionId(session.id);
     setOperationNotice(null);
+    setConfirmationError(null);
 
     try {
+      const latestResponse = refreshResultData<VpnSessionListResponse>(await refetchSessions());
+      if (!latestResponse) {
+        setConfirmationError(t('sessions.confirmation.snapshotUnavailable'));
+        return;
+      }
+
+      const latestSession = latestResponse.data.find((candidate) => (
+        candidate.id === session.id
+        && candidate.session_id === session.session_id
+        && candidate.node_id === session.node_id
+      ));
+      if (!latestSession || latestSession.status !== 'active') {
+        setConfirmationError(t('sessions.confirmation.stateChanged'));
+        return;
+      }
+
       const response = await runCommand.mutateAsync({
         nodeId: session.node_id,
         data: {
-          action: 'ban_wallet',
+          action: currentConfirmation.kind === 'kick' ? 'kick_session' : 'ban_wallet',
           params: {
             session_id: session.session_id,
-            reason: 'operator_ban',
+            reason: currentConfirmation.kind === 'kick' ? 'operator_kick' : 'operator_ban',
           },
           priority: 1,
         },
       });
+
+      const acceptedMessage = currentConfirmation.kind === 'kick'
+        ? t('sessions.kickQueued', { id: truncateAddress(session.session_id, 8) })
+        : t('sessions.banQueued', { wallet: truncateAddress(session.client_wallet, 6) });
+      const commandAction = currentConfirmation.kind === 'kick' ? 'kick_session' : 'ban_wallet';
+
+      setConfirmation(null);
       setOperationNotice({
-        message: t('sessions.banQueued', { wallet: truncateAddress(session.client_wallet, 6) }),
+        type: 'success',
+        message: acceptedMessage,
         nodeId: session.node_id,
         commandId: response.data.command.id,
-        commandAction: 'ban_wallet',
+        commandAction,
       });
-      refetchOverview();
-      refetchSessions();
+
+      const refreshes = await Promise.allSettled([refetchOverview(), refetchSessions()]);
+      if (!refreshes.every(refreshResultSucceeded)) {
+        setOperationNotice({
+          type: 'warning',
+          message: `${acceptedMessage} ${t('sessions.confirmation.refreshWarning')}`,
+          nodeId: session.node_id,
+          commandId: response.data.command.id,
+          commandAction,
+        });
+      }
     } catch (error) {
-      setOperationNotice({
-        message: error instanceof Error ? error.message : t('sessions.banFailed'),
-      });
+      setConfirmationError(
+        error instanceof Error
+          ? error.message
+          : t(currentConfirmation.kind === 'kick' ? 'sessions.kickFailed' : 'sessions.banFailed'),
+      );
     } finally {
+      setKickingSessionId(null);
       setBanningSessionId(null);
     }
   };
+
+  const confirmationSession = confirmation?.session ?? null;
+  const confirmationTitle = confirmation?.kind === 'ban'
+    ? t('sessions.confirmation.banTitle')
+    : t('sessions.confirmation.kickTitle');
+  const confirmationMessage = confirmation?.kind === 'ban'
+    ? t('sessions.confirmBan', {
+      wallet: truncateAddress(confirmationSession?.client_wallet ?? '', 6),
+      node: confirmationSession?.node_name ?? '',
+    })
+    : t('sessions.confirmation.kickMessage');
+  const confirmationAction = confirmation?.kind === 'ban'
+    ? t('sessions.confirmation.banAction')
+    : t('sessions.confirmation.kickAction');
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -996,10 +1069,28 @@ export default function SessionsPage() {
       ) : null}
 
       {operationNotice ? (
-        <Card variant="outline" padding="md" className="mb-6">
+        <Card
+          variant="outline"
+          padding="md"
+          className={`mb-6 ${
+            operationNotice.type === 'success'
+              ? 'border-emerald-500/25'
+              : operationNotice.type === 'warning'
+                ? 'border-yellow-500/25'
+                : 'border-red-500/25'
+          }`}
+        >
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <div className="text-sm text-gray-300">{operationNotice.message}</div>
+              <div className={`text-sm ${
+                operationNotice.type === 'success'
+                  ? 'text-emerald-100'
+                  : operationNotice.type === 'warning'
+                    ? 'text-yellow-100'
+                    : 'text-red-100'
+              }`}>
+                {operationNotice.message}
+              </div>
               {operationNotice.commandId ? (
                 <div className="mt-1 text-xs text-gray-600">
                   {t('sessions.command')} <span className="font-mono">{operationNotice.commandId.slice(0, 8)}</span>
@@ -1183,6 +1274,48 @@ export default function SessionsPage() {
           onBanWallet={handleBanWallet}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={Boolean(confirmation)}
+        onClose={closeConfirmation}
+        onConfirm={executeConfirmedOperation}
+        title={confirmationTitle}
+        message={confirmationMessage}
+        confirmText={confirmationAction}
+        variant={confirmation?.kind === 'ban' ? 'danger' : 'warning'}
+        isLoading={confirmationBusy}
+        errorMessage={confirmationError || undefined}
+        details={confirmationSession ? (
+          <div className="rounded-lg border border-white/10 bg-black/20 p-3 text-xs">
+            <dl className="space-y-2">
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-gray-500">{t('sessions.sessionTable.node')}</dt>
+                <dd className="max-w-[65%] break-words text-right font-medium text-gray-200">
+                  {confirmationSession.node_name}
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-gray-500">{t('sessions.sessionTable.session')}</dt>
+                <dd className="max-w-[65%] break-all text-right font-mono text-gray-200">
+                  {truncateAddress(confirmationSession.session_id, 10)}
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-gray-500">{t('sessions.sessionTable.client')}</dt>
+                <dd className="max-w-[65%] break-all text-right font-mono text-gray-200">
+                  {truncateAddress(confirmationSession.client_wallet, 10)}
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-gray-500">{t('sessions.sessionTable.status')}</dt>
+                <dd className="text-right text-gray-200">
+                  {t(`common.status.${confirmationSession.status}`)}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        ) : undefined}
+      />
     </div>
   );
 }
