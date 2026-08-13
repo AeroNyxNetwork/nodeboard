@@ -24,7 +24,11 @@
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/handlers/packet.rs
  *
- * Last Modified: v1.2.1 - [FLEET-LIFECYCLE 2026-08-13 by Codex]
+ * Last Modified: v1.3.0 - [DASHBOARD-TRUTH 2026-08-13 by Codex]
+ *   Unified fleet statistics and node cards on one query result, added honest
+ *   retry/stale states for node, overview, placement, billing, and event data,
+ *   and moved membership checkout below daily fleet operations.
+ * Previous: v1.2.1 - [FLEET-LIFECYCLE 2026-08-13 by Codex]
  *   Removed the unreachable overview delete dialog after node-card deletion
  *   moved to the node detail page; detail-page deletion remains unchanged.
  * Previous: v1.2.0 - [USDT-CHECKOUT-SESSION 2026-08-13 by Codex]
@@ -38,9 +42,9 @@
 
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { useNodes, useAggregatedStats, useVpnOverview, useVpnEvents, useVpnBilling, useVpnServers } from '@/hooks/useNodes';
+import { aggregateNodeStats, useNodes, useVpnOverview, useVpnEvents, useVpnBilling, useVpnServers } from '@/hooks/useNodes';
 import { useAuthStore } from '@/stores/authStore';
 import { VpnEvent, VpnEventSeverity, VpnHealthStatus, VpnServerPlacementGroup } from '@/types';
 import { formatBytes, truncateAddress } from '@/lib/api';
@@ -76,6 +80,7 @@ function PageHeader({ onAddNode }: { onAddNode: () => void }) {
       </div>
       <Button
         variant="primary"
+        className="w-full sm:w-auto"
         onClick={onAddNode}
         leftIcon={
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -93,8 +98,19 @@ function PageHeader({ onAddNode }: { onAddNode: () => void }) {
 // Stats Grid Component
 // ============================================
 
-function StatsGrid() {
-  const { stats, isLoading } = useAggregatedStats();
+function StatsGrid({
+  stats,
+  isLoading,
+  isError,
+  isRefreshing,
+  onRetry,
+}: {
+  stats: ReturnType<typeof aggregateNodeStats>;
+  isLoading: boolean;
+  isError: boolean;
+  isRefreshing: boolean;
+  onRetry: () => void;
+}) {
   const { t, formatNumber } = useI18n();
 
   if (isLoading) {
@@ -104,6 +120,22 @@ function StatsGrid() {
           <div key={i} className="h-32 rounded-2xl bg-white/5 animate-pulse" />
         ))}
       </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card variant="outline" padding="md" className="mb-8 border-yellow-500/25">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-white">{t('dashboard.stats.unavailableTitle')}</h2>
+            <p className="mt-1 text-sm leading-6 text-yellow-200">{t('dashboard.stats.unavailable')}</p>
+          </div>
+          <Button variant="secondary" onClick={onRetry} isLoading={isRefreshing} className="w-full sm:w-auto">
+            {t('common.retry')}
+          </Button>
+        </div>
+      </Card>
     );
   }
 
@@ -376,8 +408,8 @@ function attentionEventPriority(event: VpnEvent) {
 
 function VpnOperationsSnapshot() {
   const { t, formatNumber, formatRelativeTime } = useI18n();
-  const { overview, isLoading, isError } = useVpnOverview();
-  const { events: eventOverview, isLoading: eventsLoading } = useVpnEvents({
+  const { overview, isLoading, isFetching, isError, refetch } = useVpnOverview();
+  const { events: eventOverview, isLoading: eventsLoading, isError: eventsError } = useVpnEvents({
     days: 1,
     severity: 'all',
     limit: 12,
@@ -423,17 +455,28 @@ function VpnOperationsSnapshot() {
     );
   }
 
-  if (isError || !overview) {
+  if (!overview) {
     return (
       <Card variant="outline" padding="md" className="mb-8 border-yellow-500/25">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-semibold text-white">{t('dashboard.operations.title')}</h2>
             <p className="text-sm text-yellow-300 mt-1">{t('dashboard.operations.unavailable')}</p>
           </div>
-          <Link href="/dashboard/sessions" className="text-sm text-purple-300 hover:text-purple-200">
-            {t('dashboard.operations.open')}
-          </Link>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="w-full sm:w-auto"
+              onClick={() => void refetch()}
+              isLoading={isFetching}
+            >
+              {t('common.retry')}
+            </Button>
+            <Link href="/dashboard/sessions" className="text-center text-sm text-purple-300 hover:text-purple-200">
+              {t('dashboard.operations.open')}
+            </Link>
+          </div>
         </div>
       </Card>
     );
@@ -453,6 +496,12 @@ function VpnOperationsSnapshot() {
             {t('dashboard.operations.openShort')}
           </Link>
         </div>
+
+        {isError && (
+          <p role="status" className="mb-4 rounded-lg border border-yellow-500/20 bg-yellow-500/[0.07] px-3 py-2 text-xs leading-5 text-yellow-200">
+            {t('dashboard.operations.stale')}
+          </p>
+        )}
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="rounded-xl bg-white/[0.04] border border-white/5 p-3">
@@ -651,10 +700,17 @@ function VpnOperationsSnapshot() {
                   <div key={index} className="h-11 rounded-xl bg-white/[0.04] animate-pulse" />
                 ))}
               </div>
+            ) : eventsError && !eventOverview ? (
+              <p className="text-sm leading-6 text-yellow-300">{t('dashboard.attention.eventsUnavailable')}</p>
             ) : recentEvents.length === 0 ? (
               <p className="text-sm text-gray-500">{t('dashboard.attention.noEvents24h')}</p>
             ) : (
               <div className="space-y-3">
+                {eventsError && (
+                  <p role="status" className="rounded-lg border border-yellow-500/20 bg-yellow-500/[0.07] px-3 py-2 text-xs leading-5 text-yellow-200">
+                    {t('dashboard.attention.eventsStale')}
+                  </p>
+                )}
                 {recentEvents.map((event) => (
                   <Link
                     key={event.id}
@@ -691,8 +747,16 @@ function VpnOperationsSnapshot() {
 // ============================================
 
 export default function DashboardPage() {
-  const { nodes, isLoading } = useNodes();
+  const {
+    nodes,
+    isLoading,
+    isFetching,
+    isError,
+    refetch,
+  } = useNodes();
   const { t, formatNumber } = useI18n();
+  const stats = useMemo(() => aggregateNodeStats(nodes), [nodes]);
+  const visibleNodes = useMemo(() => nodes.slice(0, 3), [nodes]);
   
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
@@ -705,16 +769,28 @@ export default function DashboardPage() {
     setIsAddModalOpen(false);
   }, []);
 
+  const handleRetryNodes = useCallback(() => {
+    void refetch();
+  }, [refetch]);
+
   return (
     <div className="max-w-7xl mx-auto">
       {/* Page Header */}
       <PageHeader onAddNode={handleOpenAddModal} />
 
       {/* Stats Grid */}
-      <StatsGrid />
-
-      {/* Authenticated membership checkout handoff */}
-      <MembershipCheckoutCard />
+      {isError && nodes.length > 0 && (
+        <p role="status" className="mb-4 rounded-xl border border-yellow-500/20 bg-yellow-500/[0.07] px-4 py-3 text-sm leading-6 text-yellow-100">
+          {t('dashboard.stats.stale')}
+        </p>
+      )}
+      <StatsGrid
+        stats={stats}
+        isLoading={isLoading}
+        isError={isError && nodes.length === 0}
+        isRefreshing={isFetching}
+        onRetry={handleRetryNodes}
+      />
 
       {/* AeroNyx Privacy Protocol Operations Snapshot */}
       <VpnOperationsSnapshot />
@@ -724,9 +800,9 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-white">{t('dashboard.nodes.title')}</h2>
           {nodes.length > 0 && (
-            <span className="text-sm text-gray-500">
-              {t('dashboard.nodes.count', { count: formatNumber(nodes.length) })}
-            </span>
+            <Link href="/dashboard/nodes" className="text-sm text-purple-300 transition-colors hover:text-purple-200">
+              {t('dashboard.nodes.viewAll', { count: formatNumber(nodes.length) })}
+            </Link>
           )}
         </div>
         
@@ -736,6 +812,21 @@ export default function DashboardPage() {
               <NodeCardSkeleton key={i} />
             ))}
           </div>
+        ) : isError && nodes.length === 0 ? (
+          <EmptyState
+            icon={
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 4.5h.008v.008H12V16.5z" />
+              </svg>
+            }
+            title={t('nodes.error.listTitle')}
+            description={t('nodes.error.list')}
+            action={
+              <Button variant="secondary" onClick={handleRetryNodes} isLoading={isFetching}>
+                {t('common.retry')}
+              </Button>
+            }
+          />
         ) : nodes.length === 0 ? (
           <EmptyState
             icon={
@@ -753,7 +844,7 @@ export default function DashboardPage() {
           />
         ) : (
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {nodes.map((node) => (
+            {visibleNodes.map((node) => (
               <NodeCard key={node.id} node={node} />
             ))}
           </div>
@@ -763,17 +854,22 @@ export default function DashboardPage() {
       {/* Quick Actions */}
       {nodes.length > 0 && (
         <Card variant="outline" padding="md" className="mt-8">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="font-medium text-white">{t('dashboard.capacity.title')}</h3>
               <p className="text-sm text-gray-400">{t('dashboard.capacity.description')}</p>
             </div>
-            <Button variant="secondary" onClick={handleOpenAddModal}>
+            <Button variant="secondary" className="w-full sm:w-auto" onClick={handleOpenAddModal}>
               {t('dashboard.capacity.addAnother')}
             </Button>
           </div>
         </Card>
       )}
+
+      {/* Authenticated membership checkout handoff stays below daily operations. */}
+      <div className="mt-8">
+        <MembershipCheckoutCard />
+      </div>
 
       {/* Add Node Modal */}
       <AddNodeModal

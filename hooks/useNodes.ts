@@ -5,6 +5,9 @@
  * File Path: hooks/useNodes.ts
  *
  * Modification Reason:
+ *   v1.5.7 - [DASHBOARD-TRUTH 2026-08-13 by Codex] Extracted a pure aggregate
+ *     function so overview statistics and node cards share one authoritative
+ *     list response, with finite-number guards for partial runtime payloads.
  *   v1.5.6 - [FLEET-LIFECYCLE 2026-08-13 by Codex] Exposed owner-list and
  *     placement refresh state, replaced permanent list staleness with a short
  *     commercial freshness window, and reconciled delete mutations across
@@ -64,9 +67,8 @@
  * - Detail/history hooks use immutable caching selectively; the fleet list must
  *   stay refreshable so a completed registration is visible without reload.
  *
- * Last Modified: v1.5.6 - [FLEET-LIFECYCLE 2026-08-13 by Codex]
- *   Fleet refresh and mutation reconciliation
- * Previous: v1.5.5 - Billing background refresh state
+ * Last Modified: v1.5.7 - Dashboard aggregate truth source
+ * Previous: v1.5.6 - Fleet refresh and mutation reconciliation
  * Previous: v1.5.4 - Refresh VPN overview after node updates
  * Previous: v1.5.3 - VPN overview live refresh metadata
  * Previous: v1.1.0 - Auth guard on all owner hooks
@@ -820,7 +822,7 @@ export function useCancelNodeCommand() {
 // Aggregated Stats Hook
 // ============================================
 
-interface AggregatedStats {
+export interface AggregatedStats {
   totalNodes: number;
   onlineNodes: number;
   totalSessions: number;
@@ -829,31 +831,40 @@ interface AggregatedStats {
   avgUptime: number;
 }
 
+function finiteNodeMetric(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+// [DASHBOARD-TRUTH 2026-08-13 by Codex] Keep this derivation pure so the
+// dashboard does not subscribe to the same fleet query twice. Runtime payloads
+// can be partial during rollout; one missing counter must never poison all
+// operator totals with NaN.
+export function aggregateNodeStats(nodes: Node[]): AggregatedStats {
+  const totalNodes = nodes.length;
+  const onlineNodes = nodes.filter((node) => node.status === 'online').length;
+  const totalSessions = nodes.reduce((sum, node) => sum + finiteNodeMetric(node.total_sessions), 0);
+  const activeSessions = nodes.reduce((sum, node) => sum + finiteNodeMetric(node.current_sessions), 0);
+  const totalTrafficGB = nodes.reduce((sum, node) => sum + finiteNodeMetric(node.total_traffic_gb), 0);
+  const totalUptime = nodes.reduce((sum, node) => sum + finiteNodeMetric(node.online_duration), 0);
+
+  return {
+    totalNodes,
+    onlineNodes,
+    totalSessions,
+    activeSessions,
+    totalTrafficGB,
+    avgUptime: totalNodes > 0 ? totalUptime / totalNodes : 0,
+  };
+}
+
 export function useAggregatedStats(): {
   stats: AggregatedStats;
   isLoading: boolean;
 } {
   const { nodes, isLoading } = useNodes();
 
-  const totalNodes = nodes.length;
-  const onlineNodes = nodes.filter((n) => n.status === 'online').length;
-  const totalSessions = nodes.reduce((s, n) => s + n.total_sessions, 0);
-  const activeSessions = nodes.reduce((s, n) => s + n.current_sessions, 0);
-  const totalTrafficGB = nodes.reduce((s, n) => s + n.total_traffic_gb, 0);
-  const avgUptime =
-    totalNodes > 0
-      ? nodes.reduce((s, n) => s + n.online_duration, 0) / totalNodes
-      : 0;
-
   return {
-    stats: {
-      totalNodes,
-      onlineNodes,
-      totalSessions,
-      activeSessions,
-      totalTrafficGB,
-      avgUptime,
-    },
+    stats: aggregateNodeStats(nodes),
     isLoading,
   };
 }
