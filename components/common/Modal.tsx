@@ -9,7 +9,10 @@
  *     inline operation errors, and protected pending confirmations from
  *     backdrop or Escape dismissal.
  *
- * Last Modified: v1.1.0 - Accessible, transaction-safe confirmation dialogs
+ * Last Modified: v1.1.1 - [FLEET-POLICY-SAFETY 2026-08-13 by Codex]
+ *   Added optional structured confirmation details so high-impact operator
+ *   actions can show scope and policy effects without creating custom dialogs.
+ * Previous: v1.1.0 - Accessible, transaction-safe confirmation dialogs
  * Previous: v1.0.1 - Removed framer-motion to fix re-render issues
  * ============================================
  */
@@ -230,6 +233,7 @@ interface ConfirmDialogProps {
   variant?: 'danger' | 'warning' | 'info';
   isLoading?: boolean;
   errorMessage?: string;
+  details?: React.ReactNode;
 }
 
 export function ConfirmDialog({
@@ -243,6 +247,7 @@ export function ConfirmDialog({
   variant = 'danger',
   isLoading = false,
   errorMessage,
+  details,
 }: ConfirmDialogProps) {
   const { t } = useI18n();
   const iconColors = {
@@ -303,6 +308,12 @@ export function ConfirmDialog({
             </p>
           ) : null}
         </div>
+
+        {details ? (
+          <div className="w-full text-left">
+            {details}
+          </div>
+        ) : null}
         
         <div className="flex items-center gap-3 w-full pt-2">
           <button

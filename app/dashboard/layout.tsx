@@ -9,6 +9,8 @@
  *   non-dismissable AuthModal. Once the user authenticates, the modal
  *   disappears and the full dashboard is revealed.
  *   v1.1.1 - Read loading copy from lib/i18n/I18nProvider.tsx.
+ *   v1.2.1 - [AUTH-HYDRATION 2026-08-13 by Codex] Remove the Strict Mode timer
+ *     race that could leave the dashboard loading screen mounted forever.
  *   v1.2.0 - [AUTH-GATE 2026-08-13 by Codex] Make the dashboard shell inert
  *   while the non-dismissable authentication surface is active.
  * Main Functionality:
@@ -32,7 +34,8 @@
  * - The dashboard skeleton is always rendered (behind modal if needed)
  * - Maintain interface compatibility with components/dashboard/Sidebar.tsx
  *
- * Last Modified: v1.2.0 - Isolated authentication interaction boundary
+ * Last Modified: v1.2.1 - Strict Mode-safe authentication hydration
+ * Previous: v1.2.0 - Isolated authentication interaction boundary
  * Previous: v1.1.1 - i18n loading copy
  * Previous: v1.1.0 - Replaced redirect-to-landing with AuthModal overlay
  * Previous: v1.0.4 - Fixed redirect loop with proper state management
@@ -41,7 +44,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import Sidebar, { MobileHeader } from '@/components/dashboard/Sidebar';
 import AuthModal from '@/components/auth/AuthModal';
@@ -59,22 +62,16 @@ export default function DashboardLayout({
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
-  const hasChecked = useRef(false);
   const { t } = useI18n();
 
   // ============================================
-  // Wait for auth store hydration from localStorage
+  // Wait for the first client commit before rendering authentication state.
+  // AuthInitializer in app/providers.tsx has already restored local storage
+  // before this layout mounts. A guarded timer here deadlocked under React
+  // Strict Mode because its first cleanup cancelled the only scheduled update.
   // ============================================
   useEffect(() => {
-    if (hasChecked.current) return;
-    hasChecked.current = true;
-
-    // Small delay to ensure zustand store is hydrated from localStorage
-    const timer = setTimeout(() => {
-      setIsHydrated(true);
-    }, 100);
-
-    return () => clearTimeout(timer);
+    setIsHydrated(true);
   }, []);
 
   // ============================================

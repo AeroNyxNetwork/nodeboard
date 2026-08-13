@@ -38,7 +38,10 @@
  *   contents, traffic destinations, domains, URLs, browsing history, voucher
  *   secrets, wallet-level traffic, or plaintext social graph data.
  *
- * Last Modified: v1.6.3 - Wire private access code generation and save flow
+ * Last Modified: v1.7.0 - [FLEET-POLICY-SAFETY 2026-08-13 by Codex]
+ *   Protected unsaved node edits, added scoped fleet confirmations and
+ *   partial-failure recovery, and moved runtime internals behind disclosure.
+ * Previous: v1.6.3 - Wire private access code generation and save flow
  * Previous: v1.6.2 - Added dashboard language selector
  * Previous: v1.6.1 - Control plane runtime panel
  * ============================================
@@ -60,6 +63,7 @@ import {
 } from '@/types';
 import Card, { EmptyState, LoadingCard } from '@/components/common/Card';
 import Button from '@/components/common/Button';
+import { ConfirmDialog } from '@/components/common/Modal';
 import LanguageSelector from '@/components/common/LanguageSelector';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 
@@ -96,6 +100,21 @@ type AccessPasswordDraft = {
 type PolicyPreset = {
   id: string;
   policy: PolicyForm;
+};
+type FleetApplyRequest = {
+  preset: PolicyPreset;
+  nodeIds: string[];
+};
+type FleetApplyFailure = {
+  nodeId: string;
+  nodeName: string;
+  reason: string;
+};
+type FleetApplyOutcome = {
+  preset: PolicyPreset;
+  presetName: string;
+  succeededCount: number;
+  failures: FleetApplyFailure[];
 };
 
 const POLICY_PRESETS: PolicyPreset[] = [
@@ -311,17 +330,10 @@ function ControlPlaneRuntimeContent({
         </div>
       </div>
 
-      <div className="p-5 space-y-4">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="space-y-4 p-5">
+        <div className="grid gap-3 md:grid-cols-3">
           <RuntimeValue label={t('settings.runtime.gitSha')} value={runtime.git_sha} mono />
           <RuntimeValue label={t('settings.runtime.deployed')} value={formatRuntimeTime(runtime.deployed_at, i18nRelativeTime, pendingLabel)} />
-          <RuntimeValue label={t('settings.runtime.apiBase')} value={health.api_base_url} mono />
-          <RuntimeValue label={t('settings.runtime.port')} value={runtime.port} mono />
-        </div>
-
-        <div className="grid gap-3 lg:grid-cols-3">
-          <RuntimeValue label={t('settings.runtime.sourceDir')} value={runtime.source_dir} mono />
-          <RuntimeValue label={t('settings.runtime.envFile')} value={runtime.env_file} mono />
           <RuntimeValue
             label={t('settings.runtime.contracts')}
             value={t('settings.runtime.contractCount', {
@@ -331,33 +343,62 @@ function ControlPlaneRuntimeContent({
           />
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-2">
-          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-xs font-medium uppercase text-gray-600">{t('settings.runtime.backendContract')}</p>
-            <div className="mt-3 space-y-2">
-              {health.backend_contracts.slice(0, 3).map((contract) => (
-                <div key={`${contract.endpoint}-${contract.file}`} className="min-w-0">
-                  <p className="truncate text-xs text-gray-300">{contract.endpoint || contract.purpose}</p>
-                  <p className="mt-0.5 truncate font-mono text-[11px] text-gray-600">{contract.file}</p>
-                </div>
-              ))}
+        {/* [FLEET-POLICY-SAFETY 2026-08-13 by Codex] Operators see release
+            health first; implementation paths remain available on demand. */}
+        <details className="group rounded-lg border border-white/10 bg-black/20">
+          <summary className="cursor-pointer list-none px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/60">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-gray-200">{t('settings.runtime.advanced')}</p>
+                <p className="mt-1 text-xs text-gray-600">{t('settings.runtime.advancedDescription')}</p>
+              </div>
+              <svg
+                aria-hidden="true"
+                className="h-4 w-4 flex-none text-gray-500 transition-transform group-open:rotate-180"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m6 9 6 6 6-6" />
+              </svg>
             </div>
-          </div>
-
-          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-xs font-medium uppercase text-gray-600">{t('settings.runtime.rustProducers')}</p>
-            <div className="mt-3 space-y-2">
-              {health.rust_producers.slice(0, 2).map((producer) => (
-                <div key={producer.file} className="min-w-0">
-                  <p className="truncate text-xs text-gray-300">{producer.purpose}</p>
-                  <p className="mt-0.5 truncate font-mono text-[11px] text-gray-600">{producer.file}</p>
-                </div>
-              ))}
+          </summary>
+          <div className="space-y-4 border-t border-white/5 p-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <RuntimeValue label={t('settings.runtime.apiBase')} value={health.api_base_url} mono />
+              <RuntimeValue label={t('settings.runtime.port')} value={runtime.port} mono />
+              <RuntimeValue label={t('settings.runtime.sourceDir')} value={runtime.source_dir} mono />
+              <RuntimeValue label={t('settings.runtime.envFile')} value={runtime.env_file} mono />
             </div>
-          </div>
-        </div>
 
-        <p className="text-xs leading-5 text-gray-600">{privacyBoundary}</p>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-xs font-medium uppercase text-gray-600">{t('settings.runtime.backendContract')}</p>
+                <div className="mt-3 space-y-2">
+                  {health.backend_contracts.slice(0, 3).map((contract) => (
+                    <div key={`${contract.endpoint}-${contract.file}`} className="min-w-0">
+                      <p className="truncate text-xs text-gray-300">{contract.endpoint || contract.purpose}</p>
+                      <p className="mt-0.5 truncate font-mono text-[11px] text-gray-600">{contract.file}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-xs font-medium uppercase text-gray-600">{t('settings.runtime.rustProducers')}</p>
+                <div className="mt-3 space-y-2">
+                  {health.rust_producers.slice(0, 2).map((producer) => (
+                    <div key={producer.file} className="min-w-0">
+                      <p className="truncate text-xs text-gray-300">{producer.purpose}</p>
+                      <p className="mt-0.5 truncate font-mono text-[11px] text-gray-600">{producer.file}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <p className="text-xs leading-5 text-gray-600">{privacyBoundary}</p>
+          </div>
+        </details>
       </div>
     </Card>
   );
@@ -631,11 +672,13 @@ function NodeList({
   selectedId,
   onSelect,
   policySyncByNodeId,
+  disabled = false,
 }: {
   nodes: Node[];
   selectedId: string;
   onSelect: (nodeId: string) => void;
   policySyncByNodeId: Record<string, VpnPolicySync | undefined>;
+  disabled?: boolean;
 }) {
   const { t } = useI18n();
   return (
@@ -651,7 +694,8 @@ function NodeList({
               key={node.id}
               type="button"
               onClick={() => onSelect(node.id)}
-              className={`w-full text-left px-5 py-4 transition-colors ${selected ? 'bg-purple-500/10' : 'hover:bg-white/[0.03]'}`}
+              disabled={disabled}
+              className={`w-full px-5 py-4 text-left transition-colors disabled:cursor-wait disabled:opacity-60 ${selected ? 'bg-purple-500/10' : 'hover:bg-white/[0.03]'}`}
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -719,16 +763,23 @@ function PolicyEditor({
 
   return (
     <Card variant="default" padding="none">
-      <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-white">{node.name}</h2>
+      <div className="flex flex-col gap-3 border-b border-white/5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="truncate text-base font-semibold text-white">{node.name}</h2>
+            {canSave ? (
+              <span className="rounded-full border border-yellow-500/25 bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-200">
+                {t('nodeSettings.unsavedChanges')}
+              </span>
+            ) : null}
+          </div>
           <p className="text-xs text-gray-500 mt-1">
             {node.last_heartbeat
               ? t('settings.policyEditor.lastHeartbeat', { time: i18nRelativeTime(node.last_heartbeat) })
               : t('settings.policyEditor.noHeartbeat')}
           </p>
         </div>
-        <Button variant="primary" onClick={onSave} disabled={!canSave || saving} isLoading={saving}>
+        <Button className="w-full sm:w-auto" variant="primary" onClick={onSave} disabled={!canSave || saving} isLoading={saving}>
           {t('settings.policyEditor.saveSettings')}
         </Button>
       </div>
@@ -958,12 +1009,14 @@ function FleetPresets({
   onUsePreset,
   onApplyFleet,
   savingPresetId,
+  busy,
 }: {
   selectedNodeName: string;
   nodeCount: number;
   onUsePreset: (preset: PolicyPreset) => void;
   onApplyFleet: (preset: PolicyPreset) => void;
   savingPresetId: string;
+  busy: boolean;
 }) {
   const { t, formatNumber } = useI18n();
   return (
@@ -992,13 +1045,13 @@ function FleetPresets({
               <span>{t('settings.fleetPresets.bandwidth', { value: preset.policy.bandwidth_limit_mbps ? formatNumber(preset.policy.bandwidth_limit_mbps) : t('billing.summary.unlimited') })}</span>
             </div>
             <div className="flex flex-col sm:flex-row gap-2 mt-4">
-              <Button variant="secondary" onClick={() => onUsePreset(preset)}>
+              <Button variant="secondary" onClick={() => onUsePreset(preset)} disabled={busy}>
                 {t('settings.fleetPresets.useOn', { name: selectedNodeName })}
               </Button>
               <Button
                 variant="primary"
                 onClick={() => onApplyFleet(preset)}
-                disabled={Boolean(savingPresetId)}
+                disabled={busy}
                 isLoading={savingPresetId === preset.id}
               >
                 {t('settings.fleetPresets.applyTo', { count: formatNumber(nodeCount) })}
@@ -1007,6 +1060,67 @@ function FleetPresets({
           </div>
         ))}
       </div>
+    </Card>
+  );
+}
+
+function FleetApplyOutcomePanel({
+  outcome,
+  onRetry,
+  retrying,
+}: {
+  outcome: FleetApplyOutcome;
+  onRetry: () => void;
+  retrying: boolean;
+}) {
+  const { t, formatNumber } = useI18n();
+  const failedCount = outcome.failures.length;
+  const complete = failedCount === 0;
+
+  return (
+    <Card variant="default" padding="md">
+      <div role={complete ? 'status' : 'alert'} className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold text-white">{t('settings.fleetPresets.resultTitle')}</h2>
+            <span className={`rounded-full border px-2.5 py-1 text-xs ${complete
+              ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200'
+              : 'border-yellow-500/25 bg-yellow-500/10 text-yellow-200'
+            }`}>
+              {complete ? t('common.status.completed') : t('common.status.attention')}
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-gray-400">
+            {complete
+              ? t('settings.fleetPresets.resultComplete', {
+                preset: outcome.presetName,
+                count: formatNumber(outcome.succeededCount),
+              })
+              : t('settings.fleetPresets.resultPartial', {
+                preset: outcome.presetName,
+                success: formatNumber(outcome.succeededCount),
+                failed: formatNumber(failedCount),
+              })}
+          </p>
+        </div>
+
+        {!complete ? (
+          <Button className="w-full lg:w-auto" variant="secondary" onClick={onRetry} isLoading={retrying}>
+            {t('settings.fleetPresets.retryFailed', { count: formatNumber(failedCount) })}
+          </Button>
+        ) : null}
+      </div>
+
+      {!complete ? (
+        <div className="mt-4 grid gap-2 md:grid-cols-2">
+          {outcome.failures.map((failure) => (
+            <div key={failure.nodeId} className="min-w-0 rounded-lg border border-red-500/20 bg-red-500/[0.05] px-3 py-2">
+              <p className="truncate text-sm font-medium text-red-100">{failure.nodeName}</p>
+              <p className="mt-1 line-clamp-2 text-xs text-red-200/70">{failure.reason}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </Card>
   );
 }
@@ -1031,6 +1145,13 @@ export default function SettingsPage() {
   const [messageTone, setMessageTone] = useState<'success' | 'error'>('success');
   const [lastPolicySave, setLastPolicySave] = useState<PolicySaveFollowUp | null>(null);
   const [savingPresetId, setSavingPresetId] = useState('');
+  const [pendingSelectedId, setPendingSelectedId] = useState('');
+  const [fleetApplyRequest, setFleetApplyRequest] = useState<FleetApplyRequest | null>(null);
+  const [fleetApplyOutcome, setFleetApplyOutcome] = useState<FleetApplyOutcome | null>(null);
+  const hasUnsavedChanges = Boolean(
+    selectedNode && (policyChanged(selectedNode, form) || accessPassword.dirty)
+  );
+  const pendingSelectedNode = nodes.find((node) => node.id === pendingSelectedId) ?? null;
   const policySyncByNodeId = useMemo(() => {
     const pairs = (overview?.nodes ?? []).map((node) => [node.id, node.system.policy_sync] as const);
     return Object.fromEntries(pairs) as Record<string, VpnPolicySync | undefined>;
@@ -1045,6 +1166,18 @@ export default function SettingsPage() {
     setAccessPassword({ value: '', dirty: false, generated: false });
     setMessage('');
   }, [selectedNode?.id]);
+
+  // [FLEET-POLICY-SAFETY 2026-08-13 by Codex] The browser guard protects
+  // generated access codes and policy drafts from accidental tab closure.
+  useEffect(() => {
+    if (!hasUnsavedChanges) return undefined;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   const save = async () => {
     if (!selectedNode) return;
@@ -1105,44 +1238,153 @@ export default function SettingsPage() {
     setMessageTone('success');
   };
 
-  const applyFleetPreset = async (preset: PolicyPreset) => {
-    if (!nodes.length) return;
-    const presetName = t(`settings.fleetPresets.${preset.id}.name`);
-    const confirmed = window.confirm(
-      t('settings.fleetPresets.confirmApply', {
-        preset: presetName,
-        count: formatNumber(nodes.length),
-      })
-    );
-    if (!confirmed) return;
+  const selectNode = (nodeId: string) => {
+    if (updateNode.isPending || savingPresetId) return;
+    if (nodeId === selectedNode?.id) return;
+    if (hasUnsavedChanges) {
+      setPendingSelectedId(nodeId);
+      return;
+    }
+    setSelectedId(nodeId);
+  };
 
-    setSavingPresetId(preset.id);
+  const discardDraftAndSelectNode = () => {
+    if (!pendingSelectedId) return;
+    setSelectedId(pendingSelectedId);
+    setPendingSelectedId('');
+  };
+
+  const requestFleetPreset = (preset: PolicyPreset, nodeIds = nodes.map((node) => node.id)) => {
+    if (!nodeIds.length || savingPresetId || updateNode.isPending) return;
+    setFleetApplyRequest({ preset, nodeIds });
+  };
+
+  const applyFleetPreset = async () => {
+    const request = fleetApplyRequest;
+    if (!request) return;
+    const presetName = t(`settings.fleetPresets.${request.preset.id}.name`);
+    const targetNodes = request.nodeIds
+      .map((nodeId) => nodes.find((node) => node.id === nodeId))
+      .filter((node): node is Node => Boolean(node));
+    const missingNodeIds = request.nodeIds.filter((nodeId) => !targetNodes.some((node) => node.id === nodeId));
+    const failures: FleetApplyFailure[] = missingNodeIds.map((nodeId) => ({
+      nodeId,
+      nodeName: nodeId,
+      reason: t('settings.fleetPresets.nodeUnavailable'),
+    }));
+    let succeededCount = 0;
+
+    setSavingPresetId(request.preset.id);
     setMessage('');
     try {
-      for (const node of nodes) {
-        await updateNode.mutateAsync({ nodeId: node.id, data: preset.policy });
+      // Continue after a node-level failure so the operator receives an honest
+      // fleet outcome instead of an ambiguous half-applied transaction.
+      for (const node of targetNodes) {
+        try {
+          await updateNode.mutateAsync({ nodeId: node.id, data: request.preset.policy });
+          succeededCount += 1;
+        } catch (err) {
+          failures.push({
+            nodeId: node.id,
+            nodeName: node.name,
+            reason: err instanceof Error ? err.message : t('settings.fleetPresets.applyFailed'),
+          });
+        }
       }
-      if (selectedNode) setForm((current) => ({ ...current, ...preset.policy }));
-      setMessage(t('settings.fleetPresets.appliedTo', {
-        preset: presetName,
-        count: formatNumber(nodes.length),
-      }));
-      setMessageTone('success');
-      setLastPolicySave({
-        mode: 'fleet',
-        nodeName: presetName,
-        nodeCount: nodes.length,
-        savedAt: new Date().toISOString(),
-      });
-      refetch();
-      refetchVpnOverview();
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : t('settings.fleetPresets.applyFailed'));
-      setMessageTone('error');
+      if (selectedNode && targetNodes.some((node) => node.id === selectedNode.id)
+        && !failures.some((failure) => failure.nodeId === selectedNode.id)) {
+        setForm((current) => ({ ...current, ...request.preset.policy }));
+      }
+
+      const outcome: FleetApplyOutcome = {
+        preset: request.preset,
+        presetName,
+        succeededCount,
+        failures,
+      };
+      setFleetApplyOutcome(failures.length ? outcome : null);
+
+      if (failures.length === 0) {
+        setMessage(t('settings.fleetPresets.appliedTo', {
+          preset: presetName,
+          count: formatNumber(succeededCount),
+        }));
+        setMessageTone('success');
+      } else {
+        setMessage(t('settings.fleetPresets.resultPartial', {
+          preset: presetName,
+          success: formatNumber(succeededCount),
+          failed: formatNumber(failures.length),
+        }));
+        setMessageTone('error');
+      }
+
+      if (succeededCount > 0) {
+        setLastPolicySave({
+          mode: 'fleet',
+          nodeName: presetName,
+          nodeCount: succeededCount,
+          savedAt: new Date().toISOString(),
+        });
+      }
+      void Promise.all([refetch(), refetchVpnOverview()]);
     } finally {
+      setFleetApplyRequest(null);
       setSavingPresetId('');
     }
   };
+
+  const retryFleetFailures = () => {
+    if (!fleetApplyOutcome?.failures.length) return;
+    requestFleetPreset(
+      fleetApplyOutcome.preset,
+      fleetApplyOutcome.failures.map((failure) => failure.nodeId),
+    );
+  };
+
+  const fleetConfirmationDetails = fleetApplyRequest ? (
+    <div className="space-y-3 rounded-xl border border-white/10 bg-black/20 p-3">
+      <div className="flex items-center justify-between gap-4 border-b border-white/5 pb-3">
+        <span className="text-xs text-gray-500">{t('settings.fleetPresets.scope')}</span>
+        <span className="text-sm font-medium text-white">
+          {t('settings.fleetPresets.nodeCount', { count: formatNumber(fleetApplyRequest.nodeIds.length) })}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        <div>
+          <p className="text-gray-600">{t('settings.policyEditor.nodeTier')}</p>
+          <p className="mt-1 text-gray-200">
+            {t(`settings.policyEditor.tier${fleetApplyRequest.preset.policy.node_tier === 'premium' ? 'Premium' : 'Public'}`)}
+          </p>
+        </div>
+        <div>
+          <p className="text-gray-600">{t('settings.policyEditor.heartbeatInterval')}</p>
+          <p className="mt-1 text-gray-200">{fleetApplyRequest.preset.policy.heartbeat_interval_seconds}s</p>
+        </div>
+        <div>
+          <p className="text-gray-600">{t('settings.policyEditor.maxSessions')}</p>
+          <p className="mt-1 text-gray-200">
+            {fleetApplyRequest.preset.policy.max_sessions
+              ? formatNumber(fleetApplyRequest.preset.policy.max_sessions)
+              : t('billing.summary.unlimited')}
+          </p>
+        </div>
+        <div>
+          <p className="text-gray-600">{t('settings.policyEditor.bandwidthMbps')}</p>
+          <p className="mt-1 text-gray-200">
+            {fleetApplyRequest.preset.policy.bandwidth_limit_mbps
+              ? formatNumber(fleetApplyRequest.preset.policy.bandwidth_limit_mbps)
+              : t('billing.summary.unlimited')}
+          </p>
+        </div>
+      </div>
+      {fleetApplyRequest.preset.policy.maintenance_mode ? (
+        <p className="rounded-lg border border-yellow-500/20 bg-yellow-500/10 px-3 py-2 text-xs leading-5 text-yellow-100">
+          {t('settings.fleetPresets.maintenanceImpact')}
+        </p>
+      ) : null}
+    </div>
+  ) : null;
 
   if (isLoading) {
     return (
@@ -1185,23 +1427,22 @@ export default function SettingsPage() {
           <p className="text-sm text-gray-500 mt-1">{t('settings.subtitle')}</p>
         </div>
         {message && (
-          <div className={`text-sm ${messageTone === 'success' ? 'text-emerald-300' : 'text-red-300'}`}>
+          <div aria-live="polite" className={`rounded-lg border px-3 py-2 text-sm ${messageTone === 'success'
+            ? 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-200'
+            : 'border-red-500/20 bg-red-500/[0.06] text-red-200'
+          }`}>
             {message}
           </div>
         )}
       </div>
 
-      <LanguageSettingsPanel />
-
-      <ControlPlaneRuntimePanel />
-
-      <FleetPresets
-        selectedNodeName={selectedNode.name}
-        nodeCount={nodes.length}
-        onUsePreset={usePreset}
-        onApplyFleet={applyFleetPreset}
-        savingPresetId={savingPresetId}
-      />
+      {fleetApplyOutcome ? (
+        <FleetApplyOutcomePanel
+          outcome={fleetApplyOutcome}
+          onRetry={retryFleetFailures}
+          retrying={Boolean(savingPresetId)}
+        />
+      ) : null}
 
       {lastPolicySave && (
         <PolicySaveFollowUpPanel
@@ -1216,8 +1457,9 @@ export default function SettingsPage() {
         <NodeList
           nodes={nodes}
           selectedId={selectedNode.id}
-          onSelect={setSelectedId}
+          onSelect={selectNode}
           policySyncByNodeId={policySyncByNodeId}
+          disabled={updateNode.isPending || Boolean(savingPresetId)}
         />
         <div className="space-y-6">
           <PolicyEditor
@@ -1233,6 +1475,49 @@ export default function SettingsPage() {
           <PolicyAuditPanel nodeId={selectedNode.id} />
         </div>
       </div>
+
+      <FleetPresets
+        selectedNodeName={selectedNode.name}
+        nodeCount={nodes.length}
+        onUsePreset={usePreset}
+        onApplyFleet={requestFleetPreset}
+        savingPresetId={savingPresetId}
+        busy={updateNode.isPending || Boolean(savingPresetId)}
+      />
+
+      <LanguageSettingsPanel />
+
+      <ControlPlaneRuntimePanel />
+
+      <ConfirmDialog
+        isOpen={Boolean(pendingSelectedNode)}
+        onClose={() => setPendingSelectedId('')}
+        onConfirm={discardDraftAndSelectNode}
+        title={t('settings.unsaved.title')}
+        message={t('settings.unsaved.message', {
+          current: selectedNode.name,
+          next: pendingSelectedNode?.name || t('common.status.unknown'),
+        })}
+        confirmText={t('settings.unsaved.discard')}
+        variant="warning"
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(fleetApplyRequest)}
+        onClose={() => setFleetApplyRequest(null)}
+        onConfirm={() => void applyFleetPreset()}
+        title={t('settings.fleetPresets.confirmTitle')}
+        message={t('settings.fleetPresets.confirmApply', {
+          preset: fleetApplyRequest
+            ? t(`settings.fleetPresets.${fleetApplyRequest.preset.id}.name`)
+            : '',
+          count: formatNumber(fleetApplyRequest?.nodeIds.length ?? 0),
+        })}
+        confirmText={t('settings.fleetPresets.confirmAction')}
+        variant="warning"
+        isLoading={Boolean(savingPresetId)}
+        details={fleetConfirmationDetails}
+      />
     </div>
   );
 }
