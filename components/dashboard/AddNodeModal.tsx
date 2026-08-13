@@ -5,6 +5,9 @@
  * File Path: components/dashboard/AddNodeModal.tsx
  *
  * Modification Reason:
+ *   v1.6.0 - [CODE-LIFECYCLE 2026-08-13 by Codex] Aligned modal generation
+ *   failures, expiration, pending-close protection, and narrow-screen code
+ *   layout with the registration code management page.
  *   v1.5.0 - Make generated post-install verification use
  *   `aeronyx-node.sh status` first, because status now includes service
  *   state, local endpoints, upgrade state, and the healthcheck
@@ -43,7 +46,8 @@
  * - If deploy/node/aeronyx-node.sh changes flags, update preview, install,
  *   status, and healthcheck guidance together.
  *
- * Last Modified: v1.5.0 - Verify installs with status recommendation
+ * Last Modified: v1.6.0 - Transaction-safe registration modal lifecycle
+ * Previous: v1.5.0 - Verify installs with status recommendation
  * Previous: v1.4.0 - Use self-contained /root/open bootstrap commands
  * Previous: v1.3.0 - Align preview command with quick install
  * Previous: v1.2.0 - Unified node operator entrypoint onboarding
@@ -112,17 +116,23 @@ function Countdown({ expiresAt, onExpire }: CountdownProps) {
   const [timeLeft, setTimeLeft] = useState(getCodeTimeRemaining(expiresAt));
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    const updateRemaining = () => {
       const remaining = getCodeTimeRemaining(expiresAt);
       setTimeLeft(remaining);
-      
       if (remaining.isExpired) {
         onExpire();
-        clearInterval(interval);
+        return true;
       }
+      return false;
+    };
+
+    if (updateRemaining()) return undefined;
+
+    const interval = window.setInterval(() => {
+      if (updateRemaining()) window.clearInterval(interval);
     }, 1000);
 
-    return () => clearInterval(interval);
+    return () => window.clearInterval(interval);
   }, [expiresAt, onExpire]);
 
   if (timeLeft.isExpired) {
@@ -247,11 +257,11 @@ function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
           </div>
           
           {/* Code Value */}
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <code className="
-              flex-1 px-4 py-3 rounded-xl
+              min-w-0 flex-1 break-all px-4 py-3 rounded-xl [overflow-wrap:anywhere]
               bg-black/30 border border-white/10
-              text-xl font-mono font-bold text-white
+              text-base font-mono font-bold text-white sm:text-xl
               tracking-wider
             ">
               {code.code}
@@ -358,7 +368,7 @@ function CodeDisplay({ code, onExpire }: CodeDisplayProps) {
 
 export default function AddNodeModal({ isOpen, onClose }: AddNodeModalProps) {
   const { t } = useI18n();
-  const { generateCode, isLoading, reset } = useGenerateCode();
+  const { generateCode, isLoading, isError, reset } = useGenerateCode();
   const [activeCode, setActiveCode] = useState<RegistrationCode | null>(null);
 
   // Reset state when modal closes
@@ -374,23 +384,30 @@ export default function AddNodeModal({ isOpen, onClose }: AddNodeModalProps) {
     try {
       const code = await generateCode();
       setActiveCode(code);
-    } catch (err) {
-      console.error('Failed to generate code:', err);
+    } catch {
+      // The modal renders a translated, privacy-safe error below the action.
     }
   }, [generateCode]);
 
   // Handle code expiration
   const handleExpire = useCallback(() => {
     setActiveCode(null);
-  }, []);
+    reset();
+  }, [reset]);
+
+  const handleClose = useCallback(() => {
+    if (!isLoading) onClose();
+  }, [isLoading, onClose]);
 
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={handleClose}
       title={t('addNode.title')}
       description={t('addNode.description')}
       size="xl"
+      closeOnBackdrop={!isLoading}
+      closeOnEscape={!isLoading}
     >
       {!activeCode ? (
         <div className="space-y-6">
@@ -427,6 +444,11 @@ export default function AddNodeModal({ isOpen, onClose }: AddNodeModalProps) {
           >
             {t('codes.generate.button')}
           </Button>
+          {isError ? (
+            <p role="alert" className="rounded-lg border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-100">
+              {t('codes.error.generate')}
+            </p>
+          ) : null}
         </div>
       ) : (
         <CodeDisplay code={activeCode} onExpire={handleExpire} />

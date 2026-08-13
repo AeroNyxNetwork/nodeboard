@@ -9,6 +9,8 @@
  *   non-dismissable AuthModal. Once the user authenticates, the modal
  *   disappears and the full dashboard is revealed.
  *   v1.1.1 - Read loading copy from lib/i18n/I18nProvider.tsx.
+ *   v1.2.0 - [AUTH-GATE 2026-08-13 by Codex] Make the dashboard shell inert
+ *   while the non-dismissable authentication surface is active.
  * Main Functionality:
  *   - Auth-gated layout with login modal overlay
  *   - Sidebar navigation (desktop + mobile)
@@ -30,7 +32,8 @@
  * - The dashboard skeleton is always rendered (behind modal if needed)
  * - Maintain interface compatibility with components/dashboard/Sidebar.tsx
  *
- * Last Modified: v1.1.1 - i18n loading copy
+ * Last Modified: v1.2.0 - Isolated authentication interaction boundary
+ * Previous: v1.1.1 - i18n loading copy
  * Previous: v1.1.0 - Replaced redirect-to-landing with AuthModal overlay
  * Previous: v1.0.4 - Fixed redirect loop with proper state management
  * ============================================
@@ -102,22 +105,27 @@ export default function DashboardLayout({
       {/* Auth Modal — overlays everything when not authenticated */}
       <AuthModal isOpen={!isAuthenticated} />
 
-      {/* Mobile Header */}
-      <MobileHeader onMenuToggle={handleOpenSidebar} />
+      <div
+        aria-hidden={!isAuthenticated ? true : undefined}
+        inert={!isAuthenticated ? true : undefined}
+      >
+        {/* Mobile Header */}
+        <MobileHeader onMenuToggle={handleOpenSidebar} />
 
-      <div className="flex">
-        {/* Sidebar */}
-        <Sidebar
-          isOpen={isSidebarOpen}
-          onClose={handleCloseSidebar}
-        />
+        <div className="flex">
+          {/* Sidebar */}
+          <Sidebar
+            isOpen={isSidebarOpen}
+            onClose={handleCloseSidebar}
+          />
 
-        {/* Main Content */}
-        <main className="flex-1 min-h-screen pt-16 lg:pt-0">
-          <div className="p-6 lg:p-8">
-            {children}
-          </div>
-        </main>
+          {/* Main Content */}
+          <main className="flex-1 min-h-screen pt-16 lg:pt-0">
+            <div className="p-6 lg:p-8">
+              {children}
+            </div>
+          </main>
+        </div>
       </div>
     </div>
   );

@@ -2,10 +2,13 @@
  * ============================================
  * AeroNyx Registration Codes Page
  * ============================================
- * File Path: src/app/dashboard/codes/page.tsx
+ * File Path: app/dashboard/codes/page.tsx
  * 
  * Creation Reason: Manage registration codes for node binding
  * Modification Reason:
+ *   v1.11.0 - [CODE-LIFECYCLE 2026-08-13 by Codex] Added visible failure and
+ *     refresh states, expired-command safeguards, accessible confirmations,
+ *     client-side node navigation, and a native mobile history layout.
  *   v1.10.0 - Change generated post-install verification from raw
  *     `health --json` to `status`, so operators and AI assistants see the
  *     service state, upgrade state, and operator_next_step recommendation
@@ -25,9 +28,9 @@
  *
  * Main Functionality: Generate, view, copy, and revoke registration codes
  * Dependencies:
- *   - src/hooks/useRegistrationCodes.ts
- *   - src/components/common/Card.tsx
- *   - src/components/common/Button.tsx
+ *   - hooks/useRegistrationCodes.ts
+ *   - components/common/Card.tsx
+ *   - components/common/Button.tsx
  * 
  * Main Logical Flow:
  * 1. Fetch all registration codes
@@ -40,7 +43,8 @@
  * - Only unused codes can be revoked
  * - Used codes show linked node info
  * 
- * Last Modified: v1.10.0 - Verify installs with status recommendation
+ * Last Modified: v1.11.0 - Commercial registration code lifecycle UX
+ * Previous: v1.10.0 - Verify installs with status recommendation
  * Previous: v1.9.0 - Use self-contained /root/open bootstrap commands
  * Previous: v1.8.0 - Align preview command with quick install
  * Previous: v1.7.0 - Prioritize failed installer detail chips
@@ -58,15 +62,17 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Link from 'next/link';
 import {
   useRegistrationCodes,
   useGenerateCode,
   useRevokeCode,
   getCodeTimeRemaining,
+  isCodeUsable,
 } from '@/hooks/useRegistrationCodes';
 import { RegistrationCode } from '@/types';
 import { CODE_STATUS_CONFIG } from '@/lib/constants';
-import Card, { EmptyState } from '@/components/common/Card';
+import Card from '@/components/common/Card';
 import Button, { CopyButton } from '@/components/common/Button';
 import { ConfirmDialog } from '@/components/common/Modal';
 import { useI18n } from '@/lib/i18n/I18nProvider';
@@ -75,16 +81,50 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 // Countdown Component
 // ============================================
 
-function CodeCountdown({ expiresAt }: { expiresAt: string }) {
-  const { t } = useI18n();
-  const [timeLeft, setTimeLeft] = useState(getCodeTimeRemaining(expiresAt));
+type CodeTimeRemaining = ReturnType<typeof getCodeTimeRemaining>;
+
+const EMPTY_CODE_TIME: CodeTimeRemaining = {
+  isExpired: false,
+  totalSeconds: 0,
+  minutes: 0,
+  seconds: 0,
+  formatted: '',
+};
+
+function useCodeTimeRemaining(expiresAt?: string) {
+  const [trackedTime, setTrackedTime] = useState<{
+    expiresAt?: string;
+    value: CodeTimeRemaining;
+  }>(
+    { expiresAt, value: expiresAt ? getCodeTimeRemaining(expiresAt) : EMPTY_CODE_TIME },
+  );
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setTimeLeft(getCodeTimeRemaining(expiresAt));
+    if (!expiresAt) {
+      setTrackedTime({ expiresAt, value: EMPTY_CODE_TIME });
+      return undefined;
+    }
+
+    const initialTime = getCodeTimeRemaining(expiresAt);
+    setTrackedTime({ expiresAt, value: initialTime });
+    if (initialTime.isExpired) return undefined;
+
+    const interval = window.setInterval(() => {
+      const nextTime = getCodeTimeRemaining(expiresAt);
+      setTrackedTime({ expiresAt, value: nextTime });
+      if (nextTime.isExpired) window.clearInterval(interval);
     }, 1000);
-    return () => clearInterval(interval);
+    return () => window.clearInterval(interval);
   }, [expiresAt]);
+
+  if (trackedTime.expiresAt !== expiresAt) {
+    return expiresAt ? getCodeTimeRemaining(expiresAt) : EMPTY_CODE_TIME;
+  }
+  return trackedTime.value;
+}
+
+function CodeCountdown({ timeLeft }: { timeLeft: CodeTimeRemaining }) {
+  const { t } = useI18n();
 
   if (timeLeft.isExpired) {
     return <span className="text-red-400">{t('codes.expired')}</span>;
@@ -97,13 +137,58 @@ function CodeCountdown({ expiresAt }: { expiresAt: string }) {
   );
 }
 
+function CodeStatusBadge({ status }: { status: RegistrationCode['status'] }) {
+  const { t } = useI18n();
+  const statusConfig = CODE_STATUS_CONFIG[status];
+  const statusKey = `codes.status.${status}`;
+  const translatedStatus = t(statusKey);
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${statusConfig.bgColor} ${statusConfig.textColor}`}>
+      {translatedStatus === statusKey ? statusConfig.label : translatedStatus}
+    </span>
+  );
+}
+
 // ============================================
 // Code Row Component
 // ============================================
 
 interface CodeRowProps {
   code: RegistrationCode;
+  nowMs: number;
   onRevoke: (code: RegistrationCode) => void;
+}
+
+// [CODE-LIFECYCLE 2026-08-13 by Codex] Both responsive history views remain
+// mounted for CSS breakpoints, so one page clock avoids four timers per code.
+function useRegistrationCodeClock(codes: RegistrationCode[]) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const initialNow = Date.now();
+    setNowMs(initialNow);
+    if (!codes.some((code) => isCodeUsable(code, new Date(initialNow)))) return undefined;
+
+    const interval = window.setInterval(() => {
+      const nextNow = Date.now();
+      setNowMs(nextNow);
+      if (!codes.some((code) => isCodeUsable(code, new Date(nextNow)))) {
+        window.clearInterval(interval);
+      }
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [codes]);
+
+  return nowMs;
+}
+
+function codeLifecycle(code: RegistrationCode, nowMs: number) {
+  const timeLeft = getCodeTimeRemaining(code.expires_at, new Date(nowMs));
+  const isUsable = isCodeUsable(code, new Date(nowMs));
+  const effectiveStatus = code.status === 'unused' && !isUsable ? 'expired' : code.status;
+  return { effectiveStatus, isUsable, timeLeft };
 }
 
 function installProgressTone(status: string | undefined) {
@@ -287,15 +372,15 @@ function LinkedNodeActions({ code }: { code: RegistrationCode }) {
         </span>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
-        <a href={detailHref} className="rounded-lg border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-medium text-white transition hover:border-white/25 hover:bg-white/[0.06]">
+        <Link href={detailHref} className="rounded-lg border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-medium text-white transition hover:border-white/25 hover:bg-white/[0.06]">
           {t('codes.linkedNode.openDetail')}
-        </a>
-        <a href={capacityHref} className="rounded-lg border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-medium text-gray-300 transition hover:border-white/25 hover:bg-white/[0.06]">
+        </Link>
+        <Link href={capacityHref} className="rounded-lg border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-medium text-gray-300 transition hover:border-white/25 hover:bg-white/[0.06]">
           {t('codes.linkedNode.openCapacity')}
-        </a>
-        <a href={upgradeHref} className="rounded-lg border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-medium text-gray-300 transition hover:border-white/25 hover:bg-white/[0.06]">
+        </Link>
+        <Link href={upgradeHref} className="rounded-lg border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-medium text-gray-300 transition hover:border-white/25 hover:bg-white/[0.06]">
           {t('codes.linkedNode.openUpgrade')}
-        </a>
+        </Link>
       </div>
     </div>
   );
@@ -328,7 +413,7 @@ function InstallProgressCell({ code }: { code: RegistrationCode }) {
   const hiddenDetailCount = details.length - visibleDetails.length;
 
   return (
-    <div className="min-w-[320px] max-w-md">
+    <div className="w-full min-w-0 sm:min-w-[320px] sm:max-w-md">
       <div className="flex flex-wrap items-center gap-2">
         <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${installProgressTone(status)}`}>
           {translatedStatus === statusKey ? status.replace(/_/g, ' ') : translatedStatus}
@@ -393,12 +478,9 @@ function InstallProgressCell({ code }: { code: RegistrationCode }) {
   );
 }
 
-function CodeRow({ code, onRevoke }: CodeRowProps) {
+function CodeRow({ code, nowMs, onRevoke }: CodeRowProps) {
   const { t, formatDateTime } = useI18n();
-  const statusConfig = CODE_STATUS_CONFIG[code.status];
-  const isRevokable = code.status === 'unused' && code.is_valid;
-  const statusKey = `codes.status.${code.status}`;
-  const translatedStatus = t(statusKey);
+  const { effectiveStatus, isUsable: isRevokable, timeLeft } = codeLifecycle(code, nowMs);
 
   return (
     <motion.tr
@@ -419,18 +501,13 @@ function CodeRow({ code, onRevoke }: CodeRowProps) {
 
       {/* Status */}
       <td className="px-6 py-4">
-        <span className={`
-          inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium
-          ${statusConfig.bgColor} ${statusConfig.textColor}
-        `}>
-          {translatedStatus === statusKey ? statusConfig.label : translatedStatus}
-        </span>
+        <CodeStatusBadge status={effectiveStatus} />
       </td>
 
       {/* Expires */}
       <td className="px-6 py-4 text-sm">
-        {code.status === 'unused' && code.is_valid ? (
-          <CodeCountdown expiresAt={code.expires_at} />
+        {code.status === 'unused' ? (
+          <CodeCountdown timeLeft={code.is_valid ? timeLeft : { ...timeLeft, isExpired: true }} />
         ) : (
           <span className="text-gray-500">—</span>
         )}
@@ -463,6 +540,68 @@ function CodeRow({ code, onRevoke }: CodeRowProps) {
   );
 }
 
+function CodeMobileCard({ code, nowMs, onRevoke }: CodeRowProps) {
+  const { t, formatDateTime } = useI18n();
+  const { effectiveStatus, isUsable: isRevokable, timeLeft } = codeLifecycle(code, nowMs);
+
+  return (
+    <motion.article
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      className="rounded-xl border border-white/10 bg-white/[0.025] p-4"
+      aria-label={`${t('codes.table.code')} ${code.code}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] uppercase tracking-wider text-gray-600">{t('codes.table.code')}</p>
+          <code className="mt-1 block break-all font-mono text-sm font-semibold text-white [overflow-wrap:anywhere]">
+            {code.code}
+          </code>
+        </div>
+        <CopyButton text={code.code} />
+      </div>
+
+      <div className="mt-3">
+        <CodeStatusBadge status={effectiveStatus} />
+      </div>
+
+      <dl className="mt-4 grid grid-cols-2 gap-3 border-y border-white/5 py-3">
+        <div>
+          <dt className="text-[11px] uppercase tracking-wider text-gray-600">{t('codes.table.expiresIn')}</dt>
+          <dd className="mt-1 text-sm text-gray-300">
+            {code.status === 'unused' ? (
+              <CodeCountdown timeLeft={code.is_valid ? timeLeft : { ...timeLeft, isExpired: true }} />
+            ) : (
+              <span className="text-gray-600">—</span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[11px] uppercase tracking-wider text-gray-600">{t('codes.table.created')}</dt>
+          <dd className="mt-1 break-words text-sm text-gray-400">{formatDateTime(code.created_at)}</dd>
+        </div>
+      </dl>
+
+      <div className="mt-4">
+        <p className="mb-2 text-[11px] uppercase tracking-wider text-gray-600">{t('codes.table.installProgress')}</p>
+        <InstallProgressCell code={code} />
+      </div>
+
+      {isRevokable ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onRevoke(code)}
+          className="mt-4 w-full text-red-400 hover:bg-red-500/10 hover:text-red-300"
+        >
+          {t('codes.revoke')}
+        </Button>
+      ) : null}
+    </motion.article>
+  );
+}
+
 // ============================================
 // Generate Code Card
 // ============================================
@@ -473,8 +612,9 @@ function shellSingleQuote(value: string) {
 
 function GenerateCodeCard() {
   const { t } = useI18n();
-  const { generateCode, isLoading, lastGeneratedCode, reset } = useGenerateCode();
+  const { generateCode, isLoading, isError, lastGeneratedCode, reset } = useGenerateCode();
   const [showCode, setShowCode] = useState(false);
+  const generatedTime = useCodeTimeRemaining(lastGeneratedCode?.expires_at);
   const repoBootstrapCommand = 'mkdir -p /root/open && cd /root/open && if [ -d AeroNyx/.git ]; then cd AeroNyx && git fetch origin main && git checkout main && git pull --ff-only origin main; else git clone https://github.com/AeroNyxNetwork/AeroNyx.git AeroNyx && cd AeroNyx; fi';
   const quotedRegistrationCode = lastGeneratedCode ? shellSingleQuote(lastGeneratedCode.code) : '';
   const quickstartCommand = lastGeneratedCode
@@ -524,8 +664,8 @@ function GenerateCodeCard() {
     try {
       await generateCode();
       setShowCode(true);
-    } catch (err) {
-      console.error('Failed to generate code:', err);
+    } catch {
+      // The mutation exposes a privacy-safe translated error in the card.
     }
   };
 
@@ -543,26 +683,34 @@ function GenerateCodeCard() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col sm:flex-row items-center justify-between gap-6"
+            className="space-y-4"
           >
-            <div>
-              <h3 className="text-lg font-semibold text-white mb-1">{t('codes.generate.title')}</h3>
-              <p className="text-sm text-gray-400">
-                {t('codes.generate.description')}
-              </p>
+            <div className="flex flex-col items-stretch justify-between gap-6 sm:flex-row sm:items-center">
+              <div>
+                <h3 className="text-lg font-semibold text-white mb-1">{t('codes.generate.title')}</h3>
+                <p className="text-sm text-gray-400">
+                  {t('codes.generate.description')}
+                </p>
+              </div>
+              <Button
+                variant="primary"
+                onClick={handleGenerate}
+                isLoading={isLoading}
+                className="w-full sm:w-auto"
+                leftIcon={
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                }
+              >
+                {t('codes.generate.button')}
+              </Button>
             </div>
-            <Button
-              variant="primary"
-              onClick={handleGenerate}
-              isLoading={isLoading}
-              leftIcon={
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-              }
-            >
-              {t('codes.generate.button')}
-            </Button>
+            {isError ? (
+              <p role="alert" className="rounded-lg border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-100">
+                {t('codes.error.generate')}
+              </p>
+            ) : null}
           </motion.div>
         ) : lastGeneratedCode ? (
           <motion.div
@@ -572,25 +720,27 @@ function GenerateCodeCard() {
             exit={{ opacity: 0 }}
             className="space-y-4"
           >
-            <div className="flex items-start justify-between">
-              <div>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
                 <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">
                   {t('codes.generated.title')}
                 </p>
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <code className="
-                    text-2xl font-mono font-bold text-white
+                    min-w-0 break-all text-lg font-mono font-bold text-white [overflow-wrap:anywhere] sm:text-2xl
                     bg-black/30 border border-white/10
                     px-4 py-2 rounded-xl
                   ">
                     {lastGeneratedCode.code}
                   </code>
-                  <CopyButton text={lastGeneratedCode.code} />
+                  {!generatedTime.isExpired ? <CopyButton text={lastGeneratedCode.code} /> : null}
                 </div>
               </div>
               <button
+                type="button"
                 onClick={handleClose}
-                className="text-gray-500 hover:text-white transition-colors"
+                aria-label={t('common.closeModal')}
+                className="shrink-0 rounded-lg p-2 text-gray-500 transition-colors hover:bg-white/5 hover:text-white focus:outline-none focus:ring-2 focus:ring-purple-400/50"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -604,15 +754,26 @@ function GenerateCodeCard() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>{t('codes.generated.expiresIn')}</span>
-                <CodeCountdown expiresAt={lastGeneratedCode.expires_at} />
+                <CodeCountdown timeLeft={generatedTime} />
               </div>
             </div>
 
-            <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20">
-              <p className="text-sm text-purple-200">
-                {t('codes.generated.commandHint')}
-              </p>
-              <div className="mt-3 space-y-3">
+            {generatedTime.isExpired ? (
+              <div role="alert" className="rounded-xl border border-red-400/25 bg-red-400/10 p-4">
+                <p className="text-sm leading-6 text-red-100">{t('codes.generated.expiredAction')}</p>
+                <Button variant="secondary" onClick={handleGenerate} isLoading={isLoading} className="mt-4 w-full sm:w-auto">
+                  {t('codes.generated.generateAnother')}
+                </Button>
+                {isError ? (
+                  <p className="mt-3 text-sm text-red-100">{t('codes.error.generate')}</p>
+                ) : null}
+              </div>
+            ) : (
+              <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                <p className="text-sm text-purple-200">
+                  {t('codes.generated.commandHint')}
+                </p>
+                <div className="mt-3 space-y-3">
                 <p className="text-xs leading-5 text-purple-100/70">
                   {t('codes.generated.scriptOrigin')}
                 </p>
@@ -664,8 +825,9 @@ function GenerateCodeCard() {
                 <p className="text-xs leading-5 text-purple-100/60">
                   {t('codes.generated.quickNote')}
                 </p>
+                </div>
               </div>
-            </div>
+            )}
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -679,17 +841,45 @@ function GenerateCodeCard() {
 
 export default function CodesPage() {
   const { t } = useI18n();
-  const { codes, isLoading } = useRegistrationCodes({ includeExpired: true });
-  const { revokeCode, isLoading: isRevoking } = useRevokeCode();
+  const { codes, isLoading, isFetching, isError, refetch } = useRegistrationCodes({ includeExpired: true });
+  const {
+    revokeCode,
+    isLoading: isRevoking,
+    isError: isRevokeError,
+    reset: resetRevoke,
+  } = useRevokeCode();
   const [codeToRevoke, setCodeToRevoke] = useState<RegistrationCode | null>(null);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const nowMs = useRegistrationCodeClock(codes);
+
+  const handleRefresh = async () => {
+    setIsManualRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setIsManualRefreshing(false);
+    }
+  };
+
+  const openRevoke = (code: RegistrationCode) => {
+    resetRevoke();
+    setCodeToRevoke(code);
+  };
+
+  const closeRevoke = () => {
+    if (isRevoking) return;
+    setCodeToRevoke(null);
+    resetRevoke();
+  };
 
   const handleRevoke = async () => {
     if (!codeToRevoke) return;
     try {
       await revokeCode(codeToRevoke.code);
       setCodeToRevoke(null);
-    } catch (err) {
-      console.error('Failed to revoke code:', err);
+      resetRevoke();
+    } catch {
+      // ConfirmDialog owns the translated operation error.
     }
   };
 
@@ -708,15 +898,43 @@ export default function CodesPage() {
 
       {/* Codes Table */}
       <Card variant="default" padding="none">
-        <div className="px-6 py-4 border-b border-white/5">
-          <h3 className="font-semibold text-white">{t('codes.history.title')}</h3>
+        <div className="flex flex-col gap-3 border-b border-white/5 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div>
+            <h3 className="font-semibold text-white">{t('codes.history.title')}</h3>
+            {!isLoading ? (
+              <p className="mt-1 text-xs text-gray-600">{t('codes.history.count', { count: codes.length })}</p>
+            ) : null}
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleRefresh}
+            isLoading={isManualRefreshing}
+            disabled={isFetching}
+            className="w-full sm:w-auto"
+          >
+            {isManualRefreshing ? t('common.refreshing') : t('common.refreshNow')}
+          </Button>
         </div>
+
+        {isError && codes.length > 0 ? (
+          <p role="alert" className="mx-4 mt-4 rounded-lg border border-yellow-400/25 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-100 sm:mx-6">
+            {t('codes.error.stale')}
+          </p>
+        ) : null}
 
         {isLoading ? (
           <div className="p-6 space-y-3">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="h-14 bg-white/5 rounded-lg animate-pulse" />
             ))}
+          </div>
+        ) : isError && codes.length === 0 ? (
+          <div className="p-8 text-center sm:p-12">
+            <p role="alert" className="text-sm text-yellow-200">{t('codes.error.list')}</p>
+            <Button variant="secondary" size="sm" onClick={handleRefresh} isLoading={isManualRefreshing} className="mt-4">
+              {t('common.retry')}
+            </Button>
           </div>
         ) : codes.length === 0 ? (
           <div className="p-12 text-center">
@@ -727,38 +945,48 @@ export default function CodesPage() {
             <p className="text-sm text-gray-600 mt-1">{t('codes.empty.description')}</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-white/5">
-                  <th className="px-6 py-3 font-medium">{t('codes.table.code')}</th>
-                  <th className="px-6 py-3 font-medium">{t('codes.table.status')}</th>
-                  <th className="px-6 py-3 font-medium">{t('codes.table.expiresIn')}</th>
-                  <th className="px-6 py-3 font-medium">{t('codes.table.created')}</th>
-                  <th className="px-6 py-3 font-medium">{t('codes.table.installProgress')}</th>
-                  <th className="px-6 py-3 font-medium">{t('codes.table.actions')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                <AnimatePresence>
-                  {codes.map((code) => (
-                    <CodeRow
-                      key={code.id}
-                      code={code}
-                      onRevoke={setCodeToRevoke}
-                    />
-                  ))}
-                </AnimatePresence>
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="space-y-3 p-4 xl:hidden">
+              <AnimatePresence initial={false}>
+                {codes.map((code) => (
+                  <CodeMobileCard key={code.id} code={code} nowMs={nowMs} onRevoke={openRevoke} />
+                ))}
+              </AnimatePresence>
+            </div>
+            <div className="hidden overflow-x-auto xl:block">
+              <table className="min-w-[1120px] w-full">
+                <thead>
+                  <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-white/5">
+                    <th className="px-6 py-3 font-medium">{t('codes.table.code')}</th>
+                    <th className="px-6 py-3 font-medium">{t('codes.table.status')}</th>
+                    <th className="px-6 py-3 font-medium">{t('codes.table.expiresIn')}</th>
+                    <th className="px-6 py-3 font-medium">{t('codes.table.created')}</th>
+                    <th className="px-6 py-3 font-medium">{t('codes.table.installProgress')}</th>
+                    <th className="px-6 py-3 font-medium">{t('codes.table.actions')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  <AnimatePresence>
+                    {codes.map((code) => (
+                      <CodeRow
+                        key={code.id}
+                        code={code}
+                        nowMs={nowMs}
+                        onRevoke={openRevoke}
+                      />
+                    ))}
+                  </AnimatePresence>
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </Card>
 
       {/* Revoke Confirmation */}
       <ConfirmDialog
         isOpen={!!codeToRevoke}
-        onClose={() => setCodeToRevoke(null)}
+        onClose={closeRevoke}
         onConfirm={handleRevoke}
         title={t('codes.revokeTitle')}
         message={t('codes.revokeMessage', { code: codeToRevoke?.code || '' })}
@@ -766,6 +994,7 @@ export default function CodesPage() {
         cancelText={t('nodes.cancel')}
         variant="warning"
         isLoading={isRevoking}
+        errorMessage={isRevokeError ? t('codes.error.revoke') : undefined}
       />
     </div>
   );

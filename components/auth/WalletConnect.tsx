@@ -2,19 +2,21 @@
  * ============================================
  * AeroNyx Wallet Connect Component
  * ============================================
- * File Path: src/components/auth/WalletConnect.tsx
+ * File Path: components/auth/WalletConnect.tsx
  *
  * Creation Reason: Main authentication component for Web3 wallet connection
  * Modification Reason: Fix wallet availability detection to match authStore v1.1.0.
  *   Phantom newer versions inject at window.phantom.solana, not window.solana.
  *   MetaMask detection now handles multi-provider scenarios.
  *   Added longer delay for slow-injecting wallets (e.g. OKX).
+ *   v1.2.0 - [AUTH-GATE 2026-08-13 by Codex] Added responsive wallet rows
+ *   and separated unavailable-wallet links from actionable wallet buttons.
  * Main Functionality: Display wallet options, handle connection flow,
  *                     and manage authentication state
  * Dependencies:
- *   - src/stores/authStore.ts (auth state)
- *   - src/components/common/Button.tsx
- *   - src/components/common/Card.tsx
+ *   - stores/authStore.ts (auth state)
+ *   - components/common/Button.tsx
+ *   - components/common/Card.tsx
  *   - framer-motion (animations)
  *
  * Main Logical Flow:
@@ -30,7 +32,8 @@
  * - Error states should be user-friendly
  * - checkAvailable() runs on mount + after delays because wallets inject at different times
  *
- * Last Modified: v1.1.0 - Fixed wallet detection for Phantom, MetaMask, OKX
+ * Last Modified: v1.2.0 - Accessible responsive wallet selection
+ * Previous: v1.1.0 - Fixed wallet detection for Phantom, MetaMask, OKX
  * Previous: v1.0.0 - Initial wallet connect component
  * ============================================
  */
@@ -229,47 +232,54 @@ export default function WalletConnect() {
             <div className="space-y-3">
               {walletOptions.map((wallet) => {
                 const isAvailable = availableWallets[wallet.id];
-
-                return (
-                  <motion.button
-                    key={wallet.id}
-                    onClick={() => isAvailable && handleSelectWallet(wallet)}
-                    disabled={!isAvailable}
-                    className={`
-                      w-full p-4 rounded-xl border transition-all duration-200
-                      flex items-center gap-4
-                      ${isAvailable
-                        ? 'border-white/10 bg-white/5 hover:border-purple-500/50 hover:bg-purple-500/10 cursor-pointer'
-                        : 'border-white/5 bg-white/[0.02] opacity-50 cursor-not-allowed'
-                      }
-                    `}
-                    whileHover={isAvailable ? { scale: 1.01 } : undefined}
-                    whileTap={isAvailable ? { scale: 0.99 } : undefined}
-                  >
+                const rowClassName = `
+                  w-full min-w-0 p-3.5 rounded-xl border transition-all duration-200 sm:p-4
+                  flex items-center gap-3 sm:gap-4
+                  ${isAvailable
+                    ? 'border-white/10 bg-white/5 hover:border-purple-500/50 hover:bg-purple-500/10 cursor-pointer'
+                    : 'border-white/5 bg-white/[0.02] opacity-50'
+                  }
+                `;
+                const walletContent = (
+                  <>
                     <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0">
                       {wallet.icon}
                     </div>
-                    <div className="flex-1 text-left">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-white">{wallet.name}</span>
+                    <div className="min-w-0 flex-1 text-left">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="break-words font-medium text-white">{wallet.name}</span>
                         <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300">
                           {wallet.chain}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-400">{t(`auth.wallet.${wallet.id}.description`)}</p>
+                      <p className="break-words text-sm text-gray-400">{t(`auth.wallet.${wallet.id}.description`)}</p>
                     </div>
-                    {!isAvailable && (
-                      <a
-                        href={wallet.downloadUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-xs text-purple-400 hover:text-purple-300"
-                      >
-                        {t('auth.connectWallet.install')}
-                      </a>
-                    )}
+                  </>
+                );
+
+                return isAvailable ? (
+                  <motion.button
+                    key={wallet.id}
+                    type="button"
+                    onClick={() => handleSelectWallet(wallet)}
+                    className={rowClassName}
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.99 }}
+                  >
+                    {walletContent}
                   </motion.button>
+                ) : (
+                  <div key={wallet.id} className={rowClassName}>
+                    {walletContent}
+                    <a
+                      href={wallet.downloadUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 text-xs text-purple-300 underline-offset-4 hover:text-purple-200 hover:underline focus:outline-none focus:ring-2 focus:ring-purple-400/60"
+                    >
+                      {t('auth.connectWallet.install')}
+                    </a>
+                  </div>
                 );
               })}
             </div>

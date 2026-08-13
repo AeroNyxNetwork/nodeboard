@@ -4,13 +4,19 @@
  * ============================================
  * File Path: components/common/Modal.tsx
  * 
- * Last Modified: v1.0.1 - Removed framer-motion to fix re-render issues
+ * Modification Reason:
+ *   v1.1.0 - [DIALOG-SAFETY 2026-08-13 by Codex] Added dialog semantics,
+ *     inline operation errors, and protected pending confirmations from
+ *     backdrop or Escape dismissal.
+ *
+ * Last Modified: v1.1.0 - Accessible, transaction-safe confirmation dialogs
+ * Previous: v1.0.1 - Removed framer-motion to fix re-render issues
  * ============================================
  */
 
 'use client';
 
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useEffect, useCallback, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { IconButton } from './Button';
 import { useI18n } from '@/lib/i18n/I18nProvider';
@@ -22,6 +28,7 @@ interface ModalProps {
   onClose: () => void;
   title?: string;
   description?: string;
+  ariaLabel?: string;
   size?: ModalSize;
   showCloseButton?: boolean;
   closeOnBackdrop?: boolean;
@@ -51,6 +58,7 @@ export default function Modal({
   onClose,
   title,
   description,
+  ariaLabel,
   size = 'md',
   showCloseButton = true,
   closeOnBackdrop = true,
@@ -60,6 +68,10 @@ export default function Modal({
 }: ModalProps) {
   const { t } = useI18n();
   const [mounted, setMounted] = useState(false);
+  const titleId = useId();
+  const descriptionId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   // Handle client-side mounting
   useEffect(() => {
@@ -69,18 +81,66 @@ export default function Modal({
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape' && closeOnEscape) {
       onClose();
+      return;
+    }
+
+    if (e.key !== 'Tab') return;
+
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    const focusableElements = Array.from(dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => element.getAttribute('aria-hidden') !== 'true');
+
+    if (focusableElements.length === 0) {
+      e.preventDefault();
+      dialog.focus();
+      return;
+    }
+
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    if (e.shiftKey && document.activeElement === firstElement) {
+      e.preventDefault();
+      lastElement.focus();
+    } else if (!e.shiftKey && document.activeElement === lastElement) {
+      e.preventDefault();
+      firstElement.focus();
     }
   }, [closeOnEscape, onClose]);
 
+  // [DIALOG-SAFETY 2026-08-13 by Codex] Preserve page state and return keyboard
+  // users to the control that opened the modal after the transaction completes.
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-      document.addEventListener('keydown', handleKeyDown);
-    }
+    if (!isOpen) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    document.body.style.overflow = 'hidden';
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const dialog = dialogRef.current;
+      const initialFocus = dialog?.querySelector<HTMLElement>(
+        '[data-modal-initial-focus], button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+      );
+      (initialFocus ?? dialog)?.focus();
+    });
+
     return () => {
-      document.body.style.overflow = '';
-      document.removeEventListener('keydown', handleKeyDown);
+      window.cancelAnimationFrame(focusFrame);
+      document.body.style.overflow = previousOverflow;
+      if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus();
+      previousFocusRef.current = null;
     };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, handleKeyDown]);
 
   const handleBackdropClick = useCallback((e: React.MouseEvent) => {
@@ -102,6 +162,13 @@ export default function Modal({
       
       {/* Modal */}
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={!title ? ariaLabel : undefined}
+        aria-labelledby={title ? titleId : undefined}
+        aria-describedby={description ? descriptionId : undefined}
+        tabIndex={-1}
         className={`
           relative w-full ${sizeStyles[size]}
           bg-gradient-to-br from-[#1A1A24] to-[#12121A]
@@ -116,8 +183,8 @@ export default function Modal({
         {(title || showCloseButton) && (
           <div className="flex items-start justify-between p-6 border-b border-white/5">
             <div className="space-y-1 pr-8">
-              {title && <h2 className="text-xl font-semibold text-white">{title}</h2>}
-              {description && <p className="text-sm text-gray-400">{description}</p>}
+              {title && <h2 id={titleId} className="text-xl font-semibold text-white">{title}</h2>}
+              {description && <p id={descriptionId} className="text-sm text-gray-400">{description}</p>}
             </div>
             {showCloseButton && (
               <IconButton
@@ -162,6 +229,7 @@ interface ConfirmDialogProps {
   cancelText?: string;
   variant?: 'danger' | 'warning' | 'info';
   isLoading?: boolean;
+  errorMessage?: string;
 }
 
 export function ConfirmDialog({
@@ -174,6 +242,7 @@ export function ConfirmDialog({
   cancelText,
   variant = 'danger',
   isLoading = false,
+  errorMessage,
 }: ConfirmDialogProps) {
   const { t } = useI18n();
   const iconColors = {
@@ -193,11 +262,19 @@ export function ConfirmDialog({
   }, [onConfirm]);
 
   const handleClose = useCallback(() => {
-    onClose();
-  }, [onClose]);
+    if (!isLoading) onClose();
+  }, [isLoading, onClose]);
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} size="sm" showCloseButton={false}>
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      ariaLabel={title}
+      size="sm"
+      showCloseButton={false}
+      closeOnBackdrop={!isLoading}
+      closeOnEscape={!isLoading}
+    >
       <div className="flex flex-col items-center text-center space-y-4">
         <div className={`w-16 h-16 rounded-full ${iconColors[variant]} flex items-center justify-center`}>
           {variant === 'danger' && (
@@ -220,6 +297,11 @@ export function ConfirmDialog({
         <div className="space-y-2">
           <h3 className="text-lg font-semibold text-white">{title}</h3>
           <p className="text-sm text-gray-400">{message}</p>
+          {errorMessage ? (
+            <p role="alert" className="rounded-lg border border-red-400/25 bg-red-400/10 px-3 py-2 text-sm text-red-100">
+              {errorMessage}
+            </p>
+          ) : null}
         </div>
         
         <div className="flex items-center gap-3 w-full pt-2">
@@ -233,6 +315,7 @@ export function ConfirmDialog({
           <button
             onClick={handleConfirm}
             disabled={isLoading}
+            aria-busy={isLoading}
             className={`flex-1 px-4 py-2.5 rounded-xl text-white ${buttonColors[variant]} transition-colors disabled:opacity-50 flex items-center justify-center gap-2`}
           >
             {isLoading && (
