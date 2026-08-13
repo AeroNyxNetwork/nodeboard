@@ -6,6 +6,14 @@
  *
  * Creation Reason: Individual node detail view
  * Modification Reason:
+ *   v1.6.59 - [COMMAND-LIFECYCLE 2026-08-13 by Codex] Made the node command
+ *     timeline fail truthfully when its API is unavailable, preserved stale
+ *     cached evidence during background failures, added retry, localized
+ *     status/action filters, and replaced native browser confirmations with
+ *     one typed high-risk operation workflow. Command result and lifecycle
+ *     copy now distinguishes queued, sent, executing, completed, failed,
+ *     cancelled, and timeout states instead of reporting every state as
+ *     waiting for heartbeat pickup.
  *   v1.6.56 - Added a compact Two-hop Path Proof card to the Discovery panel.
  *     The UI consumes Rust peer_store.two_hop_path_proof_history freshness
  *     telemetry so operators can see whether the node has a recent accepted
@@ -318,7 +326,8 @@
  *   - showToast is shared: NodeSettings and page-level VPN controls use it
  *   - Delete navigates to /dashboard/nodes after 1s (user sees toast)
  *
- * Last Modified: v1.6.58 - Added node-level Onion Relay admission view
+ * Last Modified: v1.6.59 - Harden command lifecycle and confirmations
+ * Previous: v1.6.58 - Added node-level Onion Relay admission view
  * Previous: v1.6.57 - Prefer backend-fetched Rust discovery summary
  * Previous: v1.6.56 - Show two-hop path proof freshness
  * Previous: v1.6.55 - Expand relay protection delivery summary
@@ -1849,17 +1858,45 @@ function bandwidthPressureClass(peakBps: number | null | undefined, limitMbps: n
 function commandStatusClass(status: string) {
   if (status === 'completed') return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25';
   if (status === 'failed' || status === 'timeout') return 'bg-red-500/15 text-red-300 border-red-500/25';
+  if (status === 'cancelled') return 'bg-gray-500/15 text-gray-300 border-gray-500/25';
   if (status === 'pending' || status === 'sent' || status === 'executing') {
     return 'bg-yellow-500/15 text-yellow-300 border-yellow-500/25';
   }
   return 'bg-white/5 text-gray-300 border-white/10';
 }
 
+// [COMMAND-LIFECYCLE 2026-08-13 by Codex] One status vocabulary drives badges,
+// filters, fallback results, and terminal outcomes. Unknown backend statuses
+// remain visible instead of being collapsed into a misleading known state.
+function commandStatusLabel(status: string, t: TranslateFn) {
+  const labels: Record<string, string> = {
+    all: t('common.status.all'),
+    pending: t('nodeDetail.commands.statusPending'),
+    sent: t('nodeDetail.commands.statusSent'),
+    executing: t('nodeDetail.commands.statusExecuting'),
+    completed: t('nodeDetail.commands.statusCompleted'),
+    failed: t('nodeDetail.commands.statusFailed'),
+    timeout: t('nodeDetail.commands.statusTimeout'),
+    cancelled: t('nodeDetail.commands.statusCancelled'),
+  };
+  return labels[status] || status.replace(/_/g, ' ');
+}
+
 function commandMessage(command: NodeCommand, t: TranslateFn) {
   const message = command.result?.message;
   if (typeof message === 'string' && message.trim()) return message;
   if (command.error_message) return command.error_message;
-  return t('nodeDetail.commands.waitingHeartbeatPickup');
+
+  const fallbackByStatus: Record<string, string> = {
+    pending: t('nodeDetail.commands.waitingHeartbeatPickup'),
+    sent: t('nodeDetail.commands.waitingNodeAcknowledgement'),
+    executing: t('nodeDetail.commands.executingOnNode'),
+    completed: t('nodeDetail.commands.completedWithoutDetails'),
+    failed: t('nodeDetail.commands.failedWithoutDetails'),
+    timeout: t('nodeDetail.commands.timedOutWithoutDetails'),
+    cancelled: t('nodeDetail.commands.cancelledWithoutDetails'),
+  };
+  return fallbackByStatus[command.status] || t('nodeDetail.commands.resultUnavailable');
 }
 
 function commandActorLabel(command: NodeCommand) {
@@ -5956,21 +5993,50 @@ function canCancelCommand(command: NodeCommand) {
 
 function CommandLifecycle({ command }: { command: NodeCommand }) {
   const { t, formatRelativeTime: i18nRelativeTime } = useI18n();
+  const terminal = ['completed', 'failed', 'cancelled', 'timeout'].includes(command.status);
+  const executionReached = command.status === 'executing' || terminal;
   const steps = [
-    { label: t('nodeDetail.commands.lifecycleQueued'), value: command.created_at },
-    { label: t('nodeDetail.commands.lifecycleSent'), value: command.sent_at },
-    { label: t('nodeDetail.commands.lifecycleAcked'), value: command.acked_at },
-    { label: t('nodeDetail.commands.lifecycleDone'), value: command.completed_at },
+    {
+      label: t('nodeDetail.commands.lifecycleQueued'),
+      value: command.created_at ? i18nRelativeTime(command.created_at) : t('common.status.pending'),
+      reached: Boolean(command.created_at),
+    },
+    {
+      label: t('nodeDetail.commands.lifecycleSent'),
+      value: command.sent_at ? i18nRelativeTime(command.sent_at) : t('common.status.pending'),
+      reached: Boolean(command.sent_at),
+    },
+    {
+      label: t('nodeDetail.commands.lifecycleAcked'),
+      value: command.acked_at ? i18nRelativeTime(command.acked_at) : t('common.status.pending'),
+      reached: Boolean(command.acked_at),
+    },
+    {
+      label: t('nodeDetail.commands.lifecycleExecuting'),
+      value: command.status === 'executing'
+        ? commandStatusLabel(command.status, t)
+        : executionReached
+          ? t('nodeDetail.commands.lifecycleReached')
+          : t('common.status.pending'),
+      reached: executionReached,
+    },
+    {
+      label: t('nodeDetail.commands.lifecycleFinished'),
+      value: terminal ? commandStatusLabel(command.status, t) : t('common.status.pending'),
+      detail: command.completed_at ? i18nRelativeTime(command.completed_at) : null,
+      reached: terminal,
+    },
   ];
 
   return (
-    <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
       {steps.map((step) => (
         <div key={step.label} className="rounded-lg bg-white/[0.03] border border-white/5 px-2 py-1.5">
           <p className="text-[11px] uppercase text-gray-600">{step.label}</p>
-          <p className={`text-xs mt-0.5 ${step.value ? 'text-gray-300' : 'text-gray-600'}`}>
-            {step.value ? i18nRelativeTime(step.value) : t('common.status.pending')}
+          <p className={`mt-0.5 text-xs ${step.reached ? 'text-gray-300' : 'text-gray-600'}`}>
+            {step.value}
           </p>
+          {step.detail ? <p className="mt-0.5 text-[11px] text-gray-600">{step.detail}</p> : null}
         </div>
       ))}
     </div>
@@ -6538,9 +6604,19 @@ function restartCommandStageIndex(command: VpnRestartCommandState | null | undef
   return 0;
 }
 
-function restartCommandStageLabels(command: VpnRestartCommandState | null | undefined) {
-  if (command?.is_terminal) return ['Queued', 'Sent', 'Closed'];
-  return ['Queued', 'Sent', 'Executing'];
+function restartCommandStageLabels(command: VpnRestartCommandState | null | undefined, t: TranslateFn) {
+  if (command?.is_terminal) {
+    return [
+      t('nodeDetail.commands.lifecycleQueued'),
+      t('nodeDetail.commands.lifecycleSent'),
+      t('nodeDetail.commands.lifecycleFinished'),
+    ];
+  }
+  return [
+    t('nodeDetail.commands.lifecycleQueued'),
+    t('nodeDetail.commands.lifecycleSent'),
+    t('nodeDetail.commands.lifecycleExecuting'),
+  ];
 }
 
 function restartCommandToneClass(command: VpnRestartCommandState | null | undefined) {
@@ -6555,12 +6631,16 @@ function restartCommandToneClass(command: VpnRestartCommandState | null | undefi
   return 'border-yellow-400/25 bg-yellow-400/[0.08] text-yellow-100';
 }
 
-function restartCommandSummary(command: VpnRestartCommandState | null | undefined) {
+function restartCommandSummary(
+  command: VpnRestartCommandState | null | undefined,
+  t: TranslateFn,
+  relativeTime: (value: string | Date) => string
+) {
   if (!command) return null;
   const timestamp = command.completed_at ?? command.acked_at ?? command.sent_at ?? command.created_at;
-  const timestampLabel = timestamp ? ` · ${formatRelativeTime(timestamp)}` : '';
-  const staleLabel = command.is_stale ? ' · stale' : '';
-  return `${command.is_terminal ? 'Last restart command' : 'Restart command'} ${command.status}${timestampLabel}${staleLabel}`;
+  const timestampLabel = timestamp ? ` · ${relativeTime(timestamp)}` : '';
+  const staleLabel = command.is_stale ? ` · ${t('nodeDetail.commands.staleShort')}` : '';
+  return `${t('events.command.restartService')} · ${commandStatusLabel(command.status, t)}${timestampLabel}${staleLabel}`;
 }
 
 function restartCommandSlaDetail(command: VpnRestartCommandState | null | undefined) {
@@ -6908,7 +6988,7 @@ function MaintenanceDrainPanel({
     ? restartCommandCancelReason(activeRestartCommand)
     : '';
   const restartCommandStage = restartCommandStageIndex(visibleRestartCommand);
-  const restartCommandStages = restartCommandStageLabels(visibleRestartCommand);
+  const restartCommandStages = restartCommandStageLabels(visibleRestartCommand, t);
   const restartCommandSla = restartCommandSlaDetail(visibleRestartCommand);
   const restartBlockers = restartReadinessBlockers({
     health,
@@ -7315,14 +7395,14 @@ function MaintenanceDrainPanel({
             <div className={`mt-3 rounded-lg border px-3 py-2 ${restartCommandToneClass(visibleRestartCommand)}`}>
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-semibold">
-                  {restartCommandSummary(visibleRestartCommand)}
+                  {restartCommandSummary(visibleRestartCommand, t, i18nRelativeTime)}
                 </p>
                 <div className="flex shrink-0 items-center gap-2">
                   <a
                     href="#vpn-commands"
                     className="text-xs font-medium text-sky-200 hover:text-sky-100"
                   >
-                    Open
+                    {t('nodeDetail.commands.openCommand')}
                   </a>
                   {cancellableRestartCommand && (
                     <Button
@@ -7332,7 +7412,7 @@ function MaintenanceDrainPanel({
                       isLoading={isCancellingRestartCommand}
                       onClick={() => onCancelRestartCommand(cancellableRestartCommand)}
                     >
-                      Cancel
+                      {t('nodeDetail.commands.cancelCommand')}
                     </Button>
                   )}
                 </div>
@@ -7359,7 +7439,7 @@ function MaintenanceDrainPanel({
               )}
               {cancelUnavailableReason && (
                 <p className="mt-2 text-[11px] leading-5 opacity-70">
-                  Cancel unavailable: {cancelUnavailableReason}
+                  {t('nodeDetail.commands.cancelUnavailable', { reason: cancelUnavailableReason })}
                 </p>
               )}
               <p className="mt-1 text-[10px] leading-4 opacity-45">
@@ -7826,6 +7906,12 @@ function DetailSectionNavigator({ items }: { items: DetailSectionNavItem[] }) {
   );
 }
 
+type VpnHealthConfirmation =
+  | { kind: 'restart' }
+  | { kind: 'maintenance'; actionLabel: string }
+  | { kind: 'cancelCommand'; command: NodeCommand }
+  | { kind: 'cancelRestart'; command: VpnRestartCommandState };
+
 function VpnHealthPanel({
   nodeId,
   isVpnNode,
@@ -7853,8 +7939,12 @@ function VpnHealthPanel({
   const commandActionFilter = initialCommandActionFilter(searchParams.get('command_action'));
   const commandFilterActive = commandStatusFilter !== 'all' || commandActionFilter !== 'all';
   const commandFilterSummary = [
-    commandStatusFilter !== 'all' ? `Status: ${commandStatusFilter}` : '',
-    commandActionFilter !== 'all' ? `Action: ${commandLabel({ action: commandActionFilter } as NodeCommand, t)}` : '',
+    commandStatusFilter !== 'all'
+      ? t('nodeDetail.commands.filterStatus', { status: commandStatusLabel(commandStatusFilter, t) })
+      : '',
+    commandActionFilter !== 'all'
+      ? t('nodeDetail.commands.filterAction', { action: commandLabel({ action: commandActionFilter } as NodeCommand, t) })
+      : '',
   ].filter(Boolean).join(' · ');
   const applyCommandFilters = useCallback((nextStatus: string, nextAction: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -7881,6 +7971,10 @@ function VpnHealthPanel({
     commands,
     stats: commandStats,
     isLoading: commandsLoading,
+    isFetching: commandsFetching,
+    isError: commandsError,
+    hasData: commandsHaveData,
+    refetch: refetchCommands,
   } = useNodeCommands(nodeId, {
     limit: 50,
     status: commandStatusFilter === 'all' ? undefined : commandStatusFilter,
@@ -7890,14 +7984,32 @@ function VpnHealthPanel({
   const runCommand = useRunNodeCommand();
   const cancelCommand = useCancelNodeCommand();
   const [cancellingCommandId, setCancellingCommandId] = useState<string | null>(null);
+  // [COMMAND-LIFECYCLE 2026-08-13 by Codex] Keep every destructive node
+  // operation in one typed confirmation workflow so loading/error/close
+  // behavior cannot drift between restart, maintenance, and cancellation.
+  const [confirmation, setConfirmation] = useState<VpnHealthConfirmation | null>(null);
+  const [confirmationError, setConfirmationError] = useState<string | null>(null);
   const health = overview?.nodes.find((item) => item.id === nodeId) ?? null;
   const vpnCommands = commands.filter((command) => NODE_DETAIL_VPN_COMMAND_ACTIONS.has(command.action));
+  const commandDataUnavailable = commandsError && !commandsHaveData;
+  const commandDataStale = commandsError && commandsHaveData;
   const activeCommandCount = (
     (commandStats?.pending ?? 0) +
     (commandStats?.sent ?? 0) +
     (commandStats?.executing ?? 0)
   );
   const failedCommandCount = (commandStats?.failed ?? 0) + (commandStats?.timeout ?? 0);
+
+  const openConfirmation = (next: VpnHealthConfirmation) => {
+    setConfirmationError(null);
+    setConfirmation(next);
+  };
+
+  const closeConfirmation = () => {
+    if (runCommand.isPending || isPolicySaving || Boolean(cancellingCommandId)) return;
+    setConfirmationError(null);
+    setConfirmation(null);
+  };
 
   const handleRunCommand = async (action: 'system_info' | 'collect_logs' | 'refresh_config' | 'two_hop_smoke') => {
     const priority = action === 'collect_logs' ? 10 : action === 'refresh_config' || action === 'two_hop_smoke' ? 3 : 5;
@@ -7929,6 +8041,12 @@ function VpnHealthPanel({
       onToast(t('nodeDetail.commands.healthUnavailableRestart'), 'error');
       return;
     }
+    if (commandsError) {
+      // [COMMAND-LIFECYCLE 2026-08-13 by Codex] Restart is fail-closed when
+      // command evidence cannot prove that another restart is not active.
+      onToast(t('nodeDetail.commands.historyRequiredRestart'), 'error');
+      return;
+    }
 
     const commandActive = vpnCommands.some((command) => (
       command.action === 'restart_service'
@@ -7946,71 +8064,107 @@ function VpnHealthPanel({
       return;
     }
 
-    if (!window.confirm(t('nodeDetail.commands.confirmRestart'))) {
-      return;
-    }
-
-    try {
-      await runCommand.mutateAsync({
-        nodeId,
-        data: {
-          action: 'restart_service',
-          params: {
-            confirm: 'restart',
-          },
-          priority: 1,
-        },
-      });
-      onToast(t('nodeDetail.commands.restartQueued'));
-    } catch (error) {
-      onToast(error instanceof Error ? error.message : t('nodeDetail.commands.restartQueueFailed'), 'error');
-    }
+    openConfirmation({ kind: 'restart' });
   };
 
   const handleMaintenanceToggle = async () => {
     const actionLabel = maintenanceMode ? t('nodeDetail.maintenance.endMaintenance') : t('nodeDetail.maintenance.startMaintenance');
-    if (!window.confirm(t('nodeDetail.commands.confirmMaintenance', { action: actionLabel }))) {
-      return;
-    }
-
-    try {
-      await onToggleMaintenance();
-      refetch();
-    } catch {
-      // The page-level handler owns the toast message.
-    }
+    openConfirmation({ kind: 'maintenance', actionLabel });
   };
 
   const handleCancelCommand = async (command: NodeCommand) => {
     if (!canCancelCommand(command)) return;
-    if (!window.confirm(t('nodeDetail.commands.confirmCancel', { command: commandLabel(command, t) }))) return;
-
-    setCancellingCommandId(command.id);
-    try {
-      await cancelCommand.mutateAsync({ nodeId, commandId: command.id });
-      onToast(t('nodeDetail.commands.commandCancelled'));
-    } catch (error) {
-      onToast(error instanceof Error ? error.message : t('nodeDetail.commands.cancelFailed'), 'error');
-    } finally {
-      setCancellingCommandId(null);
-    }
+    openConfirmation({ kind: 'cancelCommand', command });
   };
 
   const handleCancelRestartCommand = async (command: VpnRestartCommandState) => {
     if (!restartCommandCanCancel(command)) return;
-    if (!window.confirm(t('nodeDetail.commands.confirmCancelRestart'))) return;
+    openConfirmation({ kind: 'cancelRestart', command });
+  };
 
-    setCancellingCommandId(command.id);
+  const executeConfirmedOperation = async () => {
+    if (!confirmation) return;
+    setConfirmationError(null);
+
     try {
-      await cancelCommand.mutateAsync({ nodeId, commandId: command.id });
-      onToast(t('nodeDetail.commands.restartCancelRequested'));
-      await refetch();
+      if (confirmation.kind === 'restart') {
+        await runCommand.mutateAsync({
+          nodeId,
+          data: {
+            action: 'restart_service',
+            params: { confirm: 'restart' },
+            priority: 1,
+          },
+        });
+        onToast(t('nodeDetail.commands.restartQueued'));
+      } else if (confirmation.kind === 'maintenance') {
+        await onToggleMaintenance();
+        refetch();
+      } else {
+        const commandId = confirmation.command.id;
+        setCancellingCommandId(commandId);
+        await cancelCommand.mutateAsync({ nodeId, commandId });
+        onToast(
+          confirmation.kind === 'cancelRestart'
+            ? t('nodeDetail.commands.restartCancelRequested')
+            : t('nodeDetail.commands.commandCancelled')
+        );
+        if (confirmation.kind === 'cancelRestart') await refetch();
+      }
+
+      setConfirmation(null);
     } catch (error) {
-      onToast(error instanceof Error ? error.message : t('nodeDetail.commands.restartCancelFailed'), 'error');
+      const fallback = confirmation.kind === 'restart'
+        ? t('nodeDetail.commands.restartQueueFailed')
+        : confirmation.kind === 'maintenance'
+          ? t('nodeDetail.maintenanceUpdateFailed')
+          : confirmation.kind === 'cancelRestart'
+            ? t('nodeDetail.commands.restartCancelFailed')
+            : t('nodeDetail.commands.cancelFailed');
+      const message = error instanceof Error ? error.message : fallback;
+      setConfirmationError(message);
+      if (confirmation.kind !== 'maintenance') onToast(message, 'error');
     } finally {
       setCancellingCommandId(null);
     }
   };
+
+  const confirmationBusy = confirmation?.kind === 'maintenance'
+    ? isPolicySaving
+    : confirmation?.kind === 'restart'
+      ? runCommand.isPending
+      : Boolean(cancellingCommandId);
+  const confirmationTitle = confirmation?.kind === 'restart'
+    ? t('nodeDetail.commands.confirmRestartTitle')
+    : confirmation?.kind === 'maintenance'
+      ? t('nodeDetail.commands.confirmMaintenanceTitle')
+      : t('nodeDetail.commands.confirmCancelTitle');
+  const confirmationMessage = confirmation?.kind === 'restart'
+    ? t('nodeDetail.commands.confirmRestart')
+    : confirmation?.kind === 'maintenance'
+      ? t('nodeDetail.commands.confirmMaintenance', { action: confirmation.actionLabel })
+      : confirmation?.kind === 'cancelRestart'
+        ? t('nodeDetail.commands.confirmCancelRestart')
+        : confirmation?.kind === 'cancelCommand'
+          ? t('nodeDetail.commands.confirmCancel', { command: commandLabel(confirmation.command, t) })
+          : '';
+  const confirmationAction = confirmation?.kind === 'restart'
+    ? t('nodeDetail.maintenance.restartService')
+    : confirmation?.kind === 'maintenance'
+      ? confirmation.actionLabel
+      : t('nodeDetail.commands.cancelCommand');
+  const confirmationOperation = confirmation?.kind === 'restart' || confirmation?.kind === 'cancelRestart'
+    ? t('events.command.restartService')
+    : confirmation?.kind === 'maintenance'
+      ? confirmation.actionLabel
+      : confirmation?.kind === 'cancelCommand'
+        ? commandLabel(confirmation.command, t)
+        : t('events.command.generic');
+  const confirmationState = confirmation?.kind === 'cancelCommand' || confirmation?.kind === 'cancelRestart'
+    ? commandStatusLabel(confirmation.command.status, t)
+    : maintenanceMode
+      ? t('nodeDetail.commands.maintenanceEnabled')
+      : t('nodeDetail.commands.maintenanceDisabled');
 
   if (!isVpnNode) {
     return (
@@ -8072,12 +8226,15 @@ function VpnHealthPanel({
     command.action === 'two_hop_smoke'
     && ['pending', 'sent', 'executing'].includes(command.status)
   ));
-  const restartBlockers = restartReadinessBlockers({
-    health,
-    maintenanceMode,
-    restartSupported,
-    restartCommandActive,
-  });
+  const restartBlockers = [
+    ...(commandsError ? [t('nodeDetail.commands.historyRequiredRestart')] : []),
+    ...restartReadinessBlockers({
+      health,
+      maintenanceMode,
+      restartSupported,
+      restartCommandActive,
+    }),
+  ];
   const restartReady = restartBlockers.length === 0;
   const capacityRisks = capacityRiskItems(health.system.capacity, t, formatNumber);
   const capacityReported = Boolean(health.system.capacity?.reported);
@@ -8249,21 +8406,32 @@ function VpnHealthPanel({
     {
       href: '#vpn-commands',
       label: t('nodeDetail.operatorActions.commands.title'),
-      detail: failedCommandCount > 0
+      detail: commandDataUnavailable
+        ? t('nodeDetail.commands.unavailableDescription')
+        : failedCommandCount > 0
         ? t('nodeDetail.operatorActions.commands.failedDetail', { count: formatNumber(failedCommandCount) })
         : activeCommandCount > 0
           ? t('nodeDetail.operatorActions.commands.activeDetail', { count: formatNumber(activeCommandCount) })
           : t('nodeDetail.operatorActions.commands.clearDetail'),
-      meta: failedCommandCount > 0
+      meta: commandDataUnavailable
+        ? t('nodeDetail.operatorActions.meta.waiting')
+        : failedCommandCount > 0
         ? t('nodeDetail.operatorActions.commands.failedMeta', { count: formatNumber(failedCommandCount) })
         : activeCommandCount > 0
           ? t('nodeDetail.operatorActions.commands.activeMeta', { count: formatNumber(activeCommandCount) })
           : t('nodeDetail.operatorActions.meta.clear'),
-      tone: failedCommandCount > 0 ? 'critical' : activeCommandCount > 0 ? 'warning' : 'ok',
+      tone: commandDataUnavailable
+        ? 'pending'
+        : failedCommandCount > 0
+          ? 'critical'
+          : commandDataStale || activeCommandCount > 0
+            ? 'warning'
+            : 'ok',
     },
   ];
 
   return (
+    <>
     <Card variant="default" padding="md" className="mb-6">
       <div id="overview-panel" className="scroll-mt-6 flex flex-col lg:flex-row lg:items-start justify-between gap-5">
         <div className="min-w-0">
@@ -8484,19 +8652,27 @@ function VpnHealthPanel({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
             <div className="rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1.5">
               <p className="text-gray-600">{t('nodeDetail.commands.total')}</p>
-              <p className="mt-0.5 font-semibold text-white">{formatNumber(commandStats?.total ?? 0)}</p>
+              <p className="mt-0.5 font-semibold text-white">
+                {commandDataUnavailable ? '—' : formatNumber(commandStats?.total ?? 0)}
+              </p>
             </div>
             <div className="rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1.5">
               <p className="text-gray-600">{t('common.status.active')}</p>
-              <p className="mt-0.5 font-semibold text-yellow-300">{formatNumber(activeCommandCount)}</p>
+              <p className="mt-0.5 font-semibold text-yellow-300">
+                {commandDataUnavailable ? '—' : formatNumber(activeCommandCount)}
+              </p>
             </div>
             <div className="rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1.5">
               <p className="text-gray-600">{t('nodeDetail.commands.failed')}</p>
-              <p className="mt-0.5 font-semibold text-red-300">{formatNumber(failedCommandCount)}</p>
+              <p className="mt-0.5 font-semibold text-red-300">
+                {commandDataUnavailable ? '—' : formatNumber(failedCommandCount)}
+              </p>
             </div>
             <div className="rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1.5">
               <p className="text-gray-600">{t('nodeDetail.commands.shown')}</p>
-              <p className="mt-0.5 font-semibold text-gray-200">{formatNumber(vpnCommands.length)}</p>
+              <p className="mt-0.5 font-semibold text-gray-200">
+                {commandDataUnavailable ? '—' : formatNumber(vpnCommands.length)}
+              </p>
             </div>
           </div>
         </div>
@@ -8511,7 +8687,7 @@ function VpnHealthPanel({
             >
               {COMMAND_STATUS_FILTERS.map((status) => (
                 <option key={status} value={status} className="bg-[#111118]">
-                  {status}
+                  {commandStatusLabel(status, t)}
                 </option>
               ))}
             </select>
@@ -8531,7 +8707,11 @@ function VpnHealthPanel({
             </select>
           </label>
           <div className="flex items-end text-xs text-gray-600">
-            {commandsLoading ? t('nodeDetail.commands.loadingHistory') : t('nodeDetail.commands.filteredByHistory')}
+            {commandsLoading
+              ? t('nodeDetail.commands.loadingHistory')
+              : commandsFetching
+                ? t('common.refreshing')
+                : t('nodeDetail.commands.filteredByHistory')}
           </div>
         </div>
 
@@ -8551,9 +8731,42 @@ function VpnHealthPanel({
           </div>
         )}
 
-        {vpnCommands.length === 0 ? (
+        {commandsError ? (
+          <div
+            role="alert"
+            className={`mb-3 flex flex-col gap-3 rounded-xl border px-3 py-3 sm:flex-row sm:items-center sm:justify-between ${
+              commandDataStale
+                ? 'border-yellow-500/20 bg-yellow-500/[0.06]'
+                : 'border-red-500/20 bg-red-500/[0.06]'
+            }`}
+          >
+            <div>
+              <p className={`text-sm font-medium ${commandDataStale ? 'text-yellow-200' : 'text-red-200'}`}>
+                {commandDataStale
+                  ? t('nodeDetail.commands.staleTitle')
+                  : t('nodeDetail.commands.unavailableTitle')}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-500">
+                {commandDataStale
+                  ? t('nodeDetail.commands.staleDescription')
+                  : t('nodeDetail.commands.unavailableDescription')}
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => refetchCommands()}
+              disabled={commandsFetching}
+              isLoading={commandsFetching}
+            >
+              {t('common.retry')}
+            </Button>
+          </div>
+        ) : null}
+
+        {!commandDataUnavailable && vpnCommands.length === 0 ? (
           <p className="text-sm text-gray-500">{t('nodeDetail.commands.empty')}</p>
-        ) : (
+        ) : !commandDataUnavailable ? (
           <div className="space-y-2">
             {vpnCommands.map((command) => (
               <div key={command.id} className="rounded-xl bg-white/[0.03] border border-white/5 p-3">
@@ -8569,7 +8782,7 @@ function VpnHealthPanel({
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`inline-flex self-start px-2 py-1 rounded-full border text-xs ${commandStatusClass(command.status)}`}>
-                      {command.status_display || command.status}
+                      {commandStatusLabel(command.status, t)}
                     </span>
                     {canCancelCommand(command) && (
                       <Button
@@ -8579,7 +8792,7 @@ function VpnHealthPanel({
                         disabled={Boolean(cancellingCommandId)}
                         isLoading={cancellingCommandId === command.id}
                       >
-                        Cancel
+                        {t('nodeDetail.commands.cancelCommand')}
                       </Button>
                     )}
                   </div>
@@ -8589,9 +8802,52 @@ function VpnHealthPanel({
               </div>
             ))}
           </div>
-        )}
+        ) : null}
       </div>
     </Card>
+    <ConfirmDialog
+      isOpen={Boolean(confirmation)}
+      onClose={closeConfirmation}
+      onConfirm={executeConfirmedOperation}
+      title={confirmationTitle}
+      message={confirmationMessage}
+      confirmText={confirmationAction}
+      variant="warning"
+      isLoading={confirmationBusy}
+      errorMessage={confirmationError || undefined}
+      details={confirmation ? (
+        <div className="rounded-lg border border-white/10 bg-black/20 p-3 text-xs">
+          <dl className="space-y-2">
+            <div className="flex items-start justify-between gap-4">
+              <dt className="text-gray-500">{t('nodeDetail.commands.confirmationNode')}</dt>
+              <dd className="max-w-[65%] break-all text-right font-mono text-gray-200">
+                {nodeId.length > 18 ? `${nodeId.slice(0, 18)}...` : nodeId}
+              </dd>
+            </div>
+            <div className="flex items-start justify-between gap-4">
+              <dt className="text-gray-500">{t('nodeDetail.commands.confirmationOperation')}</dt>
+              <dd className="text-right text-gray-200">{confirmationOperation}</dd>
+            </div>
+            <div className="flex items-start justify-between gap-4">
+              <dt className="text-gray-500">{t('nodeDetail.commands.confirmationCurrentState')}</dt>
+              <dd className="text-right text-gray-200">{confirmationState}</dd>
+            </div>
+            {(confirmation.kind === 'restart' || confirmation.kind === 'maintenance') ? (
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-gray-500">{t('nodeDetail.commands.confirmationActiveSessions')}</dt>
+                <dd className="text-right text-gray-200">{formatNumber(health.active_sessions)}</dd>
+              </div>
+            ) : null}
+          </dl>
+          {confirmation.kind === 'restart' ? (
+            <p className="mt-3 border-t border-white/5 pt-3 leading-5 text-gray-500">
+              {t('nodeDetail.commands.confirmationPostcheck')}
+            </p>
+          ) : null}
+        </div>
+      ) : undefined}
+    />
+    </>
   );
 }
 
@@ -8918,31 +9174,42 @@ function WalletBanPolicyPanel({
   const { t } = useI18n();
   const { bans, isLoading, isError, refetch } = useNodeWalletBans(nodeId, 'active');
   const runCommand = useRunNodeCommand();
+  const [walletToUnban, setWalletToUnban] = useState<string | null>(null);
+  const [unbanError, setUnbanError] = useState<string | null>(null);
 
   const handleUnban = async (walletHex: string) => {
-    if (!window.confirm(t('nodeDetail.wallet.unbanConfirm', { wallet: `${walletHex.slice(0, 8)}...` }))) {
-      return;
-    }
+    setUnbanError(null);
+    setWalletToUnban(walletHex);
+  };
 
+  const executeUnban = async () => {
+    if (!walletToUnban) return;
+    setUnbanError(null);
     try {
       await runCommand.mutateAsync({
         nodeId,
         data: {
           action: 'unban_wallet',
-          params: { wallet_hex: walletHex },
+          params: { wallet_hex: walletToUnban },
           priority: 3,
         },
       });
-      await refetch();
+      // [COMMAND-LIFECYCLE 2026-08-13 by Codex] Queueing is not execution.
+      // Keep the active policy visible until a node acknowledgement and the
+      // next owner-scoped ban refresh prove that enforcement changed.
+      setWalletToUnban(null);
       onToast(t('nodeDetail.wallet.unbanQueued'));
     } catch (error) {
-      onToast(error instanceof Error ? error.message : t('nodeDetail.wallet.unbanFailed'), 'error');
+      const message = error instanceof Error ? error.message : t('nodeDetail.wallet.unbanFailed');
+      setUnbanError(message);
+      onToast(message, 'error');
     }
   };
 
   if (!isVpnNode) return null;
 
   return (
+    <>
     <Card variant="default" padding="none" className="mb-6">
       <div className="px-6 py-4 border-b border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -9000,6 +9267,32 @@ function WalletBanPolicyPanel({
         </div>
       )}
     </Card>
+    <ConfirmDialog
+      isOpen={Boolean(walletToUnban)}
+      onClose={() => {
+        if (runCommand.isPending) return;
+        setWalletToUnban(null);
+        setUnbanError(null);
+      }}
+      onConfirm={executeUnban}
+      title={t('nodeDetail.wallet.unbanConfirmTitle')}
+      message={t('nodeDetail.wallet.unbanConfirm', {
+        wallet: walletToUnban ? `${walletToUnban.slice(0, 8)}...` : '',
+      })}
+      confirmText={t('nodeDetail.wallet.unban')}
+      variant="warning"
+      isLoading={runCommand.isPending}
+      errorMessage={unbanError || undefined}
+      details={walletToUnban ? (
+        <div className="rounded-lg border border-white/10 bg-black/20 p-3 text-xs">
+          <p className="break-all font-mono text-gray-300">{walletToUnban}</p>
+          <p className="mt-2 border-t border-white/5 pt-2 leading-5 text-gray-500">
+            {t('nodeDetail.wallet.unbanQueueDetail')}
+          </p>
+        </div>
+      ) : undefined}
+    />
+    </>
   );
 }
 

@@ -5,6 +5,10 @@
  * File Path: hooks/useNodes.ts
  *
  * Modification Reason:
+ *   v1.5.8 - [COMMAND-LIFECYCLE 2026-08-13 by Codex] Exposed command query
+ *     cache/fetch state so destructive-operation surfaces can distinguish an
+ *     authoritative empty history from a temporarily unavailable API and a
+ *     stale-but-usable cached timeline.
  *   v1.5.7 - [DASHBOARD-TRUTH 2026-08-13 by Codex] Extracted a pure aggregate
  *     function so overview statistics and node cards share one authoritative
  *     list response, with finite-number guards for partial runtime payloads.
@@ -67,7 +71,8 @@
  * - Detail/history hooks use immutable caching selectively; the fleet list must
  *   stay refreshable so a completed registration is visible without reload.
  *
- * Last Modified: v1.5.7 - Dashboard aggregate truth source
+ * Last Modified: v1.5.8 - Command history availability state
+ * Previous: v1.5.7 - Dashboard aggregate truth source
  * Previous: v1.5.6 - Fleet refresh and mutation reconciliation
  * Previous: v1.5.4 - Refresh VPN overview after node updates
  * Previous: v1.5.3 - VPN overview live refresh metadata
@@ -654,7 +659,9 @@ interface UseNodeCommandsResult {
   commands: NodeCommand[];
   stats: NodeCommandListResponse['stats'] | null;
   isLoading: boolean;
+  isFetching: boolean;
   isError: boolean;
+  hasData: boolean;
   error: Error | null;
   refetch: () => void;
 }
@@ -681,7 +688,9 @@ export function useNodeCommands(
     commands: query.data?.data ?? [],
     stats: query.data?.stats ?? null,
     isLoading: query.isLoading,
+    isFetching: query.isFetching,
     isError: query.isError,
+    hasData: query.data !== undefined,
     error: query.error,
     refetch: query.refetch,
   };
