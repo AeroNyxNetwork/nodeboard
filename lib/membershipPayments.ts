@@ -18,7 +18,10 @@
  *   The browser never sends token contracts, decimals, recipient addresses, or
  *   paid status. Those are authoritative only when returned by the backend.
  *
- * Last Modified: v1.1.1 - [USDT-TOPUP-BINDING 2026-08-09 by Codex]
+ * Last Modified: v1.2.0 - [USDT-CHECKOUT-LIFECYCLE 2026-08-13 by Codex]
+ *   Centralized payment lifecycle policy, added abortable status reads, and
+ *   distinguished invalid recovery credentials from transient API failures.
+ * Previous: v1.1.1 - [USDT-TOPUP-BINDING 2026-08-09 by Codex]
  *   Clarified that every public payment intent is authorized by its checkout
  *   capability; recipient addresses remain authoritative backend output.
  * Previous: v1.1.0 - [USDT-CAPABILITY-RECOVERY 2026-08-09 by Codex]
@@ -120,6 +123,14 @@ export interface MembershipTopUpHandoff {
   payment_enabled: boolean;
 }
 
+/** Product-safe lifecycle phases shared by checkout presentation surfaces. */
+export type PaymentLifecyclePhase =
+  | 'transfer'
+  | 'verification'
+  | 'fulfilled'
+  | 'review'
+  | 'closed';
+
 interface ApiEnvelope<T> {
   success: boolean;
   server_time?: string;
@@ -141,6 +152,89 @@ export class MembershipPaymentApiError extends Error {
     this.code = code;
     this.httpStatus = httpStatus;
   }
+}
+
+const TRANSFER_OPEN_STATUSES = new Set<PaymentStatus>([
+  'created',
+  'awaiting_payment',
+]);
+
+const POLLING_STATUSES = new Set<PaymentStatus>([
+  ...TRANSFER_OPEN_STATUSES,
+  'detected',
+  'confirming',
+  'paid',
+]);
+
+const REVIEW_STATUSES = new Set<PaymentStatus>([
+  'underpaid',
+  'overpaid',
+  'wrong_asset',
+  'needs_review',
+]);
+
+/** Whether the backend-authored receiving instructions may still be used. */
+export function isPaymentTransferOpen(payment: CryptoPayment): boolean {
+  return TRANSFER_OPEN_STATUSES.has(payment.status);
+}
+
+/** Whether an expired intent remains eligible for a pre-expiry transaction. */
+export function isPaymentRecoverable(
+  payment: CryptoPayment,
+  now = Date.now(),
+): boolean {
+  const recoveryDeadline = Date.parse(payment.recovery_until);
+  return payment.status === 'expired'
+    && payment.can_still_recover
+    && Number.isFinite(recoveryDeadline)
+    && recoveryDeadline > now;
+}
+
+/** Whether the browser should continue asking for authoritative chain state. */
+export function shouldPollPayment(
+  payment: CryptoPayment,
+  now = Date.now(),
+): boolean {
+  return POLLING_STATUSES.has(payment.status)
+    || isPaymentRecoverable(payment, now);
+}
+
+/**
+ * Whether a transaction hint remains useful.
+ *
+ * [USDT-CHECKOUT-LIFECYCLE 2026-08-13 by Codex] Once a transfer is detected,
+ * showing another submission control implies that the user should pay again.
+ * Recovery keeps the control only for a transaction broadcast before expiry.
+ */
+export function canSubmitPaymentTransactionHint(
+  payment: CryptoPayment,
+  now = Date.now(),
+): boolean {
+  return !payment.transaction_hint_bound
+    && (isPaymentTransferOpen(payment) || isPaymentRecoverable(payment, now));
+}
+
+/** Stable presentation phase derived only from authoritative payment state. */
+export function paymentLifecyclePhase(
+  payment: CryptoPayment,
+  now = Date.now(),
+): PaymentLifecyclePhase {
+  if (payment.status === 'fulfilled') return 'fulfilled';
+  if (REVIEW_STATUSES.has(payment.status)) return 'review';
+  if (isPaymentTransferOpen(payment)) return 'transfer';
+  if (
+    payment.status === 'detected'
+    || payment.status === 'confirming'
+    || payment.status === 'paid'
+    || isPaymentRecoverable(payment, now)
+  ) return 'verification';
+  return 'closed';
+}
+
+/** True only when a stored status capability is definitively unusable. */
+export function isPaymentRecoveryCredentialRejected(error: unknown): boolean {
+  return error instanceof MembershipPaymentApiError
+    && [401, 403, 404, 410].includes(error.httpStatus);
 }
 
 async function request<T>(
@@ -177,11 +271,15 @@ async function request<T>(
   return payload;
 }
 
-export async function loadCheckout(code: string): Promise<CheckoutSummary> {
+export async function loadCheckout(
+  code: string,
+  signal?: AbortSignal,
+): Promise<CheckoutSummary> {
   // [USDT-CAPABILITY-RECOVERY 2026-08-09 by Codex] A checkout code is a
   // bearer capability. Headers keep it out of access logs, referrers, and
   // browser history while preserving the legacy backend contract internally.
   const payload = await request<CheckoutSummary>('/payment/checkout/', {
+    signal,
     headers: { 'X-Checkout-Code': code },
   });
   if (!payload.checkout) throw new Error('Missing checkout response');
@@ -214,10 +312,12 @@ export async function loadPaymentStatus(input: {
   id: string;
   code: string;
   clientToken: string;
+  signal?: AbortSignal;
 }): Promise<CryptoPayment> {
   const payload = await request<CryptoPayment>(
     `/payment/intents/${encodeURIComponent(input.id)}/`,
     {
+      signal: input.signal,
       headers: {
         'X-Checkout-Code': input.code,
         'X-Payment-Token': input.clientToken,

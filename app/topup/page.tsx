@@ -25,7 +25,10 @@
  *   Never animate fake payment progress or infer paid state in the browser.
  *   Only backend status=fulfilled may render the success state.
  *
- * Last Modified: v2.2.0 - [USDT-TOPUP-BINDING 2026-08-09 by Codex]
+ * Last Modified: v2.3.0 - [USDT-CHECKOUT-LIFECYCLE 2026-08-13 by Codex]
+ *   Prevented duplicate-payment cues after detection, preserved recoverable
+ *   sessions across transient failures, and added resilient status controls.
+ * Previous: v2.2.0 - [USDT-TOPUP-BINDING 2026-08-09 by Codex]
  *   Bound browser recovery state to the exact one-time top-up code and added
  *   visible, masked evidence that the quote and address belong to that code.
  * Previous: v2.1.0 - [USDT-CAPABILITY-RECOVERY 2026-08-09 by Codex]
@@ -36,7 +39,7 @@
  */
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 
 import LanguageSelector from '@/components/common/LanguageSelector';
@@ -49,9 +52,15 @@ import {
   MembershipPaymentApiError,
   PaymentNetworkId,
   PaymentStatus,
+  canSubmitPaymentTransactionHint,
   createPaymentIntent,
+  isPaymentRecoverable,
+  isPaymentRecoveryCredentialRejected,
+  isPaymentTransferOpen,
   loadCheckout,
   loadPaymentStatus,
+  paymentLifecyclePhase,
+  shouldPollPayment,
   submitTransactionHint,
 } from '@/lib/membershipPayments';
 
@@ -110,6 +119,22 @@ type Copy = {
   bscNotice: string;
   exactWarning: string;
   clipboardError: string;
+  stepTransfer: string;
+  stepVerify: string;
+  stepActivate: string;
+  transferClosed: string;
+  transferClosedNote: string;
+  paymentCompleteNote: string;
+  reviewTransferNote: string;
+  instructionsClosedNote: string;
+  confirmations: string;
+  refreshDelayed: string;
+  refreshNow: string;
+  refreshing: string;
+  restoreFailed: string;
+  restoreFailedNote: string;
+  backToDashboard: string;
+  paymentSummary: string;
 };
 
 const en: Copy = {
@@ -145,6 +170,18 @@ const en: Copy = {
   bscNotice: 'BNB Smart Chain accepts Binance-Peg BSC-USD, not native Tether-issued USDT.',
   exactWarning: 'Send the exact amount on the selected network. Wrong-network transfers cannot be recovered automatically.',
   clipboardError: 'Clipboard access is unavailable.',
+  stepTransfer: 'Transfer', stepVerify: 'Verify', stepActivate: 'Activate',
+  transferClosed: 'Do not send another transfer',
+  transferClosedNote: 'The receiving instructions are locked while AeroNyx verifies this payment.',
+  paymentCompleteNote: 'Membership is active. This payment is complete and no further action is required.',
+  reviewTransferNote: 'The existing transfer is being reviewed. Do not send another payment for this order.',
+  instructionsClosedNote: 'This payment order no longer accepts transfers. Start again from Nodeboard if you still need membership.',
+  confirmations: 'On-chain confirmations',
+  refreshDelayed: 'Live status is temporarily delayed. Your payment session remains safe.',
+  refreshNow: 'Refresh status', refreshing: 'Refreshing…',
+  restoreFailed: 'Payment status is temporarily unavailable',
+  restoreFailedNote: 'AeroNyx kept this payment session on this device. Retry without creating another transfer.',
+  backToDashboard: 'Back to Nodeboard', paymentSummary: 'Payment summary',
 };
 
 const copyByLocale: Record<Locale, Copy> = {
@@ -160,6 +197,8 @@ const copyByLocale: Record<Locale, Copy> = {
     privacy: '此页面只传输随机会员码，不会传输你的 AeroNyx 钱包、聊天身份、隐私网络活动或私人记忆。',
     publicChain: '链上转账记录是公开的，可能显示付款钱包地址。', bscNotice: 'BNB Smart Chain 接收 Binance-Peg BSC-USD，并非 Tether 原生发行的 USDT。',
     exactWarning: '请在所选网络发送精确金额。转错网络的资产无法自动找回。', clipboardError: '无法访问剪贴板。',
+    stepTransfer: '转账', stepVerify: '链上验证', stepActivate: '开通', transferClosed: '请勿再次转账', transferClosedNote: 'AeroNyx 正在验证本次支付，收款信息已锁定。', paymentCompleteNote: '会员已激活。本次支付已完成，无需其他操作。', reviewTransferNote: '现有转账正在人工审核，请勿为此订单再次付款。', instructionsClosedNote: '此支付订单已不再接收转账。如仍需会员，请返回 Nodeboard 重新开始。', confirmations: '链上确认数',
+    refreshDelayed: '实时状态暂时延迟，你的支付会话仍安全保存在此设备。', refreshNow: '刷新状态', refreshing: '刷新中…', restoreFailed: '暂时无法读取支付状态', restoreFailedNote: 'AeroNyx 已在此设备保留支付会话。请重试，不要重新转账。', backToDashboard: '返回 Nodeboard', paymentSummary: '支付摘要',
   },
   'zh-TW': {
     ...en, membership: 'AeroNyx 會員', title: '使用 USDT 購買會員', lede: '選擇會員方案和你常用的支付網路。只有獨立完成鏈上驗證後，AeroNyx 才會啟用會員。',
@@ -172,6 +211,8 @@ const copyByLocale: Record<Locale, Copy> = {
     privacy: '此頁面只傳輸隨機會員碼，不會傳輸你的 AeroNyx 錢包、聊天身分、隱私網路活動或私人記憶。',
     publicChain: '鏈上轉帳記錄是公開的，可能顯示付款錢包地址。', bscNotice: 'BNB Smart Chain 接收 Binance-Peg BSC-USD，並非 Tether 原生發行的 USDT。',
     exactWarning: '請在所選網路傳送精確金額。轉錯網路的資產無法自動找回。', clipboardError: '無法存取剪貼簿。',
+    stepTransfer: '轉帳', stepVerify: '鏈上驗證', stepActivate: '啟用', transferClosed: '請勿再次轉帳', transferClosedNote: 'AeroNyx 正在驗證本次支付，收款資訊已鎖定。', paymentCompleteNote: '會員已啟用。本次支付已完成，無需其他操作。', reviewTransferNote: '現有轉帳正在人工審核，請勿為此訂單再次付款。', instructionsClosedNote: '此支付訂單已不再接收轉帳。如仍需會員，請返回 Nodeboard 重新開始。', confirmations: '鏈上確認數',
+    refreshDelayed: '即時狀態暫時延遲，你的支付工作階段仍安全保存在此裝置。', refreshNow: '重新整理狀態', refreshing: '重新整理中…', restoreFailed: '暫時無法讀取支付狀態', restoreFailedNote: 'AeroNyx 已在此裝置保留支付工作階段。請重試，不要重新轉帳。', backToDashboard: '返回 Nodeboard', paymentSummary: '支付摘要',
   },
   ja: {
     ...en, membership: 'AeroNyx メンバーシップ', title: 'USDTでメンバーシップを購入', lede: 'プランと利用するネットワークを選択してください。独立したオンチェーン検証後にのみ有効化されます。',
@@ -183,6 +224,8 @@ const copyByLocale: Record<Locale, Copy> = {
     missingCode: 'チャージコードが必要です。', openFromDashboard: 'Nodeboardのメンバーシップ画面から開き、一回限りのチャージコードを引き継いでください。',
     privacy: 'このページはランダムな会員コードのみを送信し、ウォレット、チャット、プライバシーネットワークの活動、個人メモリは送信しません。', publicChain: 'ブロックチェーン上の送金は公開され、送信元ウォレットが表示される場合があります。',
     bscNotice: 'BNB Smart ChainではTetherネイティブUSDTではなくBinance-Peg BSC-USDを受け付けます。', exactWarning: '選択したネットワークで正確な金額を送ってください。誤送金は自動復旧できません。', clipboardError: 'クリップボードを利用できません。',
+    stepTransfer: '送金', stepVerify: '検証', stepActivate: '有効化', transferClosed: '追加送金しないでください', transferClosedNote: 'AeroNyx が支払いを検証している間、受取情報はロックされます。', paymentCompleteNote: 'メンバーシップは有効です。支払いは完了し、追加の操作は不要です。', reviewTransferNote: '既存の送金を確認中です。この注文に追加送金しないでください。', instructionsClosedNote: 'この支払い注文は送金を受け付けていません。必要な場合は Nodeboard から再開してください。', confirmations: 'オンチェーン確認数',
+    refreshDelayed: '最新ステータスの取得が遅れています。支払いセッションは安全に保持されています。', refreshNow: '状態を更新', refreshing: '更新中…', restoreFailed: '支払い状況を一時的に取得できません', restoreFailedNote: 'この端末に支払いセッションを保持しています。再送金せずに再試行してください。', backToDashboard: 'Nodeboard に戻る', paymentSummary: '支払い概要',
   },
   ko: {
     ...en, membership: 'AeroNyx 멤버십', title: 'USDT로 멤버십 구매', lede: '요금제와 결제 네트워크를 선택하세요. 독립적인 온체인 검증 후에만 멤버십이 활성화됩니다.',
@@ -194,6 +237,8 @@ const copyByLocale: Record<Locale, Copy> = {
     openFromDashboard: '일회용 충전 코드가 포함되도록 Nodeboard 멤버십 화면에서 열어 주세요.', privacy: '이 페이지는 무작위 멤버십 코드만 전송하며 지갑, 채팅 ID, 프라이버시 네트워크 활동, 개인 메모리는 전송하지 않습니다.',
     publicChain: '블록체인 송금은 공개되며 보내는 지갑이 표시될 수 있습니다.', bscNotice: 'BNB Smart Chain에서는 Tether 네이티브 USDT가 아닌 Binance-Peg BSC-USD를 받습니다.',
     exactWarning: '선택한 네트워크에서 정확한 금액을 보내세요. 잘못된 네트워크 송금은 자동 복구되지 않습니다.', clipboardError: '클립보드를 사용할 수 없습니다.',
+    stepTransfer: '송금', stepVerify: '검증', stepActivate: '활성화', transferClosed: '추가 송금하지 마세요', transferClosedNote: 'AeroNyx가 결제를 검증하는 동안 수신 정보가 잠깁니다.', paymentCompleteNote: '멤버십이 활성화되었습니다. 결제가 완료되어 추가 조치가 필요하지 않습니다.', reviewTransferNote: '기존 송금을 검토 중입니다. 이 주문에 다시 결제하지 마세요.', instructionsClosedNote: '이 결제 주문은 더 이상 송금을 받지 않습니다. 필요하면 Nodeboard에서 다시 시작하세요.', confirmations: '온체인 확인 수',
+    refreshDelayed: '실시간 상태가 잠시 지연되고 있습니다. 결제 세션은 이 기기에 안전하게 보관됩니다.', refreshNow: '상태 새로고침', refreshing: '새로고침 중…', restoreFailed: '결제 상태를 일시적으로 불러올 수 없습니다', restoreFailedNote: '결제 세션을 이 기기에 보관했습니다. 다시 송금하지 말고 재시도하세요.', backToDashboard: 'Nodeboard로 돌아가기', paymentSummary: '결제 요약',
   },
   ru: {
     ...en, membership: 'Подписка AeroNyx', title: 'Оплата подписки в USDT', lede: 'Выберите тариф и сеть. Подписка активируется только после независимой проверки транзакции в блокчейне.',
@@ -205,27 +250,24 @@ const copyByLocale: Record<Locale, Copy> = {
     missingCode: 'Нужен код пополнения.', openFromDashboard: 'Откройте страницу из раздела подписки Nodeboard, чтобы передать одноразовый код пополнения.',
     privacy: 'Эта страница передаёт только случайный код подписки, но не кошелёк AeroNyx, чаты, активность в Privacy Network или приватную память.', publicChain: 'Переводы в блокчейне публичны и могут раскрывать адрес отправителя.',
     bscNotice: 'В BNB Smart Chain принимается Binance-Peg BSC-USD, а не нативный USDT от Tether.', exactWarning: 'Отправьте точную сумму в выбранной сети. Ошибочный перевод нельзя восстановить автоматически.', clipboardError: 'Буфер обмена недоступен.',
+    stepTransfer: 'Перевод', stepVerify: 'Проверка', stepActivate: 'Активация', transferClosed: 'Не отправляйте повторный перевод', transferClosedNote: 'Реквизиты заблокированы, пока AeroNyx проверяет платёж.', paymentCompleteNote: 'Подписка активна. Платёж завершён, дополнительные действия не требуются.', reviewTransferNote: 'Имеющийся перевод проходит проверку. Не оплачивайте этот заказ повторно.', instructionsClosedNote: 'Этот платёжный заказ больше не принимает переводы. При необходимости начните заново в Nodeboard.', confirmations: 'Подтверждения в сети',
+    refreshDelayed: 'Обновление статуса задерживается. Платёжная сессия безопасно сохранена.', refreshNow: 'Обновить статус', refreshing: 'Обновление…', restoreFailed: 'Статус платежа временно недоступен', restoreFailedNote: 'Платёжная сессия сохранена на устройстве. Повторите проверку и не отправляйте новый перевод.', backToDashboard: 'Вернуться в Nodeboard', paymentSummary: 'Сводка платежа',
   },
 };
 
-const ACTIVE_STATUSES = new Set<PaymentStatus>([
-  'created', 'awaiting_payment', 'detected', 'confirming', 'paid',
-]);
 const REVIEW_STATUSES = new Set<PaymentStatus>([
   'underpaid', 'overpaid', 'wrong_asset', 'needs_review',
 ]);
 const PAYMENT_SESSION_KEY = 'aeronyx.membership.payment.current';
 const CHECKOUT_CODE_PATTERN = /^(?:TOP-)?NYX-[A-Z0-9-]{8,40}$/;
+const STATUS_POLL_INTERVAL_MS = 5000;
+const STATUS_POLL_MAX_BACKOFF_MS = 30000;
 
-function canRecover(payment: CryptoPayment, now = Date.now()) {
-  return payment.status === 'expired'
-    && payment.can_still_recover
-    && new Date(payment.recovery_until).getTime() > now;
-}
-
-function shouldPoll(payment: CryptoPayment) {
-  return ACTIVE_STATUSES.has(payment.status) || canRecover(payment);
-}
+type StoredPaymentSession = {
+  code: string;
+  id: string;
+  token: string;
+};
 
 function formatCountdown(expiresAt: string, now: number) {
   const seconds = Math.max(0, Math.floor((new Date(expiresAt).getTime() - now) / 1000));
@@ -253,14 +295,18 @@ export default function TopUpPage() {
   const [selectedNetwork, setSelectedNetwork] = useState<PaymentNetworkId | ''>('');
   const [payment, setPayment] = useState<CryptoPayment | null>(null);
   const [clientToken, setClientToken] = useState('');
+  const [pendingPaymentId, setPendingPaymentId] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [txHash, setTxHash] = useState('');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [statusRefreshing, setStatusRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [statusWarning, setStatusWarning] = useState('');
   const [copied, setCopied] = useState('');
   const [now, setNow] = useState(Date.now());
+  const copyTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     // [USDT-CAPABILITY-RECOVERY 2026-08-09 by Codex] Fragments never reach
@@ -282,32 +328,41 @@ export default function TopUpPage() {
     setCode(normalized);
   }, []);
 
-  const refreshPayment = useCallback(async (id: string, token: string, checkoutCode: string) => {
-    const next = await loadPaymentStatus({ id, code: checkoutCode, clientToken: token });
-    setPayment(next);
-    return next;
-  }, []);
+  const refreshPayment = useCallback(async (
+    id: string,
+    token: string,
+    checkoutCode: string,
+    signal?: AbortSignal,
+  ) => loadPaymentStatus({
+    id,
+    code: checkoutCode,
+    clientToken: token,
+    signal,
+  }), []);
 
   useEffect(() => {
     if (!code) return;
     let cancelled = false;
+    const requestController = new AbortController();
     (async () => {
       setLoading(true);
       setError('');
+      setStatusWarning('');
       try {
-        const summary = await loadCheckout(code);
+        const summary = await loadCheckout(code, requestController.signal);
         if (cancelled) return;
         // [USDT-TOPUP-BINDING 2026-08-09 by Codex] Clear any rendered intent
         // before restoring. A payment token is valid only with the exact code
         // that created it, even when another checkout opens in the same tab.
         setPayment(null);
         setClientToken('');
+        setPendingPaymentId('');
         setCheckout(summary);
         setSelectedPlan(summary.plans[0]?.id || '');
         setSelectedNetwork(summary.networks.find((item) => item.available)?.id || '');
         const saved = window.sessionStorage.getItem(PAYMENT_SESSION_KEY);
         if (saved) {
-          let parsed: { code?: string; id?: string; token?: string } = {};
+          let parsed: Partial<StoredPaymentSession> = {};
           try {
             parsed = JSON.parse(saved) as typeof parsed;
           } catch {
@@ -316,35 +371,106 @@ export default function TopUpPage() {
           }
           if (parsed.code === code && parsed.id && parsed.token) {
             setClientToken(parsed.token);
+            setPendingPaymentId(parsed.id);
             try {
-              await refreshPayment(parsed.id, parsed.token, code);
-            } catch {
-              window.sessionStorage.removeItem(PAYMENT_SESSION_KEY);
-              setClientToken('');
+              const restored = await refreshPayment(
+                parsed.id,
+                parsed.token,
+                code,
+                requestController.signal,
+              );
+              if (cancelled) return;
+              setPayment(restored);
+              setPendingPaymentId('');
+            } catch (restoreError) {
+              if (cancelled || requestController.signal.aborted) return;
+              // [USDT-CHECKOUT-LIFECYCLE 2026-08-13 by Codex] Transient
+              // network/server failures must not destroy the only browser
+              // capability able to recover an already-funded payment.
+              if (isPaymentRecoveryCredentialRejected(restoreError)) {
+                window.sessionStorage.removeItem(PAYMENT_SESSION_KEY);
+                setClientToken('');
+                setPendingPaymentId('');
+                setError(friendlyError(restoreError));
+              } else {
+                setStatusWarning(friendlyError(restoreError));
+              }
             }
           } else window.sessionStorage.removeItem(PAYMENT_SESSION_KEY);
         }
       } catch (requestError) {
-        if (!cancelled) setError(friendlyError(requestError));
+        if (!cancelled && !requestController.signal.aborted) {
+          setError(friendlyError(requestError));
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      requestController.abort();
+    };
   }, [code, refreshPayment]);
 
   useEffect(() => {
-    if (!payment || !clientToken || !code || !shouldPoll(payment)) return;
+    if (!payment || !clientToken || !code || !shouldPollPayment(payment, now)) return;
+    let cancelled = false;
     let running = false;
-    const timer = window.setInterval(async () => {
-      if (running) return;
+    let failureCount = 0;
+    let timer: number | null = null;
+    let requestController: AbortController | null = null;
+
+    const schedule = (delay: number) => {
+      if (cancelled) return;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(poll, delay);
+    };
+
+    const poll = async () => {
+      if (cancelled || running) return;
+      if (document.visibilityState === 'hidden') {
+        schedule(STATUS_POLL_INTERVAL_MS);
+        return;
+      }
       running = true;
-      try { await refreshPayment(payment.id, clientToken, code); }
-      catch (requestError) { setError(friendlyError(requestError)); }
-      finally { running = false; }
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [payment, clientToken, code, refreshPayment]);
+      requestController = new AbortController();
+      try {
+        const next = await refreshPayment(
+          payment.id,
+          clientToken,
+          code,
+          requestController.signal,
+        );
+        if (cancelled) return;
+        failureCount = 0;
+        setPayment(next);
+        setStatusWarning('');
+        if (shouldPollPayment(next)) schedule(STATUS_POLL_INTERVAL_MS);
+      } catch (requestError) {
+        if (cancelled || requestController.signal.aborted) return;
+        failureCount += 1;
+        setStatusWarning(friendlyError(requestError));
+        schedule(Math.min(
+          STATUS_POLL_MAX_BACKOFF_MS,
+          STATUS_POLL_INTERVAL_MS * (2 ** Math.min(failureCount, 3)),
+        ));
+      } finally {
+        running = false;
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') schedule(250);
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    schedule(STATUS_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+      requestController?.abort();
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [payment?.id, payment?.status, clientToken, code, refreshPayment]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -352,14 +478,29 @@ export default function TopUpPage() {
   }, []);
 
   useEffect(() => {
-    if (!payment?.recipient_address) { setQrDataUrl(''); return; }
+    let cancelled = false;
+    if (!payment?.recipient_address || !isPaymentTransferOpen(payment)) {
+      setQrDataUrl('');
+      return () => { cancelled = true; };
+    }
     QRCode.toDataURL(payment.recipient_address, {
       width: 320,
       margin: 1,
       color: { dark: '#09090B', light: '#FFFFFF' },
       errorCorrectionLevel: 'M',
-    }).then(setQrDataUrl).catch(() => setQrDataUrl(''));
-  }, [payment?.recipient_address]);
+    }).then((value) => {
+      if (!cancelled) setQrDataUrl(value);
+    }).catch(() => {
+      if (!cancelled) setQrDataUrl('');
+    });
+    return () => { cancelled = true; };
+  }, [payment?.recipient_address, payment?.status]);
+
+  useEffect(() => () => {
+    if (copyTimerRef.current !== null) {
+      window.clearTimeout(copyTimerRef.current);
+    }
+  }, []);
 
   const selectedPlanData = useMemo(
     () => checkout?.plans.find((item) => item.id === selectedPlan),
@@ -378,6 +519,8 @@ export default function TopUpPage() {
       const result = await createPaymentIntent({ code, plan: selectedPlan, network: selectedNetwork });
       setPayment(result.payment);
       setClientToken(result.clientToken);
+      setPendingPaymentId('');
+      setStatusWarning('');
       window.sessionStorage.setItem(
         PAYMENT_SESSION_KEY,
         JSON.stringify({ code, id: result.payment.id, token: result.clientToken }),
@@ -393,8 +536,38 @@ export default function TopUpPage() {
     try {
       await navigator.clipboard.writeText(value);
       setCopied(key);
-      window.setTimeout(() => setCopied(''), 1500);
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+      copyTimerRef.current = window.setTimeout(() => {
+        setCopied('');
+        copyTimerRef.current = null;
+      }, 1500);
     } catch { setError(text.clipboardError); }
+  }
+
+  async function refreshStatusNow() {
+    const id = payment?.id || pendingPaymentId;
+    if (!id || !clientToken || !code || statusRefreshing) return;
+    setStatusRefreshing(true);
+    try {
+      const next = await refreshPayment(id, clientToken, code);
+      setPayment(next);
+      setPendingPaymentId('');
+      setStatusWarning('');
+      setError('');
+    } catch (requestError) {
+      if (isPaymentRecoveryCredentialRejected(requestError)) {
+        window.sessionStorage.removeItem(PAYMENT_SESSION_KEY);
+        setClientToken('');
+        setPendingPaymentId('');
+        setError(friendlyError(requestError));
+      } else {
+        setStatusWarning(friendlyError(requestError));
+      }
+    } finally {
+      setStatusRefreshing(false);
+    }
   }
 
   async function sendTransactionHint() {
@@ -407,6 +580,7 @@ export default function TopUpPage() {
       });
       setPayment(next);
       setTxHash('');
+      setStatusWarning('');
     } catch (requestError) {
       setError(friendlyError(requestError));
     } finally { setSubmitting(false); }
@@ -416,15 +590,16 @@ export default function TopUpPage() {
     window.sessionStorage.removeItem(PAYMENT_SESSION_KEY);
     if (checkout?.code_type === 'one_time') {
       // A consumed one-time capability cannot safely create another intent.
-      // Return to the authenticated/App source so it can issue a fresh link.
-      if (window.history.length > 1) window.history.back();
-      else window.location.assign('/dashboard');
+      // [USDT-CHECKOUT-LIFECYCLE 2026-08-13 by Codex] A deterministic route
+      // avoids sending the user to an unrelated referrer or stale app page.
+      window.location.assign('/dashboard');
       return;
     }
-    setPayment(null); setClientToken(''); setTxHash(''); setError('');
+    setPayment(null); setClientToken(''); setPendingPaymentId('');
+    setTxHash(''); setError(''); setStatusWarning('');
   }
 
-  const paymentRecoverable = payment ? canRecover(payment, now) : false;
+  const paymentRecoverable = payment ? isPaymentRecoverable(payment, now) : false;
   const statusLabel = !payment ? ''
     : payment.status === 'fulfilled' ? text.fulfilled
       : payment.status === 'detected' ? text.detected
@@ -442,9 +617,25 @@ export default function TopUpPage() {
       : REVIEW_STATUSES.has(payment.status) ? text.reviewNote
         : '';
   const acceptsTransactionHint = payment
-    ? (ACTIVE_STATUSES.has(payment.status) || paymentRecoverable)
-      && !payment.transaction_hint_bound
+    ? canSubmitPaymentTransactionHint(payment, now)
     : false;
+  const transferOpen = payment ? isPaymentTransferOpen(payment) : false;
+  const lifecyclePhase = payment ? paymentLifecyclePhase(payment, now) : null;
+  const showPaymentCountdown = transferOpen || paymentRecoverable;
+  const inactiveTransferNote = lifecyclePhase === 'fulfilled'
+    ? text.paymentCompleteNote
+    : lifecyclePhase === 'review'
+      ? text.reviewTransferNote
+      : lifecyclePhase === 'verification'
+        ? text.transferClosedNote
+        : text.instructionsClosedNote;
+  const progressStep = lifecyclePhase === 'fulfilled'
+    ? 3
+    : lifecyclePhase === 'transfer'
+      ? 1
+      : lifecyclePhase
+        ? 2
+        : 0;
   const statusBadgeClass = payment?.status === 'fulfilled'
     ? 'bg-emerald-400/15 text-emerald-300'
     : payment && (REVIEW_STATUSES.has(payment.status) || paymentRecoverable)
@@ -474,6 +665,9 @@ export default function TopUpPage() {
           <section className="max-w-2xl border-l-2 border-amber-400 py-2 pl-5">
             <h2 className="text-lg font-semibold">{text.missingCode}</h2>
             <p className="mt-2 leading-6 text-zinc-400">{text.openFromDashboard}</p>
+            <a href="/dashboard" className="mt-5 inline-flex min-h-11 items-center rounded-lg border border-white/15 px-4 text-sm font-medium transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-emerald-400/60">
+              {text.backToDashboard}
+            </a>
           </section>
         )}
 
@@ -483,7 +677,20 @@ export default function TopUpPage() {
           <div role="alert" className="mb-6 rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-100">{error}</div>
         )}
 
-        {checkout && !payment && (
+        {checkout && pendingPaymentId && !payment && (
+          <section className="max-w-2xl rounded-lg border border-amber-300/25 bg-amber-300/[0.06] p-5 sm:p-6" aria-live="polite">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-200">{text.paymentSummary}</p>
+            <h2 className="mt-3 text-xl font-semibold">{text.restoreFailed}</h2>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-300">{text.restoreFailedNote}</p>
+            {statusWarning && <p className="mt-3 text-xs leading-5 text-amber-100/75">{statusWarning}</p>}
+            <button type="button" onClick={refreshStatusNow} disabled={statusRefreshing}
+              className="mt-5 min-h-11 rounded-lg bg-white px-4 text-sm font-semibold text-black transition hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 disabled:cursor-wait disabled:bg-zinc-700 disabled:text-zinc-300">
+              {statusRefreshing ? text.refreshing : text.refreshNow}
+            </button>
+          </section>
+        )}
+
+        {checkout && !payment && !pendingPaymentId && (
           <div className="grid gap-10 lg:grid-cols-[1fr_360px]">
             <div className="space-y-10">
               <section>
@@ -517,7 +724,7 @@ export default function TopUpPage() {
                         className={`min-h-28 rounded-lg border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${active ? 'border-emerald-400 bg-emerald-400/10' : 'border-white/10 bg-white/[0.025] hover:border-white/25'}`}>
                         <span className="mb-3 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-xs font-bold">{network.id === 'solana' ? 'S' : network.id === 'bsc' ? 'B' : 'T'}</span>
                         <span className="block text-sm font-medium">{network.display_name}</span>
-                        <span className="mt-1 block text-xs text-zinc-500">USDT · {network.gas_symbol}</span>
+                        <span className="mt-1 block text-xs text-zinc-500">{network.asset_code} · {network.gas_symbol}</span>
                       </button>
                     );
                   })}
@@ -551,13 +758,46 @@ export default function TopUpPage() {
         )}
 
         {payment && (
-          <div className="grid gap-8 lg:grid-cols-[320px_1fr]">
-            <section className="rounded-lg border border-white/10 bg-white p-4 text-black">
-              {qrDataUrl ? <img src={qrDataUrl} alt={text.scan} className="aspect-square w-full" /> : <div className="aspect-square w-full animate-pulse bg-zinc-100" />}
-              <p className="mt-3 text-center text-xs text-zinc-500">{text.scan}</p>
-            </section>
+          <>
+            <ol aria-label={text.status} className="mb-8 grid grid-cols-3 border-y border-white/10 py-4">
+              {[text.stepTransfer, text.stepVerify, text.stepActivate].map((label, index) => {
+                const step = index + 1;
+                const complete = progressStep > step
+                  || (lifecyclePhase === 'fulfilled' && step === 3);
+                const current = progressStep === step;
+                return (
+                  <li key={label} aria-current={current ? 'step' : undefined}
+                    className={`flex min-w-0 items-center gap-2 px-2 text-xs sm:px-4 sm:text-sm ${complete || current ? 'text-white' : 'text-zinc-600'}`}>
+                    <span aria-hidden="true" className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold ${complete ? 'border-emerald-400 bg-emerald-400 text-black' : current ? 'border-emerald-400 text-emerald-300' : 'border-white/15'}`}>
+                      {complete ? '✓' : step}
+                    </span>
+                    <span className="min-w-0 truncate sm:whitespace-normal">{label}</span>
+                  </li>
+                );
+              })}
+            </ol>
 
-            <section className="min-w-0 rounded-lg border border-white/10 bg-white/[0.035] p-5 sm:p-7">
+            <div className="grid gap-8 lg:grid-cols-[320px_1fr]">
+              {transferOpen ? (
+                <section className="h-fit rounded-lg border border-white/10 bg-white p-4 text-black">
+                  {qrDataUrl ? <img src={qrDataUrl} alt={text.scan} className="aspect-square w-full" /> : <div className="aspect-square w-full animate-pulse bg-zinc-100" />}
+                  <p className="mt-3 text-center text-xs text-zinc-500">{text.scan}</p>
+                </section>
+              ) : (
+                <section className={`h-fit rounded-lg border p-6 ${lifecyclePhase === 'fulfilled' ? 'border-emerald-300/25 bg-emerald-300/[0.07]' : lifecyclePhase === 'review' ? 'border-amber-300/25 bg-amber-300/[0.06]' : 'border-white/10 bg-white/[0.035]'}`}>
+                  <div aria-hidden="true" className={`flex h-12 w-12 items-center justify-center rounded-full border text-xl ${lifecyclePhase === 'fulfilled' ? 'border-emerald-400/50 bg-emerald-400/15 text-emerald-300' : lifecyclePhase === 'review' ? 'border-amber-300/40 bg-amber-300/10 text-amber-200' : 'border-sky-300/30 bg-sky-300/10 text-sky-200'}`}>
+                    {lifecyclePhase === 'fulfilled' ? '✓' : lifecyclePhase === 'review' ? '!' : '…'}
+                  </div>
+                  <p className="mt-5 text-xs uppercase tracking-[0.16em] text-zinc-500">{text.paymentSummary}</p>
+                  <p className="mt-2 text-lg font-semibold">{statusLabel}</p>
+                  <dl className="mt-5 space-y-3 border-t border-white/10 pt-4 text-sm">
+                    <div className="flex items-start justify-between gap-4"><dt className="text-zinc-500">{text.exactAmount}</dt><dd className="text-right font-medium tabular-nums">{payment.quoted_amount} {payment.asset_code}</dd></div>
+                    <div className="flex items-start justify-between gap-4"><dt className="text-zinc-500">{text.network}</dt><dd className="text-right">{payment.network_name}</dd></div>
+                  </dl>
+                </section>
+              )}
+
+              <section className="min-w-0 rounded-lg border border-white/10 bg-white/[0.035] p-5 sm:p-7">
               <div aria-live="polite" className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-5">
                 <div>
                   <div className="text-xs uppercase tracking-[0.16em] text-zinc-500">{text.status}</div>
@@ -569,32 +809,58 @@ export default function TopUpPage() {
                 </div>
               </div>
 
-              <div className="grid gap-6 py-6 sm:grid-cols-2">
-                <div><div className="text-xs text-zinc-500">{text.exactAmount}</div><button onClick={() => copyValue('amount', payment.quoted_amount)} className="mt-2 flex max-w-full items-baseline gap-2 text-left"><span className="break-all text-3xl font-semibold tabular-nums">{payment.quoted_amount}</span><span className="text-zinc-400">USDT</span><span className="text-xs text-emerald-300">{copied === 'amount' ? text.copied : text.copy}</span></button></div>
-                <div><div className="text-xs text-zinc-500">{paymentRecoverable ? text.recovery : text.expires}</div><div className="mt-2 text-3xl font-semibold tabular-nums">{formatCountdown(paymentRecoverable ? payment.recovery_until : payment.expires_at, now)}</div><div className="mt-1 text-xs text-zinc-500">{payment.network_name} · {text.networkFee} {payment.gas_symbol}</div></div>
-              </div>
-
-              <div className="border-t border-white/10 py-5">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
-                  <span>{text.receivingAddress}</span>
-                  <code>{maskedCheckoutCode(code)}</code>
+              {statusWarning && (
+                <div role="status" className="mt-5 flex flex-col gap-3 rounded-lg border border-amber-300/25 bg-amber-300/[0.06] p-3 text-sm text-amber-100 sm:flex-row sm:items-center sm:justify-between">
+                  <span className="leading-5">{text.refreshDelayed}</span>
+                  <button type="button" onClick={refreshStatusNow} disabled={statusRefreshing}
+                    className="min-h-10 shrink-0 rounded-lg border border-amber-200/25 px-3 text-xs font-semibold transition hover:bg-amber-200/10 focus:outline-none focus:ring-2 focus:ring-amber-200/50 disabled:cursor-wait disabled:opacity-50">
+                    {statusRefreshing ? text.refreshing : text.refreshNow}
+                  </button>
                 </div>
-                <button onClick={() => copyValue('address', payment.recipient_address)} className="mt-2 flex w-full items-center gap-3 rounded-lg border border-white/10 bg-black/30 p-3 text-left">
-                  <code className="min-w-0 flex-1 break-all text-xs leading-5 text-zinc-200">{payment.recipient_address}</code><span className="shrink-0 text-xs text-emerald-300">{copied === 'address' ? text.copied : text.copy}</span>
-                </button>
-                <p className="mt-2 text-xs leading-5 text-zinc-500">{text.addressBound}</p>
+              )}
+
+              <div className="grid gap-6 py-6 sm:grid-cols-2">
+                <div><div className="text-xs text-zinc-500">{text.exactAmount}</div><button type="button" onClick={() => copyValue('amount', payment.quoted_amount)} className="mt-2 flex max-w-full flex-wrap items-baseline gap-2 text-left focus:outline-none focus:ring-2 focus:ring-emerald-400/60"><span className="break-all text-3xl font-semibold tabular-nums">{payment.quoted_amount}</span><span className="text-zinc-400">{payment.asset_code}</span><span className="text-xs text-emerald-300">{copied === 'amount' ? text.copied : text.copy}</span></button></div>
+                {showPaymentCountdown ? (
+                  <div><div className="text-xs text-zinc-500">{paymentRecoverable ? text.recovery : text.expires}</div><div className="mt-2 text-3xl font-semibold tabular-nums">{formatCountdown(paymentRecoverable ? payment.recovery_until : payment.expires_at, now)}</div><div className="mt-1 text-xs text-zinc-500">{payment.network_name} · {text.networkFee} {payment.gas_symbol}</div></div>
+                ) : (
+                  <div><div className="text-xs text-zinc-500">{text.confirmations}</div><div className="mt-2 text-3xl font-semibold tabular-nums">{payment.confirmations} / {payment.required_confirmations}</div><div className="mt-1 text-xs text-zinc-500">{payment.network_name}</div></div>
+                )}
               </div>
 
-              <p className="rounded-lg border border-amber-300/20 bg-amber-300/[0.06] p-3 text-xs leading-5 text-amber-100/80">{text.exactWarning}</p>
-              {payment.network === 'bsc' && <p className="mt-3 text-xs leading-5 text-zinc-500">{text.bscNotice}</p>}
+              {transferOpen ? (
+                <>
+                  <div className="border-t border-white/10 py-5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
+                      <span>{text.receivingAddress}</span>
+                      <code>{maskedCheckoutCode(code)}</code>
+                    </div>
+                    <button type="button" onClick={() => copyValue('address', payment.recipient_address)} className="mt-2 flex w-full items-center gap-3 rounded-lg border border-white/10 bg-black/30 p-3 text-left focus:outline-none focus:ring-2 focus:ring-emerald-400/60">
+                      <code className="min-w-0 flex-1 break-all text-xs leading-5 text-zinc-200">{payment.recipient_address}</code><span className="shrink-0 text-xs text-emerald-300">{copied === 'address' ? text.copied : text.copy}</span>
+                    </button>
+                    <p className="mt-2 text-xs leading-5 text-zinc-500">{text.addressBound}</p>
+                  </div>
+
+                  <p className="rounded-lg border border-amber-300/20 bg-amber-300/[0.06] p-3 text-xs leading-5 text-amber-100/80">{text.exactWarning}</p>
+                  {payment.network === 'bsc' && <p className="mt-3 text-xs leading-5 text-zinc-500">{text.bscNotice}</p>}
+                </>
+              ) : (
+                <div className="border-t border-white/10 py-5">
+                  <p className={`text-sm font-semibold ${lifecyclePhase === 'fulfilled' ? 'text-emerald-200' : 'text-amber-100'}`}>
+                    {lifecyclePhase === 'fulfilled' ? text.fulfilled : text.transferClosed}
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-zinc-400">{inactiveTransferNote}</p>
+                </div>
+              )}
 
               {acceptsTransactionHint && (
                 <div className="mt-6 border-t border-white/10 pt-5">
                   <label className="text-xs text-zinc-500" htmlFor="tx-hash">{text.txHint}</label>
                   <div className="mt-2 flex flex-col gap-2 sm:flex-row">
                     <input id="tx-hash" value={txHash} onChange={(event) => setTxHash(event.target.value)} placeholder={text.txPlaceholder}
+                      autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={128}
                       className="h-11 min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-3 text-sm outline-none focus:border-emerald-400/60" />
-                    <button onClick={sendTransactionHint} disabled={!txHash.trim() || submitting}
+                    <button type="button" onClick={sendTransactionHint} disabled={!txHash.trim() || submitting}
                       className="h-11 rounded-lg border border-white/15 px-4 text-sm font-medium transition hover:bg-white/10 disabled:opacity-40">{submitting ? text.submitting : text.submit}</button>
                   </div>
                 </div>
@@ -606,11 +872,12 @@ export default function TopUpPage() {
 
               <div className="mt-6 flex flex-wrap gap-3">
                 {payment.explorer_url && <a href={payment.explorer_url} target="_blank" rel="noreferrer" className="rounded-lg border border-white/15 px-4 py-2 text-sm hover:bg-white/10">{text.explorer}</a>}
-                {REVIEW_STATUSES.has(payment.status) && <a href="mailto:hi@aeronyx.network" className="rounded-lg border border-amber-300/25 px-4 py-2 text-sm text-amber-100 hover:bg-amber-300/10">{text.support}</a>}
-                {((payment.status === 'expired' && !paymentRecoverable) || payment.status === 'failed' || payment.status === 'cancelled') && <button onClick={restartCheckout} className="rounded-lg border border-white/15 px-4 py-2 text-sm hover:bg-white/10">{text.retry}</button>}
+                {(REVIEW_STATUSES.has(payment.status) || payment.status === 'failed') && <a href="mailto:hi@aeronyx.network" className="rounded-lg border border-amber-300/25 px-4 py-2 text-sm text-amber-100 hover:bg-amber-300/10">{text.support}</a>}
+                {((payment.status === 'expired' && !paymentRecoverable) || payment.status === 'failed' || payment.status === 'cancelled') && <button type="button" onClick={restartCheckout} className="rounded-lg border border-white/15 px-4 py-2 text-sm hover:bg-white/10">{text.retry}</button>}
               </div>
-            </section>
-          </div>
+              </section>
+            </div>
+          </>
         )}
 
         <footer className="mt-14 grid gap-3 border-t border-white/10 pt-6 text-xs leading-5 text-zinc-500 sm:grid-cols-2">
