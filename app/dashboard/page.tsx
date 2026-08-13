@@ -24,7 +24,10 @@
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/services/node_policy.rs
  *   - /root/open/AeroNyx/crates/aeronyx-server/src/handlers/packet.rs
  *
- * Last Modified: v1.2.0 - [USDT-CHECKOUT-SESSION 2026-08-13 by Codex]
+ * Last Modified: v1.2.1 - [FLEET-LIFECYCLE 2026-08-13 by Codex]
+ *   Removed the unreachable overview delete dialog after node-card deletion
+ *   moved to the node detail page; detail-page deletion remains unchanged.
+ * Previous: v1.2.0 - [USDT-CHECKOUT-SESSION 2026-08-13 by Codex]
  *   Added same-device payment resumption and derived the public checkout route
  *   from the validated one-time capability instead of a backend-authored URL.
  * Previous: v1.1.0 - [USDT-DASHBOARD-HANDOFF 2026-08-09 by Codex]
@@ -37,9 +40,9 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
-import { useNodes, useAggregatedStats, useDeleteNode, useVpnOverview, useVpnEvents, useVpnBilling, useVpnServers } from '@/hooks/useNodes';
+import { useNodes, useAggregatedStats, useVpnOverview, useVpnEvents, useVpnBilling, useVpnServers } from '@/hooks/useNodes';
 import { useAuthStore } from '@/stores/authStore';
-import { Node, VpnEvent, VpnEventSeverity, VpnHealthStatus, VpnServerPlacementGroup } from '@/types';
+import { VpnEvent, VpnEventSeverity, VpnHealthStatus, VpnServerPlacementGroup } from '@/types';
 import { formatBytes, truncateAddress } from '@/lib/api';
 import {
   createMembershipTopUpHandoff,
@@ -51,7 +54,6 @@ import Card, { StatCard, EmptyState } from '@/components/common/Card';
 import Button from '@/components/common/Button';
 import NodeCard, { NodeCardSkeleton } from '@/components/dashboard/NodeCard';
 import AddNodeModal from '@/components/dashboard/AddNodeModal';
-import { ConfirmDialog } from '@/components/common/Modal';
 
 type TranslateFn = (key: string, values?: Record<string, string | number>) => string;
 type FormatNumberFn = (value: number, options?: Intl.NumberFormatOptions) => string;
@@ -690,11 +692,9 @@ function VpnOperationsSnapshot() {
 
 export default function DashboardPage() {
   const { nodes, isLoading } = useNodes();
-  const deleteNodeMutation = useDeleteNode();
   const { t, formatNumber } = useI18n();
   
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [nodeToDelete, setNodeToDelete] = useState<Node | null>(null);
 
   // Memoize handlers to prevent re-renders
   const handleOpenAddModal = useCallback(() => {
@@ -704,26 +704,6 @@ export default function DashboardPage() {
   const handleCloseAddModal = useCallback(() => {
     setIsAddModalOpen(false);
   }, []);
-
-  const handleSetNodeToDelete = useCallback((node: Node) => {
-    setNodeToDelete(node);
-  }, []);
-
-  const handleCancelDelete = useCallback(() => {
-    setNodeToDelete(null);
-  }, []);
-
-  // Handle node deletion
-  const handleDeleteNode = useCallback(async () => {
-    if (!nodeToDelete) return;
-    
-    try {
-      await deleteNodeMutation.mutateAsync(nodeToDelete.id);
-      setNodeToDelete(null);
-    } catch (err) {
-      console.error('Failed to delete node:', err);
-    }
-  }, [nodeToDelete, deleteNodeMutation]);
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -774,7 +754,7 @@ export default function DashboardPage() {
         ) : (
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
             {nodes.map((node) => (
-              <NodeCard key={node.id} node={node} onDelete={handleSetNodeToDelete} />
+              <NodeCard key={node.id} node={node} />
             ))}
           </div>
         )}
@@ -801,18 +781,6 @@ export default function DashboardPage() {
         onClose={handleCloseAddModal}
       />
 
-      {/* Delete Confirmation Dialog */}
-      <ConfirmDialog
-        isOpen={!!nodeToDelete}
-        onClose={handleCancelDelete}
-        onConfirm={handleDeleteNode}
-        title={t('dashboard.delete.title')}
-        message={t('dashboard.delete.message', { name: nodeToDelete?.name || '' })}
-        confirmText={t('dashboard.delete.confirm')}
-        cancelText={t('common.cancel')}
-        variant="danger"
-        isLoading={deleteNodeMutation.isPending}
-      />
     </div>
   );
 }
