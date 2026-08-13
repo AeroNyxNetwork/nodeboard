@@ -1,16 +1,30 @@
 /**
- * AeroNyx Traffic & Billing page.
+ * ============================================
+ * AeroNyx Traffic & Billing Page
+ * ============================================
  *
  * Source path:
  *   /root/open/nodeboard/app/dashboard/billing/page.tsx
  *
  * Backend:
  *   GET /api/privacy_network/vpn/billing/
+ *
+ * Main Functionality:
+ *   - Quota, traffic, session, and voucher operating summaries
+ *   - Debounced server-side filters with authoritative refresh state
+ *   - Formula-safe multilingual CSV export
+ *   - Responsive node, identity, session, and daily detail views
+ *
+ * Last Modified: v1.1.0 - [BILLING-UX 2026-08-13 by Codex]
+ *   Hardened CSV export, debounced search, surfaced background refresh, and
+ *   made filters and detail tabs reliable on narrow operator screens.
+ * Previous: v1.0.0 - Initial traffic and billing operations page.
+ * ============================================
  */
 
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useNodes, useVpnBilling, UseVpnBillingOptions } from '@/hooks/useNodes';
 import { VpnBillingDailyRow, VpnBillingIdentityRow, VpnBillingNodeRow, VpnBillingSessionRow } from '@/types';
@@ -27,6 +41,8 @@ const STATUS_OPTIONS: Array<NonNullable<UseVpnBillingOptions['status']>> = [
   'completed',
   'error',
 ];
+const BILLING_TABS: BillingTab[] = ['nodes', 'identities', 'sessions', 'daily'];
+const SEARCH_DEBOUNCE_MS = 350;
 
 type TranslateFn = (key: string, values?: Record<string, string | number>) => string;
 type FormatNumberFn = (value: number, options?: Intl.NumberFormatOptions) => string;
@@ -63,25 +79,33 @@ function pct(value: number | null | undefined, t: TranslateFn, formatNumber: For
 
 function csvCell(value: unknown) {
   const text = String(value ?? '');
-  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
-  return text;
+  // [BILLING-UX 2026-08-13 by Codex] Node names and session fields can be
+  // operator-controlled. Neutralize spreadsheet formulas before quoting so
+  // opening an export in Excel or Numbers cannot execute the cell as code.
+  const safe = /^[\t\r\n ]*[=+\-@]/.test(text) ? `'${text}` : text;
+  if (/[",\r\n]/.test(safe)) return `"${safe.replace(/"/g, '""')}"`;
+  return safe;
 }
 
 function downloadCsv(filename: string, rows: object[]) {
   if (!rows.length) return;
   const records = rows as Array<Record<string, unknown>>;
   const headers = Object.keys(records[0]);
-  const body = [
+  const body = `\uFEFF${[
     headers.join(','),
     ...records.map((row) => headers.map((header) => csvCell(row[header])).join(',')),
-  ].join('\n');
+  ].join('\r\n')}`;
   const blob = new Blob([body], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  link.style.display = 'none';
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  // Safari may not consume the object URL until after the click task returns.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function SummaryCards({ billing }: { billing: NonNullable<ReturnType<typeof useVpnBilling>['billing']> }) {
@@ -217,6 +241,9 @@ function QueryBar({
   nodes,
   onRefresh,
   onExport,
+  isRefreshing,
+  isUpdating,
+  canExport,
 }: {
   days: number;
   status: NonNullable<UseVpnBillingOptions['status']>;
@@ -229,11 +256,14 @@ function QueryBar({
   nodes: { id: string; name: string }[];
   onRefresh: () => void;
   onExport: () => void;
+  isRefreshing: boolean;
+  isUpdating: boolean;
+  canExport: boolean;
 }) {
   const { t } = useI18n();
   return (
     <Card variant="default" padding="md">
-      <div className="grid md:grid-cols-[120px_150px_1fr_1.2fr_auto_auto] gap-3 items-end">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[120px_150px_minmax(0,1fr)_minmax(0,1.2fr)] xl:items-end 2xl:grid-cols-[120px_150px_minmax(0,1fr)_minmax(0,1.2fr)_auto]">
         <label className="block">
           <span className="text-xs text-gray-500">{t('billing.filters.days')}</span>
           <select
@@ -262,7 +292,7 @@ function QueryBar({
             ))}
           </select>
         </label>
-        <label className="block">
+        <label className="block sm:col-span-2 xl:col-span-1">
           <span className="text-xs text-gray-500">{t('billing.filters.node')}</span>
           <select
             value={nodeId}
@@ -277,18 +307,40 @@ function QueryBar({
             ))}
           </select>
         </label>
-        <label className="block">
+        <label className="block sm:col-span-2 xl:col-span-1">
           <span className="text-xs text-gray-500">{t('billing.filters.walletSession')}</span>
           <input
             type="search"
             value={query}
             onChange={(event) => onQuery(event.target.value)}
             placeholder={t('billing.filters.searchPlaceholder')}
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            aria-busy={isUpdating}
             className="mt-1 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-purple-500/50"
           />
         </label>
-        <Button variant="secondary" onClick={onRefresh}>{t('common.refreshNow')}</Button>
-        <Button variant="primary" onClick={onExport}>{t('billing.filters.exportCsv')}</Button>
+        <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2 xl:col-span-4 xl:flex xl:justify-end 2xl:col-span-1">
+          <Button
+            variant="secondary"
+            onClick={onRefresh}
+            isLoading={isRefreshing}
+            disabled={isUpdating}
+            className="w-full xl:w-auto"
+          >
+            {isRefreshing ? t('common.refreshing') : t('common.refreshNow')}
+          </Button>
+          <Button
+            variant="primary"
+            onClick={onExport}
+            disabled={!canExport}
+            className="w-full xl:w-auto"
+          >
+            {t('billing.filters.exportCsv')}
+          </Button>
+        </div>
       </div>
     </Card>
   );
@@ -442,15 +494,28 @@ export default function BillingPage() {
   const [status, setStatus] = useState<NonNullable<UseVpnBillingOptions['status']>>('all');
   const [nodeId, setNodeId] = useState('');
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [tab, setTab] = useState<BillingTab>('nodes');
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const { nodes } = useNodes();
+
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => setDebouncedQuery(query.trim()),
+      SEARCH_DEBOUNCE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
   const options = useMemo(() => ({
     days,
     status,
     nodeId: nodeId || undefined,
-    q: query.trim() || undefined,
-  }), [days, status, nodeId, query]);
-  const { billing, isLoading, isError, refetch } = useVpnBilling(options);
+    q: debouncedQuery || undefined,
+  }), [days, status, nodeId, debouncedQuery]);
+  const { billing, isLoading, isFetching, isError, refetch } = useVpnBilling(options);
+  const isQuerySettled = query.trim() === debouncedQuery;
+  const isUpdating = isFetching || !isQuerySettled;
 
   const exportRows = useMemo(() => {
     if (!billing) return [];
@@ -462,6 +527,35 @@ export default function BillingPage() {
 
   const handleExport = () => {
     downloadCsv(`aeronyx-${tab}-billing-${days}d.csv`, exportRows);
+  };
+
+  const handleRefresh = async () => {
+    // [BILLING-UX 2026-08-13 by Codex] Keep automatic polling quiet while
+    // giving an explicit refresh authoritative feedback until it settles.
+    setIsManualRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setIsManualRefreshing(false);
+    }
+  };
+
+  const handleTabKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    currentTab: BillingTab,
+  ) => {
+    const currentIndex = BILLING_TABS.indexOf(currentTab);
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % BILLING_TABS.length;
+    if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + BILLING_TABS.length) % BILLING_TABS.length;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = BILLING_TABS.length - 1;
+    if (nextIndex === null) return;
+
+    event.preventDefault();
+    const nextTab = BILLING_TABS[nextIndex];
+    setTab(nextTab);
+    document.getElementById(`billing-tab-${nextTab}`)?.focus();
   };
 
   return (
@@ -488,8 +582,11 @@ export default function BillingPage() {
         onStatus={setStatus}
         onNode={setNodeId}
         onQuery={setQuery}
-        onRefresh={refetch}
+        onRefresh={handleRefresh}
         onExport={handleExport}
+        isRefreshing={isManualRefreshing}
+        isUpdating={isUpdating}
+        canExport={exportRows.length > 0 && !isUpdating}
       />
 
       {isLoading ? (
@@ -544,30 +641,47 @@ export default function BillingPage() {
 
           <Card variant="default" padding="none">
             <div className="px-6 py-4 border-b border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex gap-2">
-                {(['nodes', 'identities', 'sessions', 'daily'] as BillingTab[]).map((value) => (
-                  <button
-                    key={value}
-                    onClick={() => setTab(value)}
-                    className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
-                      tab === value
-                        ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-                        : 'bg-white/[0.03] text-gray-400 border-white/10 hover:text-white'
-                    }`}
-                  >
-                    {t(`billing.tabs.${value}`)}
-                  </button>
-                ))}
+              <div role="tablist" aria-label={t('billing.title')} className="-mx-1 overflow-x-auto px-1 pb-1 sm:pb-0">
+                <div className="flex min-w-max gap-2">
+                  {BILLING_TABS.map((value) => (
+                    <button
+                      key={value}
+                      id={`billing-tab-${value}`}
+                      type="button"
+                      role="tab"
+                      aria-controls="billing-detail-panel"
+                      aria-selected={tab === value}
+                      tabIndex={tab === value ? 0 : -1}
+                      onClick={() => setTab(value)}
+                      onKeyDown={(event) => handleTabKeyDown(event, value)}
+                      className={`px-3 py-1.5 rounded-lg text-sm border transition-colors focus:outline-none focus:ring-2 focus:ring-purple-400/50 ${
+                        tab === value
+                          ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                          : 'bg-white/[0.03] text-gray-400 border-white/10 hover:text-white'
+                      }`}
+                    >
+                      {t(`billing.tabs.${value}`)}
+                    </button>
+                  ))}
+                </div>
               </div>
               <p className="text-xs text-gray-600">
                 {t('billing.filterSummary.days', { count: billing.filters.days })} · {t(`common.status.${billing.filters.status}`)}
                 {billing.filters.q ? ` · ${t('billing.filterSummary.matches', { count: formatNumber(billing.summary.matched_session_count) })}` : ''}
               </p>
             </div>
-            {tab === 'nodes' && <NodeTable rows={billing.nodes} />}
-            {tab === 'identities' && <IdentityTable rows={billing.identities} />}
-            {tab === 'sessions' && <SessionTable rows={billing.sessions} />}
-            {tab === 'daily' && <DailyTable rows={billing.daily} />}
+            <div
+              id="billing-detail-panel"
+              role="tabpanel"
+              aria-labelledby={`billing-tab-${tab}`}
+              tabIndex={0}
+              className="focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-purple-400/50"
+            >
+              {tab === 'nodes' && <NodeTable rows={billing.nodes} />}
+              {tab === 'identities' && <IdentityTable rows={billing.identities} />}
+              {tab === 'sessions' && <SessionTable rows={billing.sessions} />}
+              {tab === 'daily' && <DailyTable rows={billing.daily} />}
+            </div>
           </Card>
         </>
       )}

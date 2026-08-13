@@ -5,6 +5,8 @@
  * File Path: hooks/useNodes.ts
  *
  * Modification Reason:
+ *   v1.5.5 - [BILLING-UX 2026-08-13 by Codex] Exposed billing background
+ *     fetch state so filters, refresh, and export share authoritative loading.
  *   v1.5.4 - Refresh VPN overview after node setting updates so Services
  *     restart readiness reflects maintenance_mode changes immediately.
  *   v1.5.3 - Exposed VPN overview refresh metadata so services can show live
@@ -57,7 +59,8 @@
 * - useUpdateNode now accepts NodeUpdateRequest — do NOT revert to narrow type
 * - staleTime: Infinity on owner hooks = manual refetch only
  *
- * Last Modified: v1.5.4 - Refresh VPN overview after node updates
+ * Last Modified: v1.5.5 - Billing background refresh state
+ * Previous: v1.5.4 - Refresh VPN overview after node updates
  * Previous: v1.5.3 - VPN overview live refresh metadata
  * Previous: v1.1.0 - Auth guard on all owner hooks
  * ============================================
@@ -514,9 +517,10 @@ export interface UseVpnBillingOptions {
 interface UseVpnBillingResult {
   billing: VpnBillingOverview | null;
   isLoading: boolean;
+  isFetching: boolean;
   isError: boolean;
   error: Error | null;
-  refetch: () => void;
+  refetch: () => Promise<unknown>;
 }
 
 export function useVpnBilling(options: UseVpnBillingOptions = {}): UseVpnBillingResult {
@@ -537,6 +541,7 @@ export function useVpnBilling(options: UseVpnBillingOptions = {}): UseVpnBilling
   return {
     billing: query.data ?? null,
     isLoading: query.isLoading,
+    isFetching: query.isFetching,
     isError: query.isError,
     error: query.error,
     refetch: query.refetch,
