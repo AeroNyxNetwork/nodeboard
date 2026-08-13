@@ -5,6 +5,10 @@
  * File Path: hooks/useNodes.ts
  *
  * Modification Reason:
+ *   v1.5.6 - [FLEET-LIFECYCLE 2026-08-13 by Codex] Exposed owner-list and
+ *     placement refresh state, replaced permanent list staleness with a short
+ *     commercial freshness window, and reconciled delete mutations across
+ *     every fleet surface before reporting completion.
  *   v1.5.5 - [BILLING-UX 2026-08-13 by Codex] Exposed billing background
  *     fetch state so filters, refresh, and export share authoritative loading.
  *   v1.5.4 - Refresh VPN overview after node setting updates so Services
@@ -56,10 +60,13 @@
  *
  * ⚠️ Important Note for Next Developer:
  * - ALL owner hooks MUST include `enabled: isAuthenticated && ...`
-* - useUpdateNode now accepts NodeUpdateRequest — do NOT revert to narrow type
-* - staleTime: Infinity on owner hooks = manual refetch only
+ * - useUpdateNode now accepts NodeUpdateRequest — do NOT revert to narrow type
+ * - Detail/history hooks use immutable caching selectively; the fleet list must
+ *   stay refreshable so a completed registration is visible without reload.
  *
- * Last Modified: v1.5.5 - Billing background refresh state
+ * Last Modified: v1.5.6 - [FLEET-LIFECYCLE 2026-08-13 by Codex]
+ *   Fleet refresh and mutation reconciliation
+ * Previous: v1.5.5 - Billing background refresh state
  * Previous: v1.5.4 - Refresh VPN overview after node updates
  * Previous: v1.5.3 - VPN overview live refresh metadata
  * Previous: v1.1.0 - Auth guard on all owner hooks
@@ -161,9 +168,11 @@ export function useNodeboardHealth(): UseNodeboardHealthResult {
 interface UseNodesResult {
   nodes: Node[];
   isLoading: boolean;
+  isFetching: boolean;
   isError: boolean;
   error: Error | null;
-  refetch: () => void;
+  dataUpdatedAt: number;
+  refetch: () => Promise<unknown>;
 }
 
 export function useNodes(): UseNodesResult {
@@ -176,18 +185,21 @@ export function useNodes(): UseNodesResult {
       return res.data;
     },
     enabled: isAuthenticated,
-    staleTime: Infinity,
+    // A newly registered node must appear without a full browser reload.
+    staleTime: 30_000,
     gcTime: 10 * 60 * 1000,
-    refetchOnWindowFocus: false,
-    refetchOnMount: false,
-    refetchOnReconnect: false,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+    refetchOnReconnect: true,
   });
 
   return {
     nodes: query.data ?? [],
     isLoading: query.isLoading,
+    isFetching: query.isFetching,
     isError: query.isError,
     error: query.error,
+    dataUpdatedAt: query.dataUpdatedAt,
     refetch: query.refetch,
   };
 }
@@ -336,7 +348,7 @@ interface UseVpnOverviewResult {
   isError: boolean;
   error: Error | null;
   dataUpdatedAt: number;
-  refetch: () => void;
+  refetch: () => Promise<unknown>;
 }
 
 interface UseVpnOverviewOptions {
@@ -392,9 +404,11 @@ interface UseVpnServersResult {
   online: number;
   generatedAt: string | null;
   isLoading: boolean;
+  isFetching: boolean;
   isError: boolean;
   error: Error | null;
-  refetch: () => void;
+  dataUpdatedAt: number;
+  refetch: () => Promise<unknown>;
 }
 
 export function useVpnServers(): UseVpnServersResult {
@@ -417,8 +431,10 @@ export function useVpnServers(): UseVpnServersResult {
     online: query.data?.online ?? 0,
     generatedAt: query.data?.generated_at ?? null,
     isLoading: query.isLoading,
+    isFetching: query.isFetching,
     isError: query.isError,
     error: query.error,
+    dataUpdatedAt: query.dataUpdatedAt,
     refetch: query.refetch,
   };
 }
@@ -728,12 +744,14 @@ export function useDeleteNode() {
 
   return useMutation({
     mutationFn: async (nodeId: string) => api.deleteNode(nodeId),
-    onSuccess: (_data, nodeId) => {
+    onSuccess: async (_data, nodeId) => {
       queryClient.removeQueries({ queryKey: nodeKeys.detail(nodeId) });
-      queryClient.invalidateQueries({
-        queryKey: nodeKeys.list(),
-        refetchType: 'all',
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: nodeKeys.list(), refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: nodeKeys.vpnOverview(), refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: nodeKeys.vpnServers(), refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ['nodes', 'vpn', 'events'], refetchType: 'all' }),
+      ]);
     },
   });
 }

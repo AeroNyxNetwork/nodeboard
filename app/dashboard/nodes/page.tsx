@@ -7,6 +7,10 @@
  * Creation Reason: Show the operator's registered AeroNyx nodes and fleet
  * operations summaries.
  * Modification Reason:
+ *   v1.2.0 - [FLEET-LIFECYCLE 2026-08-13 by Codex] Completed the registered
+ *     node lifecycle with explicit refresh and stale-data feedback, accessible
+ *     filters/actions, and a native mobile operations view. Removed unreachable
+ *     list-page deletion state while preserving deletion in node detail.
  *   v1.1.0 - Added a first-level Attention column to the AeroNyx Node
  *     Operations table. The column summarizes privacy-safe Rust operator
  *     action, capacity risks, recent sanitized events, failed health checks, or
@@ -33,8 +37,8 @@
  *   client public IPs, destinations, DNS contents, packet payloads, chat
  *   plaintext, voucher secrets, private keys, or wallet-level traffic here.
  *
- * Last Modified: v1.1.0 - Added first-level node attention triage
- * Previous: v1.0.1 - Removed motion animations to fix re-render loop
+ * Last Modified: v1.2.0 - Fleet lifecycle and mobile operations hardening
+ * Previous: v1.1.0 - Added first-level node attention triage
  * ============================================
  */
 
@@ -42,13 +46,12 @@
 
 import React, { useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useNodes, useDeleteNode, useVpnOverview, useVpnServers } from '@/hooks/useNodes';
-import { Node, NodeStatus, VpnHealthStatus, VpnNodeHealth, VpnServerCandidate, VpnServerPlacementSummary } from '@/types';
+import { useNodes, useVpnOverview, useVpnServers } from '@/hooks/useNodes';
+import { NodeStatus, VpnHealthStatus, VpnNodeHealth, VpnServerCandidate, VpnServerPlacementSummary } from '@/types';
 import Button from '@/components/common/Button';
 import Card, { EmptyState } from '@/components/common/Card';
 import NodeCard, { NodeCardSkeleton } from '@/components/dashboard/NodeCard';
 import AddNodeModal from '@/components/dashboard/AddNodeModal';
-import { ConfirmDialog } from '@/components/common/Modal';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 
 // ============================================
@@ -76,17 +79,26 @@ function FilterTabs({ activeFilter, onFilterChange, counts }: FilterTabsProps) {
     { id: 'all', label: t('nodes.filters.all'), count: counts.all },
     { id: 'online', label: t('nodes.filters.online'), count: counts.online },
     { id: 'offline', label: t('nodes.filters.offline'), count: counts.offline },
+    { id: 'suspended', label: t('nodes.filters.suspended'), count: counts.suspended },
   ];
 
   return (
-    <div className="flex items-center gap-2 p-1 rounded-xl bg-white/5 border border-white/10">
+    <div
+      role="tablist"
+      aria-label={t('nodes.filters.ariaLabel')}
+      className="grid max-w-full grid-cols-2 gap-1 rounded-xl border border-white/10 bg-white/5 p-1 sm:flex sm:items-center sm:gap-2 sm:overflow-x-auto sm:[scrollbar-width:none] sm:[&::-webkit-scrollbar]:hidden"
+    >
       {tabs.map((tab) => (
         <button
           key={tab.id}
+          type="button"
+          role="tab"
+          aria-selected={activeFilter === tab.id}
           onClick={() => onFilterChange(tab.id)}
           className={`
-            relative px-4 py-2 rounded-lg text-sm font-medium
+            relative min-w-0 px-3 py-2 rounded-lg text-sm font-medium sm:shrink-0 sm:px-4
             transition-all duration-200
+            focus:outline-none focus:ring-2 focus:ring-purple-400/60
             ${activeFilter === tab.id
               ? 'text-white bg-purple-500/20 border border-purple-500/30'
               : 'text-gray-400 hover:text-white'
@@ -137,6 +149,7 @@ function ActionsBar({ searchQuery, onSearchChange, onAddNode }: ActionsBarProps)
         </svg>
         <input
           type="text"
+          aria-label={t('nodes.searchPlaceholder')}
           placeholder={t('nodes.searchPlaceholder')}
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
@@ -153,6 +166,7 @@ function ActionsBar({ searchQuery, onSearchChange, onAddNode }: ActionsBarProps)
       {/* Add Node Button */}
       <Button
         variant="primary"
+        className="w-full sm:w-auto"
         onClick={onAddNode}
         leftIcon={
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -539,6 +553,76 @@ function ClientPlacementPanel({
   );
 }
 
+// [FLEET-LIFECYCLE 2026-08-13 by Codex] Mobile operators need the same
+// decision-ready evidence as desktop without navigating a 1360px data table.
+function VpnNodeOperationsCard({ node }: { node: VpnNodeHealth }) {
+  const { t, formatNumber, formatRelativeTime } = useI18n();
+  const attention = nodeAttentionSummary(node, t, formatNumber);
+
+  return (
+    <article className="rounded-xl border border-white/[0.08] bg-white/[0.025] p-4">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <Link
+            href={`/dashboard/nodes/${node.id}`}
+            className="block truncate font-medium text-white transition-colors hover:text-purple-300 focus:outline-none focus-visible:text-purple-300"
+          >
+            {node.name}
+          </Link>
+          <p className="mt-1 truncate text-xs text-gray-500">
+            {node.region_code || t('nodes.pending')}
+            {node.city ? ` · ${node.city}` : ''}
+          </p>
+        </div>
+        <VpnHealthBadge status={node.health_status} />
+      </div>
+
+      <Link
+        href={attention.href}
+        className="mt-4 block rounded-lg border border-white/5 bg-white/[0.025] p-3 transition hover:border-white/15 hover:bg-white/[0.04] focus:outline-none focus:ring-2 focus:ring-purple-400/60"
+      >
+        <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${attentionToneClass(attention.tone)}`}>
+          {attention.label}
+        </span>
+        <span className="mt-1.5 block line-clamp-2 text-xs leading-5 text-gray-400">
+          {attention.detail}
+        </span>
+      </Link>
+
+      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
+        <div>
+          <dt className="text-[11px] uppercase text-gray-600">{t('nodes.operations.availability')}</dt>
+          <dd className="mt-1 text-sm font-medium text-white">{formatAvailability(node.availability_24h?.percent, t)}</dd>
+        </div>
+        <div>
+          <dt className="text-[11px] uppercase text-gray-600">{t('nodes.operations.sessions')}</dt>
+          <dd className="mt-1 text-sm font-medium text-white">
+            {formatNumber(node.active_sessions)} <span className="font-normal text-gray-500">{t('nodes.active')}</span>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[11px] uppercase text-gray-600">{t('nodes.operations.cpu')}</dt>
+          <dd className="mt-1 text-sm text-gray-300">{formatMetric(node.system.cpu_usage, '%', t)}</dd>
+        </div>
+        <div>
+          <dt className="text-[11px] uppercase text-gray-600">{t('nodes.operations.memory')}</dt>
+          <dd className="mt-1 truncate text-sm text-gray-300">
+            {formatMemory(node.system.memory_mb, node.system.memory_total_mb, t, formatNumber)}
+          </dd>
+        </div>
+      </dl>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-white/5 pt-4">
+        <PolicyBadge node={node} />
+        <span className="text-xs text-gray-500">v{node.version || t('nodes.unknown')}</span>
+        <span className="ml-auto text-xs text-gray-500">
+          {node.last_heartbeat ? formatRelativeTime(node.last_heartbeat) : t('nodes.never')}
+        </span>
+      </div>
+    </article>
+  );
+}
+
 function VpnNodeOperationsTable({
   nodes,
   isLoading,
@@ -585,7 +669,13 @@ function VpnNodeOperationsTable({
         </Link>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="space-y-3 p-4 xl:hidden">
+        {sortedNodes.map((node) => (
+          <VpnNodeOperationsCard key={node.id} node={node} />
+        ))}
+      </div>
+
+      <div className="hidden overflow-x-auto xl:block">
         <table className="w-full min-w-[1360px] text-sm">
           <thead className="text-xs uppercase text-gray-500 bg-white/[0.02]">
             <tr>
@@ -688,23 +778,48 @@ function VpnNodeOperationsTable({
 // Nodes Page Component
 // ============================================
 
+function FleetDataNotice({ children }: { children: React.ReactNode }) {
+  return (
+    <div role="status" className="mb-4 flex items-start gap-3 rounded-xl border border-yellow-500/20 bg-yellow-500/[0.07] px-4 py-3 text-sm text-yellow-100">
+      <svg className="mt-0.5 h-4 w-4 shrink-0 text-yellow-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 4.5h.008v.008H12V16.5z" />
+      </svg>
+      <p className="leading-5">{children}</p>
+    </div>
+  );
+}
+
 export default function NodesPage() {
   const { t, formatNumber } = useI18n();
-  const { nodes, isLoading } = useNodes();
-  const { overview, isLoading: vpnOverviewLoading } = useVpnOverview();
+  const {
+    nodes,
+    isLoading,
+    isFetching: nodesFetching,
+    isError: nodesError,
+    refetch: refetchNodes,
+  } = useNodes();
+  const {
+    overview,
+    isLoading: vpnOverviewLoading,
+    isFetching: vpnOverviewFetching,
+    isError: vpnOverviewError,
+    refetch: refetchVpnOverview,
+  } = useVpnOverview();
   const {
     servers,
     summary: vpnPlacementSummary,
     isLoading: vpnServersLoading,
+    isFetching: vpnServersFetching,
+    isError: vpnServersError,
+    refetch: refetchVpnServers,
     total: vpnServerTotal,
     available: vpnServerAvailable,
   } = useVpnServers();
-  const deleteNodeMutation = useDeleteNode();
 
   const [activeFilter, setActiveFilter] = useState<FilterOption>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [nodeToDelete, setNodeToDelete] = useState<Node | null>(null);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
   // Calculate counts for filter tabs
   const counts = {
@@ -722,8 +837,8 @@ export default function NodesPage() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       return (
-        node.name.toLowerCase().includes(query) ||
-        node.public_ip.includes(query) ||
+        (node.name || '').toLowerCase().includes(query) ||
+        (node.public_ip || '').toLowerCase().includes(query) ||
         node.id.toLowerCase().includes(query)
       );
     }
@@ -739,24 +854,18 @@ export default function NodesPage() {
     setIsAddModalOpen(false);
   }, []);
 
-  const handleSetNodeToDelete = useCallback((node: Node) => {
-    setNodeToDelete(node);
-  }, []);
-
-  const handleCancelDelete = useCallback(() => {
-    setNodeToDelete(null);
-  }, []);
-
-  const handleDeleteNode = useCallback(async () => {
-    if (!nodeToDelete) return;
-
+  const handleRefresh = useCallback(async () => {
+    setIsManualRefreshing(true);
     try {
-      await deleteNodeMutation.mutateAsync(nodeToDelete.id);
-      setNodeToDelete(null);
-    } catch (err) {
-      console.error('Failed to delete node:', err);
+      await Promise.allSettled([
+        refetchNodes(),
+        refetchVpnOverview(),
+        refetchVpnServers(),
+      ]);
+    } finally {
+      setIsManualRefreshing(false);
     }
-  }, [nodeToDelete, deleteNodeMutation]);
+  }, [refetchNodes, refetchVpnOverview, refetchVpnServers]);
 
   const handleFilterChange = useCallback((filter: FilterOption) => {
     setActiveFilter(filter);
@@ -774,15 +883,40 @@ export default function NodesPage() {
     setActiveFilter('all');
   }, []);
 
+  const isRefreshing = isManualRefreshing || nodesFetching || vpnOverviewFetching || vpnServersFetching;
+
   return (
     <div className="max-w-7xl mx-auto">
       {/* Page Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">{t('nodes.title')}</h1>
-        <p className="text-sm text-gray-400 mt-1">
-          {t('nodes.subtitle')}
-        </p>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">{t('nodes.title')}</h1>
+          <p className="text-sm text-gray-400 mt-1">
+            {t('nodes.subtitle')}
+          </p>
+        </div>
+        <Button
+          variant="secondary"
+          className="w-full sm:w-auto"
+          onClick={handleRefresh}
+          isLoading={isRefreshing}
+          disabled={isRefreshing}
+          leftIcon={
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M20 11a8.1 8.1 0 00-15.5-2M4 4v5h5m-5 4a8.1 8.1 0 0015.5 2M20 20v-5h-5" />
+            </svg>
+          }
+        >
+          {isRefreshing ? t('common.refreshing') : t('common.refreshNow')}
+        </Button>
       </div>
+
+      {nodesError && nodes.length > 0 && (
+        <FleetDataNotice>{t('nodes.error.stale')}</FleetDataNotice>
+      )}
+      {(vpnOverviewError || vpnServersError) && (
+        <FleetDataNotice>{t('nodes.error.telemetry')}</FleetDataNotice>
+      )}
 
       {/* Filter Tabs */}
       <div className="mb-6">
@@ -823,6 +957,21 @@ export default function NodesPage() {
             <NodeCardSkeleton key={i} />
           ))}
         </div>
+      ) : nodesError && nodes.length === 0 ? (
+        <EmptyState
+          icon={
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 4.5h.008v.008H12V16.5z" />
+            </svg>
+          }
+          title={t('nodes.error.listTitle')}
+          description={t('nodes.error.list')}
+          action={
+            <Button variant="secondary" onClick={handleRefresh} isLoading={isRefreshing}>
+              {t('common.retry')}
+            </Button>
+          }
+        />
       ) : filteredNodes.length === 0 ? (
         searchQuery ? (
           <EmptyState
@@ -873,7 +1022,6 @@ export default function NodesPage() {
             <NodeCard
               key={node.id}
               node={node}
-              onDelete={handleSetNodeToDelete}
             />
           ))}
         </div>
@@ -893,19 +1041,6 @@ export default function NodesPage() {
       <AddNodeModal
         isOpen={isAddModalOpen}
         onClose={handleCloseAddModal}
-      />
-
-      {/* Delete Confirmation Dialog */}
-      <ConfirmDialog
-        isOpen={!!nodeToDelete}
-        onClose={handleCancelDelete}
-        onConfirm={handleDeleteNode}
-        title={t('nodes.deleteTitle')}
-        message={t('nodes.deleteMessage', { name: nodeToDelete?.name || t('nodes.card.unnamed') })}
-        confirmText={t('nodes.deleteTitle')}
-        cancelText={t('nodes.cancel')}
-        variant="danger"
-        isLoading={deleteNodeMutation.isPending}
       />
     </div>
   );

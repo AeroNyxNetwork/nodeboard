@@ -5,11 +5,13 @@
  * File Path: components/dashboard/NodeCard.tsx
  *
  * Modification Reason:
- *   v1.4.0 - Added first-level commercial operation chips for AeroNyx privacy
+ *   v1.4.0 - [NODE-CARD-INTERACTION 2026-08-13 by Codex] Added first-level
+ *     commercial operation chips for AeroNyx privacy
  *     protocol capability, visibility/private access, maintenance placement
  *     state, max session capacity, and bandwidth cap. This keeps node cards
  *     useful as an operator overview without moving deep diagnostics out of
- *     node detail.
+ *     node detail. Removed nested interactive elements, exposed copy actions
+ *     to touch and keyboard users, and surfaced clipboard failures.
  *   v1.3.0 - Replaced three-dot menu with hover-on-badge interaction.
  *     PC: hover status badge → dropdown with Copy IP / Copy Node ID.
  *     Mobile: no hover interaction, tap card → detail page.
@@ -25,28 +27,26 @@
  *   - lib/constants.ts (NODE_STATUS_CONFIG)
  *
  * Main Logical Flow:
- * 1. Card renders node info, entire card is a Link to detail page
- * 2. Status badge in top-right — on PC hover, dropdown appears below it
+ * 1. Card renders node info with a non-nesting link overlay to detail page
+ * 2. Status badge opens actions by hover, touch, click, or keyboard
  * 3. Dropdown has Copy IP and Copy Node ID — click copies and shows toast
  * 4. Mouse leaves badge+dropdown area → dropdown disappears
- * 5. Mobile: no hover, tap card goes to detail page
+ * 5. Mobile users can open copy actions without blocking detail navigation
  *
  * ⚠️ Important Note for Next Developer:
- * - The hover dropdown uses onMouseEnter/onMouseLeave on a wrapper div
- *   that contains both the badge and the dropdown — this keeps the dropdown
- *   open while the mouse moves from badge to dropdown
+ * - The action wrapper owns hover/click state so desktop and touch input share
+ *   one accessible menu while the detail link remains an independent overlay
  * - Delete is intentionally NOT on the card — it's in the detail page only
  * - onDelete prop kept for backward compatibility but no longer rendered
  *
- * Last Modified: v1.4.0 - Show commercial operation chips on node cards
+ * Last Modified: v1.4.0 - Accessible cross-device node card actions
  * Previous: v1.3.0 - Hover-on-badge dropdown (Copy IP / Copy ID)
- * Previous: v1.2.0 - Menu in footer, opens upward
  * ============================================
  */
 
 'use client';
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Node } from '@/types';
 import { copyToClipboard } from '@/lib/api';
@@ -126,8 +126,10 @@ function OperationChip({
 export default function NodeCard({ node }: NodeCardProps) {
   const { t, formatNumber, formatRelativeTime } = useI18n();
   const [showActions, setShowActions] = useState(false);
-  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<{ message: string; success: boolean } | null>(null);
   const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const feedbackTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
 
   // Safe status config with fallback
   const statusConfig = NODE_STATUS_CONFIG[node.status as keyof typeof NODE_STATUS_CONFIG] || DEFAULT_STATUS_CONFIG;
@@ -174,9 +176,27 @@ export default function NodeCard({ node }: NodeCardProps) {
   // Copy handlers
   // ============================================
 
-  const showCopyToast = useCallback((text: string) => {
-    setCopyFeedback(text);
-    setTimeout(() => setCopyFeedback(null), 2000);
+  const showCopyToast = useCallback((text: string, success: boolean) => {
+    if (feedbackTimeout.current) clearTimeout(feedbackTimeout.current);
+    setCopyFeedback({ message: text, success });
+    feedbackTimeout.current = setTimeout(() => setCopyFeedback(null), 2000);
+  }, []);
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!actionMenuRef.current?.contains(event.target as globalThis.Node)) setShowActions(false);
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowActions(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+      if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
+      if (feedbackTimeout.current) clearTimeout(feedbackTimeout.current);
+    };
   }, []);
 
   const handleCopyIP = useCallback(async (e: React.MouseEvent) => {
@@ -184,33 +204,40 @@ export default function NodeCard({ node }: NodeCardProps) {
     e.stopPropagation();
     const ipText = `${node.public_ip || '0.0.0.0'}:${node.port || 0}`;
     const success = await copyToClipboard(ipText);
-    if (success) showCopyToast(t('nodes.card.ipCopied'));
+    showCopyToast(success ? t('nodes.card.ipCopied') : t('nodes.card.copyFailed'), success);
+    if (success) setShowActions(false);
   }, [node.public_ip, node.port, showCopyToast, t]);
 
   const handleCopyID = useCallback(async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const success = await copyToClipboard(node.id);
-    if (success) showCopyToast(t('nodes.card.nodeIdCopied'));
+    showCopyToast(success ? t('nodes.card.nodeIdCopied') : t('nodes.card.copyFailed'), success);
+    if (success) setShowActions(false);
   }, [node.id, showCopyToast, t]);
 
   return (
     <>
       {/* Copy Feedback Toast */}
       {copyFeedback && (
-        <div className="
+        <div
+          role="status"
+          aria-live="polite"
+          className={`
           fixed top-6 left-1/2 -translate-x-1/2 z-50
           px-4 py-2 rounded-lg
-          bg-emerald-500/20 border border-emerald-500/30
-          text-emerald-300 text-sm font-medium
-        ">
-          {copyFeedback}
+          border text-sm font-medium
+          ${copyFeedback.success
+            ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
+            : 'bg-red-500/20 border-red-500/30 text-red-200'}
+        `}
+        >
+          {copyFeedback.message}
         </div>
       )}
 
       <div className="group relative">
-        <Link href={`/dashboard/nodes/${node.id}`}>
-          <div className="
+        <div className="
             relative overflow-visible rounded-2xl
             bg-gradient-to-br from-white/[0.08] to-white/[0.02]
             border border-white/10 hover:border-purple-500/30
@@ -219,6 +246,11 @@ export default function NodeCard({ node }: NodeCardProps) {
             hover:shadow-lg hover:shadow-purple-500/10
             hover:-translate-y-0.5
           ">
+            <Link
+              href={`/dashboard/nodes/${node.id}`}
+              aria-label={t('nodes.card.openDetail', { name: node.name || t('nodes.card.unnamed') })}
+              className="absolute inset-0 z-10 rounded-2xl focus:outline-none focus:ring-2 focus:ring-purple-400/70 focus:ring-offset-2 focus:ring-offset-[#0A0A0F]"
+            />
             {/* Top Gradient Line */}
             <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-purple-500/30 to-transparent" />
 
@@ -228,10 +260,10 @@ export default function NodeCard({ node }: NodeCardProps) {
             )}
 
             {/* Content */}
-            <div className="p-6">
+            <div className="pointer-events-none relative z-20 p-5 sm:p-6">
               {/* Header */}
-              <div className="flex items-start justify-between mb-6">
-                <div className="flex items-center gap-3">
+              <div className="flex min-w-0 items-start justify-between gap-3 mb-6">
+                <div className="flex min-w-0 items-center gap-3">
                   {/* Node Icon */}
                   <div className="
                     w-12 h-12 rounded-xl
@@ -244,30 +276,42 @@ export default function NodeCard({ node }: NodeCardProps) {
                   </div>
 
                   {/* Name & IP */}
-                  <div>
-                    <h3 className="font-semibold text-white group-hover:text-purple-300 transition-colors">
+                  <div className="min-w-0">
+                    <h3 className="truncate font-semibold text-white group-hover:text-purple-300 transition-colors">
                       {node.name || t('nodes.card.unnamed')}
                     </h3>
-                    <p className="text-sm text-gray-500 font-mono">
+                    <p className="truncate text-sm text-gray-500 font-mono">
                       {node.public_ip || '0.0.0.0'}:{node.port || 0}
                     </p>
                   </div>
                 </div>
 
-                {/* Status Badge + Hover Dropdown Wrapper */}
+                {/* Status badge + cross-device actions menu */}
                 <div
-                  className="relative hidden md:block"
+                  ref={actionMenuRef}
+                  className="pointer-events-auto relative shrink-0"
                   onMouseEnter={handleMouseEnter}
                   onMouseLeave={handleMouseLeave}
                 >
-                  {/* Badge */}
-                  <div className={`
-                    flex items-center gap-2 px-3 py-1.5 rounded-full cursor-default
+                  <button
+                    type="button"
+                    aria-label={t('nodes.card.actions', { name: node.name || t('nodes.card.unnamed') })}
+                    aria-haspopup="menu"
+                    aria-expanded={showActions}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setShowActions((current) => !current);
+                    }}
+                    className={`
+                    flex items-center gap-2 px-3 py-1.5 rounded-full cursor-pointer
                     ${statusConfig.bgColor} ${statusConfig.textColor}
                     border ${statusConfig.borderColor}
                     transition-all duration-200
                     ${showActions ? 'border-purple-500/40 ring-1 ring-purple-500/20' : ''}
-                  `}>
+                    focus:outline-none focus:ring-2 focus:ring-purple-400/60
+                  `}
+                  >
                     <span className={`
                       w-2 h-2 rounded-full
                       ${node.status === 'online' ? 'bg-emerald-400 animate-pulse' :
@@ -275,11 +319,14 @@ export default function NodeCard({ node }: NodeCardProps) {
                         node.status === 'suspended' ? 'bg-red-400' : 'bg-gray-400'}
                     `} />
                     <span className="text-xs font-medium">{statusLabel}</span>
-                  </div>
+                    <svg className="h-3.5 w-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 9l6 6 6-6" />
+                    </svg>
+                  </button>
 
                   {/* Hover Dropdown — appears below badge */}
                   {showActions && (
-                    <div className="
+                    <div role="menu" className="
                       absolute top-full right-0 mt-2 z-30
                       w-44 py-1 rounded-xl
                       bg-[#1a1a24] border border-white/10
@@ -288,6 +335,8 @@ export default function NodeCard({ node }: NodeCardProps) {
                     ">
                       {/* Copy IP */}
                       <button
+                        type="button"
+                        role="menuitem"
                         onClick={handleCopyIP}
                         className="
                           w-full flex items-center gap-3 px-3 py-2.5 text-sm
@@ -306,6 +355,8 @@ export default function NodeCard({ node }: NodeCardProps) {
 
                       {/* Copy Node ID */}
                       <button
+                        type="button"
+                        role="menuitem"
                         onClick={handleCopyID}
                         className="
                           w-full flex items-center gap-3 px-3 py-2.5 text-sm
@@ -321,26 +372,9 @@ export default function NodeCard({ node }: NodeCardProps) {
                     </div>
                   )}
                 </div>
+              </div>
 
-                {/* Mobile: Static badge only (no hover interaction) */}
-                <div className="md:hidden">
-                  <div className={`
-                    flex items-center gap-2 px-3 py-1.5 rounded-full
-                    ${statusConfig.bgColor} ${statusConfig.textColor}
-                    border ${statusConfig.borderColor}
-                  `}>
-                    <span className={`
-                      w-2 h-2 rounded-full
-                      ${node.status === 'online' ? 'bg-emerald-400 animate-pulse' :
-                        node.status === 'offline' ? 'bg-gray-400' :
-                        node.status === 'suspended' ? 'bg-red-400' : 'bg-gray-400'}
-                    `} />
-                    <span className="text-xs font-medium">{statusLabel}</span>
-                  </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
+              <div className="mt-4 flex flex-wrap gap-2">
                   <OperationChip
                     label={node.is_vpn_node ? t('nodes.card.privacyProtocol') : t('nodes.card.controlOnly')}
                     tone={node.is_vpn_node ? 'info' : 'neutral'}
@@ -362,7 +396,7 @@ export default function NodeCard({ node }: NodeCardProps) {
                   {bandwidthLimitMbps > 0 && (
                     <OperationChip label={bandwidthLabel} tone="info" />
                   )}
-                </div>
+              </div>
 
               {/* Stats Grid */}
               <div className="grid grid-cols-2 gap-4 mb-6 mt-6">
@@ -429,7 +463,6 @@ export default function NodeCard({ node }: NodeCardProps) {
               </div>
             </div>
           </div>
-        </Link>
       </div>
     </>
   );
