@@ -3,11 +3,11 @@
  * File: app/topup/page.tsx
  * ============================================
  * Creation Reason:
- *   Turn the reserved membership top-up route into a real, privacy-preserving
- *   USDT checkout for Solana, BNB Smart Chain, and TRON.
+ *   Provide a privacy-preserving AeroNyx points checkout for Solana, BNB Smart
+ *   Chain, and TRON without putting payment handling inside the App.
  * Main Functionality:
- *   1. Validate an opaque membership/top-up capability.
- *   2. Select a fixed membership plan and payment network.
+ *   1. Accept a public membership code or validate an app-issued top-up code.
+ *   2. Select a fixed points bundle and payment network.
  *   3. Display the server-authored exact amount/address and QR code.
  *   4. Poll real chain-verification state and show fulfillment evidence.
  * Dependencies:
@@ -19,13 +19,17 @@
  *
  * Main Logical Flow:
  *   code -> checkout metadata -> immutable payment intent -> exact transfer ->
- *   detected -> confirming -> membership activated.
+ *   detected -> confirming -> points credited.
  *
  * Important Note for Next Developer:
  *   Never animate fake payment progress or infer paid state in the browser.
  *   Only backend status=fulfilled may render the success state.
  *
- * Last Modified: v2.4.0 - [USDT-CHECKOUT-SESSION 2026-08-13 by Codex]
+ * Last Modified: v3.0.0 - [MEMBERSHIP-POINTS-FIRST 2026-08-24 by Codex]
+ *   Made the page independently usable with a membership-code entry, changed
+ *   every checkout state from direct membership activation to points credit,
+ *   and exposed the fixed 1 USDT = 100 points product contract.
+ * Previous: v2.4.0 - [USDT-CHECKOUT-SESSION 2026-08-13 by Codex]
  *   Reused the shared recovery-session boundary and added an explicit,
  *   capability-clearing return action after membership activation.
  * Previous: v2.3.0 - [USDT-CHECKOUT-LIFECYCLE 2026-08-13 by Codex]
@@ -42,7 +46,7 @@
  */
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import QRCode from 'qrcode';
 
 import LanguageSelector from '@/components/common/LanguageSelector';
@@ -142,16 +146,23 @@ type Copy = {
   restoreFailedNote: string;
   backToDashboard: string;
   paymentSummary: string;
+  rate: string;
+  points: string;
+  pointsUse: string;
+  enterCode: string;
+  codePlaceholder: string;
+  continueWithCode: string;
+  invalidCode: string;
 };
 
 const en: Copy = {
-  membership: 'AeroNyx Membership',
-  title: 'Membership with USDT',
-  lede: 'Choose a plan and pay on the network you already use. AeroNyx activates membership only after independent on-chain verification.',
+  membership: 'AeroNyx Points',
+  title: 'Buy points with USDT',
+  lede: 'Choose a points bundle and pay on the network you already use. Points are credited only after independent on-chain verification.',
   account: 'Code-bound checkout', verifiedCheckout: 'One-time top-up code verified',
   checkoutReference: 'Top-up reference',
   addressBound: 'This network, exact amount, and receiving address are locked to this one-time top-up.',
-  choosePlan: 'Choose membership',
+  choosePlan: 'Choose points',
   chooseNetwork: 'Choose payment network', network: 'Network',
   monthly: 'Monthly', yearly: 'Yearly', days: 'days', continue: 'Create payment',
   preparing: 'Preparing secure payment…', unavailable: 'Temporarily unavailable',
@@ -159,7 +170,7 @@ const en: Copy = {
   exactAmount: 'Exact amount', receivingAddress: 'Receiving address',
   networkFee: 'Network fee requires', expires: 'Payment window', copy: 'Copy', copied: 'Copied',
   scan: 'Scan the receiving address', status: 'Payment status', awaiting: 'Waiting for transfer',
-  detected: 'Transfer detected', confirming: 'Confirming on-chain', fulfilled: 'Membership activated',
+  detected: 'Transfer detected', confirming: 'Confirming on-chain', fulfilled: 'Points credited',
   expired: 'Payment window expired', review: 'Payment needs review',
   underpaid: 'Amount received is below the quote', overpaid: 'Amount received exceeds the quote',
   wrongAsset: 'Wrong asset or network detected', failed: 'Verification failed', cancelled: 'Payment cancelled',
@@ -171,94 +182,104 @@ const en: Copy = {
   txPlaceholder: 'Paste transaction hash to speed up detection', submit: 'Check transaction',
   submitting: 'Checking…', explorer: 'View transaction', retry: 'Start again',
   missingCode: 'A checkout code is required.',
-  openFromDashboard: 'Open this page from the Nodeboard membership dashboard so the private top-up code is included.',
-  privacy: 'This page transmits only a random membership code, never your AeroNyx wallet, chat identity, Privacy Network activity, or private memory.',
+  openFromDashboard: 'Enter the membership code shown in AeroNyx Wallet. Anyone with the code can add points, but cannot view or spend them.',
+  privacy: 'This page transmits only an AeroNyx membership code, never your wallet keys, chat identity, Privacy Network activity, or private memory.',
   publicChain: 'Blockchain transfers remain public and may reveal the sending wallet.',
   bscNotice: 'BNB Smart Chain accepts Binance-Peg BSC-USD, not native Tether-issued USDT.',
   exactWarning: 'Send the exact amount on the selected network. Wrong-network transfers cannot be recovered automatically.',
   clipboardError: 'Clipboard access is unavailable.',
-  stepTransfer: 'Transfer', stepVerify: 'Verify', stepActivate: 'Activate',
+  stepTransfer: 'Transfer', stepVerify: 'Verify', stepActivate: 'Credit',
   transferClosed: 'Do not send another transfer',
   transferClosedNote: 'The receiving instructions are locked while AeroNyx verifies this payment.',
-  paymentCompleteNote: 'Membership is active. This payment is complete and no further action is required.',
+  paymentCompleteNote: 'The points are now available in AeroNyx. The account owner can transfer them to a friend or redeem a membership.',
   reviewTransferNote: 'The existing transfer is being reviewed. Do not send another payment for this order.',
-  instructionsClosedNote: 'This payment order no longer accepts transfers. Start again from Nodeboard if you still need membership.',
+  instructionsClosedNote: 'This payment order no longer accepts transfers. Start a new points purchase if needed.',
   confirmations: 'On-chain confirmations',
   refreshDelayed: 'Live status is temporarily delayed. Your payment session remains safe.',
   refreshNow: 'Refresh status', refreshing: 'Refreshing…',
   restoreFailed: 'Payment status is temporarily unavailable',
   restoreFailedNote: 'AeroNyx kept this payment session on this device. Retry without creating another transfer.',
-  backToDashboard: 'Back to Nodeboard', paymentSummary: 'Payment summary',
+  backToDashboard: 'Done', paymentSummary: 'Payment summary',
+  rate: '1 USDT = 100 points', points: 'points',
+  pointsUse: 'Use points in AeroNyx to transfer to a friend or redeem membership.',
+  enterCode: 'Which AeroNyx account should receive the points?',
+  codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: 'Continue',
+  invalidCode: 'Enter a valid AeroNyx membership code.',
 };
 
 const copyByLocale: Record<Locale, Copy> = {
   en,
   'zh-CN': {
-    ...en, membership: 'AeroNyx 会员', title: '使用 USDT 购买会员', lede: '选择会员套餐和你常用的支付网络。只有独立完成链上验证后，AeroNyx 才会激活会员。',
-    account: '充值码绑定结账', verifiedCheckout: '一次性充值码已验证', checkoutReference: '充值参考码', addressBound: '当前网络、精确金额和收款地址已与本次一次性充值绑定。', choosePlan: '选择会员', chooseNetwork: '选择支付网络', network: '网络', monthly: '月付', yearly: '年付', days: '天',
+    ...en, membership: 'AeroNyx 积分', title: '使用 USDT 购买积分', lede: '选择积分包和你常用的支付网络。只有独立完成链上验证后，积分才会记入指定账户。',
+    account: '账户绑定结账', verifiedCheckout: '收款账户已验证', checkoutReference: '充值参考码', addressBound: '当前网络、精确金额和收款地址已与本次积分充值绑定。', choosePlan: '选择积分', chooseNetwork: '选择支付网络', network: '网络', monthly: '月付', yearly: '年付', days: '天',
     continue: '创建支付订单', preparing: '正在准备安全支付…', unavailable: '暂时不可用', paymentsOffline: 'USDT 结账尚未开始接收转账。运营方启用已验证网络之前，本页面不会显示收款地址。', exactAmount: '精确支付金额', receivingAddress: '收款地址',
     networkFee: '网络手续费需要', expires: '支付剩余时间', copy: '复制', copied: '已复制', scan: '扫描收款地址', status: '支付状态',
-    awaiting: '等待转账', detected: '已检测到转账', confirming: '正在等待链上确认', fulfilled: '会员已激活', expired: '支付订单已过期', review: '支付需要人工审核', underpaid: '到账金额低于报价', overpaid: '到账金额高于报价', wrongAsset: '检测到错误资产或网络', failed: '验证失败', cancelled: '支付已取消', recovery: '正在验证按时发出的转账', recoveryNote: '支付窗口已关闭，但 AeroNyx 仍在检查是否存在到期前广播的转账。', hintBound: '交易已关联，独立链上验证仍在继续。', reviewNote: '请勿再次转账。请携带交易哈希联系支持，以安全审核现有转账。', support: '联系支持',
+    awaiting: '等待转账', detected: '已检测到转账', confirming: '正在等待链上确认', fulfilled: '积分已到账', expired: '支付订单已过期', review: '支付需要人工审核', underpaid: '到账金额低于报价', overpaid: '到账金额高于报价', wrongAsset: '检测到错误资产或网络', failed: '验证失败', cancelled: '支付已取消', recovery: '正在验证按时发出的转账', recoveryNote: '支付窗口已关闭，但 AeroNyx 仍在检查是否存在到期前广播的转账。', hintBound: '交易已关联，独立链上验证仍在继续。', reviewNote: '请勿再次转账。请携带交易哈希联系支持，以安全审核现有转账。', support: '联系支持',
     txHint: '已经转账？', txPlaceholder: '粘贴交易哈希可以加快检测', submit: '检查交易', submitting: '检查中…', explorer: '查看链上交易', retry: '重新创建',
-    missingCode: '缺少充值码。', openFromDashboard: '请从 Nodeboard 会员页面进入，以携带私密的一次性充值码。',
-    privacy: '此页面只传输随机会员码，不会传输你的 AeroNyx 钱包、聊天身份、隐私网络活动或私人记忆。',
+    missingCode: '请输入会员码。', openFromDashboard: '请输入 AeroNyx 钱包中显示的会员码。任何人都可以用它为账户增加积分，但不能查看或使用积分。',
+    privacy: '此页面只传输 AeroNyx 会员码，不会传输钱包密钥、聊天身份、隐私网络活动或私人记忆。',
     publicChain: '链上转账记录是公开的，可能显示付款钱包地址。', bscNotice: 'BNB Smart Chain 接收 Binance-Peg BSC-USD，并非 Tether 原生发行的 USDT。',
     exactWarning: '请在所选网络发送精确金额。转错网络的资产无法自动找回。', clipboardError: '无法访问剪贴板。',
-    stepTransfer: '转账', stepVerify: '链上验证', stepActivate: '开通', transferClosed: '请勿再次转账', transferClosedNote: 'AeroNyx 正在验证本次支付，收款信息已锁定。', paymentCompleteNote: '会员已激活。本次支付已完成，无需其他操作。', reviewTransferNote: '现有转账正在人工审核，请勿为此订单再次付款。', instructionsClosedNote: '此支付订单已不再接收转账。如仍需会员，请返回 Nodeboard 重新开始。', confirmations: '链上确认数',
-    refreshDelayed: '实时状态暂时延迟，你的支付会话仍安全保存在此设备。', refreshNow: '刷新状态', refreshing: '刷新中…', restoreFailed: '暂时无法读取支付状态', restoreFailedNote: 'AeroNyx 已在此设备保留支付会话。请重试，不要重新转账。', backToDashboard: '返回 Nodeboard', paymentSummary: '支付摘要',
+    stepTransfer: '转账', stepVerify: '链上验证', stepActivate: '积分入账', transferClosed: '请勿再次转账', transferClosedNote: 'AeroNyx 正在验证本次支付，收款信息已锁定。', paymentCompleteNote: '积分已记入 AeroNyx。账户所有者可以转给朋友，或兑换会员。', reviewTransferNote: '现有转账正在人工审核，请勿为此订单再次付款。', instructionsClosedNote: '此支付订单已不再接收转账。如有需要，请重新购买积分。', confirmations: '链上确认数',
+    refreshDelayed: '实时状态暂时延迟，你的支付会话仍安全保存在此设备。', refreshNow: '刷新状态', refreshing: '刷新中…', restoreFailed: '暂时无法读取支付状态', restoreFailedNote: 'AeroNyx 已在此设备保留支付会话。请重试，不要重新转账。', backToDashboard: '完成', paymentSummary: '支付摘要',
+    rate: '1 USDT = 100 积分', points: '积分', pointsUse: '积分可在 AeroNyx 内转给朋友，或兑换会员。', enterCode: '积分要充入哪个 AeroNyx 账户？', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '继续', invalidCode: '请输入有效的 AeroNyx 会员码。',
   },
   'zh-TW': {
-    ...en, membership: 'AeroNyx 會員', title: '使用 USDT 購買會員', lede: '選擇會員方案和你常用的支付網路。只有獨立完成鏈上驗證後，AeroNyx 才會啟用會員。',
-    account: '充值碼綁定結帳', verifiedCheckout: '一次性充值碼已驗證', checkoutReference: '充值參考碼', addressBound: '目前網路、精確金額和收款地址已與本次一次性充值綁定。', choosePlan: '選擇會員', chooseNetwork: '選擇支付網路', network: '網路', monthly: '月付', yearly: '年付', days: '天',
+    ...en, membership: 'AeroNyx 積分', title: '使用 USDT 購買積分', lede: '選擇積分包和你常用的支付網路。只有獨立完成鏈上驗證後，積分才會記入指定帳戶。',
+    account: '帳戶綁定結帳', verifiedCheckout: '收款帳戶已驗證', checkoutReference: '充值參考碼', addressBound: '目前網路、精確金額和收款地址已與本次積分充值綁定。', choosePlan: '選擇積分', chooseNetwork: '選擇支付網路', network: '網路', monthly: '月付', yearly: '年付', days: '天',
     continue: '建立支付訂單', preparing: '正在準備安全支付…', unavailable: '暫時不可用', paymentsOffline: 'USDT 結帳尚未開始接收轉帳。營運方啟用已驗證網路之前，本頁面不會顯示收款地址。', exactAmount: '精確支付金額', receivingAddress: '收款地址',
     networkFee: '網路手續費需要', expires: '支付剩餘時間', copy: '複製', copied: '已複製', scan: '掃描收款地址', status: '支付狀態',
-    awaiting: '等待轉帳', detected: '已偵測到轉帳', confirming: '正在等待鏈上確認', fulfilled: '會員已啟用', expired: '支付訂單已過期', review: '支付需要人工審核', underpaid: '到帳金額低於報價', overpaid: '到帳金額高於報價', wrongAsset: '偵測到錯誤資產或網路', failed: '驗證失敗', cancelled: '支付已取消', recovery: '正在驗證按時送出的轉帳', recoveryNote: '支付視窗已關閉，但 AeroNyx 仍在檢查是否存在到期前廣播的轉帳。', hintBound: '交易已關聯，獨立鏈上驗證仍在繼續。', reviewNote: '請勿再次轉帳。請攜帶交易雜湊聯絡支援，以安全審核現有轉帳。', support: '聯絡支援',
+    awaiting: '等待轉帳', detected: '已偵測到轉帳', confirming: '正在等待鏈上確認', fulfilled: '積分已到帳', expired: '支付訂單已過期', review: '支付需要人工審核', underpaid: '到帳金額低於報價', overpaid: '到帳金額高於報價', wrongAsset: '偵測到錯誤資產或網路', failed: '驗證失敗', cancelled: '支付已取消', recovery: '正在驗證按時送出的轉帳', recoveryNote: '支付視窗已關閉，但 AeroNyx 仍在檢查是否存在到期前廣播的轉帳。', hintBound: '交易已關聯，獨立鏈上驗證仍在繼續。', reviewNote: '請勿再次轉帳。請攜帶交易雜湊聯絡支援，以安全審核現有轉帳。', support: '聯絡支援',
     txHint: '已經轉帳？', txPlaceholder: '貼上交易雜湊可以加快偵測', submit: '檢查交易', submitting: '檢查中…', explorer: '查看鏈上交易', retry: '重新建立',
-    missingCode: '缺少充值碼。', openFromDashboard: '請從 Nodeboard 會員頁面進入，以攜帶私密的一次性充值碼。',
-    privacy: '此頁面只傳輸隨機會員碼，不會傳輸你的 AeroNyx 錢包、聊天身分、隱私網路活動或私人記憶。',
+    missingCode: '請輸入會員碼。', openFromDashboard: '請輸入 AeroNyx 錢包中顯示的會員碼。任何人都可以用它為帳戶增加積分，但不能查看或使用積分。',
+    privacy: '此頁面只傳輸 AeroNyx 會員碼，不會傳輸錢包密鑰、聊天身分、隱私網路活動或私人記憶。',
     publicChain: '鏈上轉帳記錄是公開的，可能顯示付款錢包地址。', bscNotice: 'BNB Smart Chain 接收 Binance-Peg BSC-USD，並非 Tether 原生發行的 USDT。',
     exactWarning: '請在所選網路傳送精確金額。轉錯網路的資產無法自動找回。', clipboardError: '無法存取剪貼簿。',
-    stepTransfer: '轉帳', stepVerify: '鏈上驗證', stepActivate: '啟用', transferClosed: '請勿再次轉帳', transferClosedNote: 'AeroNyx 正在驗證本次支付，收款資訊已鎖定。', paymentCompleteNote: '會員已啟用。本次支付已完成，無需其他操作。', reviewTransferNote: '現有轉帳正在人工審核，請勿為此訂單再次付款。', instructionsClosedNote: '此支付訂單已不再接收轉帳。如仍需會員，請返回 Nodeboard 重新開始。', confirmations: '鏈上確認數',
-    refreshDelayed: '即時狀態暫時延遲，你的支付工作階段仍安全保存在此裝置。', refreshNow: '重新整理狀態', refreshing: '重新整理中…', restoreFailed: '暫時無法讀取支付狀態', restoreFailedNote: 'AeroNyx 已在此裝置保留支付工作階段。請重試，不要重新轉帳。', backToDashboard: '返回 Nodeboard', paymentSummary: '支付摘要',
+    stepTransfer: '轉帳', stepVerify: '鏈上驗證', stepActivate: '積分入帳', transferClosed: '請勿再次轉帳', transferClosedNote: 'AeroNyx 正在驗證本次支付，收款資訊已鎖定。', paymentCompleteNote: '積分已記入 AeroNyx。帳戶所有者可以轉給朋友，或兌換會員。', reviewTransferNote: '現有轉帳正在人工審核，請勿為此訂單再次付款。', instructionsClosedNote: '此支付訂單已不再接收轉帳。如有需要，請重新購買積分。', confirmations: '鏈上確認數',
+    refreshDelayed: '即時狀態暫時延遲，你的支付工作階段仍安全保存在此裝置。', refreshNow: '重新整理狀態', refreshing: '重新整理中…', restoreFailed: '暫時無法讀取支付狀態', restoreFailedNote: 'AeroNyx 已在此裝置保留支付工作階段。請重試，不要重新轉帳。', backToDashboard: '完成', paymentSummary: '支付摘要',
+    rate: '1 USDT = 100 積分', points: '積分', pointsUse: '積分可在 AeroNyx 內轉給朋友，或兌換會員。', enterCode: '積分要充入哪個 AeroNyx 帳戶？', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '繼續', invalidCode: '請輸入有效的 AeroNyx 會員碼。',
   },
   ja: {
-    ...en, membership: 'AeroNyx メンバーシップ', title: 'USDTでメンバーシップを購入', lede: 'プランと利用するネットワークを選択してください。独立したオンチェーン検証後にのみ有効化されます。',
-    account: 'コード連携決済', verifiedCheckout: '一回限りのチャージコードを確認済み', checkoutReference: 'チャージ参照コード', addressBound: 'ネットワーク、正確な金額、受取アドレスはこの一回限りのチャージに固定されています。', choosePlan: 'プランを選択', chooseNetwork: '支払いネットワーク', network: 'ネットワーク', monthly: '月額', yearly: '年額', days: '日', continue: '支払いを作成',
+    ...en, membership: 'AeroNyx ポイント', title: 'USDTでポイントを購入', lede: 'ポイントパックと支払いネットワークを選択してください。独立したオンチェーン検証後にポイントが付与されます。',
+    account: 'アカウント連携決済', verifiedCheckout: '受取アカウントを確認済み', checkoutReference: 'チャージ参照コード', addressBound: 'ネットワーク、正確な金額、受取アドレスはこのポイント購入に固定されています。', choosePlan: 'ポイントを選択', chooseNetwork: '支払いネットワーク', network: 'ネットワーク', monthly: '月額', yearly: '年額', days: '日', continue: '支払いを作成',
     preparing: '安全な支払いを準備中…', unavailable: '一時利用不可', paymentsOffline: 'USDT決済はまだ送金を受け付けていません。検証済みネットワークが有効になるまで受取アドレスは表示されません。', exactAmount: '正確な金額', receivingAddress: '受取アドレス', networkFee: '手数料に必要',
     expires: '残り時間', copy: 'コピー', copied: 'コピー済み', scan: '受取アドレスをスキャン', status: '支払い状況', awaiting: '送金を待っています',
-    detected: '送金を検出しました', confirming: 'オンチェーン確認中', fulfilled: 'メンバーシップ有効', expired: '支払い期限切れ', review: '確認が必要です', underpaid: '受取額が見積額を下回っています', overpaid: '受取額が見積額を上回っています', wrongAsset: '誤った資産またはネットワークです', failed: '検証に失敗しました', cancelled: '支払いはキャンセルされました', recovery: '期限内送金を検証中', recoveryNote: '支払い期限後も、期限前に送信された取引を確認しています。', hintBound: '取引を関連付けました。独立したオンチェーン検証を継続します。', reviewNote: '再送金せず、トランザクションハッシュを添えてサポートへご連絡ください。', support: 'サポートに連絡',
+    detected: '送金を検出しました', confirming: 'オンチェーン確認中', fulfilled: 'ポイント付与済み', expired: '支払い期限切れ', review: '確認が必要です', underpaid: '受取額が見積額を下回っています', overpaid: '受取額が見積額を上回っています', wrongAsset: '誤った資産またはネットワークです', failed: '検証に失敗しました', cancelled: '支払いはキャンセルされました', recovery: '期限内送金を検証中', recoveryNote: '支払い期限後も、期限前に送信された取引を確認しています。', hintBound: '取引を関連付けました。独立したオンチェーン検証を継続します。', reviewNote: '再送金せず、トランザクションハッシュを添えてサポートへご連絡ください。', support: 'サポートに連絡',
     txHint: '送金済みですか？', txPlaceholder: 'トランザクションハッシュを入力', submit: '取引を確認', submitting: '確認中…', explorer: '取引を表示', retry: 'やり直す',
-    missingCode: 'チャージコードが必要です。', openFromDashboard: 'Nodeboardのメンバーシップ画面から開き、一回限りのチャージコードを引き継いでください。',
-    privacy: 'このページはランダムな会員コードのみを送信し、ウォレット、チャット、プライバシーネットワークの活動、個人メモリは送信しません。', publicChain: 'ブロックチェーン上の送金は公開され、送信元ウォレットが表示される場合があります。',
+    missingCode: 'メンバーシップコードを入力してください。', openFromDashboard: 'AeroNyx Wallet に表示されるコードを入力してください。コードを知る人はポイントを追加できますが、残高の閲覧や使用はできません。',
+    privacy: 'このページは AeroNyx メンバーシップコードのみを送信し、ウォレット鍵、チャット、プライバシーネットワークの活動、個人メモリは送信しません。', publicChain: 'ブロックチェーン上の送金は公開され、送信元ウォレットが表示される場合があります。',
     bscNotice: 'BNB Smart ChainではTetherネイティブUSDTではなくBinance-Peg BSC-USDを受け付けます。', exactWarning: '選択したネットワークで正確な金額を送ってください。誤送金は自動復旧できません。', clipboardError: 'クリップボードを利用できません。',
-    stepTransfer: '送金', stepVerify: '検証', stepActivate: '有効化', transferClosed: '追加送金しないでください', transferClosedNote: 'AeroNyx が支払いを検証している間、受取情報はロックされます。', paymentCompleteNote: 'メンバーシップは有効です。支払いは完了し、追加の操作は不要です。', reviewTransferNote: '既存の送金を確認中です。この注文に追加送金しないでください。', instructionsClosedNote: 'この支払い注文は送金を受け付けていません。必要な場合は Nodeboard から再開してください。', confirmations: 'オンチェーン確認数',
-    refreshDelayed: '最新ステータスの取得が遅れています。支払いセッションは安全に保持されています。', refreshNow: '状態を更新', refreshing: '更新中…', restoreFailed: '支払い状況を一時的に取得できません', restoreFailedNote: 'この端末に支払いセッションを保持しています。再送金せずに再試行してください。', backToDashboard: 'Nodeboard に戻る', paymentSummary: '支払い概要',
+    stepTransfer: '送金', stepVerify: '検証', stepActivate: 'ポイント付与', transferClosed: '追加送金しないでください', transferClosedNote: 'AeroNyx が支払いを検証している間、受取情報はロックされます。', paymentCompleteNote: 'ポイントが AeroNyx に付与されました。友人への送付またはメンバーシップ交換に利用できます。', reviewTransferNote: '既存の送金を確認中です。この注文に追加送金しないでください。', instructionsClosedNote: 'この支払い注文は送金を受け付けていません。必要な場合は新しいポイント購入を開始してください。', confirmations: 'オンチェーン確認数',
+    refreshDelayed: '最新ステータスの取得が遅れています。支払いセッションは安全に保持されています。', refreshNow: '状態を更新', refreshing: '更新中…', restoreFailed: '支払い状況を一時的に取得できません', restoreFailedNote: 'この端末に支払いセッションを保持しています。再送金せずに再試行してください。', backToDashboard: '完了', paymentSummary: '支払い概要',
+    rate: '1 USDT = 100 ポイント', points: 'ポイント', pointsUse: 'ポイントは AeroNyx で友人に送るか、メンバーシップに交換できます。', enterCode: 'どの AeroNyx アカウントにポイントを追加しますか？', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '続ける', invalidCode: '有効な AeroNyx メンバーシップコードを入力してください。',
   },
   ko: {
-    ...en, membership: 'AeroNyx 멤버십', title: 'USDT로 멤버십 구매', lede: '요금제와 결제 네트워크를 선택하세요. 독립적인 온체인 검증 후에만 멤버십이 활성화됩니다.',
-    account: '충전 코드 연결 결제', verifiedCheckout: '일회용 충전 코드 확인됨', checkoutReference: '충전 참조 코드', addressBound: '네트워크, 정확한 금액, 수신 주소가 이 일회용 충전에 고정되었습니다.', choosePlan: '멤버십 선택', chooseNetwork: '결제 네트워크 선택', network: '네트워크', monthly: '월간', yearly: '연간', days: '일', continue: '결제 만들기',
+    ...en, membership: 'AeroNyx 포인트', title: 'USDT로 포인트 구매', lede: '포인트 패키지와 결제 네트워크를 선택하세요. 독립적인 온체인 검증 후 포인트가 적립됩니다.',
+    account: '계정 연결 결제', verifiedCheckout: '수신 계정 확인됨', checkoutReference: '충전 참조 코드', addressBound: '네트워크, 정확한 금액, 수신 주소가 이 포인트 충전에 고정되었습니다.', choosePlan: '포인트 선택', chooseNetwork: '결제 네트워크 선택', network: '네트워크', monthly: '월간', yearly: '연간', days: '일', continue: '결제 만들기',
     preparing: '안전한 결제 준비 중…', unavailable: '일시적으로 사용할 수 없음', paymentsOffline: 'USDT 결제는 아직 송금을 받지 않습니다. 검증된 네트워크가 활성화될 때까지 수신 주소가 표시되지 않습니다.', exactAmount: '정확한 금액', receivingAddress: '수신 주소', networkFee: '네트워크 수수료',
     expires: '남은 시간', copy: '복사', copied: '복사됨', scan: '수신 주소 스캔', status: '결제 상태', awaiting: '송금 대기 중', detected: '송금 감지됨',
-    confirming: '온체인 확인 중', fulfilled: '멤버십 활성화됨', expired: '결제 시간 만료', review: '검토가 필요합니다', underpaid: '입금액이 견적보다 적습니다', overpaid: '입금액이 견적보다 많습니다', wrongAsset: '잘못된 자산 또는 네트워크입니다', failed: '검증 실패', cancelled: '결제 취소됨', recovery: '기한 내 송금 확인 중', recoveryNote: '결제 시간이 끝났지만 만료 전에 전송된 거래를 계속 확인하고 있습니다.', hintBound: '거래가 연결되었습니다. 독립적인 온체인 검증을 계속합니다.', reviewNote: '다시 송금하지 말고 거래 해시와 함께 지원팀에 문의하세요.', support: '지원팀 문의', txHint: '이미 보냈나요?',
-    txPlaceholder: '트랜잭션 해시를 입력하세요', submit: '거래 확인', submitting: '확인 중…', explorer: '거래 보기', retry: '다시 시작', missingCode: '결제 코드가 필요합니다.',
-    openFromDashboard: '일회용 충전 코드가 포함되도록 Nodeboard 멤버십 화면에서 열어 주세요.', privacy: '이 페이지는 무작위 멤버십 코드만 전송하며 지갑, 채팅 ID, 프라이버시 네트워크 활동, 개인 메모리는 전송하지 않습니다.',
+    confirming: '온체인 확인 중', fulfilled: '포인트 적립 완료', expired: '결제 시간 만료', review: '검토가 필요합니다', underpaid: '입금액이 견적보다 적습니다', overpaid: '입금액이 견적보다 많습니다', wrongAsset: '잘못된 자산 또는 네트워크입니다', failed: '검증 실패', cancelled: '결제 취소됨', recovery: '기한 내 송금 확인 중', recoveryNote: '결제 시간이 끝났지만 만료 전에 전송된 거래를 계속 확인하고 있습니다.', hintBound: '거래가 연결되었습니다. 독립적인 온체인 검증을 계속합니다.', reviewNote: '다시 송금하지 말고 거래 해시와 함께 지원팀에 문의하세요.', support: '지원팀 문의', txHint: '이미 보냈나요?',
+    txPlaceholder: '트랜잭션 해시를 입력하세요', submit: '거래 확인', submitting: '확인 중…', explorer: '거래 보기', retry: '다시 시작', missingCode: '멤버십 코드를 입력하세요.',
+    openFromDashboard: 'AeroNyx Wallet에 표시된 코드를 입력하세요. 코드를 아는 사람은 포인트를 추가할 수 있지만 조회하거나 사용할 수 없습니다.', privacy: '이 페이지는 AeroNyx 멤버십 코드만 전송하며 지갑 키, 채팅 ID, 프라이버시 네트워크 활동, 개인 메모리는 전송하지 않습니다.',
     publicChain: '블록체인 송금은 공개되며 보내는 지갑이 표시될 수 있습니다.', bscNotice: 'BNB Smart Chain에서는 Tether 네이티브 USDT가 아닌 Binance-Peg BSC-USD를 받습니다.',
     exactWarning: '선택한 네트워크에서 정확한 금액을 보내세요. 잘못된 네트워크 송금은 자동 복구되지 않습니다.', clipboardError: '클립보드를 사용할 수 없습니다.',
-    stepTransfer: '송금', stepVerify: '검증', stepActivate: '활성화', transferClosed: '추가 송금하지 마세요', transferClosedNote: 'AeroNyx가 결제를 검증하는 동안 수신 정보가 잠깁니다.', paymentCompleteNote: '멤버십이 활성화되었습니다. 결제가 완료되어 추가 조치가 필요하지 않습니다.', reviewTransferNote: '기존 송금을 검토 중입니다. 이 주문에 다시 결제하지 마세요.', instructionsClosedNote: '이 결제 주문은 더 이상 송금을 받지 않습니다. 필요하면 Nodeboard에서 다시 시작하세요.', confirmations: '온체인 확인 수',
-    refreshDelayed: '실시간 상태가 잠시 지연되고 있습니다. 결제 세션은 이 기기에 안전하게 보관됩니다.', refreshNow: '상태 새로고침', refreshing: '새로고침 중…', restoreFailed: '결제 상태를 일시적으로 불러올 수 없습니다', restoreFailedNote: '결제 세션을 이 기기에 보관했습니다. 다시 송금하지 말고 재시도하세요.', backToDashboard: 'Nodeboard로 돌아가기', paymentSummary: '결제 요약',
+    stepTransfer: '송금', stepVerify: '검증', stepActivate: '포인트 적립', transferClosed: '추가 송금하지 마세요', transferClosedNote: 'AeroNyx가 결제를 검증하는 동안 수신 정보가 잠깁니다.', paymentCompleteNote: '포인트가 AeroNyx에 적립되었습니다. 친구에게 보내거나 멤버십으로 교환할 수 있습니다.', reviewTransferNote: '기존 송금을 검토 중입니다. 이 주문에 다시 결제하지 마세요.', instructionsClosedNote: '이 결제 주문은 더 이상 송금을 받지 않습니다. 필요하면 새 포인트 구매를 시작하세요.', confirmations: '온체인 확인 수',
+    refreshDelayed: '실시간 상태가 잠시 지연되고 있습니다. 결제 세션은 이 기기에 안전하게 보관됩니다.', refreshNow: '상태 새로고침', refreshing: '새로고침 중…', restoreFailed: '결제 상태를 일시적으로 불러올 수 없습니다', restoreFailedNote: '결제 세션을 이 기기에 보관했습니다. 다시 송금하지 말고 재시도하세요.', backToDashboard: '완료', paymentSummary: '결제 요약',
+    rate: '1 USDT = 100 포인트', points: '포인트', pointsUse: '포인트는 AeroNyx에서 친구에게 보내거나 멤버십으로 교환할 수 있습니다.', enterCode: '어느 AeroNyx 계정에 포인트를 추가할까요?', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '계속', invalidCode: '유효한 AeroNyx 멤버십 코드를 입력하세요.',
   },
   ru: {
-    ...en, membership: 'Подписка AeroNyx', title: 'Оплата подписки в USDT', lede: 'Выберите тариф и сеть. Подписка активируется только после независимой проверки транзакции в блокчейне.',
-    account: 'Оплата по коду', verifiedCheckout: 'Одноразовый код пополнения подтверждён', checkoutReference: 'Код пополнения', addressBound: 'Сеть, точная сумма и адрес получателя закреплены за этим одноразовым пополнением.', choosePlan: 'Выберите подписку', chooseNetwork: 'Выберите сеть', network: 'Сеть', monthly: 'Ежемесячно', yearly: 'Ежегодно', days: 'дней', continue: 'Создать платёж',
+    ...en, membership: 'Баллы AeroNyx', title: 'Купить баллы за USDT', lede: 'Выберите пакет баллов и сеть. Баллы начисляются только после независимой проверки транзакции в блокчейне.',
+    account: 'Оплата для аккаунта', verifiedCheckout: 'Аккаунт получателя подтверждён', checkoutReference: 'Код пополнения', addressBound: 'Сеть, точная сумма и адрес получателя закреплены за этим пополнением баллов.', choosePlan: 'Выберите баллы', chooseNetwork: 'Выберите сеть', network: 'Сеть', monthly: 'Ежемесячно', yearly: 'Ежегодно', days: 'дней', continue: 'Создать платёж',
     preparing: 'Подготовка безопасного платежа…', unavailable: 'Временно недоступно', paymentsOffline: 'Оплата USDT пока не принимает переводы. Адрес не будет показан до включения проверенной сети.', exactAmount: 'Точная сумма', receivingAddress: 'Адрес получателя', networkFee: 'Комиссия оплачивается в',
     expires: 'Осталось времени', copy: 'Копировать', copied: 'Скопировано', scan: 'Отсканируйте адрес', status: 'Статус платежа', awaiting: 'Ожидание перевода',
-    detected: 'Перевод обнаружен', confirming: 'Подтверждение в сети', fulfilled: 'Подписка активирована', expired: 'Время оплаты истекло', review: 'Требуется проверка', underpaid: 'Получено меньше расчётной суммы', overpaid: 'Получено больше расчётной суммы', wrongAsset: 'Неверный актив или сеть', failed: 'Проверка не пройдена', cancelled: 'Платёж отменён', recovery: 'Проверка своевременного перевода', recoveryNote: 'Окно оплаты закрыто, но AeroNyx продолжает искать перевод, отправленный до истечения срока.', hintBound: 'Транзакция привязана. Независимая проверка продолжается.', reviewNote: 'Не отправляйте повторный перевод. Свяжитесь с поддержкой и укажите хэш транзакции.', support: 'Связаться с поддержкой',
+    detected: 'Перевод обнаружен', confirming: 'Подтверждение в сети', fulfilled: 'Баллы начислены', expired: 'Время оплаты истекло', review: 'Требуется проверка', underpaid: 'Получено меньше расчётной суммы', overpaid: 'Получено больше расчётной суммы', wrongAsset: 'Неверный актив или сеть', failed: 'Проверка не пройдена', cancelled: 'Платёж отменён', recovery: 'Проверка своевременного перевода', recoveryNote: 'Окно оплаты закрыто, но AeroNyx продолжает искать перевод, отправленный до истечения срока.', hintBound: 'Транзакция привязана. Независимая проверка продолжается.', reviewNote: 'Не отправляйте повторный перевод. Свяжитесь с поддержкой и укажите хэш транзакции.', support: 'Связаться с поддержкой',
     txHint: 'Уже отправили?', txPlaceholder: 'Вставьте хэш транзакции', submit: 'Проверить', submitting: 'Проверка…', explorer: 'Открыть транзакцию', retry: 'Начать заново',
-    missingCode: 'Нужен код пополнения.', openFromDashboard: 'Откройте страницу из раздела подписки Nodeboard, чтобы передать одноразовый код пополнения.',
-    privacy: 'Эта страница передаёт только случайный код подписки, но не кошелёк AeroNyx, чаты, активность в Privacy Network или приватную память.', publicChain: 'Переводы в блокчейне публичны и могут раскрывать адрес отправителя.',
+    missingCode: 'Введите код участника.', openFromDashboard: 'Введите код из AeroNyx Wallet. По нему можно только добавить баллы; посмотреть или потратить их нельзя.',
+    privacy: 'Эта страница передаёт только код участника AeroNyx, но не ключи кошелька, чаты, активность Privacy Network или приватную память.', publicChain: 'Переводы в блокчейне публичны и могут раскрывать адрес отправителя.',
     bscNotice: 'В BNB Smart Chain принимается Binance-Peg BSC-USD, а не нативный USDT от Tether.', exactWarning: 'Отправьте точную сумму в выбранной сети. Ошибочный перевод нельзя восстановить автоматически.', clipboardError: 'Буфер обмена недоступен.',
-    stepTransfer: 'Перевод', stepVerify: 'Проверка', stepActivate: 'Активация', transferClosed: 'Не отправляйте повторный перевод', transferClosedNote: 'Реквизиты заблокированы, пока AeroNyx проверяет платёж.', paymentCompleteNote: 'Подписка активна. Платёж завершён, дополнительные действия не требуются.', reviewTransferNote: 'Имеющийся перевод проходит проверку. Не оплачивайте этот заказ повторно.', instructionsClosedNote: 'Этот платёжный заказ больше не принимает переводы. При необходимости начните заново в Nodeboard.', confirmations: 'Подтверждения в сети',
-    refreshDelayed: 'Обновление статуса задерживается. Платёжная сессия безопасно сохранена.', refreshNow: 'Обновить статус', refreshing: 'Обновление…', restoreFailed: 'Статус платежа временно недоступен', restoreFailedNote: 'Платёжная сессия сохранена на устройстве. Повторите проверку и не отправляйте новый перевод.', backToDashboard: 'Вернуться в Nodeboard', paymentSummary: 'Сводка платежа',
+    stepTransfer: 'Перевод', stepVerify: 'Проверка', stepActivate: 'Начисление', transferClosed: 'Не отправляйте повторный перевод', transferClosedNote: 'Реквизиты заблокированы, пока AeroNyx проверяет платёж.', paymentCompleteNote: 'Баллы начислены в AeroNyx. Их можно перевести другу или обменять на подписку.', reviewTransferNote: 'Имеющийся перевод проходит проверку. Не оплачивайте этот заказ повторно.', instructionsClosedNote: 'Этот платёжный заказ больше не принимает переводы. При необходимости начните новую покупку баллов.', confirmations: 'Подтверждения в сети',
+    refreshDelayed: 'Обновление статуса задерживается. Платёжная сессия безопасно сохранена.', refreshNow: 'Обновить статус', refreshing: 'Обновление…', restoreFailed: 'Статус платежа временно недоступен', restoreFailedNote: 'Платёжная сессия сохранена на устройстве. Повторите проверку и не отправляйте новый перевод.', backToDashboard: 'Готово', paymentSummary: 'Сводка платежа',
+    rate: '1 USDT = 100 баллов', points: 'баллов', pointsUse: 'Баллы можно перевести другу в AeroNyx или обменять на подписку.', enterCode: 'На какой аккаунт AeroNyx начислить баллы?', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: 'Продолжить', invalidCode: 'Введите действительный код участника AeroNyx.',
   },
 };
 
@@ -285,10 +306,28 @@ function maskedCheckoutCode(code: string) {
   return `${code.startsWith('TOP-') ? 'TOP-' : ''}••••-${suffix}`;
 }
 
+// [MEMBERSHIP-POINTS-FIRST 2026-08-24 by Codex] The backend settles the
+// plan's Decimal USD amount at 100 points per USDT with ROUND_DOWN. Parse the
+// decimal as text so browser floating-point rounding cannot overstate credit.
+function pointsForUsd(amount: string): number {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(amount.trim());
+  if (!match) return 0;
+  const whole = Number(match[1]);
+  const hundredths = Number(`${match[2] || ''}00`.slice(0, 2));
+  if (!Number.isSafeInteger(whole) || !Number.isSafeInteger(hundredths)) return 0;
+  const points = (whole * 100) + hundredths;
+  return Number.isSafeInteger(points) ? points : 0;
+}
+
+function formatPoints(value: number, locale: Locale): string {
+  return new Intl.NumberFormat(locale).format(value);
+}
+
 export default function TopUpPage() {
   const { locale } = useI18n();
   const text = copyByLocale[locale] || en;
   const [code, setCode] = useState('');
+  const [manualCode, setManualCode] = useState('');
   const [checkout, setCheckout] = useState<CheckoutSummary | null>(null);
   const [selectedPlan, setSelectedPlan] = useState('');
   const [selectedNetwork, setSelectedNetwork] = useState<PaymentNetworkId | ''>('');
@@ -499,6 +538,26 @@ export default function TopUpPage() {
     () => checkout?.networks.find((item) => item.id === selectedNetwork),
     [checkout, selectedNetwork],
   );
+  const selectedPoints = selectedPlanData
+    ? pointsForUsd(selectedPlanData.amount_usd)
+    : 0;
+  const creditedPoints = payment ? pointsForUsd(payment.amount_usd) : 0;
+
+  function useMembershipCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalized = normalizeMembershipCheckoutCode(manualCode);
+    if (!normalized || normalized.startsWith('TOP-NYX-')) {
+      setError(text.invalidCode);
+      return;
+    }
+    // The public form accepts only the non-spendable membership alias. App
+    // issued TOP-NYX capabilities continue to arrive through fragment links.
+    setError('');
+    setCode(normalized);
+    const url = new URL(window.location.href);
+    url.hash = `code=${encodeURIComponent(normalized)}`;
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  }
 
   async function startPayment() {
     if (!code || !selectedPlan || !selectedNetwork) return;
@@ -656,15 +715,40 @@ export default function TopUpPage() {
           <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">{text.membership}</p>
           <h1 className="max-w-3xl text-3xl font-semibold leading-tight sm:text-5xl">{text.title}</h1>
           <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-400 sm:text-lg">{text.lede}</p>
+          <div className="mt-5 inline-flex min-h-9 items-center rounded-full border border-emerald-300/25 bg-emerald-300/[0.07] px-4 text-sm font-semibold text-emerald-200">
+            {text.rate}
+          </div>
         </div>
 
         {!code && !loading && (
-          <section className="max-w-2xl border-l-2 border-amber-400 py-2 pl-5">
+          <section className="max-w-2xl rounded-lg border border-white/10 bg-white/[0.035] p-5 sm:p-7">
             <h2 className="text-lg font-semibold">{text.missingCode}</h2>
             <p className="mt-2 leading-6 text-zinc-400">{text.openFromDashboard}</p>
-            <a href="/dashboard" className="mt-5 inline-flex min-h-11 items-center rounded-lg border border-white/15 px-4 text-sm font-medium transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-emerald-400/60">
-              {text.backToDashboard}
-            </a>
+            {/* [MEMBERSHIP-POINTS-FIRST 2026-08-24 by Codex] The public
+                membership alias is a receive-only coordinate: knowing it can
+                add points, never inspect or spend an account balance. */}
+            <form className="mt-6 flex flex-col gap-3 sm:flex-row" onSubmit={useMembershipCode}>
+              <label className="sr-only" htmlFor="membership-code">{text.enterCode}</label>
+              <input
+                id="membership-code"
+                value={manualCode}
+                onChange={(event) => setManualCode(event.target.value.toUpperCase())}
+                placeholder={text.codePlaceholder}
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
+                inputMode="text"
+                maxLength={48}
+                className="h-12 min-w-0 flex-1 rounded-lg border border-white/15 bg-black/30 px-4 font-mono text-sm uppercase tracking-wide outline-none placeholder:text-zinc-600 focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20"
+              />
+              <button
+                type="submit"
+                disabled={!manualCode.trim()}
+                className="h-12 shrink-0 rounded-lg bg-white px-5 text-sm font-semibold text-black transition hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+              >
+                {text.continueWithCode}
+              </button>
+            </form>
           </section>
         )}
 
@@ -698,17 +782,25 @@ export default function TopUpPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   {checkout.plans.map((plan) => {
                     const active = selectedPlan === plan.id;
+                    const bundlePoints = pointsForUsd(plan.amount_usd);
                     return (
                       <button key={plan.id} onClick={() => setSelectedPlan(plan.id)} aria-pressed={active}
                         className={`min-h-32 rounded-lg border p-5 text-left transition ${active ? 'border-emerald-400 bg-emerald-400/10' : 'border-white/10 bg-white/[0.025] hover:border-white/25'}`}>
-                        <div className="flex items-start justify-between gap-4">
-                          <div><div className="text-sm capitalize text-zinc-400">{plan.tier}</div><div className="mt-1 font-medium">{plan.billing_cycle === 'yearly' ? text.yearly : text.monthly}</div></div>
-                          <div className="text-right"><span className="text-2xl font-semibold">${plan.amount_usd}</span><div className="mt-1 text-xs text-zinc-500">{plan.grants_days} {text.days}</div></div>
+                        <div className="flex h-full items-start justify-between gap-4">
+                          <div>
+                            <div className="text-2xl font-semibold tabular-nums">{formatPoints(bundlePoints, locale)}</div>
+                            <div className="mt-1 text-sm text-zinc-400">{text.points}</div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-lg font-semibold tabular-nums">{plan.amount_usd} USDT</span>
+                            <div className="mt-1 text-xs text-zinc-500">{text.rate}</div>
+                          </div>
                         </div>
                       </button>
                     );
                   })}
                 </div>
+                <p className="mt-3 text-xs leading-5 text-zinc-500">{text.pointsUse}</p>
               </section>
 
               <section>
@@ -741,7 +833,14 @@ export default function TopUpPage() {
                 <code className="text-zinc-300">{maskedCheckoutCode(code)}</code>
               </div>
               <div className="my-6 h-px bg-white/10" />
-              <div className="flex justify-between text-sm"><span className="text-zinc-400">{selectedPlanData?.tier || '—'}</span><span>{selectedPlanData ? `$${selectedPlanData.amount_usd}` : '—'}</span></div>
+              <div className="flex items-start justify-between gap-4 text-sm">
+                <span className="text-zinc-400">{text.points}</span>
+                <span className="text-right font-semibold tabular-nums">{selectedPlanData ? formatPoints(selectedPoints, locale) : '—'}</span>
+              </div>
+              <div className="mt-3 flex items-start justify-between gap-4 text-sm">
+                <span className="text-zinc-400">USDT</span>
+                <span className="text-right tabular-nums">{selectedPlanData?.amount_usd || '—'}</span>
+              </div>
               <div className="mt-3 flex justify-between text-sm"><span className="text-zinc-400">{text.network}</span><span>{selectedNetworkData?.display_name || '—'}</span></div>
               <button onClick={startPayment} disabled={!checkout.payment_enabled || !selectedPlan || !selectedNetwork || creating}
                 className="mt-6 h-12 w-full rounded-lg bg-white px-4 font-semibold text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500">
@@ -846,6 +945,11 @@ export default function TopUpPage() {
                   <p className={`text-sm font-semibold ${lifecyclePhase === 'fulfilled' ? 'text-emerald-200' : 'text-amber-100'}`}>
                     {lifecyclePhase === 'fulfilled' ? text.fulfilled : text.transferClosed}
                   </p>
+                  {lifecyclePhase === 'fulfilled' && creditedPoints > 0 && (
+                    <p className="mt-2 text-3xl font-semibold tabular-nums text-white">
+                      +{formatPoints(creditedPoints, locale)} <span className="text-base font-medium text-zinc-400">{text.points}</span>
+                    </p>
+                  )}
                   <p className="mt-2 text-xs leading-5 text-zinc-400">{inactiveTransferNote}</p>
                 </div>
               )}
