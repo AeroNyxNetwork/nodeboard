@@ -25,7 +25,10 @@
  *   Never animate fake payment progress or infer paid state in the browser.
  *   Only backend status=fulfilled may render the success state.
  *
- * Last Modified: v3.0.0 - [MEMBERSHIP-POINTS-FIRST 2026-08-24 by Codex]
+ * Last Modified: v3.1.0 - [USDT-CHECKOUT-OFFER-BINDING 2026-08-25 by Codex]
+ *   Render app-issued one-time checkouts as a fixed points reservation and
+ *   fail closed if checkout metadata no longer contains exactly that offer.
+ * Previous: v3.0.0 - [MEMBERSHIP-POINTS-FIRST 2026-08-24 by Codex]
  *   Made the page independently usable with a membership-code entry, changed
  *   every checkout state from direct membership activation to points credit,
  *   and exposed the fixed 1 USDT = 100 points product contract.
@@ -153,6 +156,9 @@ type Copy = {
   codePlaceholder: string;
   continueWithCode: string;
   invalidCode: string;
+  reservedBundle: string;
+  reservedBundleNote: string;
+  offerMismatch: string;
 };
 
 const en: Copy = {
@@ -205,6 +211,9 @@ const en: Copy = {
   enterCode: 'Which AeroNyx account should receive the points?',
   codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: 'Continue',
   invalidCode: 'Enter a valid AeroNyx membership code.',
+  reservedBundle: 'Reserved points bundle',
+  reservedBundleNote: 'AeroNyx created this one-time checkout for this exact bundle. The amount cannot be changed here.',
+  offerMismatch: 'This checkout no longer matches its original points bundle. Return to AeroNyx and start again.',
 };
 
 const copyByLocale: Record<Locale, Copy> = {
@@ -222,7 +231,7 @@ const copyByLocale: Record<Locale, Copy> = {
     exactWarning: '请在所选网络发送精确金额。转错网络的资产无法自动找回。', clipboardError: '无法访问剪贴板。',
     stepTransfer: '转账', stepVerify: '链上验证', stepActivate: '积分入账', transferClosed: '请勿再次转账', transferClosedNote: 'AeroNyx 正在验证本次支付，收款信息已锁定。', paymentCompleteNote: '积分已记入 AeroNyx。账户所有者可以转给朋友，或兑换会员。', reviewTransferNote: '现有转账正在人工审核，请勿为此订单再次付款。', instructionsClosedNote: '此支付订单已不再接收转账。如有需要，请重新购买积分。', confirmations: '链上确认数',
     refreshDelayed: '实时状态暂时延迟，你的支付会话仍安全保存在此设备。', refreshNow: '刷新状态', refreshing: '刷新中…', restoreFailed: '暂时无法读取支付状态', restoreFailedNote: 'AeroNyx 已在此设备保留支付会话。请重试，不要重新转账。', backToDashboard: '完成', paymentSummary: '支付摘要',
-    rate: '1 USDT = 100 积分', points: '积分', pointsUse: '积分可在 AeroNyx 内转给朋友，或兑换会员。', enterCode: '积分要充入哪个 AeroNyx 账户？', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '继续', invalidCode: '请输入有效的 AeroNyx 会员码。',
+    rate: '1 USDT = 100 积分', points: '积分', pointsUse: '积分可在 AeroNyx 内转给朋友，或兑换会员。', enterCode: '积分要充入哪个 AeroNyx 账户？', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '继续', invalidCode: '请输入有效的 AeroNyx 会员码。', reservedBundle: '已预留的积分包', reservedBundleNote: 'AeroNyx 已为本次一次性结账锁定这个积分包，无法在网页中更改金额。', offerMismatch: '本次结账与原始积分包不一致，请返回 AeroNyx 重新发起。',
   },
   'zh-TW': {
     ...en, membership: 'AeroNyx 積分', title: '使用 USDT 購買積分', lede: '選擇積分包和你常用的支付網路。只有獨立完成鏈上驗證後，積分才會記入指定帳戶。',
@@ -237,7 +246,7 @@ const copyByLocale: Record<Locale, Copy> = {
     exactWarning: '請在所選網路傳送精確金額。轉錯網路的資產無法自動找回。', clipboardError: '無法存取剪貼簿。',
     stepTransfer: '轉帳', stepVerify: '鏈上驗證', stepActivate: '積分入帳', transferClosed: '請勿再次轉帳', transferClosedNote: 'AeroNyx 正在驗證本次支付，收款資訊已鎖定。', paymentCompleteNote: '積分已記入 AeroNyx。帳戶所有者可以轉給朋友，或兌換會員。', reviewTransferNote: '現有轉帳正在人工審核，請勿為此訂單再次付款。', instructionsClosedNote: '此支付訂單已不再接收轉帳。如有需要，請重新購買積分。', confirmations: '鏈上確認數',
     refreshDelayed: '即時狀態暫時延遲，你的支付工作階段仍安全保存在此裝置。', refreshNow: '重新整理狀態', refreshing: '重新整理中…', restoreFailed: '暫時無法讀取支付狀態', restoreFailedNote: 'AeroNyx 已在此裝置保留支付工作階段。請重試，不要重新轉帳。', backToDashboard: '完成', paymentSummary: '支付摘要',
-    rate: '1 USDT = 100 積分', points: '積分', pointsUse: '積分可在 AeroNyx 內轉給朋友，或兌換會員。', enterCode: '積分要充入哪個 AeroNyx 帳戶？', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '繼續', invalidCode: '請輸入有效的 AeroNyx 會員碼。',
+    rate: '1 USDT = 100 積分', points: '積分', pointsUse: '積分可在 AeroNyx 內轉給朋友，或兌換會員。', enterCode: '積分要充入哪個 AeroNyx 帳戶？', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '繼續', invalidCode: '請輸入有效的 AeroNyx 會員碼。', reservedBundle: '已預留的積分包', reservedBundleNote: 'AeroNyx 已為本次一次性結帳鎖定這個積分包，無法在網頁中更改金額。', offerMismatch: '本次結帳與原始積分包不一致，請返回 AeroNyx 重新發起。',
   },
   ja: {
     ...en, membership: 'AeroNyx ポイント', title: 'USDTでポイントを購入', lede: 'ポイントパックと支払いネットワークを選択してください。独立したオンチェーン検証後にポイントが付与されます。',
@@ -251,7 +260,7 @@ const copyByLocale: Record<Locale, Copy> = {
     bscNotice: 'BNB Smart ChainではTetherネイティブUSDTではなくBinance-Peg BSC-USDを受け付けます。', exactWarning: '選択したネットワークで正確な金額を送ってください。誤送金は自動復旧できません。', clipboardError: 'クリップボードを利用できません。',
     stepTransfer: '送金', stepVerify: '検証', stepActivate: 'ポイント付与', transferClosed: '追加送金しないでください', transferClosedNote: 'AeroNyx が支払いを検証している間、受取情報はロックされます。', paymentCompleteNote: 'ポイントが AeroNyx に付与されました。友人への送付またはメンバーシップ交換に利用できます。', reviewTransferNote: '既存の送金を確認中です。この注文に追加送金しないでください。', instructionsClosedNote: 'この支払い注文は送金を受け付けていません。必要な場合は新しいポイント購入を開始してください。', confirmations: 'オンチェーン確認数',
     refreshDelayed: '最新ステータスの取得が遅れています。支払いセッションは安全に保持されています。', refreshNow: '状態を更新', refreshing: '更新中…', restoreFailed: '支払い状況を一時的に取得できません', restoreFailedNote: 'この端末に支払いセッションを保持しています。再送金せずに再試行してください。', backToDashboard: '完了', paymentSummary: '支払い概要',
-    rate: '1 USDT = 100 ポイント', points: 'ポイント', pointsUse: 'ポイントは AeroNyx で友人に送るか、メンバーシップに交換できます。', enterCode: 'どの AeroNyx アカウントにポイントを追加しますか？', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '続ける', invalidCode: '有効な AeroNyx メンバーシップコードを入力してください。',
+    rate: '1 USDT = 100 ポイント', points: 'ポイント', pointsUse: 'ポイントは AeroNyx で友人に送るか、メンバーシップに交換できます。', enterCode: 'どの AeroNyx アカウントにポイントを追加しますか？', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '続ける', invalidCode: '有効な AeroNyx メンバーシップコードを入力してください。', reservedBundle: '予約済みポイントパック', reservedBundleNote: 'この一回限りの決済には、このポイントパックが固定されています。ここでは金額を変更できません。', offerMismatch: '決済内容が元のポイントパックと一致しません。AeroNyx に戻ってやり直してください。',
   },
   ko: {
     ...en, membership: 'AeroNyx 포인트', title: 'USDT로 포인트 구매', lede: '포인트 패키지와 결제 네트워크를 선택하세요. 독립적인 온체인 검증 후 포인트가 적립됩니다.',
@@ -265,7 +274,7 @@ const copyByLocale: Record<Locale, Copy> = {
     exactWarning: '선택한 네트워크에서 정확한 금액을 보내세요. 잘못된 네트워크 송금은 자동 복구되지 않습니다.', clipboardError: '클립보드를 사용할 수 없습니다.',
     stepTransfer: '송금', stepVerify: '검증', stepActivate: '포인트 적립', transferClosed: '추가 송금하지 마세요', transferClosedNote: 'AeroNyx가 결제를 검증하는 동안 수신 정보가 잠깁니다.', paymentCompleteNote: '포인트가 AeroNyx에 적립되었습니다. 친구에게 보내거나 멤버십으로 교환할 수 있습니다.', reviewTransferNote: '기존 송금을 검토 중입니다. 이 주문에 다시 결제하지 마세요.', instructionsClosedNote: '이 결제 주문은 더 이상 송금을 받지 않습니다. 필요하면 새 포인트 구매를 시작하세요.', confirmations: '온체인 확인 수',
     refreshDelayed: '실시간 상태가 잠시 지연되고 있습니다. 결제 세션은 이 기기에 안전하게 보관됩니다.', refreshNow: '상태 새로고침', refreshing: '새로고침 중…', restoreFailed: '결제 상태를 일시적으로 불러올 수 없습니다', restoreFailedNote: '결제 세션을 이 기기에 보관했습니다. 다시 송금하지 말고 재시도하세요.', backToDashboard: '완료', paymentSummary: '결제 요약',
-    rate: '1 USDT = 100 포인트', points: '포인트', pointsUse: '포인트는 AeroNyx에서 친구에게 보내거나 멤버십으로 교환할 수 있습니다.', enterCode: '어느 AeroNyx 계정에 포인트를 추가할까요?', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '계속', invalidCode: '유효한 AeroNyx 멤버십 코드를 입력하세요.',
+    rate: '1 USDT = 100 포인트', points: '포인트', pointsUse: '포인트는 AeroNyx에서 친구에게 보내거나 멤버십으로 교환할 수 있습니다.', enterCode: '어느 AeroNyx 계정에 포인트를 추가할까요?', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '계속', invalidCode: '유효한 AeroNyx 멤버십 코드를 입력하세요.', reservedBundle: '예약된 포인트 패키지', reservedBundleNote: '이 일회성 결제에는 해당 포인트 패키지가 고정되어 있어 여기서 금액을 변경할 수 없습니다.', offerMismatch: '결제 내용이 원래 포인트 패키지와 일치하지 않습니다. AeroNyx로 돌아가 다시 시작하세요.',
   },
   ru: {
     ...en, membership: 'Баллы AeroNyx', title: 'Купить баллы за USDT', lede: 'Выберите пакет баллов и сеть. Баллы начисляются только после независимой проверки транзакции в блокчейне.',
@@ -279,7 +288,7 @@ const copyByLocale: Record<Locale, Copy> = {
     bscNotice: 'В BNB Smart Chain принимается Binance-Peg BSC-USD, а не нативный USDT от Tether.', exactWarning: 'Отправьте точную сумму в выбранной сети. Ошибочный перевод нельзя восстановить автоматически.', clipboardError: 'Буфер обмена недоступен.',
     stepTransfer: 'Перевод', stepVerify: 'Проверка', stepActivate: 'Начисление', transferClosed: 'Не отправляйте повторный перевод', transferClosedNote: 'Реквизиты заблокированы, пока AeroNyx проверяет платёж.', paymentCompleteNote: 'Баллы начислены в AeroNyx. Их можно перевести другу или обменять на подписку.', reviewTransferNote: 'Имеющийся перевод проходит проверку. Не оплачивайте этот заказ повторно.', instructionsClosedNote: 'Этот платёжный заказ больше не принимает переводы. При необходимости начните новую покупку баллов.', confirmations: 'Подтверждения в сети',
     refreshDelayed: 'Обновление статуса задерживается. Платёжная сессия безопасно сохранена.', refreshNow: 'Обновить статус', refreshing: 'Обновление…', restoreFailed: 'Статус платежа временно недоступен', restoreFailedNote: 'Платёжная сессия сохранена на устройстве. Повторите проверку и не отправляйте новый перевод.', backToDashboard: 'Готово', paymentSummary: 'Сводка платежа',
-    rate: '1 USDT = 100 баллов', points: 'баллов', pointsUse: 'Баллы можно перевести другу в AeroNyx или обменять на подписку.', enterCode: 'На какой аккаунт AeroNyx начислить баллы?', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: 'Продолжить', invalidCode: 'Введите действительный код участника AeroNyx.',
+    rate: '1 USDT = 100 баллов', points: 'баллов', pointsUse: 'Баллы можно перевести другу в AeroNyx или обменять на подписку.', enterCode: 'На какой аккаунт AeroNyx начислить баллы?', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: 'Продолжить', invalidCode: 'Введите действительный код участника AeroNyx.', reservedBundle: 'Зарезервированный пакет баллов', reservedBundleNote: 'Этот пакет закреплён за одноразовой оплатой AeroNyx. Изменить сумму на этой странице нельзя.', offerMismatch: 'Параметры оплаты не совпадают с исходным пакетом баллов. Вернитесь в AeroNyx и начните заново.',
   },
 };
 
@@ -321,6 +330,30 @@ function pointsForUsd(amount: string): number {
 
 function formatPoints(value: number, locale: Locale): string {
   return new Intl.NumberFormat(locale).format(value);
+}
+
+// [USDT-CHECKOUT-OFFER-BINDING 2026-08-25 by Codex] App-issued TOP-NYX
+// capabilities are narrowed by the backend to exactly one immutable offer.
+// Keep this public-page guard local so the approved deployment surface remains
+// one file while zero/multiple plans still fail closed instead of being guessed.
+function resolveCheckoutPlanSelection(checkout: CheckoutSummary) {
+  const plans = checkout.plans.filter((plan) => plan.id.trim().length > 0);
+  if (checkout.code_type === 'one_time') {
+    return plans.length === 1 ? { plan: plans[0], locked: true } : null;
+  }
+  return plans.length > 0 ? { plan: plans[0], locked: false } : null;
+}
+
+function isCheckoutPlanSelectionAllowed(
+  checkout: CheckoutSummary,
+  rawPlan: string,
+): boolean {
+  const plan = rawPlan.trim();
+  if (!plan) return false;
+  if (checkout.code_type === 'one_time') {
+    return resolveCheckoutPlanSelection(checkout)?.plan.id === plan;
+  }
+  return checkout.plans.some((candidate) => candidate.id === plan);
 }
 
 export default function TopUpPage() {
@@ -391,11 +424,17 @@ export default function TopUpPage() {
         // [USDT-TOPUP-BINDING 2026-08-09 by Codex] Clear any rendered intent
         // before restoring. A payment token is valid only with the exact code
         // that created it, even when another checkout opens in the same tab.
+        const initialPlan = resolveCheckoutPlanSelection(summary);
+        if (!initialPlan) {
+          setCheckout(null);
+          setError(text.offerMismatch);
+          return;
+        }
         setPayment(null);
         setClientToken('');
         setPendingPaymentId('');
         setCheckout(summary);
-        setSelectedPlan(summary.plans[0]?.id || '');
+        setSelectedPlan(initialPlan.plan.id);
         setSelectedNetwork(summary.networks.find((item) => item.available)?.id || '');
         const saved = readMembershipPaymentSession(code);
         if (saved) {
@@ -438,7 +477,7 @@ export default function TopUpPage() {
       cancelled = true;
       requestController.abort();
     };
-  }, [code, refreshPayment]);
+  }, [code, refreshPayment, text.offerMismatch]);
 
   useEffect(() => {
     if (!payment || !clientToken || !code || !shouldPollPayment(payment, now)) return;
@@ -538,6 +577,11 @@ export default function TopUpPage() {
     () => checkout?.networks.find((item) => item.id === selectedNetwork),
     [checkout, selectedNetwork],
   );
+  const checkoutPlanSelection = useMemo(
+    () => checkout ? resolveCheckoutPlanSelection(checkout) : null,
+    [checkout],
+  );
+  const planLocked = checkoutPlanSelection?.locked ?? false;
   const selectedPoints = selectedPlanData
     ? pointsForUsd(selectedPlanData.amount_usd)
     : 0;
@@ -560,7 +604,11 @@ export default function TopUpPage() {
   }
 
   async function startPayment() {
-    if (!code || !selectedPlan || !selectedNetwork) return;
+    if (!code || !checkout || !selectedNetwork) return;
+    if (!isCheckoutPlanSelectionAllowed(checkout, selectedPlan)) {
+      setError(text.offerMismatch);
+      return;
+    }
     setCreating(true);
     setError('');
     try {
@@ -776,15 +824,30 @@ export default function TopUpPage() {
             <div className="space-y-10">
               <section>
                 <div className="mb-4 flex items-center justify-between gap-4">
-                  <h2 className="text-lg font-semibold">{text.choosePlan}</h2>
+                  <h2 className="text-lg font-semibold">{planLocked ? text.reservedBundle : text.choosePlan}</h2>
                   <span className="text-xs text-emerald-300">{text.verifiedCheckout}</span>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {checkout.plans.map((plan) => {
+                {planLocked && selectedPlanData ? (
+                  <div className="rounded-lg border border-emerald-400/45 bg-emerald-400/[0.08] p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-2xl font-semibold tabular-nums">{formatPoints(selectedPoints, locale)}</div>
+                        <div className="mt-1 text-sm text-zinc-400">{text.points}</div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-lg font-semibold tabular-nums">{selectedPlanData.amount_usd} USDT</span>
+                        <div className="mt-1 text-xs text-emerald-300">{text.verifiedCheckout}</div>
+                      </div>
+                    </div>
+                    <p className="mt-4 border-t border-emerald-300/15 pt-4 text-xs leading-5 text-zinc-400">{text.reservedBundleNote}</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {checkout.plans.map((plan) => {
                     const active = selectedPlan === plan.id;
                     const bundlePoints = pointsForUsd(plan.amount_usd);
                     return (
-                      <button key={plan.id} onClick={() => setSelectedPlan(plan.id)} aria-pressed={active}
+                      <button type="button" key={plan.id} onClick={() => setSelectedPlan(plan.id)} aria-pressed={active}
                         className={`min-h-32 rounded-lg border p-5 text-left transition ${active ? 'border-emerald-400 bg-emerald-400/10' : 'border-white/10 bg-white/[0.025] hover:border-white/25'}`}>
                         <div className="flex h-full items-start justify-between gap-4">
                           <div>
@@ -798,8 +861,9 @@ export default function TopUpPage() {
                         </div>
                       </button>
                     );
-                  })}
-                </div>
+                    })}
+                  </div>
+                )}
                 <p className="mt-3 text-xs leading-5 text-zinc-500">{text.pointsUse}</p>
               </section>
 
