@@ -222,7 +222,17 @@ export default function MeetingLinkView({ code }: Props) {
   }, []);
 
   return (
-    <main className="mx-auto flex min-h-[100dvh] w-full max-w-xl flex-col px-5 py-8 sm:px-8 sm:py-12">
+    // [MEETING-ROOM-WIDTH 2026-09-17 by Claude] The landing card and the
+    // meeting shared one width, and the card's width won. On a 1280px screen
+    // that left the room 576px wide with a 470x264 video tile -- a postage
+    // stamp, on the one platform where joining from a browser is the normal
+    // thing to do. A short message wants a narrow measure; a video call wants
+    // the screen. They are not the same page any more once you are in.
+    <main
+      className={`mx-auto flex min-h-[100dvh] w-full flex-col px-5 py-8 sm:px-8 sm:py-12 ${
+        inRoom ? 'max-w-5xl' : 'max-w-xl'
+      }`}
+    >
       <header className="flex items-center justify-between border-b border-white/10 pb-5">
         <Logo className="h-8 w-8" />
         <span className="text-xs font-semibold uppercase text-white/45">
@@ -355,7 +365,10 @@ export default function MeetingLinkView({ code }: Props) {
           </a>
         </div>
 
-        <p className="mt-5 text-center text-xs leading-5 text-white/40">
+        {/* Keeps its measure when the room widens around it: one sentence
+            stretched across 1024px is a worse read than the same sentence in
+            two comfortable lines. */}
+        <p className="mx-auto mt-5 max-w-xl text-center text-xs leading-5 text-white/40">
           {text.trust}
         </p>
       </section>
