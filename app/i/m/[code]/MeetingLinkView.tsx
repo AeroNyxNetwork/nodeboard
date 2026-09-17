@@ -229,8 +229,8 @@ export default function MeetingLinkView({ code }: Props) {
     // thing to do. A short message wants a narrow measure; a video call wants
     // the screen. They are not the same page any more once you are in.
     <main
-      className={`mx-auto flex min-h-[100dvh] w-full flex-col px-5 py-8 sm:px-8 sm:py-12 ${
-        inRoom ? 'max-w-5xl' : 'max-w-xl'
+      className={`mx-auto flex min-h-[100dvh] w-full flex-col px-5 sm:px-8 ${
+        inRoom ? 'max-w-5xl py-4 sm:py-6' : 'max-w-xl py-8 sm:py-12'
       }`}
     >
       <header className="flex items-center justify-between border-b border-white/10 pb-5">
@@ -240,7 +240,17 @@ export default function MeetingLinkView({ code }: Props) {
         </span>
       </header>
 
-      <section className="flex flex-1 flex-col justify-center py-10">
+      {/* [ROOM-FOLD 2026-09-17 by Claude] Centred with generous padding is
+          right for a short card and wrong for a working surface. Measured on
+          1280x860 with the room open: the Leave button's bottom edge sat at
+          889px -- 29 past the fold, so the control you need to get out of a
+          meeting was the one you had to scroll for. The room starts at the
+          top and spends less on padding; the landing card keeps both. */}
+      <section
+        className={`flex flex-1 flex-col ${
+          inRoom ? 'justify-start py-4' : 'justify-center py-10'
+        }`}
+      >
         <div className="overflow-hidden rounded-lg border border-white/10 bg-[#14141D]">
           {/* [MEETING-HEADER-STATE 2026-09-17 by Claude] Once you are in, this
               card stopped being an invitation. It used to keep saying "Join
