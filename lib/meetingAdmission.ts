@@ -30,6 +30,10 @@ export type AdmissionOutcome =
   | { status: 'rejected' }
   | { status: 'timeout' }
   | { status: 'unreachable' }
+  // The relay answered, and the answer was no such meeting -- ended, expired,
+  // or a code that was never minted. Distinct from every other failure
+  // because it is the only one where trying again cannot help.
+  | { status: 'notFound' }
   // The guest stopped waiting. Distinct from 'timeout' on purpose: nobody
   // failed to answer, so telling this person "nobody answered" would be a
   // report about the host that is not true.
@@ -46,6 +50,28 @@ type AdmissionFrame = {
   request_id?: string;
   meeting_code?: string;
 };
+
+type RelayErrorFrame = { reason?: string };
+
+/**
+ * The relay's refusals for a waiting-room request, from
+ * relay/consumers._handle_meeting_admission.
+ *
+ * Only these end the wait. The socket carries other traffic, and aborting a
+ * legitimate wait on an error about something else would be worse than
+ * ignoring one about this.
+ */
+const ADMISSION_ERRORS = new Set([
+  'meeting_not_found',
+  'meeting_lookup_failed',
+  'missing_admission_scope',
+  'missing_request_id',
+  'admission_route_failed',
+  'not_a_member',
+  // The pre-2026-09-17 server had no handler at all and answered every knock
+  // with this. Anyone still talking to one should hear so immediately.
+  'missing_receiver_pubkey',
+]);
 
 export type AdmissionRequest = {
   /** Resolves exactly once, with one of the four outcomes. */
@@ -121,6 +147,14 @@ export function requestAdmission(options: {
   relay.on('closed', () => {
     // Only meaningful while still waiting; finish() closes the socket itself.
     if (settle) finish({ status: 'unreachable' });
+  });
+
+  relay.on('relayerror', (data) => {
+    const reason = ((data ?? {}) as RelayErrorFrame).reason ?? '';
+    if (!ADMISSION_ERRORS.has(reason)) return;
+    finish({
+      status: reason === 'meeting_not_found' ? 'notFound' : 'unreachable',
+    });
   });
 
   relay.on('meetingadmission', (data) => {

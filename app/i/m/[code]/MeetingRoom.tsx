@@ -90,6 +90,10 @@ export default function MeetingRoom({
 }: Props) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [error, setError] = useState<string>('');
+  // A meeting that does not exist will not exist on the next try either, and
+  // offering Ask again there is an invitation to keep pressing a button that
+  // cannot work.
+  const [retryable, setRetryable] = useState(true);
   const [micOn, setMicOn] = useState(true);
   const [cameraOn, setCameraOn] = useState(true);
   const [peers, setPeers] = useState<RemoteParticipant[]>([]);
@@ -115,6 +119,7 @@ export default function MeetingRoom({
 
   const join = useCallback(async () => {
     setError('');
+    setRetryable(true);
 
     let room: Room | null = null;
     try {
@@ -152,8 +157,11 @@ export default function MeetingRoom({
             ? labels.rejected
             : verdict.status === 'timeout'
               ? labels.timedOut
-              : labels.failed,
+              : verdict.status === 'notFound'
+                ? labels.notFound
+                : labels.failed,
         );
+        setRetryable(verdict.status !== 'notFound');
         return;
       }
 
@@ -232,9 +240,9 @@ export default function MeetingRoom({
       roomRef.current = null;
       setPhase('failed');
       if (err instanceof MeetingTokenError) {
-        setError(
-          err.code === 'meeting_not_found' ? labels.notFound : labels.failed,
-        );
+        const gone = err.code === 'meeting_not_found';
+        setError(gone ? labels.notFound : labels.failed);
+        setRetryable(!gone);
       } else if (String(err).toLowerCase().includes('e2ee')) {
         setError(labels.noE2EE);
       } else {
@@ -282,10 +290,18 @@ export default function MeetingRoom({
     return (
       <div className="mt-5 rounded-lg border border-white/10 bg-[#14141D] p-5 sm:p-6">
         <p className="text-sm leading-6 text-white/70">{error}</p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <button type="button" onClick={() => void join()} className={PRIMARY}>
-            {labels.retry}
-          </button>
+        <div
+          className={`mt-4 grid gap-3${retryable ? ' sm:grid-cols-2' : ''}`}
+        >
+          {retryable ? (
+            <button
+              type="button"
+              onClick={() => void join()}
+              className={PRIMARY}
+            >
+              {labels.retry}
+            </button>
+          ) : null}
           <button type="button" onClick={leave} className={SECONDARY}>
             {labels.back}
           </button>

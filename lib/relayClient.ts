@@ -35,7 +35,13 @@ export type RelayEvent =
   // [MEETING-WEB-GUEST 2026-09-17 by Claude] The host's answer to a waiting
   // -room request. Without a case for these the default arm below swallows
   // them, and a guest waits forever for a decision that already arrived.
-  | 'meetingadmission';
+  | 'meetingadmission'
+  // [MEETING-WEB-GUEST 2026-09-17 by Claude] The relay's own refusals
+  // ({type:'error', reason}). These were falling into the default arm too, so
+  // a guest whose meeting did not exist was told nothing and waited out the
+  // full two-minute window for an answer the server had already given in
+  // milliseconds.
+  | 'relayerror';
 
 export class RelayClient {
   private ws: WebSocket | null = null;
@@ -173,6 +179,9 @@ export class RelayClient {
         break;
       // *_ack frames (message_reaction_ack / message_receipt_ack / message_read_ack)
       // are server acknowledgements that don't change UI state — ignore them.
+      case 'error':
+        this.emit('relayerror', f);
+        break;
       default:
         break;
     }
