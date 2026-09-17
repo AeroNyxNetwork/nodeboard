@@ -670,7 +670,13 @@ async function verificationEmoji(key: Uint8Array): Promise<string[]> {
 /// a hard stop at three columns because a tile narrower than that on a phone
 /// is a thumbnail of a face nobody can read.
 function gridColumns(count: number): string {
-  if (count <= 1) return 'grid-cols-1';
+  // [SOLO-TILE 2026-09-17 by Claude] One tile does not want the whole room.
+  // Once the container widened for desktop, a lone participant got a
+  // 918x516 tile -- mostly empty, and tall enough to push the controls below
+  // the fold on an 860px window. Capping the single-tile case keeps your own
+  // face a reasonable size and the buttons where you can reach them; the
+  // moment somebody else joins, the grid takes the width it now has.
+  if (count <= 1) return 'grid-cols-1 mx-auto w-full max-w-2xl';
   if (count <= 2) return 'grid-cols-1 sm:grid-cols-2';
   if (count <= 4) return 'grid-cols-2';
   return 'grid-cols-2 sm:grid-cols-3';
