@@ -100,6 +100,9 @@ type Props = {
     noE2EE: string;
   };
   onLeave: () => void;
+  /// [KNOCK-TITLE 2026-09-17 by Claude] The card above needs to know: while
+  /// this is knocking, "You're in this meeting" is not true yet.
+  onPhaseChange?: (joined: boolean) => void;
 };
 
 export default function MeetingRoom({
@@ -108,6 +111,7 @@ export default function MeetingRoom({
   displayName,
   labels,
   onLeave,
+  onPhaseChange,
 }: Props) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [error, setError] = useState<string>('');
@@ -155,6 +159,10 @@ export default function MeetingRoom({
   }, []);
 
   useEffect(() => () => teardown(), [teardown]);
+
+  useEffect(() => {
+    onPhaseChange?.(phase === 'joined');
+  }, [phase, onPhaseChange]);
 
   const join = useCallback(async () => {
     setError('');

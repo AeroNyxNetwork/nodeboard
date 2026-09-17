@@ -162,6 +162,9 @@ export default function MeetingLinkView({ code }: Props) {
   // [MEETING-WEB-GUEST 2026-09-17 by Claude] Joining here is opt-in, never
   // automatic: landing on a page must not switch a stranger's microphone on.
   const [inRoom, setInRoom] = useState(false);
+  // Mounted is not the same as joined: the knock happens inside the room
+  // component, and during it the person is still outside.
+  const [joined, setJoined] = useState(false);
   // [COPY-STATE 2026-09-17 by Claude] Three states, not two. The first
   // version set this back to false when writeText threw, which is the same
   // thing it shows before you press it -- so a refused clipboard looked
@@ -277,13 +280,13 @@ export default function MeetingLinkView({ code }: Props) {
               of it. In the room it says where you are, and the pitch goes. */}
           <div className="p-5 sm:p-6">
             <h1 className="break-words text-xl font-semibold leading-7 text-white">
-              {inRoom
+              {joined
                 ? text.inRoomTitle
                 : !resolved || hasKey
                   ? text.title
                   : text.noKeyTitle}
             </h1>
-            {inRoom ? null : (
+            {joined ? null : (
               <p className="mt-1 text-sm text-white/50">
                 {!resolved || hasKey ? text.body : text.noKeyBody}
               </p>
@@ -298,7 +301,7 @@ export default function MeetingLinkView({ code }: Props) {
                 row: the link that gets somebody else in. The whole link,
                 fragment included -- a copy without the key is a code for a
                 room the other person cannot hear. */}
-            {inRoom && hasKey ? (
+            {joined && hasKey ? (
               <button
                 type="button"
                 onClick={copyLink}
@@ -355,7 +358,11 @@ export default function MeetingLinkView({ code }: Props) {
               notFound: text.notFound,
               noE2EE: text.noE2EE,
             }}
-            onLeave={() => setInRoom(false)}
+            onPhaseChange={setJoined}
+            onLeave={() => {
+              setJoined(false);
+              setInRoom(false);
+            }}
           />
         ) : null}
 
