@@ -54,7 +54,10 @@ const copy = {
     noKeyTitle: 'This link is missing its key',
     noKeyBody:
       'The part after the # was dropped on the way here — some apps and link previews do that. Ask whoever sent it to send the whole link again.',
-    joinHere: 'Ask to join',
+    // [MEETING-QUICK-ACCESS 2026-09-17 by Claude] Not "Ask to join": with
+    // quick access on this walks straight in, and the page cannot know
+    // which until the server answers. One honest word covers both.
+    joinHere: 'Join',
     knocking: 'Waiting for the host to let you in…',
     cancelKnock: 'Stop waiting',
     rejected: 'The host did not let you in.',
@@ -86,7 +89,7 @@ const copy = {
     noKeyTitle: '這條連結少了鑰匙',
     noKeyBody:
       '# 後面那一段在路上被丟掉了——有些 App 和連結預覽會這樣。請對方把完整連結重新發一次。',
-    joinHere: '請求加入',
+    joinHere: '加入',
     knocking: '等主持人放你進來…',
     cancelKnock: '不等了',
     rejected: '主持人沒有讓你進來。',

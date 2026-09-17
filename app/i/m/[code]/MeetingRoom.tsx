@@ -19,15 +19,23 @@
  * participants would still be encrypting, so the guest would hear nothing
  * anyway and blame their microphone.
  *
- * THE WAITING ROOM COMES FIRST. The guest knocks over the relay and only asks
- * for a token once the host has admitted it -- see lib/meetingAdmission.ts. A
- * token would open the room on its own, which is exactly why the knock cannot
- * be a formality run alongside it: the host's control over who is in the
- * meeting has to be the thing that gates entry, not a button beside it.
+ * THE SERVER DECIDES WHETHER THERE IS A WAITING ROOM, not this page.
  *
- * And the knock is cancellable. Every way out of the waiting state -- the
- * Cancel button, leaving the page, the component unmounting -- withdraws the
- * request, so a host is never left looking at somebody who already left.
+ * A meeting has a host setting -- quick access, the same idea as Google Meet's
+ * -- and the token endpoint enforces it. So the flow here is: ask for a token,
+ * and only if the server answers 'admission_required' do we knock and ask
+ * again. That ordering is what lets one page serve both meetings without
+ * knowing the setting in advance, and there is no endpoint that would tell us:
+ * a public "is this meeting open" answer would answer for every code a prober
+ * cared to try.
+ *
+ * It also means the lobby is real. Before the server enforced it, knocking was
+ * this page being polite -- a client that skipped the knock was handed the room
+ * anyway, so the host's Admit button governed only guests who chose to ask.
+ *
+ * The knock is cancellable. Every way out of the waiting state -- the button,
+ * leaving the page, the component unmounting -- withdraws the request, so a
+ * host is never left looking at somebody who already left.
  * ============================================================================
  */
 
@@ -132,40 +140,60 @@ export default function MeetingRoom({
       //
       // Same identity throughout: the decision is addressed to the key that
       // knocked, so a second keypair for the token would be a stranger.
-      setPhase('knocking');
-      const knock = requestAdmission({
-        seedHex: identity.seedHex,
-        meetingCode: code,
-        displayName,
-        requestId: newAdmissionRequestId(code),
-      });
-      knockRef.current = knock;
-      const verdict = await knock.outcome;
-      knockRef.current = null;
-
-      if (verdict.status === 'cancelled') {
-        // Their own doing. Showing an error for something the person just
-        // asked for reads as a malfunction.
-        setPhase('idle');
-        onLeave();
-        return;
-      }
-      if (verdict.status !== 'admitted') {
-        setPhase('failed');
-        setError(
-          verdict.status === 'rejected'
-            ? labels.rejected
-            : verdict.status === 'timeout'
-              ? labels.timedOut
-              : verdict.status === 'notFound'
-                ? labels.notFound
-                : labels.failed,
-        );
-        setRetryable(verdict.status !== 'notFound');
-        return;
-      }
-
       setPhase('joining');
+      let token = await requestMeetingToken(identity, code, {
+        withVideo: true,
+      }).catch((err: unknown) => {
+        if (
+          err instanceof MeetingTokenError &&
+          err.code === 'admission_required'
+        ) {
+          return null; // this host keeps a waiting room; knock below
+        }
+        throw err;
+      });
+
+      if (token === null) {
+        setPhase('knocking');
+        const knock = requestAdmission({
+          // Same identity throughout: the host's decision is addressed to the
+          // key that knocked, and the server records THAT key as admitted, so
+          // a second keypair for the token would be a stranger again.
+          seedHex: identity.seedHex,
+          meetingCode: code,
+          displayName,
+          requestId: newAdmissionRequestId(code),
+        });
+        knockRef.current = knock;
+        const verdict = await knock.outcome;
+        knockRef.current = null;
+
+        if (verdict.status === 'cancelled') {
+          // Their own doing. Showing an error for something the person just
+          // asked for reads as a malfunction.
+          setPhase('idle');
+          onLeave();
+          return;
+        }
+        if (verdict.status !== 'admitted') {
+          setPhase('failed');
+          setError(
+            verdict.status === 'rejected'
+              ? labels.rejected
+              : verdict.status === 'timeout'
+                ? labels.timedOut
+                : verdict.status === 'notFound'
+                  ? labels.notFound
+                  : labels.failed,
+          );
+          setRetryable(verdict.status !== 'notFound');
+          return;
+        }
+
+        setPhase('joining');
+        token = await requestMeetingToken(identity, code, { withVideo: true });
+      }
+
       // The key provider has to exist before the Room, because E2EE is a
       // constructor option: there is no "turn it on later" that covers the
       // tracks published during connect.
@@ -186,10 +214,6 @@ export default function MeetingRoom({
       });
 
       await room.setE2EEEnabled(true);
-
-      const token = await requestMeetingToken(identity, code, {
-        withVideo: true,
-      });
 
       room
         .on(RoomEvent.ParticipantConnected, () =>
