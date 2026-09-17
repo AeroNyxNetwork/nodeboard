@@ -37,6 +37,10 @@ const TOKEN_TIMEOUT_MS = 10_000;
 
 export type GuestIdentity = {
   seed: Uint8Array;
+  /** The same seed as hex, because RelayClient takes it that way. The relay
+   *  identity and the LiveKit identity MUST be one key: the host's admission
+   *  is addressed to the public key that knocked. */
+  seedHex: string;
   publicKeyHex: string;
 };
 
@@ -48,9 +52,16 @@ export type MeetingToken = {
 
 const utf8 = (s: string) => new TextEncoder().encode(s);
 
+// No BigInt, matching lib/relayClient.ts, which avoids it deliberately: this
+// project's tsconfig targets below ES2020. A unix-seconds timestamp is far
+// inside Number.MAX_SAFE_INTEGER, so the plain arithmetic is exact.
 const u64LE = (n: number) => {
   const out = new Uint8Array(8);
-  new DataView(out.buffer).setBigUint64(0, BigInt(n), true);
+  let rest = n;
+  for (let i = 0; i < 8; i++) {
+    out[i] = rest % 256;
+    rest = Math.floor(rest / 256);
+  }
   return out;
 };
 
@@ -70,7 +81,11 @@ const toHex = (bytes: Uint8Array) =>
 /** A keypair for this visit and no longer. */
 export function createGuestIdentity(): GuestIdentity {
   const seed = ed25519.utils.randomPrivateKey();
-  return { seed, publicKeyHex: toHex(ed25519.getPublicKey(seed)) };
+  return {
+    seed,
+    seedHex: toHex(seed),
+    publicKeyHex: toHex(ed25519.getPublicKey(seed)),
+  };
 }
 
 /** The relay's auth signature over a timestamp, as relayClient.authFrame does. */

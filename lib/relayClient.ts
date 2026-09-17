@@ -31,7 +31,11 @@ export type RelayEvent =
   | 'typing' // inbound typing indicator
   | 'presence' // inbound presence_update / presence_subscribe_ack
   | 'groupreaction' // inbound group_message_reaction
-  | 'grouptyping'; // inbound group_typing
+  | 'grouptyping' // inbound group_typing
+  // [MEETING-WEB-GUEST 2026-09-17 by Claude] The host's answer to a waiting
+  // -room request. Without a case for these the default arm below swallows
+  // them, and a guest waits forever for a decision that already arrived.
+  | 'meetingadmission';
 
 export class RelayClient {
   private ws: WebSocket | null = null;
@@ -162,6 +166,10 @@ export class RelayClient {
         break;
       case 'group_typing':
         this.emit('grouptyping', f);
+        break;
+      case 'group_meeting_admission_admit':
+      case 'group_meeting_admission_reject':
+        this.emit('meetingadmission', f);
         break;
       // *_ack frames (message_reaction_ack / message_receipt_ack / message_read_ack)
       // are server acknowledgements that don't change UI state — ignore them.

@@ -19,10 +19,15 @@
  * participants would still be encrypting, so the guest would hear nothing
  * anyway and blame their microphone.
  *
- * What this deliberately does not do yet: the waiting room. An app host admits
- * people over the relay WS, and a guest that cannot be admitted simply joins
- * the room it already has a token for. Wiring the guest into that handshake is
- * the next piece; until then a guest reaches the room as any token holder does.
+ * THE WAITING ROOM COMES FIRST. The guest knocks over the relay and only asks
+ * for a token once the host has admitted it -- see lib/meetingAdmission.ts. A
+ * token would open the room on its own, which is exactly why the knock cannot
+ * be a formality run alongside it: the host's control over who is in the
+ * meeting has to be the thing that gates entry, not a button beside it.
+ *
+ * And the knock is cancellable. Every way out of the waiting state -- the
+ * Cancel button, leaving the page, the component unmounting -- withdraws the
+ * request, so a host is never left looking at somebody who already left.
  * ============================================================================
  */
 
@@ -42,14 +47,25 @@ import {
   requestMeetingToken,
   MeetingTokenError,
 } from '@/lib/meetingGuest';
+import {
+  newAdmissionRequestId,
+  requestAdmission,
+  type AdmissionRequest,
+} from '@/lib/meetingAdmission';
 
-type Phase = 'idle' | 'joining' | 'joined' | 'failed';
+type Phase = 'idle' | 'knocking' | 'joining' | 'joined' | 'failed';
 
 type Props = {
   code: string;
   e2eeKey: Uint8Array;
   displayName: string;
   labels: {
+    knocking: string;
+    rejected: string;
+    timedOut: string;
+    cancelKnock: string;
+    retry: string;
+    back: string;
     joining: string;
     leave: string;
     mic: string;
@@ -78,10 +94,18 @@ export default function MeetingRoom({
   const [cameraOn, setCameraOn] = useState(true);
   const [peers, setPeers] = useState<RemoteParticipant[]>([]);
   const roomRef = useRef<Room | null>(null);
+  const knockRef = useRef<AdmissionRequest | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteWrapRef = useRef<HTMLDivElement | null>(null);
 
   const teardown = useCallback(() => {
+    // A knock outlives this component unless it is withdrawn: the relay socket
+    // stays open for the full two-minute window and the host keeps seeing a
+    // request from a browser that has already gone.
+    const knock = knockRef.current;
+    knockRef.current = null;
+    knock?.cancel();
+
     const room = roomRef.current;
     roomRef.current = null;
     if (room) void room.disconnect();
@@ -90,11 +114,50 @@ export default function MeetingRoom({
   useEffect(() => () => teardown(), [teardown]);
 
   const join = useCallback(async () => {
-    setPhase('joining');
     setError('');
 
     let room: Room | null = null;
     try {
+      const identity = createGuestIdentity();
+
+      // [MEETING-WEB-GUEST 2026-09-17 by Claude] Knock before entering. The
+      // token would let this browser open the room on its own, which is
+      // exactly why the waiting room has to come first — otherwise the host's
+      // control over who is in their meeting is a button that does nothing.
+      //
+      // Same identity throughout: the decision is addressed to the key that
+      // knocked, so a second keypair for the token would be a stranger.
+      setPhase('knocking');
+      const knock = requestAdmission({
+        seedHex: identity.seedHex,
+        meetingCode: code,
+        displayName,
+        requestId: newAdmissionRequestId(code),
+      });
+      knockRef.current = knock;
+      const verdict = await knock.outcome;
+      knockRef.current = null;
+
+      if (verdict.status === 'cancelled') {
+        // Their own doing. Showing an error for something the person just
+        // asked for reads as a malfunction.
+        setPhase('idle');
+        onLeave();
+        return;
+      }
+      if (verdict.status !== 'admitted') {
+        setPhase('failed');
+        setError(
+          verdict.status === 'rejected'
+            ? labels.rejected
+            : verdict.status === 'timeout'
+              ? labels.timedOut
+              : labels.failed,
+        );
+        return;
+      }
+
+      setPhase('joining');
       // The key provider has to exist before the Room, because E2EE is a
       // constructor option: there is no "turn it on later" that covers the
       // tracks published during connect.
@@ -116,7 +179,6 @@ export default function MeetingRoom({
 
       await room.setE2EEEnabled(true);
 
-      const identity = createGuestIdentity();
       const token = await requestMeetingToken(identity, code, {
         withVideo: true,
       });
@@ -210,16 +272,58 @@ export default function MeetingRoom({
     onLeave();
   };
 
+  // [MEETING-WEB-GUEST 2026-09-17 by Claude] The failure card used to be one
+  // line of text with nothing under it, while the text itself said "try again,
+  // or open it in the app". Neither was possible: the link view hides its join
+  // button for as long as this component is mounted, and nothing here ever
+  // unmounted it. A guest whose host was slow to answer had to know to reload
+  // the page. Copy that names an action has to be given the action.
   if (phase === 'failed') {
     return (
-      <div className="rounded-lg border border-white/10 bg-[#14141D] p-5 sm:p-6">
-        <p className="text-sm text-white/70">{error}</p>
+      <div className="mt-5 rounded-lg border border-white/10 bg-[#14141D] p-5 sm:p-6">
+        <p className="text-sm leading-6 text-white/70">{error}</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <button type="button" onClick={() => void join()} className={PRIMARY}>
+            {labels.retry}
+          </button>
+          <button type="button" onClick={leave} className={SECONDARY}>
+            {labels.back}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Waiting is its own screen, not the room with the lights off. The room
+  // chassis carries a mic, a camera and a leave button, and until the host
+  // answers there is no Room for any of them to act on -- they were three
+  // controls that silently did nothing, next to a black rectangle that looked
+  // like a camera that had failed.
+  if (phase === 'knocking') {
+    return (
+      <div className="mt-5 rounded-lg border border-white/10 bg-[#14141D] p-5 sm:p-6">
+        <div className="flex items-center gap-3">
+          <span
+            aria-hidden="true"
+            className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[#9B8CFF] motion-reduce:animate-none"
+          />
+          <p className="text-sm leading-6 text-white/70" role="status">
+            {labels.knocking}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={leave}
+          className={`${SECONDARY} mt-4 w-full`}
+        >
+          {labels.cancelKnock}
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-white/10 bg-[#14141D] p-4 sm:p-5">
+    <div className="mt-5 rounded-lg border border-white/10 bg-[#14141D] p-4 sm:p-5">
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="relative aspect-video overflow-hidden rounded-lg bg-black/60">
           <video
@@ -243,7 +347,7 @@ export default function MeetingRoom({
         <p className="mt-3 text-center text-xs text-white/40">{labels.alone}</p>
       ) : null}
       {phase === 'joining' ? (
-        <p className="mt-3 text-center text-xs text-white/40">
+        <p className="mt-3 text-center text-xs text-white/40" role="status">
           {labels.joining}
         </p>
       ) : null}
@@ -274,6 +378,18 @@ export default function MeetingRoom({
     </div>
   );
 }
+
+const PRIMARY =
+  'flex h-12 items-center justify-center rounded-lg bg-[#7762F3] px-5 text-sm ' +
+  'font-semibold text-white transition-colors hover:bg-[#8877FF] ' +
+  'focus:outline-none focus:ring-2 focus:ring-[#9B8CFF] focus:ring-offset-2 ' +
+  'focus:ring-offset-[#0A0A0F]';
+
+const SECONDARY =
+  'flex h-12 items-center justify-center rounded-lg border border-white/15 ' +
+  'px-5 text-sm font-semibold text-white/85 transition-colors ' +
+  'hover:border-white/30 hover:bg-white/5 focus:outline-none focus:ring-2 ' +
+  'focus:ring-white/40 focus:ring-offset-2 focus:ring-offset-[#0A0A0F]';
 
 function attachLocalVideo(
   participant: LocalParticipant,

@@ -54,7 +54,13 @@ const copy = {
     noKeyTitle: 'This link is missing its key',
     noKeyBody:
       'The part after the # was dropped on the way here — some apps and link previews do that. Ask whoever sent it to send the whole link again.',
-    joinHere: 'Join from this browser',
+    joinHere: 'Ask to join',
+    knocking: 'Waiting for the host to let you in…',
+    cancelKnock: 'Stop waiting',
+    rejected: 'The host did not let you in.',
+    timedOut: 'Nobody answered. The host may not be in the meeting yet.',
+    retry: 'Ask again',
+    back: 'Back',
     joining: 'Connecting…',
     leave: 'Leave',
     mic: 'Mute',
@@ -63,7 +69,7 @@ const copy = {
     cameraOff: 'Camera on',
     you: 'you',
     alone: 'Waiting for someone else to join.',
-    failed: 'Could not join the meeting. Try again, or open it in the app.',
+    failed: 'Could not reach the meeting. Ask again, or open it in the app.',
     notFound: 'This meeting has ended, or the link has expired.',
     noE2EE:
       'This browser cannot set up end-to-end encryption, so joining here would not be private. Open the meeting in the AeroNyx app instead.',
@@ -80,7 +86,13 @@ const copy = {
     noKeyTitle: '這條連結少了鑰匙',
     noKeyBody:
       '# 後面那一段在路上被丟掉了——有些 App 和連結預覽會這樣。請對方把完整連結重新發一次。',
-    joinHere: '直接在瀏覽器加入',
+    joinHere: '請求加入',
+    knocking: '等主持人放你進來…',
+    cancelKnock: '不等了',
+    rejected: '主持人沒有讓你進來。',
+    timedOut: '沒有人回應。主持人可能還沒進會議。',
+    retry: '再請求一次',
+    back: '返回',
     joining: '連線中…',
     leave: '離開',
     mic: '靜音',
@@ -89,7 +101,7 @@ const copy = {
     cameraOff: '開啟鏡頭',
     you: '你',
     alone: '等其他人進來。',
-    failed: '無法加入這場會議。請重試，或改用 App 開啟。',
+    failed: '連不上這場會議。再請求一次，或改用 App 開啟。',
     notFound: '這場會議已結束，或連結已過期。',
     noE2EE:
       '這個瀏覽器無法建立端對端加密，在這裡加入不會是私密的。請改用 AeroNyx App 開啟。',
@@ -181,6 +193,12 @@ export default function MeetingLinkView({ code }: Props) {
             e2eeKey={roomKey}
             displayName={text.guest}
             labels={{
+              knocking: text.knocking,
+              cancelKnock: text.cancelKnock,
+              rejected: text.rejected,
+              timedOut: text.timedOut,
+              retry: text.retry,
+              back: text.back,
               joining: text.joining,
               leave: text.leave,
               mic: text.mic,
