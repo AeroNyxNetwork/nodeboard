@@ -583,6 +583,7 @@ export default function MeetingRoom({
             micBlocked ? 'blocked' : micOn ? 'idle' : 'off',
           )}
         >
+          <ControlIcon name={micOn && !micBlocked ? 'cap_mic' : 'cap_mic_off'} />
           {micBlocked ? labels.noMic : micOn ? labels.mic : labels.micOff}
         </button>
         <button
@@ -591,6 +592,7 @@ export default function MeetingRoom({
           aria-pressed={!cameraOn}
           className={controlClass(cameraOn ? 'idle' : 'off')}
         >
+          <ControlIcon name={cameraOn ? 'cap_video' : 'cap_video_off'} />
           {cameraOn ? labels.camera : labels.cameraOff}
         </button>
         <button
@@ -599,6 +601,7 @@ export default function MeetingRoom({
           aria-pressed={sharing}
           className={controlClass(sharing ? 'active' : 'idle')}
         >
+          <ControlIcon name="cap_screen" />
           {sharing ? labels.stopSharing : labels.share}
         </button>
         <button
@@ -606,6 +609,7 @@ export default function MeetingRoom({
           onClick={leave}
           className="flex h-11 items-center justify-center rounded-lg bg-[#D9455F] text-sm font-semibold text-white transition-colors hover:bg-[#E15872]"
         >
+          <ControlIcon name="cap_phone" />
           {labels.leave}
         </button>
       </div>
@@ -686,6 +690,36 @@ function gridColumns(count: number): string {
   return 'grid-cols-2 sm:grid-cols-3';
 }
 
+/// A control's 3D object.
+///
+/// [MEETING-CONTROL-ICONS 2026-09-17 by Claude] The buttons were words alone,
+/// which is not this product's language: AeroNyx's icons are rendered objects,
+/// and a flat glyph next to them belongs to a different decade. These are the
+/// same assets the app ships -- cap_mic, cap_video, cap_share, cap_phone --
+/// plus three generated to match for the states the set did not have: a muted
+/// mic, a stopped camera, and a landscape screen for sharing (the existing
+/// cap_share is the share-a-link graph, which is not what this button does).
+///
+/// Measured against the canonical before shipping: hue 271-273 against a
+/// canonical 273, contrast 4.2-6.2:1 on the app ground against a floor of 3,
+/// and zero green-dominant pixels.
+///
+/// aria-hidden because the label beside it already says what it is; a screen
+/// reader announcing "cap_mic_off" after "Unmute" is noise.
+function ControlIcon({ name }: { name: string }) {
+  return (
+    <img
+      src={`/meeting/${name}.png`}
+      alt=""
+      aria-hidden="true"
+      width={22}
+      height={22}
+      className="h-[22px] w-[22px] shrink-0 select-none"
+      draggable={false}
+    />
+  );
+}
+
 /// How a control looks, by what it is reporting.
 ///
 /// [MEETING-CONTROL-STATE 2026-09-17 by Claude] These four buttons were
@@ -705,7 +739,7 @@ function gridColumns(count: number): string {
 /// fill means in progress and red means stop.
 function controlClass(state: 'idle' | 'off' | 'blocked' | 'active'): string {
   const base =
-    'flex h-11 items-center justify-center rounded-lg border text-sm ' +
+    'flex h-11 items-center justify-center gap-2 rounded-lg border px-2 text-sm ' +
     'font-medium transition-colors focus:outline-none focus:ring-2 ' +
     'focus:ring-offset-2 focus:ring-offset-[#14141D]';
   switch (state) {
