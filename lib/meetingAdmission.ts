@@ -132,7 +132,15 @@ export function requestAdmission(options: {
       () => finish({ status: 'timeout' }),
       ADMISSION_TIMEOUT_MS,
     );
-    relay.send({
+    // [KNOCK-NOT-SENT 2026-09-17 by Claude] send() returns false when the
+    // socket is not open, and ignoring that return was the difference between
+    // waiting and pretending to wait: the guest sat on "waiting for the host"
+    // for the full two minutes and was then told "nobody answered", which
+    // blamed a host who had never been asked anything.
+    //
+    // A frame that did not leave is not a wait. Fail now, and say the true
+    // thing -- the relay could not be reached.
+    const sent = relay.send({
       type: 'group_meeting_admission_request',
       // No group_id: that is the whole point of a meeting. The server reads
       // the code, finds the host, and routes to that one person.
@@ -141,6 +149,10 @@ export function requestAdmission(options: {
       requester_name: displayName,
       room_name: '',
     });
+    if (!sent) {
+      finish({ status: 'unreachable' });
+      return;
+    }
   });
 
   relay.on('authfail', () => finish({ status: 'unreachable' }));

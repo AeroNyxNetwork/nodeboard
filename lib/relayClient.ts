@@ -73,6 +73,24 @@ export class RelayClient {
 
   connect(): void {
     this.closedByUser = false;
+    // [RELAY-DOUBLE-CONNECT 2026-09-17 by Claude] A second connect used to
+    // build a second socket and overwrite this.ws, abandoning the first --
+    // still open, still receiving. The consequence was not a leak, it was a
+    // lost send: the surviving socket's auth_ack fired 'connected', whose
+    // handler called send(), and send() used this.ws, which was now the
+    // OTHER socket and still CONNECTING. The frame was dropped and the
+    // caller was never told.
+    //
+    // Measured in a browser: two auth frames with identical pubkey,
+    // timestamp and signature -- one client, two sockets -- and the meeting
+    // knock that should have followed never went out at all.
+    if (
+      this.ws &&
+      (this.ws.readyState === WebSocket.OPEN ||
+        this.ws.readyState === WebSocket.CONNECTING)
+    ) {
+      return;
+    }
     let ws: WebSocket;
     try {
       ws = new WebSocket(WS_URL);
