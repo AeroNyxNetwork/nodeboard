@@ -100,9 +100,11 @@ type Props = {
     noE2EE: string;
   };
   onLeave: () => void;
-  /// [KNOCK-TITLE 2026-09-17 by Claude] The card above needs to know: while
-  /// this is knocking, "You're in this meeting" is not true yet.
-  onPhaseChange?: (joined: boolean) => void;
+  /// [ROOM-STATE-UP 2026-09-17 by Claude] The card above needs two facts it
+  /// cannot see from here: whether the person is actually IN (knocking is
+  /// not in), and whether the meeting turned out not to exist -- in which
+  /// case the card must stop offering to take them into it.
+  onStateChange?: (s: { joined: boolean; unavailable: boolean }) => void;
 };
 
 export default function MeetingRoom({
@@ -111,7 +113,7 @@ export default function MeetingRoom({
   displayName,
   labels,
   onLeave,
-  onPhaseChange,
+  onStateChange,
 }: Props) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [error, setError] = useState<string>('');
@@ -161,8 +163,12 @@ export default function MeetingRoom({
   useEffect(() => () => teardown(), [teardown]);
 
   useEffect(() => {
-    onPhaseChange?.(phase === 'joined');
-  }, [phase, onPhaseChange]);
+    onStateChange?.({
+      joined: phase === 'joined',
+      // Terminal: the meeting is gone, so no amount of trying again finds it.
+      unavailable: phase === 'failed' && !retryable,
+    });
+  }, [phase, retryable, onStateChange]);
 
   const join = useCallback(async () => {
     setError('');

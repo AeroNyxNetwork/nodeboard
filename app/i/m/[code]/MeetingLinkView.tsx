@@ -59,6 +59,7 @@ const copy = {
     // which until the server answers. One honest word covers both.
     joinHere: 'Join',
     inRoomTitle: "You're in this meeting",
+    unavailableTitle: 'This meeting is not available',
     yourName: 'Your name',
     copyLink: 'Copy link',
     linkCopied: 'Link copied',
@@ -111,6 +112,7 @@ const copy = {
       '# 後面那一段在路上被丟掉了——有些 App 和連結預覽會這樣。請對方把完整連結重新發一次。',
     joinHere: '加入',
     inRoomTitle: '你在這場會議中',
+    unavailableTitle: '這場會議無法加入',
     yourName: '你的名字',
     copyLink: '複製連結',
     linkCopied: '已複製',
@@ -165,6 +167,9 @@ export default function MeetingLinkView({ code }: Props) {
   // Mounted is not the same as joined: the knock happens inside the room
   // component, and during it the person is still outside.
   const [joined, setJoined] = useState(false);
+  // The meeting turned out not to exist. The card stops inviting people into
+  // it rather than listing its features underneath the news that it is gone.
+  const [unavailable, setUnavailable] = useState(false);
   // [COPY-STATE 2026-09-17 by Claude] Three states, not two. The first
   // version set this back to false when writeText threw, which is the same
   // thing it shows before you press it -- so a refused clipboard looked
@@ -282,11 +287,13 @@ export default function MeetingLinkView({ code }: Props) {
             <h1 className="break-words text-xl font-semibold leading-7 text-white">
               {joined
                 ? text.inRoomTitle
-                : !resolved || hasKey
-                  ? text.title
-                  : text.noKeyTitle}
+                : unavailable
+                  ? text.unavailableTitle
+                  : !resolved || hasKey
+                    ? text.title
+                    : text.noKeyTitle}
             </h1>
-            {joined ? null : (
+            {joined || unavailable ? null : (
               <p className="mt-1 text-sm text-white/50">
                 {!resolved || hasKey ? text.body : text.noKeyBody}
               </p>
@@ -358,9 +365,13 @@ export default function MeetingLinkView({ code }: Props) {
               notFound: text.notFound,
               noE2EE: text.noE2EE,
             }}
-            onPhaseChange={setJoined}
+            onStateChange={(st) => {
+              setJoined(st.joined);
+              setUnavailable(st.unavailable);
+            }}
             onLeave={() => {
               setJoined(false);
+              setUnavailable(false);
               setInRoom(false);
             }}
           />
