@@ -84,6 +84,8 @@ type Props = {
     alone: string;
     failed: string;
     notFound: string;
+    verifyEmoji: string;
+    verifyEmojiLabel: string;
     roomFull: string;
     clockOff: string;
     noE2EE: string;
@@ -107,10 +109,24 @@ export default function MeetingRoom({
   const [micOn, setMicOn] = useState(true);
   const [cameraOn, setCameraOn] = useState(true);
   const [peers, setPeers] = useState<RemoteParticipant[]>([]);
+  // [MEETING-WEB-GRID 2026-09-17 by Claude] Bumped on every track event so
+  // each tile re-runs its attach. A participant can join before their camera
+  // publishes, so the tile has to be told to look again rather than only on
+  // mount.
+  const [trackVersion, setTrackVersion] = useState(0);
+  // [MEETING-VERIFY-EMOJI 2026-09-17 by Claude] The same four emoji the app
+  // shows for this room. Two people can read them to each other and know they
+  // are inside the same encrypted meeting -- which matters more here than
+  // anywhere else, because the key travelled in a link that anyone could have
+  // been forwarded.
+  const [verifyEmoji, setVerifyEmoji] = useState<string[]>([]);
   const roomRef = useRef<Room | null>(null);
   const knockRef = useRef<AdmissionRequest | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteWrapRef = useRef<HTMLDivElement | null>(null);
+  // Audio elements are attached here, off-layout. They were going into the
+  // remote video tile, where an <audio> element occupied space in a box meant
+  // for a picture.
+  const audioSinkRef = useRef<HTMLDivElement | null>(null);
 
   const teardown = useCallback(() => {
     // A knock outlives this component unless it is withdrawn: the relay socket
@@ -225,21 +241,22 @@ export default function MeetingRoom({
           setPeers(Array.from(room!.remoteParticipants.values())),
         )
         .on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
-          if (!remoteWrapRef.current) return;
-          if (
-            track.kind === Track.Kind.Video ||
-            track.kind === Track.Kind.Audio
-          ) {
+          if (track.kind === Track.Kind.Audio) {
+            // Sound does not need a box. Attaching audio into the video tile
+            // put an <audio> element inside a fixed-aspect picture frame.
             const el = track.attach();
             el.setAttribute('data-peer', participant.identity);
-            if (el instanceof HTMLVideoElement) {
-              el.className = 'h-full w-full rounded-lg object-cover';
-            }
-            remoteWrapRef.current.appendChild(el);
+            audioSinkRef.current?.appendChild(el);
+            return;
+          }
+          if (track.kind === Track.Kind.Video) {
+            setPeers(Array.from(room!.remoteParticipants.values()));
+            setTrackVersion((v) => v + 1);
           }
         })
         .on(RoomEvent.TrackUnsubscribed, (track) => {
           track.detach().forEach((el) => el.remove());
+          setTrackVersion((v) => v + 1);
         })
         .on(RoomEvent.Disconnected, () => {
           setPhase('idle');
@@ -261,6 +278,9 @@ export default function MeetingRoom({
 
       setPeers(Array.from(room.remoteParticipants.values()));
       setPhase('joined');
+      void verificationEmoji(e2eeKey).then((codes) => {
+        if (roomRef.current) setVerifyEmoji(codes);
+      });
     } catch (err) {
       if (room) void room.disconnect();
       roomRef.current = null;
@@ -383,7 +403,11 @@ export default function MeetingRoom({
 
   return (
     <div className="mt-5 rounded-lg border border-white/10 bg-[#14141D] p-4 sm:p-5">
-      <div className="grid gap-3 sm:grid-cols-2">
+      {/* [MEETING-WEB-GRID 2026-09-17 by Claude] One tile per person. Every
+          remote track used to be appended into a single fixed-aspect box, so a
+          third person in the room drew on top of the second and only the last
+          one subscribed was visible at all. */}
+      <div className={`grid gap-3 ${gridColumns(peers.length + 1)}`}>
         <div className="relative aspect-video overflow-hidden rounded-lg bg-black/60">
           <video
             ref={localVideoRef}
@@ -396,12 +420,27 @@ export default function MeetingRoom({
             {displayName} · {labels.you}
           </span>
         </div>
-        <div
-          ref={remoteWrapRef}
-          className="relative aspect-video overflow-hidden rounded-lg bg-black/60"
-        />
+        {peers.map((peer) => (
+          <PeerTile
+            key={peer.sid}
+            participant={peer}
+            trackVersion={trackVersion}
+          />
+        ))}
       </div>
+      <div ref={audioSinkRef} className="hidden" />
 
+      {phase === 'joined' && verifyEmoji.length === 4 ? (
+        <div className="mt-3 flex items-center justify-center gap-2">
+          <span
+            className="select-all text-base leading-none tracking-[0.15em]"
+            aria-label={labels.verifyEmojiLabel}
+          >
+            {verifyEmoji.join('')}
+          </span>
+          <span className="text-xs text-white/40">{labels.verifyEmoji}</span>
+        </div>
+      ) : null}
       {phase === 'joined' && peers.length === 0 ? (
         <p className="mt-3 text-center text-xs text-white/40">{labels.alone}</p>
       ) : null}
@@ -434,6 +473,128 @@ export default function MeetingRoom({
           {labels.leave}
         </button>
       </div>
+    </div>
+  );
+}
+
+// [MEETING-VERIFY-EMOJI 2026-09-17 by Claude] This table and this derivation
+// MIRROR voice_active_call_screen.dart. They are a shared secret's fingerprint,
+// so they are only worth anything if both sides compute the identical four --
+// a drift here does not produce a wrong-looking code, it produces two people
+// reading different emoji at each other and concluding they are in different
+// rooms.
+//
+// The app's chain, followed exactly:
+//   seed  = 'AeroNyx-CallVerify-v1:' + lowercase hex of sha256(key)
+//   emoji = table[ sha256(utf8(seed))[i] % 64 ]  for i in 0..3
+//
+// Note the SECOND hash is over the hex STRING, not over the digest bytes.
+const VERIFY_EMOJI_TABLE = [
+  '\u{1F436}', '\u{1F431}', '\u{1F42D}', '\u{1F439}', '\u{1F430}',
+  '\u{1F98A}', '\u{1F43B}', '\u{1F43C}', '\u{1F428}', '\u{1F42F}',
+  '\u{1F981}', '\u{1F42E}', '\u{1F437}', '\u{1F438}', '\u{1F435}',
+  '\u{1F414}', '\u{1F986}', '\u{1F989}', '\u{1F987}', '\u{1F43A}',
+  '\u{1F417}', '\u{1F434}', '\u{1F984}', '\u{1F41D}', '\u{1F41B}',
+  '\u{1F98B}', '\u{1F40C}', '\u{1F41E}', '\u{1F997}', '\u{1F982}',
+  '\u{1F422}', '\u{1F98E}', '\u{1F338}', '\u{1F33A}', '\u{1F33B}',
+  '\u{1F33C}', '\u{1F337}', '\u{1F340}', '\u{1F33F}', '\u{1F343}',
+  '\u{1F30A}', '\u{1F525}', '\u{2728}', '\u{2B50}', '\u{1F319}',
+  '\u{2600}\u{FE0F}', '\u{26A1}', '\u{1F308}', '\u{1F3B5}', '\u{1F3B6}',
+  '\u{1F3B8}', '\u{1F3B9}', '\u{1F3BA}', '\u{1F941}', '\u{1F3AF}',
+  '\u{1F3B2}', '\u{1F3C6}', '\u{1F381}', '\u{1F38A}', '\u{1F389}',
+  '\u{1F30D}', '\u{1F30F}', '\u{1F30E}', '\u{1F5FA}\u{FE0F}',
+];
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function sha256(data: Uint8Array): Promise<Uint8Array> {
+  const buf = await crypto.subtle.digest(
+    'SHA-256',
+    data.slice().buffer as ArrayBuffer,
+  );
+  return new Uint8Array(buf);
+}
+
+async function verificationEmoji(key: Uint8Array): Promise<string[]> {
+  try {
+    const seed = `AeroNyx-CallVerify-v1:${toHex(await sha256(key))}`;
+    const digest = await sha256(new TextEncoder().encode(seed));
+    return Array.from(digest.slice(0, 4)).map(
+      (b) => VERIFY_EMOJI_TABLE[b % VERIFY_EMOJI_TABLE.length],
+    );
+  } catch {
+    // No fingerprint is honest. A wrong one would be worse than none.
+    return [];
+  }
+}
+
+/// How many columns for n tiles.
+///
+/// Deliberately not a formula: two people side by side, four in a square, and
+/// a hard stop at three columns because a tile narrower than that on a phone
+/// is a thumbnail of a face nobody can read.
+function gridColumns(count: number): string {
+  if (count <= 1) return 'grid-cols-1';
+  if (count <= 2) return 'grid-cols-1 sm:grid-cols-2';
+  if (count <= 4) return 'grid-cols-2';
+  return 'grid-cols-2 sm:grid-cols-3';
+}
+
+/// One remote participant.
+///
+/// The attach runs in an effect keyed on trackVersion, because a person can be
+/// in the room before their camera publishes -- and often is, since joining and
+/// turning a camera on are two separate moments.
+function PeerTile({
+  participant,
+  trackVersion,
+}: {
+  participant: RemoteParticipant;
+  trackVersion: number;
+}) {
+  const ref = useRef<HTMLVideoElement | null>(null);
+  const [hasVideo, setHasVideo] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const track = participant.getTrackPublication(Track.Source.Camera)
+      ?.videoTrack;
+    if (!track) {
+      setHasVideo(false);
+      return;
+    }
+    track.attach(el);
+    setHasVideo(true);
+    return () => {
+      track.detach(el);
+    };
+  }, [participant, trackVersion]);
+
+  const name =
+    participant.name?.trim() || `${participant.identity.slice(0, 8)}…`;
+
+  return (
+    <div className="relative aspect-video overflow-hidden rounded-lg bg-black/60">
+      <video
+        ref={ref}
+        autoPlay
+        playsInline
+        className="h-full w-full object-cover"
+      />
+      {!hasVideo ? (
+        // A camera that is off is not a broken tile. Say whose it is.
+        <span className="absolute inset-0 flex items-center justify-center text-sm text-white/35">
+          {name}
+        </span>
+      ) : null}
+      <span className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded bg-black/60 px-2 py-0.5 text-xs text-white/80">
+        {name}
+      </span>
     </div>
   );
 }
