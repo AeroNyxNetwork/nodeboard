@@ -556,21 +556,26 @@ export default function MeetingRoom({
         <button
           type="button"
           onClick={toggleMic}
-          className="flex h-11 items-center justify-center rounded-lg border border-white/15 text-sm font-medium text-white/85 transition-colors hover:bg-white/5"
+          aria-pressed={!micOn}
+          className={controlClass(
+            micBlocked ? 'blocked' : micOn ? 'idle' : 'off',
+          )}
         >
           {micBlocked ? labels.noMic : micOn ? labels.mic : labels.micOff}
         </button>
         <button
           type="button"
           onClick={toggleCamera}
-          className="flex h-11 items-center justify-center rounded-lg border border-white/15 text-sm font-medium text-white/85 transition-colors hover:bg-white/5"
+          aria-pressed={!cameraOn}
+          className={controlClass(cameraOn ? 'idle' : 'off')}
         >
           {cameraOn ? labels.camera : labels.cameraOff}
         </button>
         <button
           type="button"
           onClick={toggleShare}
-          className="flex h-11 items-center justify-center rounded-lg border border-white/15 text-sm font-medium text-white/85 transition-colors hover:bg-white/5"
+          aria-pressed={sharing}
+          className={controlClass(sharing ? 'active' : 'idle')}
         >
           {sharing ? labels.stopSharing : labels.share}
         </button>
@@ -651,6 +656,40 @@ function gridColumns(count: number): string {
   if (count <= 2) return 'grid-cols-1 sm:grid-cols-2';
   if (count <= 4) return 'grid-cols-2';
   return 'grid-cols-2 sm:grid-cols-3';
+}
+
+/// How a control looks, by what it is reporting.
+///
+/// [MEETING-CONTROL-STATE 2026-09-17 by Claude] These four buttons were
+/// identical in every state, so the only thing distinguishing muted from live
+/// was a word -- and the word is the ACTION, not the state. "Mute" on a button
+/// reads just as easily as "you are muted" as it does "press to mute", which
+/// is the oldest ambiguity in toggle labels and the reason every video app
+/// colours the off state instead of relying on the caption.
+///
+///   idle     the thing is on and nothing is wrong: quiet, bordered
+///   off      you turned it off: amber, so it is visible without alarm
+///   blocked  the browser will not give it to you: red, and still clickable,
+///            because granting permission and pressing again is the fix
+///   active   you are doing something everyone else can see: the accent
+///
+/// It matches the call surface in the app, where a tint means available, a
+/// fill means in progress and red means stop.
+function controlClass(state: 'idle' | 'off' | 'blocked' | 'active'): string {
+  const base =
+    'flex h-11 items-center justify-center rounded-lg border text-sm ' +
+    'font-medium transition-colors focus:outline-none focus:ring-2 ' +
+    'focus:ring-offset-2 focus:ring-offset-[#14141D]';
+  switch (state) {
+    case 'off':
+      return `${base} border-[#E0A33E]/45 bg-[#E0A33E]/10 text-[#F0C06A] hover:bg-[#E0A33E]/20 focus:ring-[#E0A33E]/60`;
+    case 'blocked':
+      return `${base} border-[#D9455F]/45 bg-[#D9455F]/10 text-[#F08898] hover:bg-[#D9455F]/20 focus:ring-[#D9455F]/60`;
+    case 'active':
+      return `${base} border-[#9B8CFF]/50 bg-[#7762F3]/20 text-[#C9BEFF] hover:bg-[#7762F3]/30 focus:ring-[#9B8CFF]/60`;
+    default:
+      return `${base} border-white/15 text-white/85 hover:bg-white/5 focus:ring-white/40`;
+  }
 }
 
 /// Somebody's shared screen.
