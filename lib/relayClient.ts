@@ -99,7 +99,23 @@ export class RelayClient {
       return;
     }
     this.ws = ws;
-    ws.onopen = () => ws.send(JSON.stringify(this.authFrame()));
+    ws.onopen = () => {
+      // [AUTH-ON-DEAD-SOCKET 2026-09-17 by Claude] This send bypassed the
+      // readyState guard in send(), so a socket closed between construction
+      // and onopen still tried to authenticate and the browser logged
+      // "WebSocket is already in CLOSING or CLOSED state" -- three times on
+      // a single load of /chat, where the effect mounts and tears down.
+      //
+      // Checking identity rather than readyState covers both ways it goes
+      // wrong: close() nulls this.ws while the pending socket's onopen is
+      // still queued, and a replacement socket makes this one stale.
+      if (this.ws !== ws) return;
+      try {
+        ws.send(JSON.stringify(this.authFrame()));
+      } catch {
+        // It went away under us. onclose will schedule the retry.
+      }
+    };
     ws.onmessage = (e) => this.onFrame(String(e.data));
     ws.onerror = () => {};
     ws.onclose = () => {
