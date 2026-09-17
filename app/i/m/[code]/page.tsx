@@ -37,7 +37,12 @@ const CODE_PATTERN = /^[a-km-z]{3}-[a-km-z]{4}-[a-km-z]{3}$/;
 type RouteParams = { code: string };
 
 export const metadata: Metadata = {
-  title: 'Meeting · AeroNyx',
+  // [TITLE-TEMPLATE 2026-09-17 by Claude] Just 'Meeting'. The root layout
+  // appends the brand with `template: '%s | AeroNyx'`, so spelling it here too
+  // produced "Meeting · AeroNyx | AeroNyx" in every browser tab -- which sat
+  // there through a day of screenshots without being seen, because a tab
+  // title is the one piece of copy nobody reads twice.
+  title: 'Meeting',
   description: 'Join an end-to-end encrypted AeroNyx meeting.',
   // A meeting invite should not be indexed: the code is half of the capability
   // to enter the room, and search engines are not invitees.
