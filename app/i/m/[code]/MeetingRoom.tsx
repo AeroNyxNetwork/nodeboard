@@ -174,6 +174,7 @@ export default function MeetingRoom({
       setPhase('joining');
       let token = await requestMeetingToken(identity, code, {
         withVideo: true,
+        displayName,
       }).catch((err: unknown) => {
         if (
           err instanceof MeetingTokenError &&
@@ -222,7 +223,10 @@ export default function MeetingRoom({
         }
 
         setPhase('joining');
-        token = await requestMeetingToken(identity, code, { withVideo: true });
+        token = await requestMeetingToken(identity, code, {
+          withVideo: true,
+          displayName,
+        });
       }
 
       // The key provider has to exist before the Room, because E2EE is a

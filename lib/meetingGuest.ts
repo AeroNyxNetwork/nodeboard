@@ -116,7 +116,7 @@ export class MeetingTokenError extends Error {
 export async function requestMeetingToken(
   identity: GuestIdentity,
   meetingCode: string,
-  options: { withVideo?: boolean } = {},
+  options: { withVideo?: boolean; displayName?: string } = {},
 ): Promise<MeetingToken> {
   const timestamp = Math.floor(Date.now() / 1000);
   const controller = new AbortController();
@@ -137,6 +137,13 @@ export async function requestMeetingToken(
         timestamp,
         signature: signRelayAuth(identity, timestamp),
         is_video: options.withVideo ?? true,
+        // [MEETING-DISPLAY-NAME 2026-09-17 by Claude] The name the other
+        // people in the room see. Without it the relay falls back to a pubkey
+        // prefix, and a second guest's tile read '47a5d9cd1a489b7d' -- the app
+        // never shows that because it renders names from its own contacts,
+        // and a browser guest has none. Same name the knock already gave the
+        // host, so one person is not two names.
+        display_name: options.displayName ?? '',
       }),
     });
   } catch {

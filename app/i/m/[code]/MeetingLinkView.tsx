@@ -59,6 +59,7 @@ const copy = {
     // which until the server answers. One honest word covers both.
     joinHere: 'Join',
     inRoomTitle: "You're in this meeting",
+    yourName: 'Your name',
     copyLink: 'Copy link',
     linkCopied: 'Link copied',
     copyFailed: "Couldn't copy",
@@ -110,6 +111,7 @@ const copy = {
       '# 後面那一段在路上被丟掉了——有些 App 和連結預覽會這樣。請對方把完整連結重新發一次。',
     joinHere: '加入',
     inRoomTitle: '你在這場會議中',
+    yourName: '你的名字',
     copyLink: '複製連結',
     linkCopied: '已複製',
     copyFailed: '複製不了',
@@ -168,6 +170,22 @@ export default function MeetingLinkView({ code }: Props) {
   const [copyState, setCopyState] = useState<'idle' | 'done' | 'failed'>(
     'idle',
   );
+  // [GUEST-NAME 2026-09-17 by Claude] Asked before joining, the way Google
+  // asks an anonymous guest. Two guests were both going to be called "Guest",
+  // which is only marginally better than the pubkey prefix it replaced.
+  // Remembered per browser so a returning guest does not retype it; this is a
+  // convenience, never state anything depends on, so a refused localStorage
+  // just means the default.
+  const [guestName, setGuestName] = useState('');
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('aeronyx.meeting.name');
+      if (saved) setGuestName(saved);
+    } catch {
+      /* private window, blocked storage: the default is fine */
+    }
+  }, []);
 
   const copyLink = async () => {
     try {
@@ -305,7 +323,7 @@ export default function MeetingLinkView({ code }: Props) {
           <MeetingRoom
             code={code}
             e2eeKey={roomKey}
-            displayName={text.guest}
+            displayName={guestName.trim().slice(0, 32) || text.guest}
             labels={{
               knocking: text.knocking,
               cancelKnock: text.cancelKnock,
@@ -342,9 +360,35 @@ export default function MeetingLinkView({ code }: Props) {
         ) : null}
 
         {!inRoom && roomKey ? (
+          <label className="mt-5 block">
+            <span className="mb-1.5 block text-xs font-medium text-white/45">
+              {text.yourName}
+            </span>
+            <input
+              type="text"
+              value={guestName}
+              maxLength={32}
+              placeholder={text.guest}
+              onChange={(e) => setGuestName(e.target.value)}
+              className="h-11 w-full rounded-lg border border-white/15 bg-black/30 px-3 text-sm text-white placeholder:text-white/30 focus:border-white/30 focus:outline-none focus:ring-2 focus:ring-[#9B8CFF]/50"
+            />
+          </label>
+        ) : null}
+
+        {!inRoom && roomKey ? (
           <button
             type="button"
-            onClick={() => setInRoom(true)}
+            onClick={() => {
+              const trimmed = guestName.trim().slice(0, 32);
+              try {
+                if (trimmed) {
+                  window.localStorage.setItem('aeronyx.meeting.name', trimmed);
+                }
+              } catch {
+                /* not remembering it is not a reason to refuse to join */
+              }
+              setInRoom(true);
+            }}
             className="mt-5 flex h-12 w-full items-center justify-center rounded-lg bg-[#7762F3] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#8877FF] focus:outline-none focus:ring-2 focus:ring-[#9B8CFF] focus:ring-offset-2 focus:ring-offset-[#0A0A0F]"
           >
             {text.joinHere}
