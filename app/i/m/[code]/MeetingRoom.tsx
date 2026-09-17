@@ -89,6 +89,7 @@ type Props = {
     alone: string;
     failed: string;
     notFound: string;
+    reconnecting: string;
     meetingEnded: string;
     removed: string;
     joinedElsewhere: string;
@@ -126,6 +127,12 @@ export default function MeetingRoom({
   // Those need different words on the button.
   const [micBlocked, setMicBlocked] = useState(false);
   const [sharing, setSharing] = useState(false);
+  // [RECONNECT-SILENCE 2026-09-17 by Claude] LiveKit reconnects on its own and
+  // said nothing while it did. The room simply froze: tiles stopped moving,
+  // audio stopped, and every control still looked live. A person cannot tell
+  // that from the app having crashed, so they leave and rejoin a meeting that
+  // was about to come back by itself.
+  const [reconnecting, setReconnecting] = useState(false);
   const [cameraOn, setCameraOn] = useState(true);
   const [peers, setPeers] = useState<RemoteParticipant[]>([]);
   // [MEETING-WEB-GRID 2026-09-17 by Claude] Bumped on every track event so
@@ -308,6 +315,8 @@ export default function MeetingRoom({
           track.detach().forEach((el) => el.remove());
           setTrackVersion((v) => v + 1);
         })
+        .on(RoomEvent.Reconnecting, () => setReconnecting(true))
+        .on(RoomEvent.Reconnected, () => setReconnecting(false))
         .on(RoomEvent.Disconnected, (reason) => {
           // [MEETING-WEB-ENDED 2026-09-17 by Claude] Leaving on your own is
           // the only disconnect that needs no words. Everything else --
@@ -579,6 +588,23 @@ export default function MeetingRoom({
           </span>
         </div>
       ) : null}
+      {/* Reconnecting sits above the roster line, because while it is showing
+          it is the only thing that explains why nothing is moving. Amber, the
+          same as a control that is off: something is wrong and it is not an
+          emergency. */}
+      {reconnecting ? (
+        <div
+          className="mt-3 flex items-center justify-center gap-2 rounded-lg border border-[#E0A33E]/45 bg-[#E0A33E]/10 px-3 py-2"
+          role="status"
+        >
+          <span
+            aria-hidden="true"
+            className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[#F0C06A] motion-reduce:animate-none"
+          />
+          <span className="text-xs text-[#F0C06A]">{labels.reconnecting}</span>
+        </div>
+      ) : null}
+
       {/* Announced: this line is how somebody not looking at the tiles learns
           that the meeting stopped being empty. */}
       {phase === 'joined' && peers.length === 0 ? (

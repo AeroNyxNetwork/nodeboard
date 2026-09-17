@@ -86,6 +86,7 @@ const copy = {
     alone: 'Waiting for someone else to join.',
     failed: 'Could not reach the meeting. Ask again, or open it in the app.',
     notFound: 'This meeting has ended, or the link has expired.',
+    reconnecting: 'Reconnecting…',
     meetingEnded: 'The meeting ended.',
     removed: 'The host removed you from the meeting.',
     joinedElsewhere: 'You joined this meeting somewhere else.',
@@ -138,6 +139,7 @@ const copy = {
     alone: '等其他人進來。',
     failed: '連不上這場會議。再請求一次，或改用 App 開啟。',
     notFound: '這場會議已結束，或連結已過期。',
+    reconnecting: '重新連線中…',
     meetingEnded: '會議已結束。',
     removed: '主持人把你移出了會議。',
     joinedElsewhere: '你在別的地方加入了這場會議。',
@@ -363,6 +365,7 @@ export default function MeetingLinkView({ code }: Props) {
               alone: text.alone,
               failed: text.failed,
               notFound: text.notFound,
+              reconnecting: text.reconnecting,
               noE2EE: text.noE2EE,
             }}
             onStateChange={(st) => {
