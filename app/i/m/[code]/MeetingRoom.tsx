@@ -528,7 +528,8 @@ export default function MeetingRoom({
             playsInline
             className="h-full w-full object-cover"
           />
-          <span className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-xs text-white/80">
+          {!cameraOn ? <TileFallback name={displayName} /> : null}
+          <span className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded bg-black/60 px-2 py-0.5 text-xs text-white/80">
             {displayName} · {labels.you}
           </span>
         </div>
@@ -709,6 +710,31 @@ function controlClass(state: 'idle' | 'off' | 'blocked' | 'active'): string {
   }
 }
 
+/// What a tile shows when there is no picture in it.
+///
+/// [MEETING-TILE-FALLBACK 2026-09-17 by Claude] A camera that is off is not a
+/// broken tile, and a black rectangle is indistinguishable from one that
+/// failed. Remote tiles already said the person's name here; the local tile
+/// said nothing at all, so the one face every person is guaranteed to look at
+/// -- their own -- was the only one rendered as a black box.
+///
+/// An initial in a circle rather than the name again: the name is already on
+/// the badge in the corner, and printing it twice in one tile reads as a
+/// rendering mistake rather than a deliberate placeholder.
+function TileFallback({ name }: { name: string }) {
+  const initial = (name.trim()[0] ?? '?').toUpperCase();
+  return (
+    <span className="absolute inset-0 flex items-center justify-center">
+      <span
+        aria-hidden="true"
+        className="flex h-14 w-14 items-center justify-center rounded-full bg-white/10 text-xl font-semibold text-white/55"
+      >
+        {initial}
+      </span>
+    </span>
+  );
+}
+
 /// Somebody's shared screen.
 ///
 /// Separate from PeerTile because a screen is not a face: it wants the full
@@ -797,12 +823,7 @@ function PeerTile({
         playsInline
         className="h-full w-full object-cover"
       />
-      {!hasVideo ? (
-        // A camera that is off is not a broken tile. Say whose it is.
-        <span className="absolute inset-0 flex items-center justify-center text-sm text-white/35">
-          {name}
-        </span>
-      ) : null}
+      {!hasVideo ? <TileFallback name={name} /> : null}
       <span className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded bg-black/60 px-2 py-0.5 text-xs text-white/80">
         {name}
       </span>
