@@ -78,6 +78,7 @@ type Props = {
     leave: string;
     mic: string;
     micOff: string;
+    noMic: string;
     camera: string;
     cameraOff: string;
     you: string;
@@ -107,6 +108,9 @@ export default function MeetingRoom({
   // cannot work.
   const [retryable, setRetryable] = useState(true);
   const [micOn, setMicOn] = useState(true);
+  // The device said no, as opposed to the person having muted themselves.
+  // Those need different words on the button.
+  const [micBlocked, setMicBlocked] = useState(false);
   const [cameraOn, setCameraOn] = useState(true);
   const [peers, setPeers] = useState<RemoteParticipant[]>([]);
   // [MEETING-WEB-GRID 2026-09-17 by Claude] Bumped on every track event so
@@ -266,7 +270,22 @@ export default function MeetingRoom({
       await room.connect(token.livekitUrl, token.token);
       roomRef.current = room;
 
-      await room.localParticipant.setMicrophoneEnabled(true);
+      // [MEETING-WEB-NO-MIC 2026-09-17 by Claude] A microphone is not a
+      // condition of entry. This was the one unguarded await after connect,
+      // and the failure it produced was the worst shape available: the room
+      // connected, E2EE came up, then the catch disconnected it, RoomEvent
+      // .Disconnected fired onLeave, and the whole component unmounted -- so
+      // someone who clicked Block on the permission prompt was returned to
+      // the entry page with no error and no explanation at all. Seen exactly
+      // that way against production.
+      //
+      // Listening is a legitimate way to attend a meeting. Join muted.
+      try {
+        await room.localParticipant.setMicrophoneEnabled(true);
+      } catch {
+        setMicOn(false);
+        setMicBlocked(true);
+      }
       // A camera is nice to have, not a reason to fail: plenty of desktops
       // have none, and a meeting you can hear is still a meeting.
       try {
@@ -325,8 +344,16 @@ export default function MeetingRoom({
     const room = roomRef.current;
     if (!room) return;
     const next = !micOn;
-    await room.localParticipant.setMicrophoneEnabled(next);
-    setMicOn(next);
+    try {
+      await room.localParticipant.setMicrophoneEnabled(next);
+      setMicOn(next);
+      setMicBlocked(false);
+    } catch {
+      // Unmuting with no microphone cannot work, and a button that does
+      // nothing is worse than one that says why.
+      setMicOn(false);
+      setMicBlocked(true);
+    }
   };
 
   const toggleCamera = async () => {
@@ -456,7 +483,7 @@ export default function MeetingRoom({
           onClick={toggleMic}
           className="flex h-11 items-center justify-center rounded-lg border border-white/15 text-sm font-medium text-white/85 transition-colors hover:bg-white/5"
         >
-          {micOn ? labels.mic : labels.micOff}
+          {micBlocked ? labels.noMic : micOn ? labels.mic : labels.micOff}
         </button>
         <button
           type="button"
