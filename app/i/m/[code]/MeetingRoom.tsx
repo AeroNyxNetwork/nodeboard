@@ -719,10 +719,16 @@ function gridColumns(count: number): string {
 /// [MEETING-CONTROL-ICONS 2026-09-17 by Claude] The buttons were words alone,
 /// which is not this product's language: AeroNyx's icons are rendered objects,
 /// and a flat glyph next to them belongs to a different decade. These are the
-/// same assets the app ships -- cap_mic, cap_video, cap_share, cap_phone --
-/// plus three generated to match for the states the set did not have: a muted
-/// mic, a stopped camera, and a landscape screen for sharing (the existing
-/// cap_share is the share-a-link graph, which is not what this button does).
+/// same assets the app ships -- cap_mic, cap_video, cap_phone -- plus three
+/// generated to match for the states the set did not have: a muted mic, a
+/// stopped camera, and a landscape screen for sharing. The app's cap_share is
+/// deliberately NOT here: it is the share-a-link graph, which is not what this
+/// button does, and shipping it for a comment to refer to cost every visitor
+/// 26 kB of an image nothing rendered.
+///
+/// 88px for a 22px control. The app's are 256 because they appear larger
+/// there; at this size 256 was 189 kB of PNG on a page whose whole script is
+/// 122 kB.
 ///
 /// Measured against the canonical before shipping: hue 271-273 against a
 /// canonical 273, contrast 4.2-6.2:1 on the app ground against a floor of 3,
