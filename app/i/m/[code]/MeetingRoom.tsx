@@ -84,6 +84,8 @@ type Props = {
     alone: string;
     failed: string;
     notFound: string;
+    roomFull: string;
+    clockOff: string;
     noE2EE: string;
   };
   onLeave: () => void;
@@ -264,8 +266,25 @@ export default function MeetingRoom({
       roomRef.current = null;
       setPhase('failed');
       if (err instanceof MeetingTokenError) {
+        // [MEETING-TOKEN-COPY 2026-09-17 by Claude] The server distinguishes
+        // these; saying "could not reach the meeting" to all of them throws
+        // away the one piece of information the person needs.
+        //
+        // A full room can empty and an off clock can be corrected, so both
+        // keep Ask again. A meeting that has ended will not exist on the next
+        // try either, so that one does not.
         const gone = err.code === 'meeting_not_found';
-        setError(gone ? labels.notFound : labels.failed);
+        const full = err.code === 'room_full';
+        const clock = err.code === 'timestamp_expired';
+        setError(
+          gone
+            ? labels.notFound
+            : full
+              ? labels.roomFull
+              : clock
+                ? labels.clockOff
+                : labels.failed,
+        );
         setRetryable(!gone);
       } else if (String(err).toLowerCase().includes('e2ee')) {
         setError(labels.noE2EE);

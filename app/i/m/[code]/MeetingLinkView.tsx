@@ -74,6 +74,9 @@ const copy = {
     alone: 'Waiting for someone else to join.',
     failed: 'Could not reach the meeting. Ask again, or open it in the app.',
     notFound: 'This meeting has ended, or the link has expired.',
+    roomFull: 'This meeting is full.',
+    clockOff:
+      "Your device's clock is too far off to join. Set it to update automatically and try again.",
     noE2EE:
       'This browser cannot set up end-to-end encryption, so joining here would not be private. Open the meeting in the AeroNyx app instead.',
     guest: 'Guest',
@@ -106,6 +109,8 @@ const copy = {
     alone: '等其他人進來。',
     failed: '連不上這場會議。再請求一次，或改用 App 開啟。',
     notFound: '這場會議已結束，或連結已過期。',
+    roomFull: '這場會議人數已滿。',
+    clockOff: '你裝置的時間差太多，無法加入。把時間設成自動校正後再試一次。',
     noE2EE:
       '這個瀏覽器無法建立端對端加密，在這裡加入不會是私密的。請改用 AeroNyx App 開啟。',
     guest: '訪客',
@@ -200,6 +205,8 @@ export default function MeetingLinkView({ code }: Props) {
               cancelKnock: text.cancelKnock,
               rejected: text.rejected,
               timedOut: text.timedOut,
+              roomFull: text.roomFull,
+              clockOff: text.clockOff,
               retry: text.retry,
               back: text.back,
               joining: text.joining,
