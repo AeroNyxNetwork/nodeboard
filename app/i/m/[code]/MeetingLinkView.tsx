@@ -61,6 +61,9 @@ const copy = {
     inRoomTitle: "You're in this meeting",
     copyLink: 'Copy link',
     linkCopied: 'Link copied',
+    copyFailed: "Couldn't copy",
+    copyFailedHint: 'Your browser refused the clipboard. Copy the link from '
+      + 'the address bar instead.',
     knocking: 'Waiting for the host to let you in…',
     cancelKnock: 'Stop waiting',
     rejected: 'The host did not let you in.',
@@ -109,6 +112,8 @@ const copy = {
     inRoomTitle: '你在這場會議中',
     copyLink: '複製連結',
     linkCopied: '已複製',
+    copyFailed: '複製不了',
+    copyFailedHint: '瀏覽器拒絕了剪貼簿。請從網址列複製連結。',
     knocking: '等主持人放你進來…',
     cancelKnock: '不等了',
     rejected: '主持人沒有讓你進來。',
@@ -155,19 +160,27 @@ export default function MeetingLinkView({ code }: Props) {
   // [MEETING-WEB-GUEST 2026-09-17 by Claude] Joining here is opt-in, never
   // automatic: landing on a page must not switch a stranger's microphone on.
   const [inRoom, setInRoom] = useState(false);
-  const [copied, setCopied] = useState(false);
+  // [COPY-STATE 2026-09-17 by Claude] Three states, not two. The first
+  // version set this back to false when writeText threw, which is the same
+  // thing it shows before you press it -- so a refused clipboard looked
+  // exactly like a button that does nothing, which is what it was. Caught by
+  // pressing it in a browser that refuses: the label never changed.
+  const [copyState, setCopyState] = useState<'idle' | 'done' | 'failed'>(
+    'idle',
+  );
 
   const copyLink = async () => {
     try {
+      // The whole href, fragment included. A copy without the key is a code
+      // for a room the other person would join and hear nothing in.
       await navigator.clipboard.writeText(window.location.href);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      setCopyState('done');
     } catch {
-      // Clipboard access can be refused, and a button that silently did
-      // nothing would be worse than one that admits it. The address bar
-      // still holds the link.
-      setCopied(false);
+      // Refused by the browser, or no clipboard at all. Say so: the address
+      // bar still holds the link, and knowing to go there is the fix.
+      setCopyState('failed');
     }
+    window.setTimeout(() => setCopyState('idle'), 2400);
   };
 
   useEffect(() => {
@@ -251,9 +264,18 @@ export default function MeetingLinkView({ code }: Props) {
               <button
                 type="button"
                 onClick={copyLink}
-                className="rounded-md border border-white/15 px-3 py-1 text-xs font-medium text-white/70 transition-colors hover:border-white/30 hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-white/40"
+                title={copyState === 'failed' ? text.copyFailedHint : undefined}
+                className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors focus:outline-none focus:ring-2 ${
+                  copyState === 'failed'
+                    ? 'border-[#D9455F]/45 bg-[#D9455F]/10 text-[#F08898] focus:ring-[#D9455F]/60'
+                    : 'border-white/15 text-white/70 hover:border-white/30 hover:bg-white/5 focus:ring-white/40'
+                }`}
               >
-                {copied ? text.linkCopied : text.copyLink}
+                {copyState === 'done'
+                  ? text.linkCopied
+                  : copyState === 'failed'
+                    ? text.copyFailed
+                    : text.copyLink}
               </button>
             ) : null}
           </div>
