@@ -232,6 +232,23 @@ export default function MeetingRoom({
       // setKey takes an ArrayBuffer. .slice() rather than .buffer so a view
       // with an offset can never hand it the wrong 32 bytes — silently the
       // wrong key is the failure that sounds exactly like a broken mic.
+      //
+      // ⚠️ AN ARRAYBUFFER, NEVER A STRING. The two overloads derive
+      // differently and the app is on the other side of this:
+      //
+      //   ArrayBuffer -> HKDF, salt 'LKFrameEncryptionKey'
+      //   string      -> PBKDF2
+      //
+      // The Flutter app calls BaseKeyProvider.setRawKey with the same 32
+      // bytes, and livekit_client's defaultRatchetSalt is the same
+      // 'LKFrameEncryptionKey' — checked in both SDKs, 2026-09-17, not
+      // assumed. So the two derive the same frame key and can hear each
+      // other. Passing a passphrase here instead would switch this side to
+      // PBKDF2 and every app participant would go silent to the browser and
+      // the browser silent to them, with both ends connected and nothing in
+      // any log to say why. livekit-client's own docstring recommends the
+      // string form "for maximum compatibility across SDKs", which is true
+      // in general and wrong here.
       await keyProvider.setKey(e2eeKey.slice().buffer as ArrayBuffer);
 
       const worker = new Worker(
