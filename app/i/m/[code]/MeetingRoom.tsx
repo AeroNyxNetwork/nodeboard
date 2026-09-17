@@ -526,14 +526,21 @@ export default function MeetingRoom({
       <div ref={audioSinkRef} className="hidden" />
 
       {phase === 'joined' && verifyEmoji.length === 4 ? (
-        <div className="mt-3 flex items-center justify-center gap-2">
+        // [MEETING-VERIFY-EMOJI 2026-09-17 by Claude] Stacked and centred, not
+        // a row. The caption is a whole sentence and wraps on a phone, which
+        // dragged the emoji off-centre and made the pair read as a list item
+        // rather than the code it is. Seen in the rendered page, not the
+        // source.
+        <div className="mt-3 flex flex-col items-center gap-1">
           <span
-            className="select-all text-base leading-none tracking-[0.15em]"
+            className="select-all text-xl leading-none tracking-[0.2em]"
             aria-label={labels.verifyEmojiLabel}
           >
             {verifyEmoji.join('')}
           </span>
-          <span className="text-xs text-white/40">{labels.verifyEmoji}</span>
+          <span className="text-center text-xs leading-5 text-white/40">
+            {labels.verifyEmoji}
+          </span>
         </div>
       ) : null}
       {phase === 'joined' && peers.length === 0 ? (
