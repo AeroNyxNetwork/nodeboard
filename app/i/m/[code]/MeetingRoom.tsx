@@ -80,6 +80,9 @@ type Props = {
     mic: string;
     micOff: string;
     noMic: string;
+    share: string;
+    stopSharing: string;
+    sharingLabel: string;
     camera: string;
     cameraOff: string;
     you: string;
@@ -116,6 +119,7 @@ export default function MeetingRoom({
   // The device said no, as opposed to the person having muted themselves.
   // Those need different words on the button.
   const [micBlocked, setMicBlocked] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [cameraOn, setCameraOn] = useState(true);
   const [peers, setPeers] = useState<RemoteParticipant[]>([]);
   // [MEETING-WEB-GRID 2026-09-17 by Claude] Bumped on every track event so
@@ -259,6 +263,8 @@ export default function MeetingRoom({
             return;
           }
           if (track.kind === Track.Kind.Video) {
+            // Covers Source.Camera and Source.ScreenShare alike -- the render
+            // decides which tile each belongs in.
             setPeers(Array.from(room!.remoteParticipants.values()));
             setTrackVersion((v) => v + 1);
           }
@@ -383,6 +389,25 @@ export default function MeetingRoom({
     }
   };
 
+  // [MEETING-WEB-SHARE 2026-09-17 by Claude] The card above this room has
+  // said "video, screen sharing and a waiting room" since the day it shipped,
+  // and the web had no way to share anything. livekit-client drives
+  // getDisplayMedia itself; all this has to do is ask, and not lie about the
+  // result when the browser or the person says no.
+  const toggleShare = async () => {
+    const room = roomRef.current;
+    if (!room) return;
+    const next = !sharing;
+    try {
+      await room.localParticipant.setScreenShareEnabled(next);
+      setSharing(next);
+    } catch {
+      // Cancelling the picker lands here too, and that is not an error worth
+      // shouting about -- it is someone changing their mind.
+      setSharing(false);
+    }
+  };
+
   const toggleCamera = async () => {
     const room = roomRef.current;
     if (!room) return;
@@ -396,6 +421,12 @@ export default function MeetingRoom({
     teardown();
     onLeave();
   };
+
+  // Recomputed on every track event, which is what trackVersion is for.
+  const screenShares = peers.filter(
+    (peer) =>
+      peer.getTrackPublication(Track.Source.ScreenShare)?.videoTrack != null,
+  );
 
   // [MEETING-WEB-GUEST 2026-09-17 by Claude] The failure card used to be one
   // line of text with nothing under it, while the text itself said "try again,
@@ -461,6 +492,16 @@ export default function MeetingRoom({
           remote track used to be appended into a single fixed-aspect box, so a
           third person in the room drew on top of the second and only the last
           one subscribed was visible at all. */}
+      {/* A shared screen is the thing everyone is looking at, so it gets the
+          full width above the faces rather than a slot among them. */}
+      {screenShares.map((peer) => (
+        <ScreenShareTile
+          key={`share-${peer.sid}`}
+          participant={peer}
+          trackVersion={trackVersion}
+          label={labels.sharingLabel}
+        />
+      ))}
       <div className={`grid gap-3 ${gridColumns(peers.length + 1)}`}>
         <div className="relative aspect-video overflow-hidden rounded-lg bg-black/60">
           <video
@@ -504,7 +545,7 @@ export default function MeetingRoom({
         </p>
       ) : null}
 
-      <div className="mt-4 grid grid-cols-3 gap-2">
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <button
           type="button"
           onClick={toggleMic}
@@ -518,6 +559,13 @@ export default function MeetingRoom({
           className="flex h-11 items-center justify-center rounded-lg border border-white/15 text-sm font-medium text-white/85 transition-colors hover:bg-white/5"
         >
           {cameraOn ? labels.camera : labels.cameraOff}
+        </button>
+        <button
+          type="button"
+          onClick={toggleShare}
+          className="flex h-11 items-center justify-center rounded-lg border border-white/15 text-sm font-medium text-white/85 transition-colors hover:bg-white/5"
+        >
+          {sharing ? labels.stopSharing : labels.share}
         </button>
         <button
           type="button"
@@ -596,6 +644,52 @@ function gridColumns(count: number): string {
   if (count <= 2) return 'grid-cols-1 sm:grid-cols-2';
   if (count <= 4) return 'grid-cols-2';
   return 'grid-cols-2 sm:grid-cols-3';
+}
+
+/// Somebody's shared screen.
+///
+/// Separate from PeerTile because a screen is not a face: it wants the full
+/// width, `object-contain` so a wide desktop is not cropped to a 16:9 slot,
+/// and no name badge covering the bottom-left of what is being shown.
+function ScreenShareTile({
+  participant,
+  trackVersion,
+  label,
+}: {
+  participant: RemoteParticipant;
+  trackVersion: number;
+  label: string;
+}) {
+  const ref = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const track = participant.getTrackPublication(Track.Source.ScreenShare)
+      ?.videoTrack;
+    if (!track) return;
+    track.attach(el);
+    return () => {
+      track.detach(el);
+    };
+  }, [participant, trackVersion]);
+
+  const name =
+    participant.name?.trim() || `${participant.identity.slice(0, 8)}\u2026`;
+
+  return (
+    <div className="mb-3 overflow-hidden rounded-lg bg-black/70">
+      <video
+        ref={ref}
+        autoPlay
+        playsInline
+        className="max-h-[60vh] w-full object-contain"
+      />
+      <p className="px-3 py-1.5 text-xs text-white/50">
+        {name} \u00b7 {label}
+      </p>
+    </div>
+  );
 }
 
 /// One remote participant.
