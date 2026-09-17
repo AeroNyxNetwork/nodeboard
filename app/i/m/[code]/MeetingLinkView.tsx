@@ -58,6 +58,9 @@ const copy = {
     // quick access on this walks straight in, and the page cannot know
     // which until the server answers. One honest word covers both.
     joinHere: 'Join',
+    inRoomTitle: "You're in this meeting",
+    copyLink: 'Copy link',
+    linkCopied: 'Link copied',
     knocking: 'Waiting for the host to let you in…',
     cancelKnock: 'Stop waiting',
     rejected: 'The host did not let you in.',
@@ -103,6 +106,9 @@ const copy = {
     noKeyBody:
       '# 後面那一段在路上被丟掉了——有些 App 和連結預覽會這樣。請對方把完整連結重新發一次。',
     joinHere: '加入',
+    inRoomTitle: '你在這場會議中',
+    copyLink: '複製連結',
+    linkCopied: '已複製',
     knocking: '等主持人放你進來…',
     cancelKnock: '不等了',
     rejected: '主持人沒有讓你進來。',
@@ -149,6 +155,20 @@ export default function MeetingLinkView({ code }: Props) {
   // [MEETING-WEB-GUEST 2026-09-17 by Claude] Joining here is opt-in, never
   // automatic: landing on a page must not switch a stranger's microphone on.
   const [inRoom, setInRoom] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can be refused, and a button that silently did
+      // nothing would be worse than one that admits it. The address bar
+      // still holds the link.
+      setCopied(false);
+    }
+  };
 
   useEffect(() => {
     const locale = navigator.language.toLowerCase();
@@ -199,19 +219,43 @@ export default function MeetingLinkView({ code }: Props) {
 
       <section className="flex flex-1 flex-col justify-center py-10">
         <div className="overflow-hidden rounded-lg border border-white/10 bg-[#14141D]">
+          {/* [MEETING-HEADER-STATE 2026-09-17 by Claude] Once you are in, this
+              card stopped being an invitation. It used to keep saying "Join
+              this meeting" and listing the features to somebody already
+              using them, which is the page talking past the person in front
+              of it. In the room it says where you are, and the pitch goes. */}
           <div className="p-5 sm:p-6">
             <h1 className="break-words text-xl font-semibold leading-7 text-white">
-              {!resolved || hasKey ? text.title : text.noKeyTitle}
+              {inRoom
+                ? text.inRoomTitle
+                : !resolved || hasKey
+                  ? text.title
+                  : text.noKeyTitle}
             </h1>
-            <p className="mt-1 text-sm text-white/50">
-              {!resolved || hasKey ? text.body : text.noKeyBody}
-            </p>
+            {inRoom ? null : (
+              <p className="mt-1 text-sm text-white/50">
+                {!resolved || hasKey ? text.body : text.noKeyBody}
+              </p>
+            )}
           </div>
 
-          <div className="border-t border-white/10 px-5 py-5 text-center sm:px-6">
+          <div className="flex flex-col items-center gap-3 border-t border-white/10 px-5 py-5 sm:px-6">
             <span className="font-mono text-lg tracking-[0.18em] text-[#9B8CFF]">
               {code}
             </span>
+            {/* The one thing a person in a meeting actually wants from this
+                row: the link that gets somebody else in. The whole link,
+                fragment included -- a copy without the key is a code for a
+                room the other person cannot hear. */}
+            {inRoom && hasKey ? (
+              <button
+                type="button"
+                onClick={copyLink}
+                className="rounded-md border border-white/15 px-3 py-1 text-xs font-medium text-white/70 transition-colors hover:border-white/30 hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-white/40"
+              >
+                {copied ? text.linkCopied : text.copyLink}
+              </button>
+            ) : null}
           </div>
         </div>
 
