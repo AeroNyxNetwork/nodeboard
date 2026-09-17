@@ -195,7 +195,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         <div className="p-6 border-b border-white/5">
           <Link href="/dashboard" className="flex items-center gap-3">
             <Logo className="w-10 h-10" />
-            <span className="text-xl font-bold gradient-text">AERONYX</span>
+            <span className="text-xl font-bold gradient-text">AeroNyx</span>
           </Link>
         </div>
 
@@ -325,7 +325,7 @@ export function MobileHeader({ onMenuToggle }: MobileHeaderProps) {
       <div className="flex items-center justify-between px-4 py-3">
         <Link href="/dashboard" className="flex items-center gap-2">
           <Logo className="w-8 h-8" />
-          <span className="text-lg font-bold gradient-text">AERONYX</span>
+          <span className="text-lg font-bold gradient-text">AeroNyx</span>
         </Link>
 
         <button

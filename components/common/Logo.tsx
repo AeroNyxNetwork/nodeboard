@@ -77,7 +77,11 @@ export default function Logo({
       {/* Text Logo */}
       {showText && (
         <span 
-          className="text-2xl font-bold tracking-wider"
+          // [BRAND-CASE 2026-09-17 by Claude] AeroNyx, not AERONYX. The
+          // tracking goes with it: wide letter-spacing is what makes an
+          // all-caps wordmark read, and the same spacing on mixed case just
+          // looks loose.
+          className="text-2xl font-bold tracking-tight"
           style={{ 
             background: `linear-gradient(135deg, ${color}, #EC4899)`,
             WebkitBackgroundClip: 'text',
@@ -85,7 +89,7 @@ export default function Logo({
             backgroundClip: 'text'
           }}
         >
-          AERONYX
+          AeroNyx
         </span>
       )}
     </div>
