@@ -43,6 +43,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  DisconnectReason,
   ExternalE2EEKeyProvider,
   LocalParticipant,
   Room,
@@ -85,6 +86,10 @@ type Props = {
     alone: string;
     failed: string;
     notFound: string;
+    meetingEnded: string;
+    removed: string;
+    joinedElsewhere: string;
+    disconnected: string;
     verifyEmoji: string;
     verifyEmojiLabel: string;
     roomFull: string;
@@ -262,9 +267,31 @@ export default function MeetingRoom({
           track.detach().forEach((el) => el.remove());
           setTrackVersion((v) => v + 1);
         })
-        .on(RoomEvent.Disconnected, () => {
-          setPhase('idle');
-          onLeave();
+        .on(RoomEvent.Disconnected, (reason) => {
+          // [MEETING-WEB-ENDED 2026-09-17 by Claude] Leaving on your own is
+          // the only disconnect that needs no words. Everything else --
+          // the host ending the meeting, being removed, the connection
+          // dropping -- used to unmount this component and return the person
+          // to the landing page with nothing said at all, which reads as the
+          // page having crashed rather than the meeting having ended.
+          if (reason === DisconnectReason.CLIENT_INITIATED) {
+            setPhase('idle');
+            onLeave();
+            return;
+          }
+          roomRef.current = null;
+          setPhase('failed');
+          setRetryable(reason !== DisconnectReason.PARTICIPANT_REMOVED);
+          setError(
+            reason === DisconnectReason.ROOM_DELETED ||
+              reason === DisconnectReason.ROOM_CLOSED
+              ? labels.meetingEnded
+              : reason === DisconnectReason.PARTICIPANT_REMOVED
+                ? labels.removed
+                : reason === DisconnectReason.DUPLICATE_IDENTITY
+                  ? labels.joinedElsewhere
+                  : labels.disconnected,
+          );
         });
 
       await room.connect(token.livekitUrl, token.token);
