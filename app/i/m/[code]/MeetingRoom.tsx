@@ -604,10 +604,16 @@ export default function MeetingRoom({
           <ControlIcon name="cap_screen" />
           {sharing ? labels.stopSharing : labels.share}
         </button>
+        {/* [LEAVE-SURFACE 2026-09-17 by Claude] A tint, not a saturated fill.
+            The purple object sat on solid red and the two did not belong in
+            one frame -- the design language is explicit that the surface obeys
+            the object, and this was the only one of the four where it did not.
+            Still unmistakably the red control: the loudest border, the
+            strongest wash and the only bold label in the row. */}
         <button
           type="button"
           onClick={leave}
-          className="flex h-11 items-center justify-center rounded-lg bg-[#D9455F] text-sm font-semibold text-white transition-colors hover:bg-[#E15872]"
+          className="flex h-11 items-center justify-center gap-2 rounded-lg border border-[#D9455F]/70 bg-[#D9455F]/25 px-2 text-sm font-semibold text-[#FF9AA9] transition-colors hover:bg-[#D9455F]/35 focus:outline-none focus:ring-2 focus:ring-[#D9455F]/70 focus:ring-offset-2 focus:ring-offset-[#14141D]"
         >
           <ControlIcon name="cap_phone" />
           {labels.leave}
