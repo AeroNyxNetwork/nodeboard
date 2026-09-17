@@ -561,8 +561,12 @@ export default function MeetingRoom({
           </span>
         </div>
       ) : null}
+      {/* Announced: this line is how somebody not looking at the tiles learns
+          that the meeting stopped being empty. */}
       {phase === 'joined' && peers.length === 0 ? (
-        <p className="mt-3 text-center text-xs text-white/40">{labels.alone}</p>
+        <p className="mt-3 text-center text-xs text-white/40" role="status">
+          {labels.alone}
+        </p>
       ) : null}
       {phase === 'joining' ? (
         <p className="mt-3 text-center text-xs text-white/40" role="status">

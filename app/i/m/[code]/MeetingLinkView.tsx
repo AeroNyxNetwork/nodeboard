@@ -351,6 +351,24 @@ export default function MeetingLinkView({ code }: Props) {
           </button>
         ) : null}
 
+        {/* [HANDOFF-PLACEMENT 2026-09-17 by Claude] Not while you are in the
+            meeting. A full-width "Open in AeroNyx" directly under Leave is a
+            mis-tap that yanks you out of a live call and hands you to an app
+            you may not have installed, and a download button under a meeting
+            you are already in is asking someone to install the thing they
+            are at that moment using. In the room the handoff becomes a quiet
+            link below the fold of the controls; before joining it stays the
+            pair of buttons it was. */}
+        {inRoom ? (
+          hasKey ? (
+            <a
+              href={appLink}
+              className="mt-4 self-center rounded px-2 py-1 text-xs text-white/45 underline-offset-4 transition-colors hover:text-white/70 hover:underline focus:outline-none focus:ring-2 focus:ring-white/40"
+            >
+              {text.open}
+            </a>
+          ) : null
+        ) : (
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {hasKey ? (
             <a
@@ -374,6 +392,7 @@ export default function MeetingLinkView({ code }: Props) {
             {text.download}
           </a>
         </div>
+        )}
 
         {/* Keeps its measure when the room widens around it: one sentence
             stretched across 1024px is a worse read than the same sentence in
