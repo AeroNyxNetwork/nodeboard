@@ -187,6 +187,39 @@ export async function requestMeetingToken(
  * A 16-byte key would connect and then hear silence, and silence is the one
  * failure nobody can diagnose from inside it.
  */
+/** Longest guest name we send. The backend caps at the same number. */
+export const MEETING_NAME_MAX = 32;
+
+/**
+ * Clean a guest-typed name the way the app cleans every other display name.
+ *
+ * [MEETING-NAME-SANITISE 2026-09-18 by Claude] This page sanitised nothing.
+ * The string went from the input box straight into `requester_name` on the
+ * knock -- which is what the host reads when deciding whether to open an
+ * end-to-end encrypted meeting to a stranger -- and into `display_name` on the
+ * token. The app has had sanitizeDisplayName since long before this page
+ * existed, for exactly this: a name that can "visually reverse/impersonate
+ * another contact".
+ *
+ * Same character classes as that function, deliberately, so the three sides of
+ * this value agree on what a name is:
+ *   strip  bidi embed/override/isolate, zero-width space, direction marks, BOM,
+ *          C0/C1 controls
+ *   keep   ZWJ and ZWNJ (U+200C/D) -- the joiners that hold an emoji family
+ *          together and that Persian and Indic names need
+ *
+ * The cap counts CODE POINTS. `.slice(0, 32)` counts UTF-16 units, so it cut
+ * surrogate pairs in half: a name ending in an emoji could leave a lone
+ * surrogate on the wire.
+ */
+const UNSAFE_NAME_CHARS =
+  /[\u202A-\u202E\u2066-\u2069]|[\u200B\u200E\u200F\u2060\uFEFF]|[\u0000-\u001F\u007F-\u009F]/gu;
+
+export function sanitizeMeetingName(raw: string): string {
+  const cleaned = raw.replace(UNSAFE_NAME_CHARS, '').replace(/\s+/g, ' ').trim();
+  return [...cleaned].slice(0, MEETING_NAME_MAX).join('');
+}
+
 export function decodeMeetingKey(fragment: string): Uint8Array | null {
   const pair = fragment
     .replace(/^#/, '')

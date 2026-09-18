@@ -90,6 +90,7 @@ type Props = {
     failed: string;
     notFound: string;
     reconnecting: string;
+    admitted: string;
     meetingEnded: string;
     removed: string;
     joinedElsewhere: string;
@@ -105,7 +106,14 @@ type Props = {
   /// cannot see from here: whether the person is actually IN (knocking is
   /// not in), and whether the meeting turned out not to exist -- in which
   /// case the card must stop offering to take them into it.
-  onStateChange?: (s: { joined: boolean; unavailable: boolean }) => void;
+  onStateChange?: (s: {
+    joined: boolean;
+    unavailable: boolean;
+    /** What a screen reader should hear right now. See the live region in
+     *  MeetingLinkView -- this room cannot host it, because failed, knocking
+     *  and joined are three different trees. */
+    status: string;
+  }) => void;
 };
 
 export default function MeetingRoom({
@@ -148,7 +156,28 @@ export default function MeetingRoom({
   const [verifyEmoji, setVerifyEmoji] = useState<string[]>([]);
   const roomRef = useRef<Room | null>(null);
   const knockRef = useRef<AdmissionRequest | null>(null);
+  // [GUEST-IDENTITY-REUSE 2026-09-18 by Claude] One keypair for as long as
+  // this component is mounted, instead of a fresh one inside every join().
+  //
+  // The host's decision is recorded against the key that knocked, so a new
+  // key is a new stranger. Pressing "Ask again" after being admitted and then
+  // dropped therefore made the person queue a second time for a room they had
+  // already been let into -- and the host, who answered thirty seconds ago,
+  // gets asked again by somebody they have no way to recognise as the same
+  // person.
+  //
+  // Nothing is persisted, and that is the deliberate half. Keeping this in
+  // memory costs no privacy: the key is already in memory for the whole
+  // session, and holding it across a retry in the same component exposes it
+  // to nobody new. Writing it to storage is a DIFFERENT decision and not this
+  // one -- see the note at the call site.
+  const identityRef = useRef<ReturnType<typeof createGuestIdentity> | null>(
+    null,
+  );
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  // [PHASE-FOCUS 2026-09-18 by Claude] Exactly one element holds this per
+  // render: whichever button is the thing to do on the screen now showing.
+  const primaryActionRef = useRef<HTMLButtonElement | null>(null);
   // Audio elements are attached here, off-layout. They were going into the
   // remote video tile, where an <audio> element occupied space in a box meant
   // for a picture.
@@ -169,21 +198,123 @@ export default function MeetingRoom({
 
   useEffect(() => () => teardown(), [teardown]);
 
+  // [PHASE-FOCUS 2026-09-18 by Claude] Put focus on the new screen's action
+  // when a phase change takes the old one away.
+  //
+  // Measured: focus the Join button, submit, and after the failure screen
+  // renders document.activeElement is <body>. The button that had focus was
+  // unmounted and nothing took its place, so a keyboard user who just pressed
+  // Join has to tab from the top of the document -- past the logo, the header
+  // and the two app links -- to reach "Ask again". Somebody using a screen
+  // reader hears the live region announce the failure and then has their
+  // focus nowhere, which is the worse half of the same thing.
+  //
+  // Only the two screens that ARE a message and a button. The room is not:
+  // it is a working surface with a control bar, and pulling focus into it the
+  // moment somebody is admitted would fight whatever they do next. That
+  // transition is left alone deliberately, not overlooked.
   useEffect(() => {
+    if (phase === 'failed' || phase === 'knocking') {
+      primaryActionRef.current?.focus();
+    }
+  }, [phase, retryable]);
+
+  // [MEETING-ANNOUNCE 2026-09-18 by Claude] Every status line in this file is
+  // rendered conditionally, and a status role that is INSERTED is not a live
+  // region that announced -- the region has to be in the DOM already for the
+  // change to be observed. So none of them announced anything, and the one
+  // that matters most is the guest who cannot see the screen sitting in the
+  // waiting room: the host lets them in, the whole tree swaps, and nothing
+  // says so. They would have to go re-read the page to discover it worked.
+  //
+  // The region itself lives in MeetingLinkView because it has to outlive all
+  // three of this component's return branches. This just says what to put in
+  // it, and the visible lines below are plain text now -- they inform, the
+  // region announces, and nothing is said twice.
+  //
+  // `alone` is deliberately not in here. It is a state, not an event: it sits
+  // next to the roster it describes, and routing it through the region would
+  // either talk over the admission that just fired or re-announce every time
+  // the last person leaves. Destructured to primitives on purpose: `labels` is an object literal
+  // at the call site, so depending on it would re-run this on every render.
+  const {
+    knocking: knockingLabel,
+    reconnecting: reconnectingLabel,
+    admitted: admittedLabel,
+    joining: joiningLabel,
+  } = labels;
+
+  useEffect(() => {
+    const status = phase === 'failed'
+      ? error
+      : phase === 'knocking'
+        ? knockingLabel
+        : reconnecting
+          ? reconnectingLabel
+          : phase === 'joined'
+            ? admittedLabel
+            : phase === 'joining'
+              ? joiningLabel
+              : '';
     onStateChange?.({
       joined: phase === 'joined',
       // Terminal: the meeting is gone, so no amount of trying again finds it.
       unavailable: phase === 'failed' && !retryable,
+      status,
     });
-  }, [phase, retryable, onStateChange]);
+  }, [
+    phase,
+    retryable,
+    reconnecting,
+    error,
+    knockingLabel,
+    reconnectingLabel,
+    admittedLabel,
+    joiningLabel,
+    onStateChange,
+  ]);
 
   const join = useCallback(async () => {
     setError('');
     setRetryable(true);
 
+    // [E2EE-PRECHECK 2026-09-18 by Claude] Ask the browser before asking the
+    // person for a microphone.
+    //
+    // crypto.subtle exists only in a secure context. Over plain http -- a
+    // LAN address, a self-hosted deployment, anything but https or localhost
+    // -- it is undefined, and both the frame encryption and the verification
+    // emoji are built on it. That was already handled, but only by matching
+    // the word "e2ee" inside whatever string the failure produced, which
+    // misses this case precisely: a missing crypto.subtle throws "Cannot read
+    // properties of undefined (reading 'digest')", and that sentence does not
+    // contain "e2ee". So the one cause the message was written for fell
+    // through to "Could not reach the meeting".
+    //
+    // And it only fell through AFTER the microphone prompt and the connect
+    // attempt, so the person granted a permission and waited to be told
+    // something that was knowable before either. The string match stays as a
+    // net for E2EE failures that are not about capability.
+    //
+    // Not retryable: reloading the same http:// page cannot make this true.
+    // The copy names the way out, and the app link sits under it.
+    if (!window.isSecureContext || !window.crypto?.subtle) {
+      setPhase('failed');
+      setRetryable(false);
+      setError(labels.noE2EE);
+      return;
+    }
+
     let room: Room | null = null;
     try {
-      const identity = createGuestIdentity();
+      // Reused across retries within this mount. A page RELOAD still starts a
+      // new stranger, and that half is left alone on purpose: persisting the
+      // seed would make a browser guest linkable across meetings by the relay,
+      // which is the property this whole route exists to protect. If the
+      // reload case is ever worth smoothing, the shape that keeps the
+      // property is sessionStorage keyed by meeting code -- same tab, same
+      // meeting, nothing carried to the next one -- not localStorage.
+      const identity = (identityRef.current ??= createGuestIdentity());
 
       // [MEETING-WEB-GUEST 2026-09-17 by Claude] Knock before entering. The
       // token would let this browser open the room on its own, which is
@@ -331,12 +462,30 @@ export default function MeetingRoom({
           }
           roomRef.current = null;
           setPhase('failed');
-          setRetryable(reason !== DisconnectReason.PARTICIPANT_REMOVED);
-          setError(
+
+          // [MEETING-TERMINAL-REASON 2026-09-18 by Claude] Whether asking
+          // again can possibly work, decided from the same reason the message
+          // is. Only "removed" used to be terminal, so a meeting that had
+          // ENDED put three statements on one screen that disagreed: the body
+          // said the meeting was over, an "Ask again" button sat next to it
+          // offering to rejoin a room that no longer exists, and because
+          // `unavailable` is derived from retryable, the heading above both
+          // still read "Join this meeting".
+          //
+          // A deleted or closed room is gone for everyone; asking again can
+          // only fail. Being removed is the host's decision and stands.
+          // Everything else -- a dropped signal, a timeout, a server going
+          // down -- is worth another try, and so is joining from a second
+          // place, where retrying means "use this tab instead".
+          const ended =
             reason === DisconnectReason.ROOM_DELETED ||
-              reason === DisconnectReason.ROOM_CLOSED
+            reason === DisconnectReason.ROOM_CLOSED;
+          const removed = reason === DisconnectReason.PARTICIPANT_REMOVED;
+          setRetryable(!ended && !removed);
+          setError(
+            ended
               ? labels.meetingEnded
-              : reason === DisconnectReason.PARTICIPANT_REMOVED
+              : removed
                 ? labels.removed
                 : reason === DisconnectReason.DUPLICATE_IDENTITY
                   ? labels.joinedElsewhere
@@ -487,6 +636,7 @@ export default function MeetingRoom({
         >
           {retryable ? (
             <button
+              ref={primaryActionRef}
               type="button"
               onClick={() => void join()}
               className={PRIMARY}
@@ -494,7 +644,12 @@ export default function MeetingRoom({
               {labels.retry}
             </button>
           ) : null}
-          <button type="button" onClick={leave} className={SECONDARY}>
+          <button
+            ref={retryable ? undefined : primaryActionRef}
+            type="button"
+            onClick={leave}
+            className={SECONDARY}
+          >
             {labels.back}
           </button>
         </div>
@@ -515,11 +670,12 @@ export default function MeetingRoom({
             aria-hidden="true"
             className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[#9B8CFF] motion-reduce:animate-none"
           />
-          <p className="text-sm leading-6 text-white/70" role="status">
+          <p className="text-sm leading-6 text-white/70">
             {labels.knocking}
           </p>
         </div>
         <button
+          ref={primaryActionRef}
           type="button"
           onClick={leave}
           className={`${SECONDARY} mt-4 w-full`}
@@ -595,7 +751,7 @@ export default function MeetingRoom({
       {reconnecting ? (
         <div
           className="mt-3 flex items-center justify-center gap-2 rounded-lg border border-[#E0A33E]/45 bg-[#E0A33E]/10 px-3 py-2"
-          role="status"
+
         >
           <span
             aria-hidden="true"
@@ -608,45 +764,63 @@ export default function MeetingRoom({
       {/* Announced: this line is how somebody not looking at the tiles learns
           that the meeting stopped being empty. */}
       {phase === 'joined' && peers.length === 0 ? (
-        <p className="mt-3 text-center text-xs text-white/40" role="status">
+        <p className="mt-3 text-center text-xs text-white/40">
           {labels.alone}
         </p>
       ) : null}
       {phase === 'joining' ? (
-        <p className="mt-3 text-center text-xs text-white/40" role="status">
+        <p className="mt-3 text-center text-xs text-white/40">
           {labels.joining}
         </p>
       ) : null}
 
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {/* [MEETING-TOGGLE-STATE 2026-09-18 by Claude] No aria-pressed on
+            these three. Their names are the ACTION and the name changes --
+            Mute/Unmute, Stop/Start video, Share/Stop sharing -- so a pressed
+            state on top of that contradicts the name instead of completing
+            it: muted read as "Unmute, pressed", which says the unmuting is
+            switched on while you are the one who is muted. Sharing read as
+            "Stop sharing, pressed" the whole time you were sharing. The mic
+            was worse still, because blocked forces micOn false and it
+            announced "No microphone, pressed".
+
+            The rule is one or the other: a name that stays put and a pressed
+            state that moves, or a name that moves and no pressed state. The
+            visible label has to keep moving here -- it is the only thing
+            telling anyone what the click will do -- so the pressed state is
+            the half that goes. */}
         <button
           type="button"
           onClick={toggleMic}
-          aria-pressed={!micOn}
           className={controlClass(
             micBlocked ? 'blocked' : micOn ? 'idle' : 'off',
           )}
         >
           <ControlIcon name={micOn && !micBlocked ? 'cap_mic' : 'cap_mic_off'} />
-          {micBlocked ? labels.noMic : micOn ? labels.mic : labels.micOff}
+          <span className="truncate">
+            {micBlocked ? labels.noMic : micOn ? labels.mic : labels.micOff}
+          </span>
         </button>
         <button
           type="button"
           onClick={toggleCamera}
-          aria-pressed={!cameraOn}
           className={controlClass(cameraOn ? 'idle' : 'off')}
         >
           <ControlIcon name={cameraOn ? 'cap_video' : 'cap_video_off'} />
-          {cameraOn ? labels.camera : labels.cameraOff}
+          <span className="truncate">
+            {cameraOn ? labels.camera : labels.cameraOff}
+          </span>
         </button>
         <button
           type="button"
           onClick={toggleShare}
-          aria-pressed={sharing}
           className={controlClass(sharing ? 'active' : 'idle')}
         >
           <ControlIcon name="cap_screen" />
-          {sharing ? labels.stopSharing : labels.share}
+          <span className="truncate">
+            {sharing ? labels.stopSharing : labels.share}
+          </span>
         </button>
         {/* [LEAVE-SURFACE 2026-09-17 by Claude] A tint, not a saturated fill.
             The purple object sat on solid red and the two did not belong in
@@ -657,10 +831,10 @@ export default function MeetingRoom({
         <button
           type="button"
           onClick={leave}
-          className="flex h-11 items-center justify-center gap-2 rounded-lg border border-[#D9455F]/70 bg-[#D9455F]/25 px-2 text-sm font-semibold text-[#FF9AA9] transition-colors hover:bg-[#D9455F]/35 focus:outline-none focus:ring-2 focus:ring-[#D9455F]/70 focus:ring-offset-2 focus:ring-offset-[#14141D]"
+          className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg border border-[#D9455F]/70 bg-[#D9455F]/25 px-2 text-sm font-semibold text-[#FF9AA9] transition-colors hover:bg-[#D9455F]/35 focus:outline-none focus:ring-2 focus:ring-[#D9455F]/70 focus:ring-offset-2 focus:ring-offset-[#14141D]"
         >
           <ControlIcon name="cap_phone" />
-          {labels.leave}
+          <span className="truncate">{labels.leave}</span>
         </button>
       </div>
     </div>
@@ -794,8 +968,20 @@ function ControlIcon({ name }: { name: string }) {
 /// It matches the call surface in the app, where a tint means available, a
 /// fill means in progress and red means stop.
 function controlClass(state: 'idle' | 'off' | 'blocked' | 'active'): string {
+  // [CONTROL-LABEL-FIT 2026-09-18 by Claude] min-w-0 so the label span can
+  // actually shrink. A flex item defaults to min-width:auto, which is its
+  // content, so `truncate` on the child does nothing until the button is
+  // allowed to be narrower than its text.
+  //
+  // Measured in the browser at the real class list: the two-column grid gives
+  // each control a 114px cell at a 320px viewport, and 'No microphone' wants
+  // 123 and 'Share screen' 116 -- both spilled outside the rounded border of
+  // a control in a live meeting. At 360 the cell is 134 and everything fits,
+  // so this only ever shows on the smallest phones and in Android's
+  // split-screen. Structural rather than shorter copy, because the same cell
+  // has to hold whatever the next language needs.
   const base =
-    'flex h-11 items-center justify-center gap-2 rounded-lg border px-2 text-sm ' +
+    'flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg border px-2 text-sm ' +
     'font-medium transition-colors focus:outline-none focus:ring-2 ' +
     'focus:ring-offset-2 focus:ring-offset-[#14141D]';
   switch (state) {
@@ -822,7 +1008,21 @@ function controlClass(state: 'idle' | 'off' | 'blocked' | 'active'): string {
 /// the badge in the corner, and printing it twice in one tile reads as a
 /// rendering mistake rather than a deliberate placeholder.
 function TileFallback({ name }: { name: string }) {
-  const initial = (name.trim()[0] ?? '?').toUpperCase();
+  // [TILE-INITIAL 2026-09-18 by Claude] Both halves of this are code-point
+  // aware, because neither `[0]` nor `toUpperCase()` is.
+  //
+  // `name[0]` takes the first UTF-16 unit. A name starting with an emoji --
+  // any astral character -- yields a lone high surrogate, which draws as the
+  // replacement glyph. Measured in a browser: "\u{1F468} Wang" gave U+D83D,
+  // a black diamond, as somebody's avatar. Guest names can start with an
+  // emoji far more often now that the sanitiser upstream deliberately keeps
+  // the joiners that hold them together, so this got easier to hit, not
+  // harder.
+  //
+  // And uppercasing can lengthen a string: 'ß' becomes 'SS', two characters
+  // in a circle built for one. So the first code point is taken again after.
+  const first = [...name.trim()][0] ?? '?';
+  const initial = [...first.toUpperCase()][0] ?? first;
   return (
     <span className="absolute inset-0 flex items-center justify-center">
       <span

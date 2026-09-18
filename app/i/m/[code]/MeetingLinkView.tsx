@@ -26,10 +26,11 @@
 
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Component, useEffect, useMemo, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import Logo from '@/components/common/Logo';
 import dynamic from 'next/dynamic';
-import { decodeMeetingKey } from '@/lib/meetingGuest';
+import { decodeMeetingKey, sanitizeMeetingName } from '@/lib/meetingGuest';
 
 // [MEETING-WEB-GUEST 2026-09-17 by Claude] Loaded only when someone actually
 // joins here. livekit-client is ~140 kB, and most people opening this link
@@ -38,6 +39,37 @@ import { decodeMeetingKey } from '@/lib/meetingGuest';
 // by the majority for the minority. ssr:false because it touches Worker and
 // getUserMedia, neither of which exists on a server.
 const MeetingRoom = dynamic(() => import('./MeetingRoom'), { ssr: false });
+
+/**
+ * [ROOM-BOUNDARY 2026-09-18 by Claude] The room is a lazily-loaded chunk, and
+ * nothing in this app catches a failure to load one.
+ *
+ * Checked: there is no error.tsx, no global-error.tsx and no boundary of any
+ * kind anywhere under app/. So a chunk that does not arrive throws through
+ * React and takes the whole page white -- on the one route a stranger ever
+ * sees, from a phone, on whatever network they happen to be on. It is not
+ * hypothetical either: a deploy replaces the chunk files, and any tab that
+ * was already open asks for a filename that no longer exists.
+ *
+ * A boundary here rather than a route file because the risk is this one
+ * import, not the route: the landing card, the key handling and the app
+ * handoff all still work when the room does not, and they are what the person
+ * needs in order to get in another way.
+ */
+class RoomBoundary extends Component<
+  { fallback: ReactNode; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
 
 const APP_STORE_URL = 'https://apps.apple.com/app/id6736854944';
 const PLAY_STORE_URL =
@@ -80,13 +112,22 @@ const copy = {
     share: 'Share screen',
     stopSharing: 'Stop sharing',
     sharingLabel: 'is sharing their screen',
-    camera: 'Camera off',
-    cameraOff: 'Camera on',
+    // [MEETING-CAMERA-COPY 2026-09-18 by Claude] Verbs, like every other
+    // control in this bar. 'Camera off' is shown while the camera is ON, so
+    // it had to be read as an instruction -- but it parses as a status, and
+    // as a status it says the opposite of the truth. The failure case is
+    // someone checking whether they are on camera: the button read
+    // 'Camera on' at exactly the moment they were not. The Chinese beside it
+    // was already right (關閉鏡頭/開啟鏡頭 are verbs). Same character count
+    // as what it replaces, so the two-column grid is unaffected.
+    camera: 'Stop video',
+    cameraOff: 'Start video',
     you: 'you',
     alone: 'Waiting for someone else to join.',
     failed: 'Could not reach the meeting. Ask again, or open it in the app.',
     notFound: 'This meeting has ended, or the link has expired.',
     reconnecting: 'Reconnecting…',
+    admitted: "You're in the meeting.",
     meetingEnded: 'The meeting ended.',
     removed: 'The host removed you from the meeting.',
     joinedElsewhere: 'You joined this meeting somewhere else.',
@@ -98,6 +139,9 @@ const copy = {
       "Your device's clock is too far off to join. Set it to update automatically and try again.",
     noE2EE:
       'This browser cannot set up end-to-end encryption, so joining here would not be private. Open the meeting in the AeroNyx app instead.',
+    roomBroke:
+      'The meeting could not be loaded. Reload the page, or open it in the AeroNyx app.',
+    reload: 'Reload',
     guest: 'Guest',
     trust:
       'The key that decrypts this meeting travels inside the link and never reaches our servers. Anyone holding the whole link can join.',
@@ -140,6 +184,7 @@ const copy = {
     failed: '連不上這場會議。再請求一次，或改用 App 開啟。',
     notFound: '這場會議已結束，或連結已過期。',
     reconnecting: '重新連線中…',
+    admitted: '你已進入會議。',
     meetingEnded: '會議已結束。',
     removed: '主持人把你移出了會議。',
     joinedElsewhere: '你在別的地方加入了這場會議。',
@@ -150,6 +195,8 @@ const copy = {
     clockOff: '你裝置的時間差太多，無法加入。把時間設成自動校正後再試一次。',
     noE2EE:
       '這個瀏覽器無法建立端對端加密，在這裡加入不會是私密的。請改用 AeroNyx App 開啟。',
+    roomBroke: '載入不了這場會議。請重新整理頁面，或改用 AeroNyx App 開啟。',
+    reload: '重新整理',
     guest: '訪客',
     trust:
       '解密這場會議的鑰匙在連結裡，從不會到我們的伺服器。拿到完整連結的人都能進來。',
@@ -172,6 +219,15 @@ export default function MeetingLinkView({ code }: Props) {
   // The meeting turned out not to exist. The card stops inviting people into
   // it rather than listing its features underneath the news that it is gone.
   const [unavailable, setUnavailable] = useState(false);
+
+  // [MEETING-ANNOUNCE 2026-09-18 by Claude] One live region for the whole
+  // page, rendered unconditionally so it is in the DOM before anything it
+  // needs to say happens. That is the part the room could not do for itself:
+  // its status lines are each rendered conditionally, and a role="status"
+  // element that gets INSERTED does not announce -- the region has to already
+  // exist for the text change to be observed. The room reports what to say;
+  // this holds the place that says it.
+  const [roomStatus, setRoomStatus] = useState('');
   // [COPY-STATE 2026-09-17 by Claude] Three states, not two. The first
   // version set this back to false when writeText threw, which is the same
   // thing it shows before you press it -- so a refused clipboard looked
@@ -211,18 +267,83 @@ export default function MeetingLinkView({ code }: Props) {
     window.setTimeout(() => setCopyState('idle'), 2400);
   };
 
+  // [MEETING-JOIN-ENTER 2026-09-18 by Claude] Lifted out of the button's
+  // onClick so the form can submit it, which is what makes Enter work. The
+  // body is unchanged: remember the name if there is one, and never let
+  // failing to remember it stand between someone and the meeting.
+  const joinHere = (event: FormEvent) => {
+    event.preventDefault();
+    const trimmed = sanitizeMeetingName(guestName);
+    try {
+      if (trimmed) {
+        window.localStorage.setItem('aeronyx.meeting.name', trimmed);
+      }
+    } catch {
+      /* not remembering it is not a reason to refuse to join */
+    }
+    setInRoom(true);
+  };
+
+  // [MEETING-HTML-LANG 2026-09-18 by Claude] Switching the copy is only half
+  // of switching the language; the document has to say so too.
+  //
+  // This route carries its own two-language `copy` object instead of going
+  // through I18nProvider, which already does `documentElement.lang = locale`
+  // for the rest of the site -- so the one page a stranger ever sees was the
+  // one that swapped every string to Chinese under <html lang="en">.
+  //
+  // What that costs, in order of how quietly it costs it:
+  //   * Han unification means the same code point has different glyph forms
+  //     for zh-Hant, zh-Hans and ja, and `lang` is what picks between them.
+  //     Inter carries no CJK at all (checked: the stack resolves to
+  //     Inter -> system-ui for Latin and falls through per glyph for Chinese),
+  //     so every Chinese character here comes from a fallback face chosen
+  //     with no language to go on.
+  //   * A screen reader reads Chinese with an English voice.
+  //   * Line breaking rules for CJK are language-informed.
+  //
+  // zh-Hant specifically, not zh: this copy is Traditional, and plain `zh`
+  // is read as Simplified by enough systems to matter. Restored on unmount so
+  // the value does not follow a client-side navigation to another route.
   useEffect(() => {
     const locale = navigator.language.toLowerCase();
-    setLanguage(locale.startsWith('zh') ? 'zh' : 'en');
+    const next = locale.startsWith('zh') ? 'zh' : 'en';
+    setLanguage(next);
+    const previous = document.documentElement.lang;
+    document.documentElement.lang = next === 'zh' ? 'zh-Hant' : 'en';
+    return () => {
+      document.documentElement.lang = previous;
+    };
+  }, []);
 
-    // The one place the key is read. location.hash is browser-only state; it
-    // does not round-trip to the server, and must never be made to.
-    const hash = window.location.hash.replace(/^#/, '');
-    const found = hash
-      .split('&')
-      .map((pair) => pair.split('='))
-      .find(([name]) => name === 'k');
-    setKeyFragment(found && found[1] ? found[1] : '');
+  // [MEETING-KEY-STALE 2026-09-18 by Claude] The key is read here and nowhere
+  // else. location.hash is browser-only state; it does not round-trip to the
+  // server, and must never be made to.
+  //
+  // It is read on every hashchange, not only on mount. Changing just the
+  // fragment does not remount this component, so a mount-only read left the
+  // page operating on the OLD key while the address bar showed the new one.
+  // Reproduced on a dev server: navigating to #k=AAEC… left the app handoff
+  // link still carrying the previous key. That link is exactly the thing this
+  // file warns about two comments down -- hand the app the wrong key and it
+  // joins the room and hears silence -- and nothing about the page looks
+  // wrong while it happens.
+  //
+  // Hit by pasting a corrected or rotated link into a tab that is already
+  // open, and by going back and forward between two links to the same
+  // meeting. Both are same-document navigations, so neither reloads.
+  useEffect(() => {
+    const readKey = () => {
+      const hash = window.location.hash.replace(/^#/, '');
+      const found = hash
+        .split('&')
+        .map((pair) => pair.split('='))
+        .find(([name]) => name === 'k');
+      setKeyFragment(found && found[1] ? found[1] : '');
+    };
+    readKey();
+    window.addEventListener('hashchange', readKey);
+    return () => window.removeEventListener('hashchange', readKey);
   }, []);
 
   const text = copy[language];
@@ -261,6 +382,10 @@ export default function MeetingLinkView({ code }: Props) {
         inRoom ? 'max-w-5xl py-4 sm:py-6' : 'max-w-xl py-8 sm:py-12'
       }`}
     >
+      <p role="status" aria-live="polite" className="sr-only">
+        {roomStatus}
+      </p>
+
       <header className="flex items-center justify-between border-b border-white/10 pb-5">
         <Logo className="h-8 w-8" />
         <span className="text-xs font-semibold uppercase text-white/45">
@@ -332,10 +457,30 @@ export default function MeetingLinkView({ code }: Props) {
         </div>
 
         {inRoom && roomKey ? (
+          <RoomBoundary
+            fallback={
+              // The same card the room would have filled, so the page does not
+              // change shape around the failure. Reload rather than "try
+              // again": if the chunk is gone because a deploy replaced it,
+              // retrying the same import asks for the same missing file.
+              <div className="mt-5 rounded-lg border border-white/10 bg-[#14141D] p-5 sm:p-6">
+                <p className="text-sm leading-6 text-white/70" role="alert">
+                  {text.roomBroke}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="mt-4 flex h-12 w-full items-center justify-center rounded-lg bg-[#7762F3] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#8877FF] focus:outline-none focus:ring-2 focus:ring-[#9B8CFF] focus:ring-offset-2 focus:ring-offset-[#0A0A0F]"
+                >
+                  {text.reload}
+                </button>
+              </div>
+            }
+          >
           <MeetingRoom
             code={code}
             e2eeKey={roomKey}
-            displayName={guestName.trim().slice(0, 32) || text.guest}
+            displayName={sanitizeMeetingName(guestName) || text.guest}
             labels={{
               knocking: text.knocking,
               cancelKnock: text.cancelKnock,
@@ -366,54 +511,57 @@ export default function MeetingLinkView({ code }: Props) {
               failed: text.failed,
               notFound: text.notFound,
               reconnecting: text.reconnecting,
+              admitted: text.admitted,
               noE2EE: text.noE2EE,
             }}
             onStateChange={(st) => {
               setJoined(st.joined);
               setUnavailable(st.unavailable);
+              setRoomStatus(st.status);
             }}
             onLeave={() => {
               setJoined(false);
               setUnavailable(false);
+              setRoomStatus('');
               setInRoom(false);
             }}
           />
+          </RoomBoundary>
         ) : null}
 
-        {!inRoom && roomKey ? (
-          <label className="mt-5 block">
-            <span className="mb-1.5 block text-xs font-medium text-white/45">
-              {text.yourName}
-            </span>
-            <input
-              type="text"
-              value={guestName}
-              maxLength={32}
-              placeholder={text.guest}
-              onChange={(e) => setGuestName(e.target.value)}
-              className="h-11 w-full rounded-lg border border-white/15 bg-black/30 px-3 text-sm text-white placeholder:text-white/30 focus:border-white/30 focus:outline-none focus:ring-2 focus:ring-[#9B8CFF]/50"
-            />
-          </label>
-        ) : null}
+        {/* [MEETING-JOIN-ENTER 2026-09-18 by Claude] A form, so Enter joins.
+            These were two siblings: a bare input in a label, and a
+            type="button" with an onClick. Typing your name and pressing Enter
+            did nothing at all -- and on a phone, which is where a browser
+            guest actually is, the keyboard's own action key was dead too,
+            because there was no form for it to submit.
 
+            Nothing moves: the form has no padding or border of its own, and
+            the card that holds it does (p-5 sm:p-6), so the label's mt-5
+            collapses through exactly as it did when the two were siblings. */}
         {!inRoom && roomKey ? (
-          <button
-            type="button"
-            onClick={() => {
-              const trimmed = guestName.trim().slice(0, 32);
-              try {
-                if (trimmed) {
-                  window.localStorage.setItem('aeronyx.meeting.name', trimmed);
-                }
-              } catch {
-                /* not remembering it is not a reason to refuse to join */
-              }
-              setInRoom(true);
-            }}
-            className="mt-5 flex h-12 w-full items-center justify-center rounded-lg bg-[#7762F3] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#8877FF] focus:outline-none focus:ring-2 focus:ring-[#9B8CFF] focus:ring-offset-2 focus:ring-offset-[#0A0A0F]"
-          >
-            {text.joinHere}
-          </button>
+          <form onSubmit={joinHere}>
+            <label className="mt-5 block">
+              <span className="mb-1.5 block text-xs font-medium text-white/45">
+                {text.yourName}
+              </span>
+              <input
+                type="text"
+                value={guestName}
+                maxLength={32}
+                placeholder={text.guest}
+                enterKeyHint="go"
+                onChange={(e) => setGuestName(e.target.value)}
+                className="h-11 w-full rounded-lg border border-white/15 bg-black/30 px-3 text-sm text-white placeholder:text-white/30 focus:border-white/30 focus:outline-none focus:ring-2 focus:ring-[#9B8CFF]/50"
+              />
+            </label>
+            <button
+              type="submit"
+              className="mt-5 flex h-12 w-full items-center justify-center rounded-lg bg-[#7762F3] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#8877FF] focus:outline-none focus:ring-2 focus:ring-[#9B8CFF] focus:ring-offset-2 focus:ring-offset-[#0A0A0F]"
+            >
+              {text.joinHere}
+            </button>
+          </form>
         ) : null}
 
         {/* [HANDOFF-PLACEMENT 2026-09-17 by Claude] Not while you are in the
