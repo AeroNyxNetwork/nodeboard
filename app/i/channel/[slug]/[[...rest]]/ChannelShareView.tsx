@@ -92,9 +92,35 @@ export default function ChannelShareView({
 }: Props) {
   const [language, setLanguage] = useState<'en' | 'zh'>('en');
 
+  // [SHARE-HTML-LANG 2026-09-19 by Claude] Switching the copy is half of
+  // switching the language; the document has to say so too.
+  //
+  // This is where the meeting page inherited the same omission from -- its
+  // header says it follows this file rather than inventing a second language
+  // for the same kind of page, and it followed this too. Both are pages a
+  // stranger sees, and both swapped every string to Chinese under
+  // <html lang="en">.
+  //
+  // What that costs: Han unification means the same code point has different
+  // glyph forms for zh-Hant, zh-Hans and ja, and `lang` is what picks between
+  // them -- Inter carries no CJK at all, so every Chinese character here comes
+  // from a fallback face chosen with no language to go on. A screen reader
+  // also reads Chinese in an English voice, and CJK line breaking is
+  // language-informed.
+  //
+  // zh-Hant specifically: this copy is Traditional (公開頻道, 訂閱者, 貼文),
+  // and plain `zh` is read as Simplified by enough systems to matter.
+  // Restored on unmount so the value does not follow a client-side navigation
+  // to another route.
   useEffect(() => {
     const locale = navigator.language.toLowerCase();
-    setLanguage(locale.startsWith('zh') ? 'zh' : 'en');
+    const next = locale.startsWith('zh') ? 'zh' : 'en';
+    setLanguage(next);
+    const previous = document.documentElement.lang;
+    document.documentElement.lang = next === 'zh' ? 'zh-Hant' : 'en';
+    return () => {
+      document.documentElement.lang = previous;
+    };
   }, []);
 
   const text = copy[language];
