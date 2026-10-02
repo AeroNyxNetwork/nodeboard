@@ -281,24 +281,32 @@ export default function AnonymousChatPage({
           : message,
       ));
     });
-    client.on('receipt', (raw) => {
+    // [ANON-CHAT-MONOTONIC-DELIVERY 2026-10-02 by Codex] Peer receipt/read is
+    // stronger evidence than a Relay ACK. It may race ahead of that ACK, so it
+    // must retire the pending timer and recipient-send entry; otherwise a late
+    // ACK or 15-second timeout can incorrectly downgrade delivered to sent or
+    // failed. Receipt also proves an initial contact request was accepted.
+    const markPeerDelivered = (raw: unknown) => {
       const messageId = String((raw as { msg_id?: string }).msg_id || '');
       if (!messageId) return;
+      const pending = pendingFramesRef.current.get(messageId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingFramesRef.current.delete(messageId);
+        if (pending.contactRequest) {
+          contactRequestInFlightRef.current = false;
+          contactRequestAcceptedRef.current = true;
+        }
+        client.send(selfEchoFrame(seed, pub, pending.frame));
+      }
       setMessages((prev) => prev.map((message) =>
         message.id === messageId
           ? { ...message, status: 'delivered' }
           : message,
       ));
-    });
-    client.on('read', (raw) => {
-      const messageId = String((raw as { msg_id?: string }).msg_id || '');
-      if (!messageId) return;
-      setMessages((prev) => prev.map((message) =>
-        message.id === messageId
-          ? { ...message, status: 'delivered' }
-          : message,
-      ));
-    });
+    };
+    client.on('receipt', markPeerDelivered);
+    client.on('read', markPeerDelivered);
     client.on('envelope', (frame) => {
       const opened = decryptEnvelopeFrame(seed, frame as never);
       if (!opened || opened.peerHex !== recipient.pubkey) return;
