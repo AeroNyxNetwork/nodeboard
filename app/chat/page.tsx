@@ -194,6 +194,9 @@ export default function ChatPage() {
   const pubRef = useRef<Uint8Array | null>(null);
   const clientRef = useRef<RelayClient | null>(null);
   const profileRefreshAtRef = useRef(0);
+  // [WEB-PROFILE-PRECEDENCE 2026-10-02 by Codex] Keep the public name
+  // authoritative between profile refreshes, including contact-only refreshes.
+  const profileNamesRef = useRef<Record<string, string>>({});
 
   const [status, setStatus] = useState<Status>('connecting');
   const [convs, setConvs] = useState<Record<string, Conv>>({});
@@ -534,7 +537,8 @@ export default function ChatPage() {
       setServerNames((prev) => {
         const next = { ...prev };
         for (const c of list) {
-          if (c.displayName) next[c.pubkey] = c.displayName;
+          const name = profileNamesRef.current[c.pubkey] || c.displayName;
+          if (name) next[c.pubkey] = name;
         }
         return next;
       });
@@ -552,6 +556,7 @@ export default function ChatPage() {
         profileRefreshAtRef.current = now;
         const profileNames = await fetchProfileNames(list.map((c) => c.pubkey));
         if (Object.keys(profileNames).length) {
+          profileNamesRef.current = { ...profileNamesRef.current, ...profileNames };
           setServerNames((prev) => ({ ...prev, ...profileNames }));
         }
       }

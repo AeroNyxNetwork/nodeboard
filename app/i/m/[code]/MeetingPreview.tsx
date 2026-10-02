@@ -45,15 +45,22 @@ const MeetingPreview = forwardRef<MeetingPreviewHandle, Props>(
   ) {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
+    // [MEETING-PREVIEW-CANCEL 2026-10-02 by Codex] A permission prompt may
+    // resolve after join/unmount; stale requests must immediately stop tracks.
+    const requestRef = useRef(0);
+    const preferencesRef = useRef({ micOn, cameraOn });
+    preferencesRef.current = { micOn, cameraOn };
     const [starting, setStarting] = useState(false);
     const [active, setActive] = useState(false);
     const [failed, setFailed] = useState(false);
 
     const stop = useCallback(() => {
+      requestRef.current += 1;
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
       if (videoRef.current) videoRef.current.srcObject = null;
       setActive(false);
+      setStarting(false);
     }, []);
 
     useImperativeHandle(ref, () => ({ stop }), [stop]);
@@ -73,6 +80,7 @@ const MeetingPreview = forwardRef<MeetingPreviewHandle, Props>(
 
     const start = async () => {
       if (starting || active) return;
+      const request = ++requestRef.current;
       setStarting(true);
       setFailed(false);
       try {
@@ -80,23 +88,28 @@ const MeetingPreview = forwardRef<MeetingPreviewHandle, Props>(
           audio: true,
           video: { facingMode: 'user' },
         });
+        if (request !== requestRef.current) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
         stream.getAudioTracks().forEach((track) => {
-          track.enabled = micOn;
+          track.enabled = preferencesRef.current.micOn;
         });
         stream.getVideoTracks().forEach((track) => {
-          track.enabled = cameraOn;
+          track.enabled = preferencesRef.current.cameraOn;
         });
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play().catch(() => undefined);
         }
-        setActive(true);
+        if (request === requestRef.current) setActive(true);
       } catch {
+        if (request !== requestRef.current) return;
         stop();
         setFailed(true);
       } finally {
-        setStarting(false);
+        if (request === requestRef.current) setStarting(false);
       }
     };
 

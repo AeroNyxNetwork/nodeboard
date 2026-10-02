@@ -983,8 +983,18 @@ function groupInfoFromWire(g: Record<string, unknown>): GroupInfo {
 export async function fetchGroupList(seed: Uint8Array, pub: Uint8Array): Promise<GroupInfo[]> {
   const res = await tFetch(`${RELAY_BASE}/groups/`, { headers: { Authorization: authHeader(seed, pub) } }, 20000);
   if (!res.ok) throw new Error(`groups ${res.status}`);
-  const body = await res.json().catch(() => ({} as Record<string, unknown>));
-  const raw = Array.isArray(body.groups) ? body.groups : [];
+  // [WEB-GROUP-REFRESH-GUARD 2026-10-02 by Codex] Only a valid full list
+  // may remove cached groups; a malformed success response is not an empty list.
+  const body = await res.json();
+  if (!body || !Array.isArray(body.groups) || body.groups.some(
+    (group: unknown) => !group || typeof group !== 'object' ||
+      Array.isArray(group) ||
+      typeof ((group as Record<string, unknown>).group_id ??
+        (group as Record<string, unknown>).id) !== 'string' ||
+      !((group as Record<string, unknown>).group_id ??
+        (group as Record<string, unknown>).id),
+  )) throw new Error('invalid group list');
+  const raw = body.groups;
   return raw
     .map(groupInfoFromWire)
     .filter((g: GroupInfo) => g.groupId);
