@@ -14,7 +14,7 @@ import {
 
 type ResolveState = 'loading' | 'ready' | 'expired' | 'missing' | 'error';
 type DeliveryState = 'sending' | 'sent' | 'delivered' | 'failed';
-type GuestLocale = 'en' | 'zh';
+type GuestLocale = 'en' | 'zh' | 'zh-TW';
 
 interface Recipient {
   pubkey: string;
@@ -42,6 +42,7 @@ interface AnonymousChatCopy {
   delivered: string;
   verificationRequired: string;
   rateLimited: string;
+  waitingForRecipient: string;
   retry: string;
   reconnect: string;
   placeholder: string;
@@ -70,6 +71,7 @@ const COPY: Record<GuestLocale, AnonymousChatCopy> = {
     delivered: 'Delivered',
     verificationRequired: 'Approval required',
     rateLimited: 'Please wait before retrying',
+    waitingForRecipient: 'Stored securely. Waiting for the recipient device.',
     retry: 'Retry',
     reconnect: 'Reconnect',
     placeholder: 'Message',
@@ -108,6 +110,7 @@ const COPY: Record<GuestLocale, AnonymousChatCopy> = {
     delivered: '已送达',
     verificationRequired: '需要对方先通过验证',
     rateLimited: '操作过于频繁，请稍后重试',
+    waitingForRecipient: '已安全存入中继，等待对方设备接收。',
     retry: '重试',
     reconnect: '重新连接',
     placeholder: '输入消息',
@@ -132,6 +135,48 @@ const COPY: Record<GuestLocale, AnonymousChatCopy> = {
       error: '请刷新页面或稍后再试。',
     },
     titleWithRecipient: (name) => `和 ${name} 聊天`,
+  },
+  // [ANON-CHAT-ZH-HANT 2026-10-02 by Codex] The public link is commonly
+  // opened from Hong Kong and Taiwan messaging apps. Do not silently serve a
+  // Simplified-Chinese surface when the browser explicitly requests Hant.
+  'zh-TW': {
+    defaultTitle: 'AeroNyx 匿名聊天',
+    fallbackUser: 'AeroNyx 使用者',
+    connected: '加密中繼已連線',
+    emptyTitle: '傳送一則私密訊息',
+    emptyBody:
+      '無需安裝 AeroNyx 也可以聊天。瀏覽器會為此連結建立臨時身分。',
+    notSent: '傳送失敗',
+    sending: '正在傳送…',
+    relayAccepted: '中繼已接收',
+    delivered: '已送達',
+    verificationRequired: '需要對方先通過驗證',
+    rateLimited: '操作過於頻繁，請稍後重試',
+    waitingForRecipient: '已安全存入中繼，等待對方裝置接收。',
+    retry: '重試',
+    reconnect: '重新連線',
+    placeholder: '輸入訊息',
+    sendLabel: '傳送',
+    statusText: {
+      loading: '正在檢查連結…',
+      ready: '正在連線…',
+      expired: '連結已過期',
+      missing: '找不到連結',
+      error: '無法載入連結',
+    },
+    statusTitle: {
+      loading: '正在開啟安全聊天',
+      expired: '此聊天連結已過期',
+      missing: '此聊天連結不存在',
+      error: '無法開啟此聊天',
+    },
+    statusDescription: {
+      loading: '正在準備加密訪客會話。',
+      expired: '請讓 AeroNyx 使用者建立新的匿名聊天連結。',
+      missing: '請檢查連結是否已完整複製。',
+      error: '請重新整理頁面，或稍後再試。',
+    },
+    titleWithRecipient: (name) => `與 ${name} 聊天`,
   },
 };
 
@@ -179,6 +224,12 @@ export default function AnonymousChatPage({
     if (!recipient) return copy.defaultTitle;
     return copy.titleWithRecipient(recipient.displayName || copy.fallbackUser);
   }, [copy, recipient]);
+  const latestOwnStatus = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].mine) return messages[index].status;
+    }
+    return null;
+  }, [messages]);
 
   useEffect(() => {
     setLocale(detectGuestLocale());
@@ -211,7 +262,10 @@ export default function AnonymousChatPage({
         }
         setRecipient({
           pubkey,
-          displayName: String(data?.recipient?.display_name || 'AeroNyx user'),
+          // [ANON-CHAT-ZH-HANT 2026-10-02 by Codex] Keep an absent server title
+          // absent so render selects the locale fallback instead of freezing
+          // an English value before browser-language detection completes.
+          displayName: String(data?.recipient?.display_name || ''),
         });
         setState('ready');
       } catch {
@@ -310,6 +364,19 @@ export default function AnonymousChatPage({
     client.on('envelope', (frame) => {
       const opened = decryptEnvelopeFrame(seed, frame as never);
       if (!opened || opened.peerHex !== recipient.pubkey) return;
+      // [ANON-CHAT-RECEIPT 2026-10-02 by Codex] A peer receipt is emitted only
+      // after this browser verified, decrypted and accepted the envelope. The
+      // native sender can then distinguish Relay custody from actual device
+      // delivery. The frame is metadata-only and idempotent on replay.
+      if (!opened.mine) {
+        contactRequestAcceptedRef.current = true;
+        client.send({
+          type: 'message_receipt',
+          receiver_pubkey: opened.peerHex,
+          msg_id: opened.msgId,
+          timestamp: Math.floor(Date.now() / 1000),
+        });
+      }
       setMessages((prev) => {
         if (prev.some((m) => m.id === opened.msgId)) return prev;
         return [
@@ -416,7 +483,7 @@ export default function AnonymousChatPage({
             </div>
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-[17px] font-semibold">{title}</h1>
-              <p className="mt-0.5 text-xs text-white/45">
+              <p className="mt-0.5 text-xs text-white/45" aria-live="polite">
                 {connected ? copy.connected : statusText(state, copy)}
               </p>
             </div>
@@ -440,9 +507,7 @@ export default function AnonymousChatPage({
             <div className="flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-5">
               {messages.length === 0 ? (
                 <div className="mx-auto mt-16 max-w-[280px] text-center">
-                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-400/10 text-emerald-300">
-                    <LockIcon />
-                  </div>
+                  <FangWaitAnimation />
                   <p className="mt-4 text-sm font-medium text-white/85">
                     {copy.emptyTitle}
                   </p>
@@ -485,6 +550,15 @@ export default function AnonymousChatPage({
               )}
               <div ref={messagesEndRef} />
             </div>
+            {latestOwnStatus === 'sent' ? (
+              <div
+                role="status"
+                aria-live="polite"
+                className="border-t border-amber-300/10 bg-amber-300/[0.05] px-4 py-2.5 text-center text-xs leading-5 text-amber-100/75"
+              >
+                {copy.waitingForRecipient}
+              </div>
+            ) : null}
             <form
               className="border-t border-white/10 p-3 pb-[calc(12px+env(safe-area-inset-bottom))]"
               onSubmit={(e) => {
@@ -540,6 +614,12 @@ function detectGuestLocale(): GuestLocale {
   const languages = [navigator.language, ...(navigator.languages || [])]
     .filter(Boolean)
     .map((value) => value.toLowerCase());
+  if (languages.some((value) =>
+    value.startsWith('zh-tw')
+      || value.startsWith('zh-hk')
+      || value.startsWith('zh-mo')
+      || value.startsWith('zh-hant')
+  )) return 'zh-TW';
   return languages.some((value) => value.startsWith('zh')) ? 'zh' : 'en';
 }
 
@@ -582,6 +662,31 @@ function failureText(reason: string | undefined, copy: AnonymousChatCopy) {
   return copy.notSent;
 }
 
+// [FANG-WEB-CHAT 2026-10-02 by Codex] Reuse the official first-party Fang v2
+// wait pose for this single calm empty state. Animated WebP avoids a JS player;
+// reduced-motion visitors receive the matching static first frame instead.
+function FangWaitAnimation() {
+  const root = 'https://binary.aeronyx.network/stickers/fang/v2/wait';
+  return (
+    <picture>
+      <source
+        media="(prefers-reduced-motion: reduce)"
+        srcSet={`${root}/00.png`}
+      />
+      <img
+        src={`${root}/anim.webp`}
+        alt=""
+        aria-hidden="true"
+        width={128}
+        height={128}
+        loading="lazy"
+        decoding="async"
+        className="mx-auto h-28 w-28 object-contain drop-shadow-[0_18px_28px_rgba(139,92,246,0.16)]"
+      />
+    </picture>
+  );
+}
+
 function AeroNyxMark() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
@@ -597,15 +702,6 @@ function SendIcon() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="m22 2-7 20-4-9-9-4Z" />
       <path d="M22 2 11 13" />
-    </svg>
-  );
-}
-
-function LockIcon() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="11" width="18" height="10" rx="2" />
-      <path d="M7 11V8a5 5 0 0 1 10 0v3" />
     </svg>
   );
 }
