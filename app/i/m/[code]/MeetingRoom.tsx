@@ -760,7 +760,7 @@ export default function MeetingRoom({
   }
 
   return (
-    <div ref={roomSurfaceRef} className="relative mt-5 rounded-lg border border-white/10 bg-[#14141D] p-4 sm:p-5">
+    <div ref={roomSurfaceRef} className="relative mt-3 rounded-lg border border-white/10 bg-[#14141D] p-3 sm:mt-5 sm:p-5">
       {/* [MEETING-WEB-GRID 2026-09-17 by Claude] One tile per person. Every
           remote track used to be appended into a single fixed-aspect box, so a
           third person in the room drew on top of the second and only the last
@@ -874,6 +874,11 @@ export default function MeetingRoom({
       ) : null}
 
       <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
+        {/* [MEETING-MOBILE-CONTROLS 2026-10-02 by Codex] At phone widths each
+            control is an icon-sized touch target, like the native meeting
+            surface. Full action names remain in aria-label/title and become
+            visible labels from sm upward; no function becomes undiscoverable
+            to assistive technology. */}
         {/* [MEETING-TOGGLE-STATE 2026-09-18 by Claude] No aria-pressed on
             these three. Their names are the ACTION and the name changes --
             Mute/Unmute, Stop/Start video, Share/Stop sharing -- so a pressed
@@ -892,48 +897,58 @@ export default function MeetingRoom({
         <button
           type="button"
           onClick={toggleMic}
+          aria-label={micBlocked ? labels.noMic : micOn ? labels.mic : labels.micOff}
+          title={micBlocked ? labels.noMic : micOn ? labels.mic : labels.micOff}
           className={controlClass(
             micBlocked ? 'blocked' : micOn ? 'idle' : 'off',
           )}
         >
           <ControlIcon name={micOn && !micBlocked ? 'cap_mic' : 'cap_mic_off'} />
-          <span className="truncate">
+          <span className="hidden truncate sm:block">
             {micBlocked ? labels.noMic : micOn ? labels.mic : labels.micOff}
           </span>
         </button>
         <button
           type="button"
           onClick={() => setShowPeople((value) => !value)}
+          aria-label={`${labels.people} · ${peers.length + 1}`}
+          title={`${labels.people} · ${peers.length + 1}`}
           className={controlClass(showPeople ? 'active' : 'idle')}
         >
           <img src="/chat/chat_group.png" alt="" aria-hidden="true" width={22} height={22} className="h-[22px] w-[22px] shrink-0" />
-          <span className="truncate">{labels.people} · {peers.length + 1}</span>
+          <span className="hidden truncate sm:block">{labels.people} · {peers.length + 1}</span>
         </button>
         <button
           type="button"
           onClick={() => void toggleFullscreen()}
+          aria-label={fullscreen ? labels.exitFullscreen : labels.fullscreen}
+          title={fullscreen ? labels.exitFullscreen : labels.fullscreen}
           className={controlClass(fullscreen ? 'active' : 'idle')}
         >
           <RoomGlyph name={fullscreen ? 'collapse' : 'expand'} />
-          <span className="truncate">{fullscreen ? labels.exitFullscreen : labels.fullscreen}</span>
+          <span className="hidden truncate sm:block">{fullscreen ? labels.exitFullscreen : labels.fullscreen}</span>
         </button>
         <button
           type="button"
           onClick={toggleCamera}
+          aria-label={cameraOn ? labels.camera : labels.cameraOff}
+          title={cameraOn ? labels.camera : labels.cameraOff}
           className={controlClass(cameraOn ? 'idle' : 'off')}
         >
           <ControlIcon name={cameraOn ? 'cap_video' : 'cap_video_off'} />
-          <span className="truncate">
+          <span className="hidden truncate sm:block">
             {cameraOn ? labels.camera : labels.cameraOff}
           </span>
         </button>
         <button
           type="button"
           onClick={toggleShare}
+          aria-label={sharing ? labels.stopSharing : labels.share}
+          title={sharing ? labels.stopSharing : labels.share}
           className={controlClass(sharing ? 'active' : 'idle')}
         >
           <ControlIcon name="cap_screen" />
-          <span className="truncate">
+          <span className="hidden truncate sm:block">
             {sharing ? labels.stopSharing : labels.share}
           </span>
         </button>
@@ -946,10 +961,12 @@ export default function MeetingRoom({
         <button
           type="button"
           onClick={leave}
+          aria-label={labels.leave}
+          title={labels.leave}
           className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg border border-[#D9455F]/70 bg-[#D9455F]/25 px-2 text-sm font-semibold text-[#FF9AA9] transition-colors hover:bg-[#D9455F]/35 focus:outline-none focus:ring-2 focus:ring-[#D9455F]/70 focus:ring-offset-2 focus:ring-offset-[#14141D]"
         >
           <ControlIcon name="cap_phone" />
-          <span className="truncate">{labels.leave}</span>
+          <span className="hidden truncate sm:block">{labels.leave}</span>
         </button>
       </div>
 

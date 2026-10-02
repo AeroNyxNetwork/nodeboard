@@ -421,6 +421,10 @@ export default function MeetingLinkView({ code }: Props) {
   }, []);
 
   return (
+    // [MEETING-MOBILE-RHYTHM 2026-10-02 by Codex] Mobile uses tighter page,
+    // header and action spacing so preview, identity and Join form one visible
+    // task instead of three desktop-height bands. Desktop spacing is retained
+    // from sm upward.
     // [MEETING-ROOM-WIDTH 2026-09-17 by Claude] The landing card and the
     // meeting shared one width, and the card's width won. On a 1280px screen
     // that left the room 576px wide with a 470x264 video tile -- a postage
@@ -428,7 +432,7 @@ export default function MeetingLinkView({ code }: Props) {
     // thing to do. A short message wants a narrow measure; a video call wants
     // the screen. They are not the same page any more once you are in.
     <main
-      className={`mx-auto flex min-h-[100dvh] w-full flex-col px-5 sm:px-8 ${
+      className={`mx-auto flex min-h-[100dvh] w-full flex-col px-4 sm:px-8 ${
         inRoom || roomKey ? 'max-w-5xl py-4 sm:py-6' : 'max-w-xl py-8 sm:py-12'
       }`}
     >
@@ -436,7 +440,7 @@ export default function MeetingLinkView({ code }: Props) {
         {roomStatus}
       </p>
 
-      <header className="flex items-center justify-between border-b border-white/10 pb-5">
+      <header className="flex items-center justify-between border-b border-white/10 pb-3 sm:pb-5">
         <Logo className="h-8 w-8" />
         <span className="text-xs font-semibold uppercase text-white/45">
           {text.kicker}
@@ -451,11 +455,11 @@ export default function MeetingLinkView({ code }: Props) {
           top and spends less on padding; the landing card keeps both. */}
       <section
         className={`flex flex-1 flex-col ${
-          inRoom ? 'justify-start py-4' : 'justify-center py-10'
+          inRoom ? 'justify-start py-3 sm:py-4' : 'justify-center py-5 sm:py-10'
         }`}
       >
         {!inRoom && roomKey ? (
-          <div className="mx-auto mb-5 w-full max-w-3xl">
+          <div className="mx-auto mb-3 w-full max-w-3xl sm:mb-5">
             <MeetingPreview
               ref={previewRef}
               micOn={micOnBeforeJoin}
@@ -481,7 +485,7 @@ export default function MeetingLinkView({ code }: Props) {
               this meeting" and listing the features to somebody already
               using them, which is the page talking past the person in front
               of it. In the room it says where you are, and the pitch goes. */}
-          <div className="p-5 sm:p-6">
+          <div className="p-4 sm:p-6">
             <h1 className="break-words text-xl font-semibold leading-7 text-white">
               {joined
                 ? text.inRoomTitle
@@ -498,8 +502,8 @@ export default function MeetingLinkView({ code }: Props) {
             )}
           </div>
 
-          <div className="flex flex-col items-center gap-3 border-t border-white/10 px-5 py-5 sm:px-6">
-            <span className="font-mono text-lg tracking-[0.18em] text-[#9B8CFF]">
+          <div className="flex flex-col items-center gap-3 border-t border-white/10 px-4 py-4 sm:px-6 sm:py-5">
+            <span className="font-mono text-base tracking-[0.14em] text-[#9B8CFF] sm:text-lg sm:tracking-[0.18em]">
               {code}
             </span>
             {/* The one thing a person in a meeting actually wants from this
@@ -622,7 +626,7 @@ export default function MeetingLinkView({ code }: Props) {
             collapses through exactly as it did when the two were siblings. */}
         {!inRoom && roomKey ? (
           <form onSubmit={joinHere} className="mx-auto w-full max-w-xl">
-            <label className="mt-5 block">
+            <label className="mt-3 block sm:mt-5">
               <span className="mb-1.5 block text-xs font-medium text-white/45">
                 {text.yourName}
               </span>
@@ -638,7 +642,7 @@ export default function MeetingLinkView({ code }: Props) {
             </label>
             <button
               type="submit"
-              className="mt-5 flex h-12 w-full items-center justify-center rounded-lg bg-[#7762F3] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#8877FF] focus:outline-none focus:ring-2 focus:ring-[#9B8CFF] focus:ring-offset-2 focus:ring-offset-[#0A0A0F]"
+              className="mt-3 flex h-12 w-full items-center justify-center rounded-lg bg-[#7762F3] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#8877FF] focus:outline-none focus:ring-2 focus:ring-[#9B8CFF] focus:ring-offset-2 focus:ring-offset-[#0A0A0F] sm:mt-5"
             >
               {text.joinHere}
             </button>
@@ -691,7 +695,7 @@ export default function MeetingLinkView({ code }: Props) {
         {/* Keeps its measure when the room widens around it: one sentence
             stretched across 1024px is a worse read than the same sentence in
             two comfortable lines. */}
-        <p className="mx-auto mt-5 max-w-xl text-center text-xs leading-5 text-white/40">
+        <p className="mx-auto mt-4 max-w-xl text-center text-xs leading-5 text-white/40 sm:mt-5">
           {text.trust}
         </p>
       </section>

@@ -117,7 +117,11 @@ const MeetingPreview = forwardRef<MeetingPreviewHandle, Props>(
       <section aria-label={labels.previewHint} className="overflow-hidden rounded-2xl border border-white/10 bg-[#0D0D14] shadow-xl shadow-black/20">
         {/* [MEETING-PREVIEW-LAYOUT 2026-10-02 by Codex] Reserve the lower
             control row so device checks remain reachable on narrow screens. */}
-        <div className="relative aspect-video min-h-[320px] w-full overflow-hidden bg-black/65">
+        {/* [MEETING-MOBILE-DENSITY 2026-10-02 by Codex] A desktop-sized
+            320px minimum consumed almost half a 320x700 phone before the
+            name and Join action appeared. Keep a useful camera surface on
+            phones, then restore the roomier preview from sm upward. */}
+        <div className="relative aspect-video min-h-[220px] w-full overflow-hidden bg-black/65 sm:min-h-[320px]">
           <video
             ref={videoRef}
             autoPlay
@@ -126,9 +130,9 @@ const MeetingPreview = forwardRef<MeetingPreviewHandle, Props>(
             className={`absolute inset-0 h-full w-full object-cover transition-opacity ${active && cameraOn ? 'opacity-100' : 'opacity-0'}`}
           />
           {!active || !cameraOn ? (
-            <div className="absolute inset-x-0 top-0 bottom-20 flex flex-col items-center justify-center gap-3 px-6 text-center">
-              <img src="/meeting/cap_video_off.png" alt="" aria-hidden="true" width={56} height={56} className="h-14 w-14" />
-              <p className="max-w-sm text-sm leading-6 text-white/45">
+            <div className="absolute inset-x-0 top-0 bottom-16 flex flex-col items-center justify-center gap-2 px-4 text-center sm:bottom-20 sm:gap-3 sm:px-6">
+              <img src="/meeting/cap_video_off.png" alt="" aria-hidden="true" width={56} height={56} className="h-11 w-11 sm:h-14 sm:w-14" />
+              <p className="max-w-sm text-sm leading-5 text-white/45 sm:leading-6">
                 {failed ? labels.deviceError : labels.previewHint}
               </p>
               {!active ? (
@@ -136,7 +140,7 @@ const MeetingPreview = forwardRef<MeetingPreviewHandle, Props>(
                   type="button"
                   onClick={() => void start()}
                   disabled={starting}
-                  className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white/80 transition-colors hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-[#9B8CFF]/60 disabled:cursor-wait disabled:opacity-60"
+                  className="h-11 rounded-xl border border-white/15 bg-white/5 px-4 text-sm font-semibold text-white/80 transition-colors hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-[#9B8CFF]/60 disabled:cursor-wait disabled:opacity-60"
                 >
                   {starting ? '…' : labels.checkDevices}
                 </button>
@@ -144,7 +148,7 @@ const MeetingPreview = forwardRef<MeetingPreviewHandle, Props>(
             </div>
           ) : null}
 
-          <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-2 rounded-2xl border border-white/10 bg-black/55 p-2 backdrop-blur-md">
+          <div className="absolute bottom-2.5 left-1/2 flex -translate-x-1/2 gap-2 rounded-2xl border border-white/10 bg-black/55 p-1.5 backdrop-blur-md sm:bottom-3 sm:p-2">
             <button
               type="button"
               onClick={() => onMicChange(!micOn)}
