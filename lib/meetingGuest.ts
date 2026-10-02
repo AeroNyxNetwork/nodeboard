@@ -88,6 +88,31 @@ export function createGuestIdentity(): GuestIdentity {
   };
 }
 
+/**
+ * Restore the one-tab host identity created by `/meet`.
+ *
+ * [MEETING-WEB-HOST 2026-10-02 by Codex] A meeting code is owned by the key
+ * that claims it. Navigating from the meeting lobby to `/i/m/...` reloads the
+ * page, so an in-memory key would turn the creator into an unrelated guest.
+ * The lobby stores this seed in sessionStorage under that one meeting code;
+ * it survives the navigation, disappears with the tab, and never enters a URL
+ * or request body except through the same proof-of-possession signatures the
+ * native client already uses.
+ */
+export function restoreMeetingIdentity(seedHex: string): GuestIdentity | null {
+  if (!/^[0-9a-f]{64}$/i.test(seedHex)) return null;
+  const seed = Uint8Array.from(
+    seedHex.match(/.{2}/g) ?? [],
+    (pair) => Number.parseInt(pair, 16),
+  );
+  if (seed.length !== 32) return null;
+  return {
+    seed,
+    seedHex: seedHex.toLowerCase(),
+    publicKeyHex: toHex(ed25519.getPublicKey(seed)),
+  };
+}
+
 /** The relay's auth signature over a timestamp, as relayClient.authFrame does. */
 export function signRelayAuth(identity: GuestIdentity, timestamp: number) {
   const pub = ed25519.getPublicKey(identity.seed);
@@ -103,6 +128,67 @@ export class MeetingTokenError extends Error {
     super(code);
     this.name = 'MeetingTokenError';
   }
+}
+
+/** Claim a server-minted meeting code as this ephemeral browser host. */
+export async function claimMeetingCode(
+  identity: GuestIdentity,
+): Promise<string> {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TOKEN_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`${API_ORIGIN}/api/voice/meeting/create/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        pubkey: identity.publicKeyHex,
+        timestamp,
+        signature: signRelayAuth(identity, timestamp),
+        is_video: true,
+      }),
+    });
+  } catch {
+    throw new MeetingTokenError('unreachable', 0);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const raw = await response.text();
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new MeetingTokenError('malformed_response', response.status);
+  }
+  if (!response.ok) {
+    throw new MeetingTokenError(
+      typeof parsed.error === 'string' ? parsed.error : 'meeting_create_failed',
+      response.status,
+    );
+  }
+  const code = parsed.code;
+  if (typeof code !== 'string' || !MEETING_CODE_PATTERN.test(code)) {
+    throw new MeetingTokenError('malformed_response', response.status);
+  }
+  return code;
+}
+
+export const MEETING_CODE_PATTERN = /^[a-km-z]{3}-[a-km-z]{4}-[a-km-z]{3}$/;
+
+/** A locally generated 32-byte E2EE key. It is never sent to the API. */
+export function createMeetingKey(): Uint8Array {
+  const key = new Uint8Array(32);
+  crypto.getRandomValues(key);
+  return key;
+}
+
+export function encodeMeetingKey(key: Uint8Array): string {
+  let binary = '';
+  for (const byte of key) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
 /**

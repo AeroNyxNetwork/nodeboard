@@ -57,7 +57,9 @@ export default function RootPage() {
         <h1 className="mt-5 text-3xl font-bold tracking-tight text-white">AeroNyx</h1>
         <p className="mt-2 max-w-md text-center text-sm text-white/50">{t.tagline}</p>
 
-        <div className="mt-10 grid w-full gap-4 sm:grid-cols-2">
+        {/* [MEETING-WEB-LOBBY 2026-10-02 by Codex] Meetings are now a first-
+            class web destination, not a deep link somebody has to receive. */}
+        <div className="mt-10 grid w-full gap-4 md:grid-cols-3">
           {/* Chat — the previously-hidden door, featured. */}
           <Link
             href="/chat"
@@ -75,6 +77,21 @@ export default function RootPage() {
               <span className="translate-x-0 opacity-60 transition group-hover:translate-x-1 group-hover:opacity-100">→</span>
             </div>
             <p className="mt-1.5 text-[13px] leading-relaxed text-white/55">{t.chatSub}</p>
+          </Link>
+
+          <Link
+            href="/meet"
+            className="group flex flex-col rounded-2xl border p-6 transition"
+            style={{ borderColor: 'rgba(116,98,247,0.38)', background: 'rgba(116,98,247,0.07)' }}
+          >
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl" style={{ background: 'rgba(116,98,247,0.18)' }}>
+              <img src="/meeting/cap_video.png" alt="" aria-hidden="true" width={28} height={28} />
+            </div>
+            <div className="mt-4 flex items-center gap-2 text-lg font-semibold text-white">
+              {t.meetTitle}
+              <span className="opacity-60 transition group-hover:translate-x-1 group-hover:opacity-100">→</span>
+            </div>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-white/55">{t.meetSub}</p>
           </Link>
 
           {/* Node dashboard — the existing operator console. */}
@@ -106,6 +123,8 @@ function makeStrings(zh: boolean) {
         tagline: '隱私優先的加密網絡 —— 聊天、節點、錢包，一處入口。',
         chatTitle: '打開聊天',
         chatSub: '用 AeroNyx App 掃碼，在這個瀏覽器上端到端加密聊天。',
+        meetTitle: '開始會議',
+        meetSub: '建立或加入端到端加密的視訊會議，無需安裝。',
         opTitle: '節點控制台',
         opSub: '管理你的節點，查看流量與收益（瀏覽器錢包登錄）。',
         footer: '端到端加密 · 節點對聊天內容零知識',
@@ -114,6 +133,8 @@ function makeStrings(zh: boolean) {
         tagline: 'A privacy-first encrypted network — chat, nodes, and wallet in one place.',
         chatTitle: 'Open Chat',
         chatSub: 'Scan with the AeroNyx app to chat end-to-end encrypted on this browser.',
+        meetTitle: 'Start a Meeting',
+        meetSub: 'Create or join an end-to-end encrypted video meeting without an install.',
         opTitle: 'Node Dashboard',
         opSub: 'Operate your nodes and view traffic & earnings (browser-wallet login).',
         footer: 'End-to-end encrypted · nodes are blind to chat content',

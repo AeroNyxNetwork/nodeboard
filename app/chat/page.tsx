@@ -23,6 +23,11 @@ import {
 } from 'react';
 import { ed25519 } from '@noble/curves/ed25519';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import {
+  ChatGlyph,
+  ChatObjectIcon,
+  type ChatGlyphName,
+} from '@/components/chat/ChatIcon';
 import { RelayClient } from '@/lib/relayClient';
 import { unsealHistory, b64uDecode } from '@/lib/webLoginCrypto';
 import {
@@ -134,26 +139,6 @@ const ANX_CSS = `
 @keyframes anxBounce{0%,60%,100%{transform:translateY(0);opacity:.5}30%{transform:translateY(-4px);opacity:1}}
 `;
 
-/** Inline-SVG icon — renders identically on every platform (unlike the obscure
- *  Unicode glyphs ⎋/⌄/⧉ that show as tofu boxes in many Windows/Android fonts).
- *  Feather-style geometric paths; inherits the parent's color via currentColor. */
-function Icon({ name, size = 16 }: { name: 'logout' | 'chevron-down' | 'copy'; size?: number }) {
-  const p = {
-    width: size, height: size, viewBox: '0 0 24 24', fill: 'none',
-    stroke: 'currentColor', strokeWidth: 2,
-    strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
-    style: { display: 'block' } as CSSProperties,
-  };
-  if (name === 'logout') {
-    return (<svg {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>);
-  }
-  if (name === 'chevron-down') {
-    return (<svg {...p}><polyline points="6 9 12 15 18 9" /></svg>);
-  }
-  // copy
-  return (<svg {...p}><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>);
-}
-
 /** Decrypt with the frame's key_version first, then fall back to every held
  *  version — tolerates a rotation race where the sender used a version we
  *  haven't matched to this message yet. */
@@ -264,7 +249,7 @@ export default function ChatPage() {
     if (typeof document === 'undefined' || !document.hidden) return; // only when unfocused
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
     const name = mergedNamesRef.current[senderHex] || short(senderHex);
-    const preview = text || '📎';
+    const preview = text || 'Attachment';
     const title = isGroup ? (groupsRef.current[convId]?.name || 'Group') : name;
     const body = isGroup ? `${name}: ${preview}` : preview;
     try {
@@ -1535,29 +1520,45 @@ export default function ChatPage() {
             <span style={{ ...S.dot, background: dot, boxShadow: `0 0 6px ${dot}` }} />
             <div style={S.meText}>
               <div style={S.meTitle}>{zh ? '我的身份' : 'My identity'}</div>
-              <code style={S.mePub}>{short(myPubHex)} <span className="anxCopyHint" style={S.copyHint}><Icon name="copy" size={10} /></span></code>
+              <code style={S.mePub}>{short(myPubHex)} <span className="anxCopyHint" style={S.copyHint}><ChatGlyph name="copy" size={10} /></span></code>
             </div>
           </button>
           <div style={S.sideActions}>
-            <button className="anxIconBtn" style={S.iconBtn} title={zh ? '發起聊天' : 'New chat'} onClick={startNewChat}>＋</button>
-            <button className="anxIconBtn" style={{ ...S.iconBtn, fontSize: 14 }} title={zh ? '建立群組' : 'New group'} onClick={createNewGroup}>👥</button>
+            {/* [MEETING-WEB-ENTRY 2026-10-02 by Codex] Meeting creation is
+                reachable from the surface where people already collaborate. */}
+            <a
+              className="anxIconBtn"
+              style={{ ...S.iconBtn, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              href="/meet"
+              aria-label={zh ? '開始或加入會議' : 'Start or join a meeting'}
+              title={zh ? '開始或加入會議' : 'Start or join a meeting'}
+            >
+              <img src="/meeting/cap_video.png" alt="" aria-hidden="true" width={22} height={22} style={{ display: 'block' }} />
+            </a>
+            {/* [CHAT-ICON-SYSTEM 2026-10-02 by Codex] Replace platform emoji
+                with the product's own rendered objects. The button retains
+                the spoken title; the decorative object stays aria-hidden. */}
+            <button className="anxIconBtn" style={S.iconBtn} aria-label={zh ? '發起聊天' : 'New chat'} title={zh ? '發起聊天' : 'New chat'} onClick={startNewChat}><ChatObjectIcon name="new" /></button>
+            <button className="anxIconBtn" style={S.iconBtn} aria-label={zh ? '建立群組' : 'New group'} title={zh ? '建立群組' : 'New group'} onClick={createNewGroup}><ChatObjectIcon name="group" /></button>
             <button
               className="anxIconBtn"
               style={{ ...S.iconBtn, fontSize: 13, opacity: readReceipts ? 1 : 0.4 }}
+              aria-label={readReceipts ? (zh ? '已讀回執：開（點擊關閉）' : 'Read receipts: on (click to turn off)') : (zh ? '已讀回執：關' : 'Read receipts: off')}
               title={readReceipts ? (zh ? '已讀回執：開（點擊關閉）' : 'Read receipts: on (click to turn off)') : (zh ? '已讀回執：關' : 'Read receipts: off')}
               onClick={() => setReadReceipts((v) => !v)}
             >
-              👁
+              <ChatObjectIcon name="receipts" />
             </button>
             <button
               className="anxIconBtn"
               style={{ ...S.iconBtn, fontSize: 13, opacity: notifsOn ? 1 : 0.4 }}
+              aria-label={notifsOn ? (zh ? '桌面通知：開（點擊關閉）' : 'Desktop notifications: on (click to turn off)') : (zh ? '桌面通知：關（後台收訊提醒）' : 'Desktop notifications: off')}
               title={notifsOn ? (zh ? '桌面通知：開（點擊關閉）' : 'Desktop notifications: on (click to turn off)') : (zh ? '桌面通知：關（後台收訊提醒）' : 'Desktop notifications: off')}
               onClick={toggleNotifs}
             >
-              {notifsOn ? '🔔' : '🔕'}
+              <ChatObjectIcon name="bell" />
             </button>
-            <button className="anxIconBtn" style={{ ...S.iconBtn, display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={zh ? '登出' : 'Log out'} onClick={logout}><Icon name="logout" size={15} /></button>
+            <button className="anxIconBtn" style={{ ...S.iconBtn, display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-label={zh ? '登出' : 'Log out'} title={zh ? '登出' : 'Log out'} onClick={logout}><ChatGlyph name="logout" size={15} /></button>
           </div>
         </div>
         <div style={S.statusLine}>
@@ -1573,7 +1574,7 @@ export default function ChatPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
             {search && (
-              <button style={S.searchClear} onClick={() => setSearch('')} title={zh ? '清除' : 'Clear'}>×</button>
+              <button style={S.searchClear} onClick={() => setSearch('')} aria-label={zh ? '清除' : 'Clear'} title={zh ? '清除' : 'Clear'}><ChatGlyph name="close" size={14} /></button>
             )}
           </div>
         )}
@@ -1594,7 +1595,7 @@ export default function ChatPage() {
                 onClick={() => openConv(e.id)}
               >
                 <span style={{ ...S.avatar, background: e.isGroup ? '#3A2E63' : colorFor(e.id) }}>
-                  {e.isGroup ? '👥' : e.id.slice(0, 2)}
+                  {e.isGroup ? <ChatObjectIcon name="group" size={28} /> : e.id.slice(0, 2)}
                 </span>
                 <span style={S.convBody}>
                   <span style={S.convName}>{e.name}</span>
@@ -1630,17 +1631,17 @@ export default function ChatPage() {
       <main style={{ ...S.thread, ...(isMobile ? { width: '100%' } : {}) }}>
         {!activeThread ? (
           <div style={S.threadEmpty}>
-            <div style={S.threadEmptyIcon}>💬</div>
+            <div style={S.threadEmptyIcon}><ChatObjectIcon name="empty" size={88} /></div>
             <div style={S.threadEmptyTitle}>{zh ? '選擇一個對話開始' : 'Select a chat to start'}</div>
-            <div style={S.threadEmptyHint}>{zh ? '🔒 訊息端到端加密，僅你與對方可讀' : '🔒 Messages are end-to-end encrypted'}</div>
+            <div style={S.threadEmptyHint}><ChatObjectIcon name="lock" size={18} />{zh ? '訊息端到端加密，僅你與對方可讀' : 'Messages are end-to-end encrypted'}</div>
           </div>
         ) : (
           <>
             <header style={S.threadHeader}>
-              <button style={{ ...S.backBtn, display: isMobile ? 'block' : 'none' }} onClick={() => setActive('')}>‹</button>
+              <button style={{ ...S.backBtn, display: isMobile ? 'flex' : 'none' }} aria-label={zh ? '返回對話列表' : 'Back to chats'} onClick={() => setActive('')}><ChatGlyph name="back" size={22} /></button>
               {activeGroup ? (
                 <>
-                  <span style={{ ...S.avatar, background: '#3A2E63' }}>👥</span>
+                  <span style={{ ...S.avatar, background: '#3A2E63' }}><ChatObjectIcon name="group" size={30} /></span>
                   <div
                     style={{ ...S.threadTitleWrap, cursor: 'pointer' }}
                     onClick={() => setShowMembers(true)}
@@ -1672,7 +1673,7 @@ export default function ChatPage() {
                     title={zh ? '點擊設定備註名' : 'Click to set a name'}
                   >
                     <div style={S.threadTitle}>
-                      {nameFor(activeConv!.peer)} <span style={S.editHint}>✎</span>
+                      {nameFor(activeConv!.peer)} <span style={S.editHint}><ChatGlyph name="edit" size={12} /></span>
                     </div>
                     {typingPeers[activeConv!.peer]
                       ? <div style={{ ...S.threadStatus, color: '#8AB4FF', display: 'flex', alignItems: 'center', gap: 5 }}>{zh ? '正在輸入' : 'typing'} <TypingDots /></div>
@@ -1715,10 +1716,11 @@ export default function ChatPage() {
                   <button
                     className="anxReactTrigger"
                     style={S.reactTrigger}
+                    aria-label={zh ? '表情回應' : 'React'}
                     title={zh ? '表情回應' : 'React'}
                     onClick={() => setPickerFor(pickerFor === m.id ? '' : m.id)}
                   >
-                    ☺
+                    <ChatObjectIcon name="reaction" size={18} />
                   </button>
                 );
                 return (
@@ -1770,6 +1772,7 @@ export default function ChatPage() {
                           {m.mine && (
                             <MsgTick
                               status={m.status}
+                              zh={zh}
                               onRetry={m.status === 'failed' ? () => retryMessage(active, m.id) : undefined}
                               retryLabel={zh ? '點擊重試' : 'Tap to retry'}
                             />
@@ -1812,8 +1815,8 @@ export default function ChatPage() {
 
             {/* [POLISH] Jump-to-latest — appears only when scrolled up. */}
             {!atBottom && (
-              <button className="anxJumpBtn" style={S.jumpBtn} onClick={jumpToBottom} title={zh ? '回到最新' : 'Jump to latest'}>
-                <Icon name="chevron-down" size={22} />
+              <button className="anxJumpBtn" style={S.jumpBtn} onClick={jumpToBottom} aria-label={zh ? '回到最新' : 'Jump to latest'} title={zh ? '回到最新' : 'Jump to latest'}>
+                <ChatGlyph name="chevron-down" size={22} />
               </button>
             )}
 
@@ -1831,11 +1834,12 @@ export default function ChatPage() {
               <button
                 className="anxAttachBtn"
                 style={{ ...S.attachBtn, opacity: uploading ? 0.5 : 1, cursor: uploading ? 'default' : 'pointer' }}
+                aria-label={zh ? '傳送附件' : 'Send a file'}
                 title={zh ? '傳送附件' : 'Send a file'}
                 disabled={uploading}
                 onClick={() => fileInputRef.current?.click()}
               >
-                {uploading ? '…' : '📎'}
+                {uploading ? '…' : <ChatObjectIcon name="attachment" size={24} />}
               </button>
               <textarea
                 ref={inputRef}
@@ -1880,7 +1884,7 @@ export default function ChatPage() {
           <div style={S.memberPanel} onClick={(e) => e.stopPropagation()}>
             <div style={S.memberPanelHead}>
               <span>{zh ? '群組成員' : 'Members'} · {activeGroup.members.length}</span>
-              <button style={S.memberClose} onClick={() => setShowMembers(false)}>×</button>
+              <button style={S.memberClose} aria-label={zh ? '關閉成員列表' : 'Close member list'} onClick={() => setShowMembers(false)}><ChatGlyph name="close" size={18} /></button>
             </div>
             <div style={S.memberList}>
               {activeGroup.members.map((m) => (
@@ -2125,10 +2129,10 @@ function fmtSize(n: number): string {
 function attPreview(atts: WebAttachment[] | undefined, zh: boolean): string {
   if (!atts || !atts.length) return '';
   const t = atts[0].mediaType;
-  if (t.startsWith('image/')) return zh ? '🖼 圖片' : '🖼 Photo';
-  if (t.startsWith('audio/')) return zh ? '🎤 語音' : '🎤 Voice';
-  if (t.startsWith('video/')) return zh ? '🎬 影片' : '🎬 Video';
-  return zh ? '📎 檔案' : '📎 File';
+  if (t.startsWith('image/')) return zh ? '圖片' : 'Photo';
+  if (t.startsWith('audio/')) return zh ? '語音' : 'Voice';
+  if (t.startsWith('video/')) return zh ? '影片' : 'Video';
+  return zh ? '檔案' : 'File';
 }
 
 /** Display name for a group member: a saved contact name, else a short pubkey. */
@@ -2189,26 +2193,45 @@ function applyReactionTo(
   return next;
 }
 
-/** Delivery tick for my sent messages: ⏳ sending · ✓ sent · ✓✓ delivered ·
- *  ✓✓(blue) read · ⚠ failed (tap to retry). */
-function MsgTick({ status, onRetry, retryLabel }: {
-  status?: Msg['status']; onRetry?: () => void; retryLabel?: string;
+/** [CHAT-ICON-SYSTEM 2026-10-02 by Codex] Delivery state is geometry, not a
+ * platform font lottery. Every state keeps a title/aria label at the callsite. */
+function MsgTick({ status, zh, onRetry, retryLabel }: {
+  status?: Msg['status']; zh: boolean; onRetry?: () => void; retryLabel?: string;
 }) {
   if (status === 'failed') {
     return (
       <button
         onClick={onRetry}
         title={retryLabel}
-        style={{ marginLeft: 4, color: '#FFB4A0', background: 'transparent', border: 'none', cursor: onRetry ? 'pointer' : 'default', font: 'inherit', padding: 0 }}
+        aria-label={retryLabel}
+        style={{ marginLeft: 4, color: '#FFB4A0', background: 'transparent', border: 'none', cursor: onRetry ? 'pointer' : 'default', font: 'inherit', padding: 0, display: 'inline-flex', gap: 1 }}
       >
-        ⚠ ⟳
+        <ChatGlyph name="alert" size={11} /><ChatGlyph name="retry" size={11} />
       </button>
     );
   }
-  if (status === 'sending') return <span style={{ marginLeft: 4 }}>⏳</span>;
-  if (status === 'read') return <span style={{ marginLeft: 4, color: '#8AB4FF', letterSpacing: -2 }}>✓✓</span>;
-  if (status === 'delivered') return <span style={{ marginLeft: 4, letterSpacing: -2 }}>✓✓</span>;
-  return <span style={{ marginLeft: 4 }}>✓</span>; // sent
+  const label = status === 'sending'
+    ? zh ? '傳送中' : 'Sending'
+    : status === 'read'
+      ? zh ? '已讀' : 'Read'
+      : status === 'delivered'
+        ? zh ? '已送達' : 'Delivered'
+        : zh ? '已傳送' : 'Sent';
+  const glyph = status === 'sending'
+    ? 'clock'
+    : status === 'read' || status === 'delivered'
+      ? 'check-double'
+      : 'check';
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      style={{ marginLeft: 4, color: status === 'read' ? '#8AB4FF' : undefined, display: 'inline-flex' }}
+    >
+      <ChatGlyph name={glyph} size={status === 'sending' ? 11 : 12} />
+    </span>
+  );
 }
 
 /** Downscale an image to a small JPEG thumbnail (base64, no data: prefix) for the
@@ -2279,11 +2302,11 @@ function AttachmentView({ att, zh, onOpen, onAudioUrl, busy }: {
       </div>
     );
   }
-  const icon = att.mediaType.startsWith('video/')
-    ? '🎬'
+  const icon: ChatGlyphName = att.mediaType.startsWith('video/')
+    ? 'video'
     : att.mediaType.startsWith('audio/')
-      ? '🎧'
-      : '📄';
+      ? 'audio'
+      : 'file';
   const note = canFetch
     ? busy
       ? zh ? ' · 下載中…' : ' · downloading…'
@@ -2294,7 +2317,7 @@ function AttachmentView({ att, zh, onOpen, onAudioUrl, busy }: {
       style={{ ...AS.chip, cursor: canFetch ? 'pointer' : 'default' }}
       onClick={() => canFetch && onOpen(att)}
     >
-      <span style={{ fontSize: 18 }}>{icon}</span>
+      <span style={{ color: '#C8BBFF' }}><ChatGlyph name={icon} size={20} /></span>
       <div style={{ minWidth: 0 }}>
         <div style={AS.chipName}>{att.fileName}</div>
         <div style={AS.chipMeta}>{fmtSize(att.fileSize)}{note}</div>
@@ -2355,11 +2378,16 @@ function VoicePlayer({ att, fetchUrl, zh }: {
   };
 
   const shownSec = playing && durationSec ? progress * durationSec : durationSec;
+  const actionLabel = failed
+    ? zh ? '重試語音' : 'Retry voice'
+    : playing
+      ? zh ? '暫停語音' : 'Pause voice'
+      : zh ? '播放語音' : 'Play voice';
 
   return (
     <div style={VS.wrap}>
-      <button style={VS.play} onClick={toggle} title={zh ? '播放語音' : 'Play voice'}>
-        {loading ? '…' : failed ? '⚠' : playing ? '⏸' : '▶'}
+      <button style={VS.play} onClick={toggle} aria-label={actionLabel} title={actionLabel}>
+        {loading ? '…' : failed ? <ChatGlyph name="alert" size={15} /> : playing ? <ChatGlyph name="pause" size={14} /> : <ChatGlyph name="play" size={14} />}
       </button>
       <div style={VS.bars}>
         {bars.map((v, i) => (
@@ -2423,7 +2451,7 @@ const S: Record<string, CSSProperties> = {
   meTitle: { fontSize: 13, fontWeight: 600 },
   mePub: { fontFamily: 'monospace', fontSize: 11, color: 'rgba(255,255,255,0.45)' },
   sideActions: { display: 'flex', gap: 6 },
-  iconBtn: { width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.12)', background: 'transparent', color: '#fff', fontSize: 16, cursor: 'pointer' },
+  iconBtn: { width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.12)', background: 'transparent', color: '#fff', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 4 },
   statusLine: { padding: '6px 16px', fontSize: 12, color: 'rgba(255,255,255,0.4)' },
   convList: { flex: 1, overflowY: 'auto' },
   emptyList: { padding: 20, fontSize: 13, color: 'rgba(255,255,255,0.4)', lineHeight: 1.6 },
@@ -2438,22 +2466,22 @@ const S: Record<string, CSSProperties> = {
   unreadBadge: { background: '#7462F7', color: '#fff', fontSize: 11, fontWeight: 700, minWidth: 18, height: 18, borderRadius: 9, padding: '0 5px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   thread: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' },
   threadEmpty: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'rgba(255,255,255,0.4)', fontSize: 15, padding: 24, textAlign: 'center' },
-  threadEmptyIcon: { fontSize: 44, opacity: 0.7 },
+  threadEmptyIcon: { opacity: 0.84 },
   threadEmptyTitle: { fontSize: 15, color: 'rgba(255,255,255,0.55)' },
-  threadEmptyHint: { fontSize: 12.5, color: 'rgba(255,255,255,0.3)' },
+  threadEmptyHint: { fontSize: 12.5, color: 'rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 },
   searchWrap: { position: 'relative', padding: '2px 12px 8px' },
   searchInput: { width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, color: '#fff', padding: '8px 30px 8px 12px', fontSize: 16, outline: 'none', fontFamily: 'inherit' },
-  searchClear: { position: 'absolute', right: 20, top: 6, width: 22, height: 22, borderRadius: 11, border: 'none', background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', fontSize: 15, cursor: 'pointer', lineHeight: 1, padding: 0 },
+  searchClear: { position: 'absolute', right: 20, top: 6, width: 22, height: 22, borderRadius: 11, border: 'none', background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', fontSize: 15, cursor: 'pointer', lineHeight: 1, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   lightboxBar: { position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 18px', background: 'linear-gradient(rgba(0,0,0,0.55),transparent)' },
   lightboxName: { fontSize: 13, color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '55vw' },
   lightboxBtn: { textDecoration: 'none', display: 'inline-block' },
   threadHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' },
-  backBtn: { display: 'none', background: 'transparent', border: 'none', color: '#fff', fontSize: 24, cursor: 'pointer', padding: 0, width: 28 },
+  backBtn: { display: 'none', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', color: '#fff', fontSize: 24, cursor: 'pointer', padding: 0, width: 28, height: 32 },
   headerActions: { marginLeft: 'auto', display: 'flex', gap: 6, flexShrink: 0 },
   headerBtn: { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.85)', fontSize: 12.5, borderRadius: 8, padding: '5px 11px', cursor: 'pointer', whiteSpace: 'nowrap' },
   threadTitleWrap: { minWidth: 0 },
   threadTitle: { fontSize: 15, fontWeight: 600 },
-  editHint: { fontSize: 11, color: 'rgba(255,255,255,0.3)' },
+  editHint: { fontSize: 11, color: 'rgba(255,255,255,0.3)', display: 'inline-flex', verticalAlign: 'middle' },
   threadSub: { fontFamily: 'monospace', fontSize: 10, color: 'rgba(255,255,255,0.35)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', maxWidth: 260 },
   threadStatus: { fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 },
   messages: { flex: 1, overflowY: 'auto', padding: '10px 18px 16px', display: 'flex', flexDirection: 'column' },
@@ -2471,7 +2499,7 @@ const S: Record<string, CSSProperties> = {
   msgText: { whiteSpace: 'pre-wrap' },
   msgTextBig: { whiteSpace: 'pre-wrap', fontSize: 40, lineHeight: 1.1 },
   msgTime: { alignSelf: 'flex-end', fontSize: 10, color: 'rgba(255,255,255,0.55)', marginTop: 2 },
-  reactTrigger: { flexShrink: 0, width: 22, height: 22, borderRadius: 11, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.35)', fontSize: 14, cursor: 'pointer', padding: 0, lineHeight: 1 },
+  reactTrigger: { flexShrink: 0, width: 24, height: 24, borderRadius: 12, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.35)', fontSize: 14, cursor: 'pointer', padding: 2, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   reactionRow: { display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 },
   reactionChip: { display: 'flex', alignItems: 'center', gap: 3, padding: '1px 6px', borderRadius: 10, border: '1px solid transparent', background: 'rgba(0,0,0,0.22)', color: '#fff', fontSize: 12, cursor: 'pointer', lineHeight: 1.6 },
   reactionChipMine: { background: 'rgba(138,180,255,0.28)', border: '1px solid rgba(138,180,255,0.55)' },
@@ -2501,7 +2529,7 @@ const S: Record<string, CSSProperties> = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.08)', fontSize: 15, fontWeight: 600,
   },
-  memberClose: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: 22, cursor: 'pointer', lineHeight: 1, padding: 0 },
+  memberClose: { width: 30, height: 30, background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: 22, cursor: 'pointer', lineHeight: 1, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   memberList: { overflowY: 'auto', padding: '6px 0' },
   memberRow: { display: 'flex', alignItems: 'center', gap: 11, padding: '9px 18px' },
   memberName: { fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 },

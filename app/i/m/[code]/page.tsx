@@ -47,6 +47,20 @@ export const metadata: Metadata = {
   // A meeting invite should not be indexed: the code is half of the capability
   // to enter the room, and search engines are not invitees.
   robots: { index: false, follow: false },
+  // [MEETING-SHARE-PREVIEW 2026-10-02 by Codex] Root metadata described the
+  // operator Nodeboard, so meeting links expanded in chat as a node dashboard.
+  // Override only public product copy; never include the room code or key.
+  openGraph: {
+    title: 'AeroNyx Meeting',
+    description: 'Join a private, end-to-end encrypted video meeting.',
+    type: 'website',
+    url: 'https://app.aeronyx.network/meet',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'AeroNyx Meeting',
+    description: 'Join a private, end-to-end encrypted video meeting.',
+  },
 };
 
 export default async function MeetingLinkPage({

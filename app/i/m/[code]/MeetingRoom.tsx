@@ -53,6 +53,7 @@ import {
 } from 'livekit-client';
 import {
   createGuestIdentity,
+  restoreMeetingIdentity,
   requestMeetingToken,
   MeetingTokenError,
 } from '@/lib/meetingGuest';
@@ -68,6 +69,10 @@ type Props = {
   code: string;
   e2eeKey: Uint8Array;
   displayName: string;
+  /** Session-scoped identity for the browser tab that created this meeting. */
+  identitySeedHex?: string;
+  startMuted?: boolean;
+  startVideoOff?: boolean;
   labels: {
     knocking: string;
     rejected: string;
@@ -100,6 +105,11 @@ type Props = {
     roomFull: string;
     clockOff: string;
     noE2EE: string;
+    guest: string;
+    people: string;
+    fullscreen: string;
+    exitFullscreen: string;
+    close: string;
   };
   onLeave: () => void;
   /// [ROOM-STATE-UP 2026-09-17 by Claude] The card above needs two facts it
@@ -120,6 +130,9 @@ export default function MeetingRoom({
   code,
   e2eeKey,
   displayName,
+  identitySeedHex,
+  startMuted = false,
+  startVideoOff = false,
   labels,
   onLeave,
   onStateChange,
@@ -130,7 +143,7 @@ export default function MeetingRoom({
   // offering Ask again there is an invitation to keep pressing a button that
   // cannot work.
   const [retryable, setRetryable] = useState(true);
-  const [micOn, setMicOn] = useState(true);
+  const [micOn, setMicOn] = useState(!startMuted);
   // The device said no, as opposed to the person having muted themselves.
   // Those need different words on the button.
   const [micBlocked, setMicBlocked] = useState(false);
@@ -141,7 +154,7 @@ export default function MeetingRoom({
   // that from the app having crashed, so they leave and rejoin a meeting that
   // was about to come back by itself.
   const [reconnecting, setReconnecting] = useState(false);
-  const [cameraOn, setCameraOn] = useState(true);
+  const [cameraOn, setCameraOn] = useState(!startVideoOff);
   const [peers, setPeers] = useState<RemoteParticipant[]>([]);
   // [MEETING-WEB-GRID 2026-09-17 by Claude] Bumped on every track event so
   // each tile re-runs its attach. A participant can join before their camera
@@ -154,6 +167,10 @@ export default function MeetingRoom({
   // anywhere else, because the key travelled in a link that anyone could have
   // been forwarded.
   const [verifyEmoji, setVerifyEmoji] = useState<string[]>([]);
+  // [MEETING-ROOM-TOOLS 2026-10-02 by Codex] Meet-like room controls expose
+  // the roster and full-screen surface without revealing relay identities.
+  const [showPeople, setShowPeople] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const roomRef = useRef<Room | null>(null);
   const knockRef = useRef<AdmissionRequest | null>(null);
   // [GUEST-IDENTITY-REUSE 2026-09-18 by Claude] One keypair for as long as
@@ -172,7 +189,7 @@ export default function MeetingRoom({
   // to nobody new. Writing it to storage is a DIFFERENT decision and not this
   // one -- see the note at the call site.
   const identityRef = useRef<ReturnType<typeof createGuestIdentity> | null>(
-    null,
+    identitySeedHex ? restoreMeetingIdentity(identitySeedHex) : null,
   );
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   // [PHASE-FOCUS 2026-09-18 by Claude] Exactly one element holds this per
@@ -182,6 +199,7 @@ export default function MeetingRoom({
   // remote video tile, where an <audio> element occupied space in a box meant
   // for a picture.
   const audioSinkRef = useRef<HTMLDivElement | null>(null);
+  const roomSurfaceRef = useRef<HTMLDivElement | null>(null);
 
   const teardown = useCallback(() => {
     // A knock outlives this component unless it is withdrawn: the relay socket
@@ -197,6 +215,12 @@ export default function MeetingRoom({
   }, []);
 
   useEffect(() => () => teardown(), [teardown]);
+
+  useEffect(() => {
+    const update = () => setFullscreen(document.fullscreenElement != null);
+    document.addEventListener('fullscreenchange', update);
+    return () => document.removeEventListener('fullscreenchange', update);
+  }, []);
 
   // [PHASE-FOCUS 2026-09-18 by Claude] Put focus on the new screen's action
   // when a phase change takes the old one away.
@@ -325,7 +349,7 @@ export default function MeetingRoom({
       // knocked, so a second keypair for the token would be a stranger.
       setPhase('joining');
       let token = await requestMeetingToken(identity, code, {
-        withVideo: true,
+        withVideo: !startVideoOff,
         displayName,
       }).catch((err: unknown) => {
         if (
@@ -376,7 +400,7 @@ export default function MeetingRoom({
 
         setPhase('joining');
         token = await requestMeetingToken(identity, code, {
-          withVideo: true,
+          withVideo: !startVideoOff,
           displayName,
         });
       }
@@ -426,12 +450,11 @@ export default function MeetingRoom({
         .on(RoomEvent.ParticipantDisconnected, () =>
           setPeers(Array.from(room!.remoteParticipants.values())),
         )
-        .on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+        .on(RoomEvent.TrackSubscribed, (track) => {
           if (track.kind === Track.Kind.Audio) {
             // Sound does not need a box. Attaching audio into the video tile
             // put an <audio> element inside a fixed-aspect picture frame.
             const el = track.attach();
-            el.setAttribute('data-peer', participant.identity);
             audioSinkRef.current?.appendChild(el);
             return;
           }
@@ -507,7 +530,8 @@ export default function MeetingRoom({
       //
       // Listening is a legitimate way to attend a meeting. Join muted.
       try {
-        await room.localParticipant.setMicrophoneEnabled(true);
+        await room.localParticipant.setMicrophoneEnabled(!startMuted);
+        setMicOn(!startMuted);
       } catch {
         setMicOn(false);
         setMicBlocked(true);
@@ -515,7 +539,8 @@ export default function MeetingRoom({
       // A camera is nice to have, not a reason to fail: plenty of desktops
       // have none, and a meeting you can hear is still a meeting.
       try {
-        await room.localParticipant.setCameraEnabled(true);
+        await room.localParticipant.setCameraEnabled(!startVideoOff);
+        setCameraOn(!startVideoOff);
       } catch {
         setCameraOn(false);
       }
@@ -557,7 +582,7 @@ export default function MeetingRoom({
         setError(labels.failed);
       }
     }
-  }, [code, e2eeKey, labels, onLeave]);
+  }, [code, e2eeKey, labels, onLeave, startMuted, startVideoOff]);
 
   useEffect(() => {
     void join();
@@ -613,6 +638,15 @@ export default function MeetingRoom({
   const leave = () => {
     teardown();
     onLeave();
+  };
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await roomSurfaceRef.current?.requestFullscreen();
+    } catch {
+      // Browser or embedding policy refused; the room remains fully usable.
+    }
   };
 
   // Recomputed on every track event, which is what trackVersion is for.
@@ -687,7 +721,7 @@ export default function MeetingRoom({
   }
 
   return (
-    <div className="mt-5 rounded-lg border border-white/10 bg-[#14141D] p-4 sm:p-5">
+    <div ref={roomSurfaceRef} className="relative mt-5 rounded-lg border border-white/10 bg-[#14141D] p-4 sm:p-5">
       {/* [MEETING-WEB-GRID 2026-09-17 by Claude] One tile per person. Every
           remote track used to be appended into a single fixed-aspect box, so a
           third person in the room drew on top of the second and only the last
@@ -700,6 +734,7 @@ export default function MeetingRoom({
           participant={peer}
           trackVersion={trackVersion}
           label={labels.sharingLabel}
+          fallbackName={labels.guest}
         />
       ))}
       <div className={`grid gap-3 ${gridColumns(peers.length + 1)}`}>
@@ -721,6 +756,7 @@ export default function MeetingRoom({
             key={peer.sid}
             participant={peer}
             trackVersion={trackVersion}
+            fallbackName={labels.guest}
           />
         ))}
       </div>
@@ -774,7 +810,7 @@ export default function MeetingRoom({
         </p>
       ) : null}
 
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
         {/* [MEETING-TOGGLE-STATE 2026-09-18 by Claude] No aria-pressed on
             these three. Their names are the ACTION and the name changes --
             Mute/Unmute, Stop/Start video, Share/Stop sharing -- so a pressed
@@ -801,6 +837,22 @@ export default function MeetingRoom({
           <span className="truncate">
             {micBlocked ? labels.noMic : micOn ? labels.mic : labels.micOff}
           </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowPeople((value) => !value)}
+          className={controlClass(showPeople ? 'active' : 'idle')}
+        >
+          <img src="/chat/chat_group.png" alt="" aria-hidden="true" width={22} height={22} className="h-[22px] w-[22px] shrink-0" />
+          <span className="truncate">{labels.people} · {peers.length + 1}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => void toggleFullscreen()}
+          className={controlClass(fullscreen ? 'active' : 'idle')}
+        >
+          <RoomGlyph name={fullscreen ? 'collapse' : 'expand'} />
+          <span className="truncate">{fullscreen ? labels.exitFullscreen : labels.fullscreen}</span>
         </button>
         <button
           type="button"
@@ -837,6 +889,32 @@ export default function MeetingRoom({
           <span className="truncate">{labels.leave}</span>
         </button>
       </div>
+
+      {showPeople ? (
+        <aside className="absolute inset-x-3 top-3 z-20 max-h-[calc(100%-1.5rem)] overflow-hidden rounded-xl border border-white/15 bg-[#11111A]/95 shadow-2xl shadow-black/55 backdrop-blur-md sm:left-auto sm:w-80">
+          <header className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+            <h2 className="text-sm font-semibold text-white">{labels.people} · {peers.length + 1}</h2>
+            <button
+              type="button"
+              onClick={() => setShowPeople(false)}
+              aria-label={labels.close}
+              title={labels.close}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-white/55 transition-colors hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#9B8CFF]/60"
+            >
+              <RoomGlyph name="close" />
+            </button>
+          </header>
+          <div className="max-h-[60vh] overflow-y-auto p-2">
+            <ParticipantRow name={displayName} suffix={labels.you} />
+            {peers.map((peer) => (
+              <ParticipantRow
+                key={peer.sid}
+                name={peer.name?.trim() || labels.guest}
+              />
+            ))}
+          </div>
+        </aside>
+      ) : null}
     </div>
   );
 }
@@ -1044,10 +1122,12 @@ function ScreenShareTile({
   participant,
   trackVersion,
   label,
+  fallbackName,
 }: {
   participant: RemoteParticipant;
   trackVersion: number;
   label: string;
+  fallbackName: string;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
 
@@ -1063,8 +1143,10 @@ function ScreenShareTile({
     };
   }, [participant, trackVersion]);
 
-  const name =
-    participant.name?.trim() || `${participant.identity.slice(0, 8)}\u2026`;
+  // [MEETING-PRIVACY-NAME 2026-10-02 by Codex] Relay identities are routing
+  // material, not a person-facing fallback. An absent display name must stay
+  // anonymous in the room UI rather than leaking a stable key fragment.
+  const name = participant.name?.trim() || fallbackName;
 
   return (
     <div className="mb-3 overflow-hidden rounded-lg bg-black/70">
@@ -1089,9 +1171,11 @@ function ScreenShareTile({
 function PeerTile({
   participant,
   trackVersion,
+  fallbackName,
 }: {
   participant: RemoteParticipant;
   trackVersion: number;
+  fallbackName: string;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const [hasVideo, setHasVideo] = useState(false);
@@ -1112,8 +1196,7 @@ function PeerTile({
     };
   }, [participant, trackVersion]);
 
-  const name =
-    participant.name?.trim() || `${participant.identity.slice(0, 8)}…`;
+  const name = participant.name?.trim() || fallbackName;
 
   return (
     <div className="relative aspect-video overflow-hidden rounded-lg bg-black/60">
@@ -1126,6 +1209,48 @@ function PeerTile({
       {!hasVideo ? <TileFallback name={name} /> : null}
       <span className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded bg-black/60 px-2 py-0.5 text-xs text-white/80">
         {name}
+      </span>
+    </div>
+  );
+}
+
+// [MEETING-ROOM-TOOLS 2026-10-02 by Codex] Small deterministic controls stay
+// as semantic SVG glyphs; the generated 3D objects are reserved for primary
+// product actions, keeping the toolbar legible at 320 px without new emoji.
+function RoomGlyph({ name }: { name: 'expand' | 'collapse' | 'close' }) {
+  if (name === 'close') {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="h-5 w-5 stroke-current" strokeWidth="1.8" strokeLinecap="round">
+        <path d="M6 6l12 12M18 6L6 18" />
+      </svg>
+    );
+  }
+  const collapse = name === 'collapse';
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="h-5 w-5 stroke-current" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {collapse ? (
+        <>
+          <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+        </>
+      ) : (
+        <>
+          <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function ParticipantRow({ name, suffix }: { name: string; suffix?: string }) {
+  const first = [...name.trim()][0] ?? '?';
+  const initial = [...first.toUpperCase()][0] ?? first;
+  return (
+    <div className="flex min-w-0 items-center gap-3 rounded-lg px-2 py-2.5">
+      <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-semibold text-white/65">
+        {initial}
+      </span>
+      <span className="min-w-0 truncate text-sm text-white/75">
+        {name}{suffix ? ` · ${suffix}` : ''}
       </span>
     </div>
   );

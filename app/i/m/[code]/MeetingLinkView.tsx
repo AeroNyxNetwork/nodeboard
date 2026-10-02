@@ -26,11 +26,16 @@
 
 'use client';
 
-import { Component, useEffect, useMemo, useState } from 'react';
+import { Component, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import Logo from '@/components/common/Logo';
 import dynamic from 'next/dynamic';
-import { decodeMeetingKey, sanitizeMeetingName } from '@/lib/meetingGuest';
+import {
+  decodeMeetingKey,
+  restoreMeetingIdentity,
+  sanitizeMeetingName,
+} from '@/lib/meetingGuest';
+import MeetingPreview, { type MeetingPreviewHandle } from './MeetingPreview';
 
 // [MEETING-WEB-GUEST 2026-09-17 by Claude] Loaded only when someone actually
 // joins here. livekit-client is ~140 kB, and most people opening this link
@@ -143,8 +148,19 @@ const copy = {
       'The meeting could not be loaded. Reload the page, or open it in the AeroNyx app.',
     reload: 'Reload',
     guest: 'Guest',
+    people: 'People',
+    fullscreen: 'Full screen',
+    exitFullscreen: 'Exit full screen',
+    close: 'Close',
     trust:
       'The key that decrypts this meeting travels inside the link and never reaches our servers. Anyone holding the whole link can join.',
+    checkDevices: 'Check camera and microphone',
+    previewHint: 'Preview your camera and choose what is on before you join.',
+    deviceError: 'Camera or microphone access is unavailable. You can still join and listen.',
+    previewMicOn: 'Turn microphone on',
+    previewMicOff: 'Turn microphone off',
+    previewCameraOn: 'Turn camera on',
+    previewCameraOff: 'Turn camera off',
   },
   zh: {
     kicker: '會議',
@@ -198,8 +214,19 @@ const copy = {
     roomBroke: '載入不了這場會議。請重新整理頁面，或改用 AeroNyx App 開啟。',
     reload: '重新整理',
     guest: '訪客',
+    people: '與會者',
+    fullscreen: '全螢幕',
+    exitFullscreen: '離開全螢幕',
+    close: '關閉',
     trust:
       '解密這場會議的鑰匙在連結裡，從不會到我們的伺服器。拿到完整連結的人都能進來。',
+    checkDevices: '檢查鏡頭與麥克風',
+    previewHint: '加入前先預覽鏡頭，並選擇要開啟的裝置。',
+    deviceError: '無法使用鏡頭或麥克風。你仍可加入並聆聽。',
+    previewMicOn: '開啟麥克風',
+    previewMicOff: '關閉麥克風',
+    previewCameraOn: '開啟鏡頭',
+    previewCameraOff: '關閉鏡頭',
   },
 };
 
@@ -243,6 +270,13 @@ export default function MeetingLinkView({ code }: Props) {
   // convenience, never state anything depends on, so a refused localStorage
   // just means the default.
   const [guestName, setGuestName] = useState('');
+  // [MEETING-PREJOIN 2026-10-02 by Codex] Preferences are selected before a
+  // token or room exists and are carried into LiveKit after admission.
+  const [micOnBeforeJoin, setMicOnBeforeJoin] = useState(true);
+  const [cameraOnBeforeJoin, setCameraOnBeforeJoin] = useState(true);
+  const previewRef = useRef<MeetingPreviewHandle | null>(null);
+  // The creator's one-tab host identity. It is never rendered or sent in a URL.
+  const [hostSeedHex, setHostSeedHex] = useState('');
 
   useEffect(() => {
     try {
@@ -252,6 +286,17 @@ export default function MeetingLinkView({ code }: Props) {
       /* private window, blocked storage: the default is fine */
     }
   }, []);
+
+  useEffect(() => {
+    try {
+      const stored = window.sessionStorage.getItem(
+        `aeronyx.meeting.host.${code}`,
+      );
+      if (stored && restoreMeetingIdentity(stored)) setHostSeedHex(stored);
+    } catch {
+      /* blocked storage means this tab joins as a normal guest */
+    }
+  }, [code]);
 
   const copyLink = async () => {
     try {
@@ -281,6 +326,7 @@ export default function MeetingLinkView({ code }: Props) {
     } catch {
       /* not remembering it is not a reason to refuse to join */
     }
+    previewRef.current?.stop();
     setInRoom(true);
   };
 
@@ -379,7 +425,7 @@ export default function MeetingLinkView({ code }: Props) {
     // the screen. They are not the same page any more once you are in.
     <main
       className={`mx-auto flex min-h-[100dvh] w-full flex-col px-5 sm:px-8 ${
-        inRoom ? 'max-w-5xl py-4 sm:py-6' : 'max-w-xl py-8 sm:py-12'
+        inRoom || roomKey ? 'max-w-5xl py-4 sm:py-6' : 'max-w-xl py-8 sm:py-12'
       }`}
     >
       <p role="status" aria-live="polite" className="sr-only">
@@ -404,7 +450,28 @@ export default function MeetingLinkView({ code }: Props) {
           inRoom ? 'justify-start py-4' : 'justify-center py-10'
         }`}
       >
-        <div className="overflow-hidden rounded-lg border border-white/10 bg-[#14141D]">
+        {!inRoom && roomKey ? (
+          <div className="mx-auto mb-5 w-full max-w-3xl">
+            <MeetingPreview
+              ref={previewRef}
+              micOn={micOnBeforeJoin}
+              cameraOn={cameraOnBeforeJoin}
+              onMicChange={setMicOnBeforeJoin}
+              onCameraChange={setCameraOnBeforeJoin}
+              labels={{
+                checkDevices: text.checkDevices,
+                previewHint: text.previewHint,
+                deviceError: text.deviceError,
+                micOn: text.previewMicOn,
+                micOff: text.previewMicOff,
+                cameraOn: text.previewCameraOn,
+                cameraOff: text.previewCameraOff,
+              }}
+            />
+          </div>
+        ) : null}
+
+        <div className={`overflow-hidden rounded-lg border border-white/10 bg-[#14141D] ${!inRoom && roomKey ? 'mx-auto w-full max-w-xl' : ''}`}>
           {/* [MEETING-HEADER-STATE 2026-09-17 by Claude] Once you are in, this
               card stopped being an invitation. It used to keep saying "Join
               this meeting" and listing the features to somebody already
@@ -481,6 +548,9 @@ export default function MeetingLinkView({ code }: Props) {
             code={code}
             e2eeKey={roomKey}
             displayName={sanitizeMeetingName(guestName) || text.guest}
+            identitySeedHex={hostSeedHex || undefined}
+            startMuted={!micOnBeforeJoin}
+            startVideoOff={!cameraOnBeforeJoin}
             labels={{
               knocking: text.knocking,
               cancelKnock: text.cancelKnock,
@@ -513,6 +583,11 @@ export default function MeetingLinkView({ code }: Props) {
               reconnecting: text.reconnecting,
               admitted: text.admitted,
               noE2EE: text.noE2EE,
+              guest: text.guest,
+              people: text.people,
+              fullscreen: text.fullscreen,
+              exitFullscreen: text.exitFullscreen,
+              close: text.close,
             }}
             onStateChange={(st) => {
               setJoined(st.joined);
@@ -540,7 +615,7 @@ export default function MeetingLinkView({ code }: Props) {
             the card that holds it does (p-5 sm:p-6), so the label's mt-5
             collapses through exactly as it did when the two were siblings. */}
         {!inRoom && roomKey ? (
-          <form onSubmit={joinHere}>
+          <form onSubmit={joinHere} className="mx-auto w-full max-w-xl">
             <label className="mt-5 block">
               <span className="mb-1.5 block text-xs font-medium text-white/45">
                 {text.yourName}
@@ -582,7 +657,7 @@ export default function MeetingLinkView({ code }: Props) {
             </a>
           ) : null
         ) : (
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div className="mx-auto mt-3 grid w-full max-w-xl gap-3 sm:grid-cols-2">
           {hasKey ? (
             <a
               href={appLink}
