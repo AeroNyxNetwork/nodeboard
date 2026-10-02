@@ -35,8 +35,9 @@ import {
   encryptReaction, decryptReactionFrame,
   encryptGroupMessage, decryptGroupEnvelope, unsealGroupKey,
   encryptGroupReaction, decryptGroupReaction,
-  fetchGroupList, fetchGroupKeyBundle,
+  fetchGroupList, fetchGroupDetail, fetchGroupKeyBundle,
   createGroup, inviteToGroup, leaveGroup, kickMember, fetchContacts,
+  fetchPublicProfileName,
   fetchAttachment, uploadAttachmentAuto, CHUNKED_UPLOAD_MAX, tFetch,
   bytesToHex, hexToBytes,
   type OutgoingFrame, type WebAttachment,
@@ -51,6 +52,7 @@ const NAMES_KEY = 'aeronyx_web_names';
 const GROUPS_KEY = 'aeronyx_web_groups';
 const RR_KEY = 'aeronyx_web_readreceipts'; // '0' = read receipts off
 const SNAMES_KEY = 'aeronyx_web_servernames'; // server-synced contact display names
+const SNOTES_KEY = 'aeronyx_web_servernotes'; // server-synced contact notes
 const HIST_PENDING_KEY = 'aeronyx_web_hist_pending'; // pairing material for the history snapshot fetch
 const NOTIF_KEY = 'aeronyx_web_notifs'; // '1' = desktop notifications enabled
 
@@ -69,6 +71,7 @@ type Group = {
   ownerPubkey: string;
   myRole: string;
   keyVersion: number;
+  memberCount: number;
   members: GroupMember[];
   messages: Msg[];
   lastTs: number;
@@ -77,7 +80,7 @@ type Group = {
 type Status = 'connecting' | 'connected' | 'reconnecting';
 type SidebarEntry = {
   id: string; isGroup: boolean; name: string;
-  last?: Msg; lastTs: number; unread: number; memberCount?: number;
+  last?: Msg; lastTs: number; unread: number; memberCount?: number; note?: string;
 };
 // [POLISH] In-app dialog specs (replace native window.prompt/confirm).
 type PromptSpec = {
@@ -158,6 +161,31 @@ function decryptWithKeys<T>(
   return null;
 }
 
+/** Fetch public names without opening hundreds of concurrent profile calls. */
+async function fetchProfileNames(pubkeys: string[]): Promise<Record<string, string>> {
+  // [WEB-CONTACT-PROJECTION 2026-10-02 by Codex] Contact and group APIs carry
+  // identity keys, while the visible name lives in the privacy-filtered public
+  // profile. Six workers mirror the native client's bounded refresh instead
+  // of turning a large group into an unbounded request burst.
+  const unique = [...new Set(pubkeys.filter((p) => /^[0-9a-f]{64}$/.test(p)))];
+  const names: Record<string, string> = {};
+  let cursor = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(6, unique.length) }, async () => {
+      while (cursor < unique.length) {
+        const pubkey = unique[cursor++];
+        try {
+          const name = await fetchPublicProfileName(pubkey);
+          if (name) names[pubkey] = name;
+        } catch {
+          /* profile refresh is best-effort; contact display name remains */
+        }
+      }
+    }),
+  );
+  return names;
+}
+
 export default function ChatPage() {
   const { locale } = useI18n();
   const zh = (locale || '').toLowerCase().startsWith('zh');
@@ -165,6 +193,7 @@ export default function ChatPage() {
   const seedRef = useRef<Uint8Array | null>(null);
   const pubRef = useRef<Uint8Array | null>(null);
   const clientRef = useRef<RelayClient | null>(null);
+  const profileRefreshAtRef = useRef(0);
 
   const [status, setStatus] = useState<Status>('connecting');
   const [convs, setConvs] = useState<Record<string, Conv>>({});
@@ -177,6 +206,7 @@ export default function ChatPage() {
   const [syncing, setSyncing] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
   const [serverNames, setServerNames] = useState<Record<string, string>>({}); // from GET /contacts/
+  const [contactNotes, setContactNotes] = useState<Record<string, string>>({});
   const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
   const [busyAtt, setBusyAtt] = useState(''); // blobId currently downloading
   const [uploading, setUploading] = useState(false); // an attachment send in flight
@@ -435,27 +465,49 @@ export default function ChatPage() {
     if (!seed || !pub) return;
     let list;
     try { list = await fetchGroupList(seed, pub); } catch { return; }
+
+    // [WEB-GROUP-ROSTER 2026-10-02 by Codex] The list endpoint intentionally
+    // returns only `member_count`; member rows live on the authenticated detail
+    // endpoint. Treating list.members as a roster made every remote group look
+    // empty. Hydrate detail and key in the same group pass.
+    const hydrated = await Promise.all(list.map(async (summary) => {
+      const [detail, bundle] = await Promise.all([
+        fetchGroupDetail(seed, pub, summary.groupId).catch(() => null),
+        fetchGroupKeyBundle(seed, pub, summary.groupId).catch(() => null),
+      ]);
+      if (bundle) {
+        const key = unsealGroupKey(seed, bundle.issuedBy, bundle.encryptedKeyB64);
+        if (key) (groupKeysRef.current[summary.groupId] ||= {})[bundle.keyVersion] = key;
+      }
+      return {
+        info: detail ? { ...detail, myRole: summary.myRole } : summary,
+        rosterLoaded: detail != null,
+      };
+    }));
+
+    const activeGroupIds = new Set(hydrated.map(({ info }) => info.groupId));
+    for (const cachedGroupId of Object.keys(groupKeysRef.current)) {
+      if (!activeGroupIds.has(cachedGroupId)) delete groupKeysRef.current[cachedGroupId];
+    }
+
     setGroups((prev) => {
-      const next = { ...prev };
-      for (const gi of list) {
-        const ex = next[gi.groupId];
+      // A successful full list is authoritative. Groups removed on another
+      // device must leave the sidebar instead of surviving in cached state.
+      const next: Record<string, Group> = {};
+      for (const { info: gi, rosterLoaded } of hydrated) {
+        const ex = prev[gi.groupId];
+        const members = rosterLoaded ? gi.members : ex?.members || [];
         next[gi.groupId] = {
           groupId: gi.groupId, name: gi.name, ownerPubkey: gi.ownerPubkey,
-          myRole: gi.myRole, keyVersion: gi.keyVersion, members: gi.members,
+          myRole: gi.myRole, keyVersion: gi.keyVersion,
+          memberCount: gi.memberCount,
+          members,
           messages: ex?.messages || [], lastTs: ex?.lastTs || 0, unread: ex?.unread || 0,
         };
       }
       return next;
     });
-    // Fetch + unseal each key (overwrite so a rotated key is picked up).
-    await Promise.all(list.map(async (gi) => {
-      try {
-        const bundle = await fetchGroupKeyBundle(seed, pub, gi.groupId);
-        if (!bundle) return;
-        const key = unsealGroupKey(seed, bundle.issuedBy, bundle.encryptedKeyB64);
-        if (key) (groupKeysRef.current[gi.groupId] ||= {})[bundle.keyVersion] = key;
-      } catch { /* skip this group's key */ }
-    }));
+
   }, []);
 
   // [CONTACTS] Load the server-synced friend list (the app uploads it on every
@@ -468,7 +520,6 @@ export default function ChatPage() {
     if (!seed || !pub) return [];
     try {
       const list = await fetchContacts(seed, pub);
-      if (!list.length) return [];
       setConvs((prev) => {
         const next = { ...prev };
         let changed = false;
@@ -487,6 +538,23 @@ export default function ChatPage() {
         }
         return next;
       });
+      setContactNotes(() => {
+        const next: Record<string, string> = {};
+        for (const c of list) {
+          if (c.note) next[c.pubkey] = c.note;
+        }
+        return next;
+      });
+      // Profiles are public but individually addressed. Refresh at most every
+      // five minutes; contact display names and notes still update every pass.
+      const now = Date.now();
+      if (now - profileRefreshAtRef.current >= 5 * 60_000) {
+        profileRefreshAtRef.current = now;
+        const profileNames = await fetchProfileNames(list.map((c) => c.pubkey));
+        if (Object.keys(profileNames).length) {
+          setServerNames((prev) => ({ ...prev, ...profileNames }));
+        }
+      }
       return list.map((c) => c.pubkey);
     } catch { /* contacts fetch is best-effort; chat works without it */ }
     return [];
@@ -562,7 +630,8 @@ export default function ChatPage() {
         // overwrites metadata on connect and PRESERVES messages.
         const ex = next[gid] || {
           groupId: gid, name: typeof g.name === 'string' ? g.name : '',
-          ownerPubkey: '', myRole: 'member', keyVersion: 1, members: [],
+          ownerPubkey: '', myRole: 'member', keyVersion: 1,
+          memberCount: 0, members: [],
           messages: [], lastTs: 0, unread: 0,
         };
         const seen = new Set(ex.messages.map((m) => m.id));
@@ -637,6 +706,8 @@ export default function ChatPage() {
       }
       const sn = sessionStorage.getItem(SNAMES_KEY);
       if (sn) setServerNames(JSON.parse(sn));
+      const snotes = sessionStorage.getItem(SNOTES_KEY);
+      if (snotes) setContactNotes(JSON.parse(snotes));
     } catch { /* ignore */ }
 
     const client = new RelayClient(seedHex);
@@ -808,6 +879,34 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // [WEB-DIRECTORY-REFRESH 2026-10-02 by Codex] Names, notes and membership
+  // can change on the phone while this tab stays open. Refresh when the person
+  // returns and periodically while visible; no identity means both loaders
+  // are safe no-ops. There is no invented websocket event or private field.
+  useEffect(() => {
+    let inFlight = false;
+    let refreshedAt = 0;
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (inFlight) return;
+      if (Date.now() - refreshedAt < 30_000) return;
+      inFlight = true;
+      refreshedAt = Date.now();
+      void Promise.allSettled([loadContacts(), loadGroups()]).finally(() => {
+        inFlight = false;
+      });
+    };
+    const onVisibility = () => refresh();
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', onVisibility);
+    const timer = window.setInterval(refresh, 60_000);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.clearInterval(timer);
+    };
+  }, [loadContacts, loadGroups]);
+
   // [WEB-HISTORY] Right after pairing, the phone uploads a sealed snapshot of
   // recent messages (opt-out on the phone's approve card). /weblogin stashed
   // the pairing material; poll the rendezvous a few times (the phone exports
@@ -858,6 +957,10 @@ export default function ChatPage() {
   useEffect(() => {
     try { sessionStorage.setItem(SNAMES_KEY, JSON.stringify(serverNames)); } catch { /* quota */ }
   }, [serverNames]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SNOTES_KEY, JSON.stringify(contactNotes)); } catch { /* quota */ }
+  }, [contactNotes]);
 
   // persist conversations. [QUOTA] Cap at the newest 150 messages per conv when
   // persisting (in-memory history stays full for this session): image messages
@@ -920,6 +1023,7 @@ export default function ChatPage() {
 
   const activeConv = active && !isGroupId(active) ? convs[active] : undefined;
   const activeGroup = active && isGroupId(active) ? groups[active] : undefined;
+  const activeContactNote = activeConv ? contactNotes[activeConv.peer] || '' : '';
   const activeThread = activeConv ?? activeGroup; // both carry messages[] + lastTs
   const headerStatus = activeConv ? peerStatus(active, typingPeers, presence, zh) : null;
   const groupTypingText = activeGroup ? groupTypingLabel(groupTypers[active] || {}, mergedNames, zh) : '';
@@ -1267,7 +1371,8 @@ export default function ChatPage() {
           ...prev,
           [res.groupId]: {
             groupId: res.groupId, name, ownerPubkey: myHex, myRole: 'owner',
-            keyVersion: res.keyVersion, members: [{ pubkey: myHex, role: 'owner' }],
+            keyVersion: res.keyVersion, memberCount: 1,
+            members: [{ pubkey: myHex, role: 'owner' }],
             messages: [], lastTs: Math.floor(Date.now() / 1000), unread: 0,
           },
         }));
@@ -1303,7 +1408,14 @@ export default function ChatPage() {
         setGroups((prev) => {
           const cur = prev[gid];
           if (!cur || cur.members.some((m) => m.pubkey === input)) return prev;
-          return { ...prev, [gid]: { ...cur, members: [...cur.members, { pubkey: input, role: 'member' }] } };
+          return {
+            ...prev,
+            [gid]: {
+              ...cur,
+              members: [...cur.members, { pubkey: input, role: 'member' }],
+              memberCount: (cur.memberCount ?? cur.members.length) + 1,
+            },
+          };
         });
         showToast(zh ? '已邀請' : 'Invited');
       },
@@ -1369,7 +1481,15 @@ export default function ChatPage() {
           const members = res.members.map(
             (pk) => cur.members.find((m) => m.pubkey === pk) || { pubkey: pk, role: 'member' },
           );
-          return { ...prev, [gid]: { ...cur, members, keyVersion: res.newKeyVersion } };
+          return {
+            ...prev,
+            [gid]: {
+              ...cur,
+              members,
+              memberCount: members.length,
+              keyVersion: res.newKeyVersion,
+            },
+          };
         });
       },
     });
@@ -1463,6 +1583,7 @@ export default function ChatPage() {
     sessionStorage.removeItem(GROUPS_KEY);
     sessionStorage.removeItem(NAMES_KEY);
     sessionStorage.removeItem(SNAMES_KEY);
+    sessionStorage.removeItem(SNOTES_KEY);
     sessionStorage.removeItem(RR_KEY);
     window.location.href = '/weblogin';
   };
@@ -1474,23 +1595,28 @@ export default function ChatPage() {
       entries.push({
         id: c.peer, isGroup: false, name: nameFor(c.peer),
         last: c.messages[c.messages.length - 1], lastTs: c.lastTs, unread: c.unread || 0,
+        note: contactNotes[c.peer] || undefined,
       });
     }
     for (const g of Object.values(groups)) {
       entries.push({
         id: g.groupId, isGroup: true, name: g.name || short(g.groupId),
         last: g.messages[g.messages.length - 1], lastTs: g.lastTs, unread: g.unread || 0,
-        memberCount: g.members.length,
+        memberCount: g.memberCount ?? g.members.length,
       });
     }
     return entries.sort((a, b) => b.lastTs - a.lastTs);
-  }, [convs, groups, nameFor]);
+  }, [convs, groups, nameFor, contactNotes]);
 
   // [POLISH] Sidebar search — filter by name or pubkey/group-id substring.
   const filteredEntries = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return sortedEntries;
-    return sortedEntries.filter((e) => e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q));
+    return sortedEntries.filter((e) =>
+      e.name.toLowerCase().includes(q) ||
+      e.note?.toLowerCase().includes(q) ||
+      e.id.toLowerCase().includes(q),
+    );
   }, [sortedEntries, search]);
 
   const statusText = zh
@@ -1598,7 +1724,10 @@ export default function ChatPage() {
                   {e.isGroup ? <ChatObjectIcon name="group" size={28} /> : e.id.slice(0, 2)}
                 </span>
                 <span style={S.convBody}>
-                  <span style={S.convName}>{e.name}</span>
+                  <span style={S.convNameLine}>
+                    <span style={S.convName}>{e.name}</span>
+                    {e.note ? <span style={S.convNote}>· {e.note}</span> : null}
+                  </span>
                   <span style={S.convPreview}>
                     {(!e.isGroup && typingPeers[e.id]) ||
                     (e.isGroup && Object.values(groupTypers[e.id] || {}).some(Boolean)) ? (
@@ -1652,7 +1781,7 @@ export default function ChatPage() {
                       <div style={{ ...S.threadStatus, color: '#8AB4FF' }}>{groupTypingText}</div>
                     ) : (
                       <div style={S.threadSub}>
-                        {activeGroup.members.length} {zh ? '位成員' : 'members'}
+                        {activeGroup.memberCount ?? activeGroup.members.length} {zh ? '位成員' : 'members'}
                         {activeGroup.myRole === 'owner' ? (zh ? ' · 群主' : ' · owner') : ''}
                       </div>
                     )}
@@ -1675,6 +1804,9 @@ export default function ChatPage() {
                     <div style={S.threadTitle}>
                       {nameFor(activeConv!.peer)} <span style={S.editHint}><ChatGlyph name="edit" size={12} /></span>
                     </div>
+                    {activeContactNote ? (
+                      <div style={S.threadNote}>{activeContactNote}</div>
+                    ) : null}
                     {typingPeers[activeConv!.peer]
                       ? <div style={{ ...S.threadStatus, color: '#8AB4FF', display: 'flex', alignItems: 'center', gap: 5 }}>{zh ? '正在輸入' : 'typing'} <TypingDots /></div>
                       : headerStatus
@@ -1883,7 +2015,7 @@ export default function ChatPage() {
         <div style={S.overlay} onClick={() => setShowMembers(false)}>
           <div style={S.memberPanel} onClick={(e) => e.stopPropagation()}>
             <div style={S.memberPanelHead}>
-              <span>{zh ? '群組成員' : 'Members'} · {activeGroup.members.length}</span>
+              <span>{zh ? '群組成員' : 'Members'} · {activeGroup.memberCount ?? activeGroup.members.length}</span>
               <button style={S.memberClose} aria-label={zh ? '關閉成員列表' : 'Close member list'} onClick={() => setShowMembers(false)}><ChatGlyph name="close" size={18} /></button>
             </div>
             <div style={S.memberList}>
@@ -2459,7 +2591,9 @@ const S: Record<string, CSSProperties> = {
   convItemActive: { background: 'rgba(116,98,247,0.16)' },
   avatar: { width: 38, height: 38, borderRadius: 19, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff', textTransform: 'uppercase', flexShrink: 0 },
   convBody: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' },
-  convName: { fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  convNameLine: { display: 'flex', alignItems: 'baseline', gap: 5, minWidth: 0 },
+  convName: { minWidth: 0, flexShrink: 1, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  convNote: { minWidth: 0, flexShrink: 2, fontSize: 11, color: 'rgba(255,255,255,0.38)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   convPreview: { fontSize: 13, color: 'rgba(255,255,255,0.45)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   convTime: { fontSize: 11, color: 'rgba(255,255,255,0.35)', flexShrink: 0 },
   convRight: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 },
@@ -2481,6 +2615,7 @@ const S: Record<string, CSSProperties> = {
   headerBtn: { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.85)', fontSize: 12.5, borderRadius: 8, padding: '5px 11px', cursor: 'pointer', whiteSpace: 'nowrap' },
   threadTitleWrap: { minWidth: 0 },
   threadTitle: { fontSize: 15, fontWeight: 600 },
+  threadNote: { maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, color: 'rgba(255,255,255,0.42)' },
   editHint: { fontSize: 11, color: 'rgba(255,255,255,0.3)', display: 'inline-flex', verticalAlign: 'middle' },
   threadSub: { fontFamily: 'monospace', fontSize: 10, color: 'rgba(255,255,255,0.35)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', maxWidth: 260 },
   threadStatus: { fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 },

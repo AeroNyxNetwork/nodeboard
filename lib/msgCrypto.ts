@@ -646,6 +646,7 @@ export interface GroupInfo {
   ownerPubkey: string;
   keyVersion: number;
   myRole: string;
+  memberCount: number;
   members: GroupMember[];
 }
 export interface GroupSendFrame {
@@ -897,6 +898,7 @@ export function decryptGroupReaction(
 export interface RelayContactInfo {
   pubkey: string;
   displayName: string;
+  note: string;
 }
 
 /**
@@ -916,12 +918,66 @@ export async function fetchContacts(seed: Uint8Array, pub: Uint8Array): Promise<
   for (const c of raw as Record<string, unknown>[]) {
     const pubkey = String(c.contact_pubkey ?? '').toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(pubkey) || c.is_deleted === true) continue;
-    out.push({ pubkey, displayName: String(c.display_name ?? '') });
+    out.push({
+      pubkey,
+      displayName: String(c.display_name ?? '').trim(),
+      note: String(c.note ?? '').trim(),
+    });
   }
   return out;
 }
 
+/**
+ * Public profile display name for a contact or group member.
+ *
+ * [WEB-CONTACT-PROJECTION 2026-10-02 by Codex] `/contacts/` preserves the
+ * name captured when the address-book row was written, while the native app
+ * refreshes the privacy-filtered public profile on startup/resume. Web now
+ * follows the same precedence without requesting any private profile fields.
+ */
+export async function fetchPublicProfileName(pubkey: string): Promise<string> {
+  const normalized = pubkey.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(normalized)) return '';
+  const res = await tFetch(
+    `${RELAY_BASE}/profile/${encodeURIComponent(normalized)}/`,
+    {},
+    12000,
+  );
+  if (!res.ok) return '';
+  const body = await res.json().catch(() => ({} as Record<string, unknown>));
+  const profile = body.profile as Record<string, unknown> | undefined;
+  return typeof profile?.display_name === 'string'
+    ? profile.display_name.trim()
+    : '';
+}
+
 // --- group HTTP (list + key bundle) -----------------------------------------
+
+function groupInfoFromWire(g: Record<string, unknown>): GroupInfo {
+  const members = Array.isArray(g.members)
+    ? (g.members as Record<string, unknown>[])
+        .map((m) => ({
+          pubkey: String(m.pubkey ?? '').toLowerCase(),
+          role: String(m.role ?? 'member'),
+        }))
+        .filter((m) => /^[0-9a-f]{64}$/.test(m.pubkey))
+    : [];
+  const rawCount = typeof g.member_count === 'number'
+    ? g.member_count
+    : Number.NaN;
+  const memberCount = Number.isFinite(rawCount) && rawCount >= 0
+    ? Math.floor(rawCount)
+    : members.length;
+  return {
+    groupId: String(g.group_id ?? g.id ?? ''),
+    name: String(g.name ?? ''),
+    ownerPubkey: String(g.owner_pubkey ?? '').toLowerCase(),
+    keyVersion: Number(g.key_version ?? 1) || 1,
+    myRole: String(g.my_role ?? 'member'),
+    memberCount,
+    members,
+  };
+}
 
 /** GET /groups/ → the groups this identity is an active member of. */
 export async function fetchGroupList(seed: Uint8Array, pub: Uint8Array): Promise<GroupInfo[]> {
@@ -930,20 +986,27 @@ export async function fetchGroupList(seed: Uint8Array, pub: Uint8Array): Promise
   const body = await res.json().catch(() => ({} as Record<string, unknown>));
   const raw = Array.isArray(body.groups) ? body.groups : [];
   return raw
-    .map((g: Record<string, unknown>): GroupInfo => ({
-      groupId: String(g.group_id ?? g.id ?? ''),
-      name: String(g.name ?? ''),
-      ownerPubkey: String(g.owner_pubkey ?? '').toLowerCase(),
-      keyVersion: Number(g.key_version ?? 1) || 1,
-      myRole: String(g.my_role ?? 'member'),
-      members: Array.isArray(g.members)
-        ? (g.members as Record<string, unknown>[]).map((m) => ({
-            pubkey: String(m.pubkey ?? '').toLowerCase(),
-            role: String(m.role ?? 'member'),
-          }))
-        : [],
-    }))
+    .map(groupInfoFromWire)
     .filter((g: GroupInfo) => g.groupId);
+}
+
+/** GET /groups/<id>/ → authoritative active member roster for this member. */
+export async function fetchGroupDetail(
+  seed: Uint8Array,
+  pub: Uint8Array,
+  groupId: string,
+): Promise<GroupInfo | null> {
+  const res = await tFetch(
+    `${RELAY_BASE}/groups/${encodeURIComponent(groupId)}/`,
+    { headers: { Authorization: authHeader(seed, pub) } },
+    20000,
+  );
+  if (!res.ok) return null;
+  const body = await res.json().catch(() => ({} as Record<string, unknown>));
+  const raw = body.group as Record<string, unknown> | undefined;
+  if (!raw) return null;
+  const group = groupInfoFromWire(raw);
+  return group.groupId ? group : null;
 }
 
 /** GET /groups/<id>/keys/me/ → this member's sealed group-key bundle (or null). */
