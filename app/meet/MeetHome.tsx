@@ -172,9 +172,14 @@ export default function MeetHome() {
             type="button"
             onClick={() => void createMeeting()}
             disabled={creating}
-            className="flex h-12 w-full items-center justify-center gap-3 rounded-xl bg-[#7762F3] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#8877FF] focus:outline-none focus:ring-2 focus:ring-[#9B8CFF] focus:ring-offset-2 focus:ring-offset-[#14141D] disabled:cursor-wait disabled:opacity-65"
+            aria-busy={creating}
+            className="flex h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-[#7762F3] px-5 text-sm font-semibold text-white shadow-[0_10px_28px_rgba(119,98,243,0.2)] transition-[background-color,box-shadow,transform] hover:bg-[#8877FF] hover:shadow-[0_12px_32px_rgba(119,98,243,0.28)] active:translate-y-px focus:outline-none focus:ring-2 focus:ring-[#9B8CFF] focus:ring-offset-2 focus:ring-offset-[#14141D] disabled:cursor-wait disabled:opacity-65 disabled:shadow-none"
           >
-            <img src="/chat/chat_new.png" alt="" aria-hidden="true" width={28} height={28} />
+            {/* [MEETING-ACTION-ICON 2026-10-02 by Codex] The generated chat
+                bubble asset looked like a purple speck on this purple button
+                and described the wrong action. Keep primary controls crisp,
+                semantic and resolution-independent. */}
+            {creating ? <ButtonSpinner /> : <MeetingCreateIcon />}
             {creating ? text.creating : text.newMeeting}
           </button>
 
@@ -210,7 +215,9 @@ export default function MeetHome() {
           {error ? <p role="alert" className="mt-4 text-sm leading-5 text-[#FF9AA9]">{error}</p> : null}
 
           <div className="mt-6 flex gap-3 border-t border-white/10 pt-5">
-            <img src="/chat/chat_lock.png" alt="" aria-hidden="true" width={34} height={34} className="h-[34px] w-[34px] shrink-0" />
+            <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center text-[#9B8CFF]" aria-hidden="true">
+              <MeetingPrivacyIcon />
+            </span>
             <div>
               <h2 className="text-sm font-semibold text-white/80">{text.privacyTitle}</h2>
               <p className="mt-1 text-xs leading-5 text-white/40">{text.privacyBody}</p>
@@ -219,5 +226,57 @@ export default function MeetHome() {
         </div>
       </section>
     </main>
+  );
+}
+
+// [MEETING-ACTION-ICON 2026-10-02 by Codex] Small state-aware SVG controls
+// share one visual weight and inherit contrast from their button/context.
+function MeetingCreateIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="shrink-0"
+    >
+      <rect x="3" y="6" width="13" height="12" rx="3" />
+      <path d="m16 10 5-3v10l-5-3" />
+      <path d="M7 12h5M9.5 9.5v5" />
+    </svg>
+  );
+}
+
+function MeetingPrivacyIcon() {
+  return (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="5" y="10" width="14" height="11" rx="3" />
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+      <path d="M12 14v3" />
+    </svg>
+  );
+}
+
+function ButtonSpinner() {
+  return (
+    <span
+      className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-white/35 border-t-white"
+      aria-hidden="true"
+    />
   );
 }
