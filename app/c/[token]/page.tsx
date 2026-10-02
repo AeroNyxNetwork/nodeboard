@@ -13,7 +13,7 @@ import {
 } from '@/lib/msgCrypto';
 
 type ResolveState = 'loading' | 'ready' | 'expired' | 'missing' | 'error';
-type DeliveryState = 'sending' | 'sent' | 'failed';
+type DeliveryState = 'sending' | 'sent' | 'delivered' | 'failed';
 type GuestLocale = 'en' | 'zh';
 
 interface Recipient {
@@ -27,6 +27,7 @@ interface GuestMessage {
   mine: boolean;
   status: DeliveryState;
   ts: number;
+  failureReason?: string;
 }
 
 interface AnonymousChatCopy {
@@ -36,6 +37,11 @@ interface AnonymousChatCopy {
   emptyTitle: string;
   emptyBody: string;
   notSent: string;
+  sending: string;
+  relayAccepted: string;
+  delivered: string;
+  verificationRequired: string;
+  rateLimited: string;
   retry: string;
   reconnect: string;
   placeholder: string;
@@ -59,6 +65,11 @@ const COPY: Record<GuestLocale, AnonymousChatCopy> = {
     emptyBody:
       'You can chat without installing AeroNyx. Your browser uses a temporary identity for this link.',
     notSent: 'Not sent',
+    sending: 'Sending…',
+    relayAccepted: 'Accepted by relay',
+    delivered: 'Delivered',
+    verificationRequired: 'Approval required',
+    rateLimited: 'Please wait before retrying',
     retry: 'Retry',
     reconnect: 'Reconnect',
     placeholder: 'Message',
@@ -92,6 +103,11 @@ const COPY: Record<GuestLocale, AnonymousChatCopy> = {
     emptyBody:
       '无需安装 AeroNyx 也可以聊天。浏览器会为这个链接创建一个临时身份。',
     notSent: '发送失败',
+    sending: '正在发送…',
+    relayAccepted: '中继已接收',
+    delivered: '已送达',
+    verificationRequired: '需要对方先通过验证',
+    rateLimited: '操作过于频繁，请稍后重试',
     retry: '重试',
     reconnect: '重新连接',
     placeholder: '输入消息',
@@ -133,6 +149,16 @@ export default function AnonymousChatPage({
   const [draft, setDraft] = useState('');
   const [messages, setMessages] = useState<GuestMessage[]>([]);
   const clientRef = useRef<RelayClient | null>(null);
+  // [ANON-CHAT-ACK 2026-10-02 by Codex] Frames remain pending until a Relay
+  // acceptance arrives. Keeping the original frame also lets self-echo happen
+  // only after the real recipient send succeeded, matching the native client.
+  const pendingFramesRef = useRef(new Map<string, {
+    frame: OutgoingFrame;
+    timer: ReturnType<typeof setTimeout>;
+    contactRequest: boolean;
+  }>());
+  const contactRequestAcceptedRef = useRef(false);
+  const contactRequestInFlightRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const seedRef = useRef<Uint8Array | null>(null);
   const pubRef = useRef<Uint8Array | null>(null);
@@ -210,6 +236,69 @@ export default function AnonymousChatPage({
       client.send({ type: 'relay_pull', since_ts: 0 });
     });
     client.on('closed', () => setConnected(false));
+    client.on('delivered', (raw) => {
+      const frame = raw as {
+        msg_id?: string;
+        durable?: boolean;
+        delivered?: boolean;
+        queued?: boolean;
+      };
+      const messageId = String(frame.msg_id || '');
+      if (!messageId) return;
+      const accepted = typeof frame.durable === 'boolean'
+        ? frame.durable
+        : frame.delivered === true || frame.queued === true;
+      const pending = pendingFramesRef.current.get(messageId);
+      // The self-echo reuses the real msg_id and therefore produces a second
+      // ACK. Only the ACK for a locally pending recipient send may mutate UI.
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      pendingFramesRef.current.delete(messageId);
+      if (pending.contactRequest) {
+        contactRequestInFlightRef.current = false;
+        if (accepted) contactRequestAcceptedRef.current = true;
+      }
+      if (accepted) client.send(selfEchoFrame(seed, pub, pending.frame));
+      setMessages((prev) => prev.map((message) =>
+        message.id === messageId
+          ? { ...message, status: accepted ? 'sent' : 'failed' }
+          : message,
+      ));
+    });
+    client.on('sendrejected', (raw) => {
+      const frame = raw as { msg_id?: string; reason?: string };
+      const messageId = String(frame.msg_id || '');
+      if (!messageId) return;
+      const pending = pendingFramesRef.current.get(messageId);
+      // A rejected self-echo must not overwrite the accepted recipient send.
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      if (pending.contactRequest) contactRequestInFlightRef.current = false;
+      pendingFramesRef.current.delete(messageId);
+      setMessages((prev) => prev.map((message) =>
+        message.id === messageId
+          ? { ...message, status: 'failed', failureReason: frame.reason }
+          : message,
+      ));
+    });
+    client.on('receipt', (raw) => {
+      const messageId = String((raw as { msg_id?: string }).msg_id || '');
+      if (!messageId) return;
+      setMessages((prev) => prev.map((message) =>
+        message.id === messageId
+          ? { ...message, status: 'delivered' }
+          : message,
+      ));
+    });
+    client.on('read', (raw) => {
+      const messageId = String((raw as { msg_id?: string }).msg_id || '');
+      if (!messageId) return;
+      setMessages((prev) => prev.map((message) =>
+        message.id === messageId
+          ? { ...message, status: 'delivered' }
+          : message,
+      ));
+    });
     client.on('envelope', (frame) => {
       const opened = decryptEnvelopeFrame(seed, frame as never);
       if (!opened || opened.peerHex !== recipient.pubkey) return;
@@ -229,6 +318,11 @@ export default function AnonymousChatPage({
     });
     client.connect();
     return () => {
+      for (const pending of pendingFramesRef.current.values()) {
+        clearTimeout(pending.timer);
+      }
+      pendingFramesRef.current.clear();
+      contactRequestInFlightRef.current = false;
       client.close();
       clientRef.current = null;
       setConnected(false);
@@ -251,20 +345,45 @@ export default function AnonymousChatPage({
     } catch {
       return;
     }
-    const firstMessage = !messages.some((message) => !message.mine);
-    const ok = client.send({
+    // [ANON-CHAT-CONTACT-GATE 2026-10-02 by Codex] Only one initial message is
+    // a contact request. The old `no inbound message yet` check marked every
+    // outbound message as a request until the owner replied, so the Relay's
+    // abuse limiter rejected the second and later messages while the page
+    // still painted them as sent.
+    const firstMessage = !messages.some((message) => !message.mine)
+      && !contactRequestAcceptedRef.current
+      && !contactRequestInFlightRef.current;
+    const outbound = {
       ...frame,
       // [ANON-WEB-CHAT 2026-08-16 by Codex] The first guest message is a
       // contact request so friend-verification users still receive the knock.
       ...(firstMessage ? { contact_request: true } : {}),
-    });
-    if (ok) client.send(selfEchoFrame(seed, pub, frame));
+    };
+    const ok = client.send(outbound);
+    if (ok) {
+      if (firstMessage) contactRequestInFlightRef.current = true;
+      const timer = setTimeout(() => {
+        const pending = pendingFramesRef.current.get(frame.msg_id);
+        pendingFramesRef.current.delete(frame.msg_id);
+        if (pending?.contactRequest) contactRequestInFlightRef.current = false;
+        setMessages((prev) => prev.map((message) =>
+          message.id === frame.msg_id
+            ? { ...message, status: 'failed' }
+            : message,
+        ));
+      }, 15_000);
+      pendingFramesRef.current.set(frame.msg_id, {
+        frame,
+        timer,
+        contactRequest: firstMessage,
+      });
+    }
     setMessages((prev) => {
       const nextMessage = {
         id: frame.msg_id,
         text,
         mine: true,
-        status: (ok ? 'sent' : 'failed') as DeliveryState,
+        status: (ok ? 'sending' : 'failed') as DeliveryState,
         ts: frame.timestamp,
       };
       if (!retryId) return [...prev, nextMessage];
@@ -334,13 +453,22 @@ export default function AnonymousChatPage({
                       }`}
                     >
                       <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                      {m.mine && m.status !== 'failed' ? (
+                        <p className="mt-1 text-right text-[11px] text-white/55">
+                          {m.status === 'sending'
+                            ? copy.sending
+                            : m.status === 'delivered'
+                              ? copy.delivered
+                              : copy.relayAccepted}
+                        </p>
+                      ) : null}
                       {m.mine && m.status === 'failed' ? (
                         <button
                           type="button"
                           onClick={() => sendText(m.text, m.id)}
                           className="mt-1 text-[11px] font-semibold text-red-100/90 underline decoration-red-100/40 underline-offset-2"
                         >
-                          {copy.notSent} · {copy.retry}
+                          {failureText(m.failureReason, copy)} · {copy.retry}
                         </button>
                       ) : null}
                     </div>
@@ -436,6 +564,14 @@ function statusTitle(state: ResolveState, copy: AnonymousChatCopy) {
 function statusDescription(state: ResolveState, copy: AnonymousChatCopy) {
   if (state === 'ready') return copy.statusDescription.loading;
   return copy.statusDescription[state];
+}
+
+// [ANON-CHAT-ACK 2026-10-02 by Codex] Keep the public page's failure copy
+// privacy-safe: expose an actionable gate, never Relay internals or identities.
+function failureText(reason: string | undefined, copy: AnonymousChatCopy) {
+  if (reason === 'verification_required') return copy.verificationRequired;
+  if (reason === 'contact_request_rate_limited') return copy.rateLimited;
+  return copy.notSent;
 }
 
 function AeroNyxMark() {

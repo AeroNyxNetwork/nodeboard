@@ -25,6 +25,11 @@ const DOMAIN = 'AeroNyx-RelayAuth-v1';
 
 export type RelayEvent =
   | 'connected' | 'authfail' | 'closed' | 'envelope' | 'pulldone'
+  // [ANON-CHAT-ACK 2026-10-02 by Codex] Browser chat must not equate a
+  // successful WebSocket write with Relay acceptance. Surface the same ACK
+  // and rejection frames consumed by the native client so callers can keep a
+  // message pending until the server has durably accepted it.
+  | 'delivered' | 'sendrejected'
   | 'reaction' // inbound message_reaction (emoji)
   | 'receipt' // inbound message_receipt (peer decrypted+stored our message)
   | 'read' // inbound message_read (peer read our message)
@@ -189,6 +194,12 @@ export class RelayClient {
         break;
       case 'relay_pull_done':
         this.emit('pulldone', f);
+        break;
+      case 'relay_delivered':
+        this.emit('delivered', f);
+        break;
+      case 'send_rejected':
+        this.emit('sendrejected', f);
         break;
       case 'message_reaction':
         this.emit('reaction', f);
