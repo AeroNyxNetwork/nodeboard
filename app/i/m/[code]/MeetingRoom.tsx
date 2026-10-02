@@ -85,6 +85,8 @@ type Props = {
     mic: string;
     micOff: string;
     noMic: string;
+    audioPaused: string;
+    enableAudio: string;
     share: string;
     stopSharing: string;
     sharingLabel: string;
@@ -147,6 +149,11 @@ export default function MeetingRoom({
   // The device said no, as opposed to the person having muted themselves.
   // Those need different words on the button.
   const [micBlocked, setMicBlocked] = useState(false);
+  // [MEETING-AUDIO-PLAYBACK 2026-10-02 by Codex] Publishing a microphone and
+  // being allowed to play remote audio are independent browser permissions.
+  // Keep the latter explicit so an autoplay refusal cannot masquerade as an
+  // empty or broken meeting.
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const [sharing, setSharing] = useState(false);
   // [RECONNECT-SILENCE 2026-09-17 by Claude] LiveKit reconnects on its own and
   // said nothing while it did. The room simply froze: tiles stopped moving,
@@ -301,6 +308,7 @@ export default function MeetingRoom({
   const join = useCallback(async () => {
     setError('');
     setRetryable(true);
+    setAudioBlocked(false);
 
     // [E2EE-PRECHECK 2026-09-18 by Claude] Ask the browser before asking the
     // person for a microphone.
@@ -456,6 +464,10 @@ export default function MeetingRoom({
             // put an <audio> element inside a fixed-aspect picture frame.
             const el = track.attach();
             audioSinkRef.current?.appendChild(el);
+            void el
+              .play()
+              .then(() => setAudioBlocked(!room!.canPlaybackAudio))
+              .catch(() => setAudioBlocked(true));
             return;
           }
           if (track.kind === Track.Kind.Video) {
@@ -471,6 +483,9 @@ export default function MeetingRoom({
         })
         .on(RoomEvent.Reconnecting, () => setReconnecting(true))
         .on(RoomEvent.Reconnected, () => setReconnecting(false))
+        .on(RoomEvent.AudioPlaybackStatusChanged, (playing) =>
+          setAudioBlocked(!playing),
+        )
         .on(RoomEvent.Disconnected, (reason) => {
           // [MEETING-WEB-ENDED 2026-09-17 by Claude] Leaving on your own is
           // the only disconnect that needs no words. Everything else --
@@ -518,6 +533,17 @@ export default function MeetingRoom({
 
       await room.connect(token.livekitUrl, token.token);
       roomRef.current = room;
+
+      // The pre-join device check is a user gesture on most browsers, but the
+      // room mount and token exchange happen later. Ask LiveKit to resume its
+      // audio context now; if browser policy still refuses, the room renders
+      // a one-tap recovery action instead of staying silently broken.
+      try {
+        await room.startAudio();
+        setAudioBlocked(!room.canPlaybackAudio);
+      } catch {
+        setAudioBlocked(true);
+      }
 
       // [MEETING-WEB-NO-MIC 2026-09-17 by Claude] A microphone is not a
       // condition of entry. This was the one unguarded await after connect,
@@ -604,6 +630,19 @@ export default function MeetingRoom({
       // nothing is worse than one that says why.
       setMicOn(false);
       setMicBlocked(true);
+    }
+  };
+
+  const enableAudio = async () => {
+    const room = roomRef.current;
+    if (!room) return;
+    try {
+      // Must remain directly inside this click handler for Safari's user
+      // activation rule. Deferring it to an effect leaves the room silent.
+      await room.startAudio();
+      setAudioBlocked(!room.canPlaybackAudio);
+    } catch {
+      setAudioBlocked(true);
     }
   };
 
@@ -760,7 +799,13 @@ export default function MeetingRoom({
           />
         ))}
       </div>
-      <div ref={audioSinkRef} className="hidden" />
+      {/* Audio elements must stay in the rendered media tree. `hidden`
+          (`display:none`) is not a reliable playback sink across browsers. */}
+      <div
+        ref={audioSinkRef}
+        aria-hidden="true"
+        className="pointer-events-none fixed bottom-0 left-0 h-px w-px overflow-hidden opacity-0"
+      />
 
       {phase === 'joined' && verifyEmoji.length === 4 ? (
         // [MEETING-VERIFY-EMOJI 2026-09-17 by Claude] Stacked and centred, not
@@ -794,6 +839,24 @@ export default function MeetingRoom({
             className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[#F0C06A] motion-reduce:animate-none"
           />
           <span className="text-xs text-[#F0C06A]">{labels.reconnecting}</span>
+        </div>
+      ) : null}
+
+      {phase === 'joined' && audioBlocked ? (
+        <div
+          role="alert"
+          className="mt-3 flex flex-col gap-3 border-y border-[#E0A33E]/30 bg-[#E0A33E]/8 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span className="text-sm leading-5 text-[#F0C06A]">
+            {labels.audioPaused}
+          </span>
+          <button
+            type="button"
+            onClick={() => void enableAudio()}
+            className="h-10 shrink-0 rounded-lg bg-[#7762F3] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#8877FF] focus:outline-none focus:ring-2 focus:ring-[#9B8CFF] focus:ring-offset-2 focus:ring-offset-[#14141D]"
+          >
+            {labels.enableAudio}
+          </button>
         </div>
       ) : null}
 
