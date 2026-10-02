@@ -115,16 +115,18 @@ const MeetingPreview = forwardRef<MeetingPreviewHandle, Props>(
 
     return (
       <section aria-label={labels.previewHint} className="overflow-hidden rounded-2xl border border-white/10 bg-[#0D0D14] shadow-xl shadow-black/20">
-        <div className="relative aspect-video min-h-[210px] overflow-hidden bg-black/65">
+        {/* [MEETING-PREVIEW-LAYOUT 2026-10-02 by Codex] Reserve the lower
+            control row so device checks remain reachable on narrow screens. */}
+        <div className="relative aspect-video min-h-[320px] w-full overflow-hidden bg-black/65">
           <video
             ref={videoRef}
             autoPlay
             muted
             playsInline
-            className={`h-full w-full object-cover transition-opacity ${active && cameraOn ? 'opacity-100' : 'opacity-0'}`}
+            className={`absolute inset-0 h-full w-full object-cover transition-opacity ${active && cameraOn ? 'opacity-100' : 'opacity-0'}`}
           />
           {!active || !cameraOn ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+            <div className="absolute inset-x-0 top-0 bottom-20 flex flex-col items-center justify-center gap-3 px-6 text-center">
               <img src="/meeting/cap_video_off.png" alt="" aria-hidden="true" width={56} height={56} className="h-14 w-14" />
               <p className="max-w-sm text-sm leading-6 text-white/45">
                 {failed ? labels.deviceError : labels.previewHint}
