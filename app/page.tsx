@@ -31,14 +31,53 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { LOCALE_STORAGE_KEY, type Locale } from '@/lib/i18n';
 import Logo from '@/components/common/Logo';
 
 export default function RootPage() {
-  const { locale } = useI18n();
-  const zh = (locale || '').toLowerCase().startsWith('zh');
-  const t = useMemo(() => makeStrings(zh), [zh]);
+  const { locale: appLocale, setLocale: setAppLocale } = useI18n();
+  const [locale, setLocale] = useState<RootLocale>('en');
+  const t = copyByLocale[locale];
+
+  // [APP-HOME-I18N 2026-10-02 by Codex] Match the public website's seven
+  // languages without advertising Spanish across Nodeboard before that much
+  // larger operator dictionary is translated. Existing six-language choices
+  // still sync into the shared provider; Spanish remains honest, homepage-only
+  // copy. Browser language is used only when neither surface has a preference.
+  useEffect(() => {
+    let next: RootLocale;
+    try {
+      const homePreference = window.localStorage.getItem(HOME_LOCALE_KEY);
+      const appPreference = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+      next = normalizeRootLocale(
+        isRootLocale(homePreference)
+          ? homePreference
+          : appPreference || window.navigator.language,
+      );
+    } catch {
+      next = normalizeRootLocale(window.navigator.language);
+    }
+    setLocale(next);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    return () => {
+      document.documentElement.lang = appLocale;
+    };
+  }, [appLocale, locale]);
+
+  const changeLocale = (next: RootLocale) => {
+    setLocale(next);
+    try {
+      window.localStorage.setItem(HOME_LOCALE_KEY, next);
+    } catch {
+      /* A blocked preference store must never block the language switch. */
+    }
+    if (next !== 'es') setAppLocale(next satisfies Locale);
+  };
 
   return (
     <main
@@ -51,6 +90,26 @@ export default function RootPage() {
         className="pointer-events-none absolute inset-0"
         style={{ background: 'radial-gradient(circle at 50% 28%, rgba(138,43,226,0.16), transparent 62%)' }}
       />
+
+      <label className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6">
+        <span className="sr-only">{t.languageLabel}</span>
+        <select
+          value={locale}
+          onChange={(event) => changeLocale(event.target.value as RootLocale)}
+          aria-label={t.languageLabel}
+          className="h-10 rounded-lg border border-white/15 bg-[#11111A]/90 px-3 text-xs font-semibold text-white/75 outline-none backdrop-blur transition hover:border-white/30 hover:text-white focus:border-[#9B8CFF]/60 focus:ring-2 focus:ring-[#7762F3]/30"
+        >
+          {ROOT_LANGUAGES.map((language) => (
+            <option
+              key={language.code}
+              value={language.code}
+              className="bg-[#11111A] text-white"
+            >
+              {language.label}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <div className="relative z-10 flex w-full max-w-3xl flex-col items-center">
         <Logo className="h-14 w-14" color="#A855F7" />
@@ -117,28 +176,127 @@ export default function RootPage() {
   );
 }
 
-function makeStrings(zh: boolean) {
-  return zh
-    ? {
-        tagline: '隱私優先的加密網絡 —— 聊天、節點、錢包，一處入口。',
-        chatTitle: '打開聊天',
-        chatSub: '用 AeroNyx App 掃碼，在這個瀏覽器上端到端加密聊天。',
-        meetTitle: '開始會議',
-        meetSub: '建立或加入端到端加密的視訊會議，無需安裝。',
-        opTitle: '節點控制台',
-        opSub: '管理你的節點，查看流量與收益（瀏覽器錢包登錄）。',
-        footer: '端到端加密 · 節點對聊天內容零知識',
-      }
-    : {
-        tagline: 'A privacy-first encrypted network — chat, nodes, and wallet in one place.',
-        chatTitle: 'Open Chat',
-        chatSub: 'Scan with the AeroNyx app to chat end-to-end encrypted on this browser.',
-        meetTitle: 'Start a Meeting',
-        meetSub: 'Create or join an end-to-end encrypted video meeting without an install.',
-        opTitle: 'Node Dashboard',
-        opSub: 'Operate your nodes and view traffic & earnings (browser-wallet login).',
-        footer: 'End-to-end encrypted · nodes are blind to chat content',
-      };
+const ROOT_LANGUAGES = [
+  { code: 'en', label: 'English' },
+  { code: 'ru', label: 'Русский' },
+  { code: 'zh-TW', label: '繁體中文' },
+  { code: 'zh-CN', label: '简体中文' },
+  { code: 'ja', label: '日本語' },
+  { code: 'ko', label: '한국어' },
+  { code: 'es', label: 'Español' },
+] as const;
+
+type RootLocale = (typeof ROOT_LANGUAGES)[number]['code'];
+
+type RootCopy = {
+  languageLabel: string;
+  tagline: string;
+  chatTitle: string;
+  chatSub: string;
+  meetTitle: string;
+  meetSub: string;
+  opTitle: string;
+  opSub: string;
+  footer: string;
+};
+
+const HOME_LOCALE_KEY = 'aeronyx.app.home.locale';
+
+const copyByLocale: Record<RootLocale, RootCopy> = {
+  en: {
+    languageLabel: 'Language',
+    tagline: 'A privacy-first encrypted network — chat, nodes, and wallet in one place.',
+    chatTitle: 'Open Chat',
+    chatSub: 'Scan with the AeroNyx app to chat end-to-end encrypted on this browser.',
+    meetTitle: 'Start a Meeting',
+    meetSub: 'Create or join an end-to-end encrypted video meeting without an install.',
+    opTitle: 'Node Dashboard',
+    opSub: 'Operate your nodes and view traffic & earnings (browser-wallet login).',
+    footer: 'End-to-end encrypted · nodes are blind to chat content',
+  },
+  ru: {
+    languageLabel: 'Язык',
+    tagline: 'Зашифрованная сеть с приоритетом приватности — чаты, узлы и кошелёк в одном месте.',
+    chatTitle: 'Открыть чат',
+    chatSub: 'Отсканируйте код в приложении AeroNyx для сквозного шифрования чата в браузере.',
+    meetTitle: 'Начать встречу',
+    meetSub: 'Создавайте и подключайтесь к видеовстречам со сквозным шифрованием без установки.',
+    opTitle: 'Панель узла',
+    opSub: 'Управляйте узлами и смотрите трафик и доходы, войдя через браузерный кошелёк.',
+    footer: 'Сквозное шифрование · узлы не видят содержимое чатов',
+  },
+  'zh-TW': {
+    languageLabel: '語言',
+    tagline: '隱私優先的加密網絡——聊天、節點、錢包，一處入口。',
+    chatTitle: '打開聊天',
+    chatSub: '用 AeroNyx App 掃碼，在這個瀏覽器上進行端到端加密聊天。',
+    meetTitle: '開始會議',
+    meetSub: '無需安裝，即可建立或加入端到端加密視訊會議。',
+    opTitle: '節點控制台',
+    opSub: '管理你的節點，查看流量與收益（瀏覽器錢包登入）。',
+    footer: '端到端加密 · 節點無法讀取聊天內容',
+  },
+  'zh-CN': {
+    languageLabel: '语言',
+    tagline: '隐私优先的加密网络——聊天、节点、钱包，一个入口。',
+    chatTitle: '打开聊天',
+    chatSub: '使用 AeroNyx App 扫码，在此浏览器中进行端到端加密聊天。',
+    meetTitle: '开始会议',
+    meetSub: '无需安装，即可创建或加入端到端加密视频会议。',
+    opTitle: '节点控制台',
+    opSub: '管理节点并查看流量与收益（浏览器钱包登录）。',
+    footer: '端到端加密 · 节点无法读取聊天内容',
+  },
+  ja: {
+    languageLabel: '言語',
+    tagline: 'プライバシーを第一にした暗号化ネットワーク — チャット、ノード、ウォレットを一か所に。',
+    chatTitle: 'チャットを開く',
+    chatSub: 'AeroNyxアプリでスキャンし、このブラウザでエンドツーエンド暗号化チャットを利用できます。',
+    meetTitle: '会議を開始',
+    meetSub: 'インストール不要で、エンドツーエンド暗号化ビデオ会議を作成・参加できます。',
+    opTitle: 'ノードダッシュボード',
+    opSub: 'ブラウザウォレットでログインし、ノード、通信量、収益を管理します。',
+    footer: 'エンドツーエンド暗号化 · ノードはチャット内容を読み取れません',
+  },
+  ko: {
+    languageLabel: '언어',
+    tagline: '개인정보 보호를 우선하는 암호화 네트워크 — 채팅, 노드, 지갑을 한곳에서.',
+    chatTitle: '채팅 열기',
+    chatSub: 'AeroNyx 앱으로 스캔하여 이 브라우저에서 종단간 암호화 채팅을 사용하세요.',
+    meetTitle: '회의 시작',
+    meetSub: '설치 없이 종단간 암호화 화상 회의를 만들거나 참여하세요.',
+    opTitle: '노드 대시보드',
+    opSub: '브라우저 지갑으로 로그인하여 노드, 트래픽, 수익을 관리하세요.',
+    footer: '종단간 암호화 · 노드는 채팅 내용을 읽을 수 없습니다',
+  },
+  es: {
+    languageLabel: 'Idioma',
+    tagline: 'Una red cifrada que prioriza la privacidad: chat, nodos y cartera en un solo lugar.',
+    chatTitle: 'Abrir chat',
+    chatSub: 'Escanea con la app de AeroNyx para chatear con cifrado de extremo a extremo en este navegador.',
+    meetTitle: 'Iniciar reunión',
+    meetSub: 'Crea o únete a una videollamada cifrada de extremo a extremo sin instalar nada.',
+    opTitle: 'Panel de nodos',
+    opSub: 'Gestiona tus nodos y consulta el tráfico y los ingresos con una cartera del navegador.',
+    footer: 'Cifrado de extremo a extremo · los nodos no pueden leer los chats',
+  },
+};
+
+function isRootLocale(value: string | null): value is RootLocale {
+  return ROOT_LANGUAGES.some((language) => language.code === value);
+}
+
+function normalizeRootLocale(value: string | null | undefined): RootLocale {
+  const normalized = (value || '').trim().toLowerCase().replace('_', '-');
+  if (normalized.startsWith('zh-tw') || normalized.startsWith('zh-hk') || normalized.startsWith('zh-hant')) {
+    return 'zh-TW';
+  }
+  if (normalized.startsWith('zh')) return 'zh-CN';
+  if (normalized.startsWith('ru')) return 'ru';
+  if (normalized.startsWith('ja')) return 'ja';
+  if (normalized.startsWith('ko')) return 'ko';
+  if (normalized.startsWith('es')) return 'es';
+  return 'en';
 }
 
 function ChatIcon() {
