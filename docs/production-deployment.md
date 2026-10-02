@@ -78,6 +78,17 @@ Rust node producer:
 
 ## Deployment Model
 
+### Public Web Route (2026-10-02)
+
+<!-- [NODEBOARD-PUBLIC-DEPLOY 2026-10-02 by Codex] -->
+The public `app.aeronyx.network` currently runs on Vercel, project
+`aeronyxnetworks-projects/nodeboard`, connected to
+`AeroNyxNetwork/nodeboard` main. Publish reviewed commits as a non-force
+fast-forward, then verify the exact commit's Vercel deployment status and
+public routes/assets. A GitHub push alone does not prove deployment success.
+The systemd procedure below describes the separate historical US1 instance;
+do not run it to publish this public Web application or restart Rust nodes.
+
 Run nodeboard as a Next.js production server behind nginx:
 
 - Next.js process: `127.0.0.1:3000`
@@ -222,21 +233,27 @@ the full machine-readable diagnostic payload.
 
 ## Dependency Security
 
-Current production baseline:
+Reviewed dependency baseline (2026-10-02):
 
-- `next`: `15.5.19`
-- `eslint-config-next`: `15.5.19`
-- `postcss`: `8.5.15`
-- `overrides.postcss`: `8.5.15`
+- `next`: `15.5.27`
+- `eslint-config-next`: `15.5.27`
+- `postcss`: `8.5.28`
+- `overrides.postcss`: `8.5.28`
+
+<!-- [NODEBOARD-DEPENDENCY-GATE 2026-10-02 by Codex] -->
+The previous pinned baseline failed the release audit (one critical and six
+high findings). The patch-line update and compatible transitive lockfile
+repairs passed `npm audit` with zero findings. Recheck at every release;
+this is a dated result, not a permanent claim of vulnerability absence.
 
 Reasoning:
 
 - Nodeboard uses the App Router and must stay on a modern Next.js line.
 - The earlier `next@14.2.35` lockfile produced high-severity advisories.
-- `next@15.5.19` removes the high-severity Next.js advisories while remaining
+- `next@15.5.27` addresses the release audit's Next.js advisories while remaining
   compatible with React 18 on the US1 Node.js 22 runtime.
 - The PostCSS override keeps nested Next.js PostCSS resolution on the patched
-  `8.5.15` line. Keep this override unless a future Next.js release removes the
+  `8.5.28` line. Keep this override unless a future Next.js release removes the
   nested vulnerable PostCSS dependency.
 
 ## Runtime Rollout Contract
