@@ -4,7 +4,7 @@
  * ============================================
  * Creation Reason:
  *   Provide a privacy-preserving AeroNyx points checkout for Solana, BNB Smart
- *   Chain, and TRON without putting payment handling inside the App.
+ *   Chain, Ethereum, and TRON without putting payment handling inside the App.
  * Main Functionality:
  *   1. Accept a public membership code or validate an app-issued top-up code.
  *   2. Select a fixed points bundle and payment network.
@@ -879,13 +879,15 @@ export default function TopUpPage() {
 
               <section>
                 <h2 className="mb-4 text-lg font-semibold">{text.chooseNetwork}</h2>
-                <div className="grid gap-3 sm:grid-cols-3">
+                {/* [ETH-USDT 2026-10-03 by Claude] Four networks: two columns on
+                    small screens, one row of four on wide ones. */}
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                   {checkout.networks.map((network) => {
                     const active = selectedNetwork === network.id;
                     return (
                       <button key={network.id} disabled={!network.available} onClick={() => setSelectedNetwork(network.id)} aria-pressed={active}
                         className={`min-h-28 rounded-lg border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${active ? 'border-emerald-400 bg-emerald-400/10' : 'border-white/10 bg-white/[0.025] hover:border-white/25'}`}>
-                        <span className="mb-3 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-xs font-bold">{network.id === 'solana' ? 'S' : network.id === 'bsc' ? 'B' : 'T'}</span>
+                        <span className="mb-3 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-xs font-bold">{network.id === 'solana' ? 'S' : network.id === 'bsc' ? 'B' : network.id === 'ethereum' ? 'E' : 'T'}</span>
                         <span className="block text-sm font-medium">{network.display_name}</span>
                         <span className="mt-1 block text-xs text-zinc-500">{network.asset_code} · {network.gas_symbol}</span>
                       </button>

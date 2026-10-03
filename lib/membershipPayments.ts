@@ -7,7 +7,7 @@
  *   checkout without coupling public payment pages to operator APIs.
  * Main Functionality:
  *   1. Validate a random checkout capability.
- *   2. Create Solana/BSC/TRON payment intents.
+ *   2. Create Solana/BSC/Ethereum/TRON payment intents.
  *   3. Poll capability-protected payment state.
  *   4. Submit an optional untrusted transaction hint.
  * Dependencies:
@@ -42,7 +42,9 @@ const NODEBOARD_API_KEY_STORAGE = 'aeronyx_api_key';
 const PAYMENT_SESSION_STORAGE_KEY = 'aeronyx.membership.payment.current';
 const CHECKOUT_CODE_PATTERN = /^(?:TOP-)?NYX-[A-Z0-9-]{8,40}$/;
 
-export type PaymentNetworkId = 'solana' | 'bsc' | 'tron';
+// [ETH-USDT 2026-10-03 by Claude] Ethereum mainnet USDT joins the backend
+// registry; the list itself still comes from the checkout API.
+export type PaymentNetworkId = 'solana' | 'bsc' | 'ethereum' | 'tron';
 export type PaymentStatus =
   | 'created'
   | 'awaiting_payment'
