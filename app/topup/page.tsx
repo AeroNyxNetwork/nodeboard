@@ -491,6 +491,18 @@ export default function TopUpPage() {
     setCode(normalized);
   }, []);
 
+  // [TOPUP-POLISH 2026-10-03 by Claude] Safari reuses an open tab when the App
+  // opens the same page with a different fragment (another plan, a new code):
+  // only the hash changes, nothing reloads, and this page — which reads the
+  // fragment once on mount — kept showing the previous checkout. Reload so the
+  // new hand-off is read from scratch. The page's own rewrites use
+  // history.replaceState, which does not fire hashchange.
+  useEffect(() => {
+    const reload = () => window.location.reload();
+    window.addEventListener('hashchange', reload);
+    return () => window.removeEventListener('hashchange', reload);
+  }, []);
+
   const refreshPayment = useCallback(async (
     id: string,
     token: string,
