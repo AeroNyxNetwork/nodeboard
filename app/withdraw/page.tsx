@@ -25,7 +25,10 @@
  *   the first successful request. The server re-validates everything; the
  *   checks here only save the person a round trip.
  *
- * Last Modified: v1.0.0 - [REFERRAL-COMMISSION 2026-10-03 by Claude] Initial.
+ * Last Modified: v1.1.0 - [WITHDRAW-LIVE-FEE 2026-10-03 by Claude] The fee is a
+ *   live estimate (re-quoted for the typed address); the final fee is the one
+ *   actually paid at payout.
+ * Previous: v1.0.0 - [REFERRAL-COMMISSION 2026-10-03 by Claude] Initial.
  * ============================================
  */
 'use client';
@@ -45,7 +48,7 @@ const MEMBERSHIP_API_BASE =
 const SESSION_STORAGE_KEY = 'aeronyx.referral.withdraw.session';
 const APP_RETURN_URI = 'aeronyx://membership/withdraw-complete';
 
-type WithdrawNetwork = { network: PaymentNetworkId; name: string; fee: string };
+type WithdrawNetwork = { network: PaymentNetworkId; name: string; fee: string; fee_live?: boolean };
 type Withdrawal = {
   id: string;
   amount: string;
@@ -83,6 +86,7 @@ type Copy = {
   networkTip: string;
   fee: string;
   feeLabel: string;
+  feeNote: string;
   address: string;
   addressPlaceholder: string;
   addressInvalid: string;
@@ -121,14 +125,15 @@ const en: Copy = {
   minimum: 'Minimum {min} USDT',
   network: 'Network',
   networkTip: 'Pick the network your receiving wallet or exchange uses for USDT.',
-  fee: 'Fee {fee} USDT',
-  feeLabel: 'Network fee',
+  fee: 'Fee ≈ {fee} USDT',
+  feeLabel: 'Network fee (est.)',
+  feeNote: 'The fee follows the network at the moment we send. You will see the final amount once it is paid.',
   address: 'USDT address on {network}',
   addressPlaceholder: 'Paste your {network} address',
   addressInvalid: 'This is not a {network} address.',
   amount: 'Amount',
   max: 'Max',
-  youReceive: 'You receive',
+  youReceive: 'You receive ≈',
   wrongNetwork: 'Double-check the address is on {network}. USDT sent to the wrong network cannot be recovered.',
   submit: 'Request withdrawal',
   submitting: 'Sending…',
@@ -172,14 +177,15 @@ const copyByLocale: Record<Locale, Copy> = {
     minimum: '最低 {min} USDT',
     network: '网络',
     networkTip: '选择你的收款钱包或交易所接收 USDT 使用的网络。',
-    fee: '手续费 {fee} USDT',
-    feeLabel: '手续费',
+    fee: '手续费约 {fee} USDT',
+    feeLabel: '手续费(预估)',
+    feeNote: '手续费按转出当时的链上实际费用计算,到账后显示最终金额。',
     address: '{network} 上的 USDT 地址',
     addressPlaceholder: '粘贴你的 {network} 地址',
     addressInvalid: '这不是 {network} 地址。',
     amount: '金额',
     max: '全部',
-    youReceive: '实际到账',
+    youReceive: '预计到账',
     wrongNetwork: '请再次确认地址属于 {network}。转到错误网络的 USDT 无法找回。',
     submit: '申请提现',
     submitting: '提交中…',
@@ -220,14 +226,15 @@ const copyByLocale: Record<Locale, Copy> = {
     minimum: '最低 {min} USDT',
     network: '網路',
     networkTip: '選擇你的收款錢包或交易所接收 USDT 使用的網路。',
-    fee: '手續費 {fee} USDT',
-    feeLabel: '手續費',
+    fee: '手續費約 {fee} USDT',
+    feeLabel: '手續費(預估)',
+    feeNote: '手續費按轉出當時的鏈上實際費用計算,到帳後顯示最終金額。',
     address: '{network} 上的 USDT 地址',
     addressPlaceholder: '貼上你的 {network} 地址',
     addressInvalid: '這不是 {network} 地址。',
     amount: '金額',
     max: '全部',
-    youReceive: '實際到帳',
+    youReceive: '預計到帳',
     wrongNetwork: '請再次確認地址屬於 {network}。轉到錯誤網路的 USDT 無法找回。',
     submit: '申請提現',
     submitting: '提交中…',
@@ -268,14 +275,15 @@ const copyByLocale: Record<Locale, Copy> = {
     minimum: '最低 {min} USDT',
     network: 'ネットワーク',
     networkTip: '受け取るウォレットや取引所が USDT に使うネットワークを選んでください。',
-    fee: '手数料 {fee} USDT',
-    feeLabel: '手数料',
+    fee: '手数料 約{fee} USDT',
+    feeLabel: '手数料(見込み)',
+    feeNote: '手数料は送金時点のネットワーク実費です。支払い後に確定額が表示されます。',
     address: '{network} の USDT アドレス',
     addressPlaceholder: '{network} アドレスを貼り付け',
     addressInvalid: '{network} のアドレスではありません。',
     amount: '金額',
     max: '全額',
-    youReceive: '受取額',
+    youReceive: '受取見込み',
     wrongNetwork: 'アドレスが {network} のものか再確認してください。誤ったネットワークに送った USDT は取り戻せません。',
     submit: '出金を申請',
     submitting: '送信中…',
@@ -316,14 +324,15 @@ const copyByLocale: Record<Locale, Copy> = {
     minimum: '최소 {min} USDT',
     network: '네트워크',
     networkTip: '받는 지갑이나 거래소가 USDT에 사용하는 네트워크를 선택하세요.',
-    fee: '수수료 {fee} USDT',
-    feeLabel: '수수료',
+    fee: '수수료 약 {fee} USDT',
+    feeLabel: '수수료(예상)',
+    feeNote: '수수료는 송금 시점의 실제 네트워크 비용입니다. 지급 후 최종 금액이 표시됩니다.',
     address: '{network} USDT 주소',
     addressPlaceholder: '{network} 주소 붙여넣기',
     addressInvalid: '{network} 주소가 아닙니다.',
     amount: '금액',
     max: '전액',
-    youReceive: '실수령액',
+    youReceive: '예상 수령액',
     wrongNetwork: '주소가 {network} 주소인지 다시 확인하세요. 잘못된 네트워크로 보낸 USDT는 되찾을 수 없습니다.',
     submit: '출금 신청',
     submitting: '보내는 중…',
@@ -364,14 +373,15 @@ const copyByLocale: Record<Locale, Copy> = {
     minimum: 'Минимум {min} USDT',
     network: 'Сеть',
     networkTip: 'Выберите сеть, в которой ваш кошелёк или биржа принимает USDT.',
-    fee: 'Комиссия {fee} USDT',
-    feeLabel: 'Комиссия сети',
+    fee: 'Комиссия ≈ {fee} USDT',
+    feeLabel: 'Комиссия сети (оценка)',
+    feeNote: 'Комиссия равна фактической стоимости сети в момент отправки. Итоговая сумма появится после выплаты.',
     address: 'Адрес USDT в сети {network}',
     addressPlaceholder: 'Вставьте адрес {network}',
     addressInvalid: 'Это не адрес {network}.',
     amount: 'Сумма',
     max: 'Всё',
-    youReceive: 'Вы получите',
+    youReceive: 'Вы получите ≈',
     wrongNetwork: 'Проверьте, что адрес в сети {network}. USDT, отправленные не в ту сеть, вернуть нельзя.',
     submit: 'Отправить заявку',
     submitting: 'Отправка…',
@@ -490,6 +500,9 @@ export default function WithdrawPage() {
   // One idempotency key per (network, address, amount): a retry after a
   // dropped response replays the same request instead of making a second.
   const requestIdRef = useRef<{ key: string; id: string } | null>(null);
+  // [WITHDRAW-LIVE-FEE 2026-10-03 by Claude] Fee for the exact recipient
+  // (a TRON / Solana address that never held USDT costs more to send to).
+  const [quote, setQuote] = useState<{ key: string; fee: string } | null>(null);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -557,12 +570,31 @@ export default function WithdrawPage() {
   }, [session, loadSummary]);
 
   const selected = summary?.networks.find((n) => n.network === network) || null;
+  const quoteKey = `${network}|${address.trim()}`;
+  const addressValid = network !== '' && addressLooksValid(network, address);
+  useEffect(() => {
+    if (!session || !addressValid) return;
+    const key = quoteKey;
+    const timer = window.setTimeout(async () => {
+      try {
+        const data = await api<{ fee: string }>(
+          `/referral/withdraw/fee/?network=${encodeURIComponent(network)}&address=${encodeURIComponent(address.trim())}`,
+          session,
+        );
+        setQuote({ key, fee: data.fee });
+      } catch {
+        // Keep the network-level estimate; the server prices the request anyway.
+      }
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [session, quoteKey, addressValid]);
+  const feeText = quote && quote.key === quoteKey ? quote.fee : selected?.fee || '';
   const availableMicro = summary ? toMicro(summary.available) ?? 0 : 0;
   const minMicro = summary ? toMicro(summary.min_withdrawal) ?? 0 : 0;
-  const feeMicro = selected ? toMicro(selected.fee) ?? 0 : 0;
+  const feeMicro = feeText ? toMicro(feeText) ?? 0 : 0;
   const amountMicro = toMicro(amount);
   const receiveMicro = amountMicro !== null ? Math.max(0, amountMicro - feeMicro) : 0;
-  const addressOk = network !== '' && addressLooksValid(network, address);
+  const addressOk = addressValid;
   const amountProblem = useMemo(() => {
     if (amount.trim() === '') return '';
     if (amountMicro === null) return text.errors.invalid_amount;
@@ -652,12 +684,12 @@ export default function WithdrawPage() {
             <div className="flex items-center gap-3">
               <NetworkMark network={done.network} className="h-9 w-9 shrink-0" />
               <div>
-                <div className="text-2xl font-semibold tabular-nums">{trimAmount(done.net_amount)} USDT</div>
+                <div className="text-2xl font-semibold tabular-nums">≈ {trimAmount(done.net_amount)} USDT</div>
                 <div className="mt-0.5 text-xs text-zinc-400">{fill(text.fee, { fee: trimAmount(done.fee) })}</div>
               </div>
             </div>
             <p className="mt-4 text-sm leading-6 text-zinc-300">
-              {fill(text.successNote, { net: trimAmount(done.net_amount), address: shortAddress(doneAddress), network: networkName })}
+              {fill(text.successNote, { net: `≈ ${trimAmount(done.net_amount)}`, address: shortAddress(doneAddress), network: networkName })}
             </p>
             {fromApp && (
               <a href={APP_RETURN_URI} className="mt-5 inline-flex min-h-11 items-center rounded-lg bg-white px-4 text-sm font-semibold text-black transition hover:bg-zinc-200">
@@ -762,10 +794,11 @@ export default function WithdrawPage() {
                 <section className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
                   <dl className="space-y-2 text-sm">
                     <div className="flex justify-between gap-4"><dt className="text-zinc-500">{text.amount}</dt><dd className="tabular-nums">{amountMicro !== null ? formatUsdt(amountMicro) : '—'} USDT</dd></div>
-                    <div className="flex justify-between gap-4"><dt className="text-zinc-500">{text.feeLabel}</dt><dd className="tabular-nums">−{selected ? trimAmount(selected.fee) : '—'} USDT</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-zinc-500">{text.feeLabel}</dt><dd className="tabular-nums">−{feeText ? trimAmount(feeText) : '—'} USDT</dd></div>
                     <div className="flex justify-between gap-4 border-t border-white/10 pt-2 text-base font-semibold"><dt>{text.youReceive}</dt><dd className="tabular-nums text-emerald-300">{formatUsdt(receiveMicro)} USDT</dd></div>
                   </dl>
-                  <p className="mt-4 text-xs leading-5 text-amber-200/80">{fill(text.wrongNetwork, { network: networkName })}</p>
+                  <p className="mt-3 text-xs leading-5 text-zinc-500">{text.feeNote}</p>
+                  <p className="mt-2 text-xs leading-5 text-amber-200/80">{fill(text.wrongNetwork, { network: networkName })}</p>
                 </section>
 
                 {formError && <div role="alert" className="rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-100">{formError}</div>}

@@ -91,6 +91,11 @@ type Copy = {
   chooseNetwork: string;
   network: string;
   monthly: string;
+  // [PLAN-LADDER 2026-10-03 by Claude] Plan lengths (points plans never bill).
+  durationWeek: string;
+  durationMonth: string;
+  durationQuarter: string;
+  durationYear: string;
   yearly: string;
   days: string;
   continue: string;
@@ -182,7 +187,8 @@ const en: Copy = {
   addressBound: 'This network, exact amount, and receiving address are locked to this one-time top-up.',
   choosePlan: 'Choose points',
   chooseNetwork: 'Choose payment network', network: 'Network',
-  monthly: 'Monthly', yearly: 'Yearly', days: 'days', continue: 'Create payment',
+  monthly: 'Monthly', yearly: 'Yearly',
+  durationWeek: '1 week', durationMonth: '1 month', durationQuarter: '3 months', durationYear: '12 months', days: 'days', continue: 'Create payment',
   preparing: 'Preparing secure payment…', unavailable: 'Temporarily unavailable',
   paymentsOffline: 'USDT checkout is not accepting transfers yet. No receiving address will be shown until operations enables a verified network.',
   exactAmount: 'Exact amount', receivingAddress: 'Receiving address',
@@ -239,7 +245,8 @@ const en: Copy = {
 const copyByLocale: Record<Locale, Copy> = {
   en,
   'zh-CN': {
-    ...en, networkTip: '选你的 USDT 所在的网络。从交易所提币时，也要在交易所选同一个网络。', openInWallet: '用钱包 App 打开', openInWalletNote: '在 Phantom、Solflare 等 Solana 钱包中自动填好地址和精确金额。',
+    ...en, durationWeek: '1 周', durationMonth: '1 个月', durationQuarter: '3 个月', durationYear: '12 个月',
+    networkTip: '选你的 USDT 所在的网络。从交易所提币时，也要在交易所选同一个网络。', openInWallet: '用钱包 App 打开', openInWalletNote: '在 Phantom、Solflare 等 Solana 钱包中自动填好地址和精确金额。',
     creditsTo: '积分存入', redeemsFor: '够兑换{plan}', tierPremium: '高级', tierUltimate: '旗舰', ethNotice: '以太坊网络手续费通常高很多，用 TRON 或 Solana 转账更省。',
     membership: 'AeroNyx 积分', title: '使用 USDT 购买积分', lede: '选好积分包和你的 USDT 所在网络，从任何钱包或交易所转账，链上确认后积分自动到账。',
     account: '账户绑定结账', verifiedCheckout: '收款账户已验证', checkoutReference: '充值参考码', addressBound: '当前网络、精确金额和收款地址已与本次积分充值绑定。', choosePlan: '选择积分', chooseNetwork: '选择支付网络', network: '网络', monthly: '月付', yearly: '年付', days: '天',
@@ -256,7 +263,8 @@ const copyByLocale: Record<Locale, Copy> = {
     rate: '1 USDT = 100 积分', points: '积分', pointsUse: '积分可在 AeroNyx 内转给朋友，或兑换会员。', enterCode: '积分要充入哪个 AeroNyx 账户？', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '继续', invalidCode: '请输入有效的 AeroNyx 会员码。', reservedBundle: '已预留的积分包', reservedBundleNote: 'AeroNyx 已为本次一次性结账锁定这个积分包，无法在网页中更改金额。', offerMismatch: '本次结账与原始积分包不一致，请返回 AeroNyx 重新发起。',
   },
   'zh-TW': {
-    ...en, networkTip: '選你的 USDT 所在的網路。從交易所提幣時，也要在交易所選同一個網路。', openInWallet: '用錢包 App 打開', openInWalletNote: '在 Phantom、Solflare 等 Solana 錢包中自動填好地址和精確金額。',
+    ...en, durationWeek: '1 週', durationMonth: '1 個月', durationQuarter: '3 個月', durationYear: '12 個月',
+    networkTip: '選你的 USDT 所在的網路。從交易所提幣時，也要在交易所選同一個網路。', openInWallet: '用錢包 App 打開', openInWalletNote: '在 Phantom、Solflare 等 Solana 錢包中自動填好地址和精確金額。',
     creditsTo: '積分存入', redeemsFor: '夠兌換{plan}', tierPremium: '高級', tierUltimate: '旗艦', ethNotice: '以太坊網路手續費通常高很多，用 TRON 或 Solana 轉帳更省。',
     membership: 'AeroNyx 積分', title: '使用 USDT 購買積分', lede: '選好積分包和你的 USDT 所在網路，從任何錢包或交易所轉帳，鏈上確認後積分自動到帳。',
     account: '帳戶綁定結帳', verifiedCheckout: '收款帳戶已驗證', checkoutReference: '充值參考碼', addressBound: '目前網路、精確金額和收款地址已與本次積分充值綁定。', choosePlan: '選擇積分', chooseNetwork: '選擇支付網路', network: '網路', monthly: '月付', yearly: '年付', days: '天',
@@ -273,7 +281,8 @@ const copyByLocale: Record<Locale, Copy> = {
     rate: '1 USDT = 100 積分', points: '積分', pointsUse: '積分可在 AeroNyx 內轉給朋友，或兌換會員。', enterCode: '積分要充入哪個 AeroNyx 帳戶？', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '繼續', invalidCode: '請輸入有效的 AeroNyx 會員碼。', reservedBundle: '已預留的積分包', reservedBundleNote: 'AeroNyx 已為本次一次性結帳鎖定這個積分包，無法在網頁中更改金額。', offerMismatch: '本次結帳與原始積分包不一致，請返回 AeroNyx 重新發起。',
   },
   ja: {
-    ...en, networkTip: 'USDT があるネットワークを選んでください。取引所から出金する場合も、同じネットワークを選んでください。', openInWallet: 'ウォレットアプリで開く', openInWalletNote: 'Phantom や Solflare などの Solana ウォレットに、送金先と正確な金額が入力されます。',
+    ...en, durationWeek: '1週間', durationMonth: '1か月', durationQuarter: '3か月', durationYear: '12か月',
+    networkTip: 'USDT があるネットワークを選んでください。取引所から出金する場合も、同じネットワークを選んでください。', openInWallet: 'ウォレットアプリで開く', openInWalletNote: 'Phantom や Solflare などの Solana ウォレットに、送金先と正確な金額が入力されます。',
     creditsTo: 'ポイントの入金先', redeemsFor: '{plan}に交換できます', tierPremium: 'プレミアム', tierUltimate: 'アルティメット', ethNotice: 'Ethereum のネットワーク手数料は通常かなり高めです。TRON や Solana の方が安く送れます。',
     membership: 'AeroNyx ポイント', title: 'USDTでポイントを購入', lede: 'ポイントパックと USDT があるネットワークを選び、ウォレットや取引所から送金すると、承認後に自動でポイントが入ります。',
     account: 'アカウント連携決済', verifiedCheckout: '受取アカウントを確認済み', checkoutReference: 'チャージ参照コード', addressBound: 'ネットワーク、正確な金額、受取アドレスはこのポイント購入に固定されています。', choosePlan: 'ポイントを選択', chooseNetwork: '支払いネットワーク', network: 'ネットワーク', monthly: '月額', yearly: '年額', days: '日', continue: '支払いを作成',
@@ -289,7 +298,8 @@ const copyByLocale: Record<Locale, Copy> = {
     rate: '1 USDT = 100 ポイント', points: 'ポイント', pointsUse: 'ポイントは AeroNyx で友人に送るか、メンバーシップに交換できます。', enterCode: 'どの AeroNyx アカウントにポイントを追加しますか？', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '続ける', invalidCode: '有効な AeroNyx メンバーシップコードを入力してください。', reservedBundle: '予約済みポイントパック', reservedBundleNote: 'この一回限りの決済には、このポイントパックが固定されています。ここでは金額を変更できません。', offerMismatch: '決済内容が元のポイントパックと一致しません。AeroNyx に戻ってやり直してください。',
   },
   ko: {
-    ...en, networkTip: 'USDT가 있는 네트워크를 선택하세요. 거래소에서 출금할 때도 같은 네트워크를 선택해야 합니다.', openInWallet: '지갑 앱에서 열기', openInWalletNote: 'Phantom, Solflare 등 Solana 지갑에 주소와 정확한 금액이 자동으로 입력됩니다.',
+    ...en, durationWeek: '1주', durationMonth: '1개월', durationQuarter: '3개월', durationYear: '12개월',
+    networkTip: 'USDT가 있는 네트워크를 선택하세요. 거래소에서 출금할 때도 같은 네트워크를 선택해야 합니다.', openInWallet: '지갑 앱에서 열기', openInWalletNote: 'Phantom, Solflare 등 Solana 지갑에 주소와 정확한 금액이 자동으로 입력됩니다.',
     creditsTo: '포인트 입금 계정', redeemsFor: '{plan} 교환 가능', tierPremium: '프리미엄', tierUltimate: '얼티밋', ethNotice: '이더리움 네트워크 수수료는 보통 훨씬 높습니다. TRON이나 Solana로 보내는 편이 저렴합니다.',
     membership: 'AeroNyx 포인트', title: 'USDT로 포인트 구매', lede: '포인트 패키지와 USDT가 있는 네트워크를 고르고, 지갑이나 거래소에서 보내면 확인 후 포인트가 자동으로 들어옵니다.',
     account: '계정 연결 결제', verifiedCheckout: '수신 계정 확인됨', checkoutReference: '충전 참조 코드', addressBound: '네트워크, 정확한 금액, 수신 주소가 이 포인트 충전에 고정되었습니다.', choosePlan: '포인트 선택', chooseNetwork: '결제 네트워크 선택', network: '네트워크', monthly: '월간', yearly: '연간', days: '일', continue: '결제 만들기',
@@ -305,7 +315,8 @@ const copyByLocale: Record<Locale, Copy> = {
     rate: '1 USDT = 100 포인트', points: '포인트', pointsUse: '포인트는 AeroNyx에서 친구에게 보내거나 멤버십으로 교환할 수 있습니다.', enterCode: '어느 AeroNyx 계정에 포인트를 추가할까요?', codePlaceholder: 'NYX-XXXX-XXXX', continueWithCode: '계속', invalidCode: '유효한 AeroNyx 멤버십 코드를 입력하세요.', reservedBundle: '예약된 포인트 패키지', reservedBundleNote: '이 일회성 결제에는 해당 포인트 패키지가 고정되어 있어 여기서 금액을 변경할 수 없습니다.', offerMismatch: '결제 내용이 원래 포인트 패키지와 일치하지 않습니다. AeroNyx로 돌아가 다시 시작하세요.',
   },
   ru: {
-    ...en, networkTip: 'Выберите сеть, в которой лежат ваши USDT. При выводе с биржи укажите там ту же сеть.', openInWallet: 'Открыть в кошельке', openInWalletNote: 'Адрес и точная сумма подставятся в Phantom, Solflare или другой Solana-кошелёк.',
+    ...en, durationWeek: '1 неделя', durationMonth: '1 месяц', durationQuarter: '3 месяца', durationYear: '12 месяцев',
+    networkTip: 'Выберите сеть, в которой лежат ваши USDT. При выводе с биржи укажите там ту же сеть.', openInWallet: 'Открыть в кошельке', openInWalletNote: 'Адрес и точная сумма подставятся в Phantom, Solflare или другой Solana-кошелёк.',
     creditsTo: 'Баллы получит', redeemsFor: 'Хватит на {plan}', tierPremium: 'Premium', tierUltimate: 'Ultimate', ethNotice: 'Комиссии сети Ethereum обычно намного выше. Перевод через TRON или Solana обходится дешевле.',
     membership: 'Баллы AeroNyx', title: 'Купить баллы за USDT', lede: 'Выберите пакет и сеть, где лежат ваши USDT, отправьте перевод с любого кошелька или биржи — баллы придут сами после подтверждения.',
     account: 'Оплата для аккаунта', verifiedCheckout: 'Аккаунт получателя подтверждён', checkoutReference: 'Код пополнения', addressBound: 'Сеть, точная сумма и адрес получателя закреплены за этим пополнением баллов.', choosePlan: 'Выберите баллы', chooseNetwork: 'Выберите сеть', network: 'Сеть', monthly: 'Ежемесячно', yearly: 'Ежегодно', days: 'дней', continue: 'Создать платёж',
@@ -356,10 +367,16 @@ function pageLocaleFromApp(raw: string | null): Locale | null {
   return null;
 }
 
-// "Premium · Yearly" for a bundle that is exactly one plan's price.
+// "Premium · 12 months" for a bundle that is exactly one plan's price.
+// [PLAN-LADDER 2026-10-03 by Claude] Lengths, not billing words, and all four.
 function bundlePlanName(plan: { tier: string; billing_cycle: string }, text: Copy): string {
   const tier = plan.tier === 'ultimate' ? text.tierUltimate : plan.tier === 'premium' ? text.tierPremium : '';
-  const cycle = plan.billing_cycle === 'yearly' ? text.yearly : plan.billing_cycle === 'monthly' ? text.monthly : '';
+  const cycle = ({
+    weekly: text.durationWeek,
+    monthly: text.durationMonth,
+    quarterly: text.durationQuarter,
+    yearly: text.durationYear,
+  } as Record<string, string>)[plan.billing_cycle] || '';
   return tier && cycle ? `${tier} · ${cycle}` : tier;
 }
 
