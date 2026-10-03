@@ -381,12 +381,19 @@ export default function TopUpPage() {
   const [copied, setCopied] = useState('');
   const [now, setNow] = useState(Date.now());
   const copyTimerRef = useRef<number | null>(null);
+  // [TOPUP-PLAN-PRESELECT 2026-10-03 by Claude] The App sends the plan the
+  // person was short of points for (`#plan=premium_yearly`), so the bundle
+  // they meant is already selected. Only honoured when this checkout allows
+  // that plan; a one-time locked checkout keeps its own offer.
+  const requestedPlanRef = useRef('');
 
   useEffect(() => {
     // [USDT-CAPABILITY-RECOVERY 2026-08-09 by Codex] Fragments never reach
     // the web server. Query support remains only to upgrade old links in place.
     const url = new URL(window.location.href);
-    const fragmentCode = new URLSearchParams(url.hash.replace(/^#/, '')).get('code');
+    const fragmentParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+    const fragmentCode = fragmentParams.get('code');
+    requestedPlanRef.current = (fragmentParams.get('plan') || '').trim();
     const queryCode = url.searchParams.get('code');
     const normalized = normalizeMembershipCheckoutCode(fragmentCode || queryCode);
     if (!normalized) {
@@ -437,7 +444,12 @@ export default function TopUpPage() {
         setClientToken('');
         setPendingPaymentId('');
         setCheckout(summary);
-        setSelectedPlan(initialPlan.plan.id);
+        const requestedPlan = requestedPlanRef.current;
+        setSelectedPlan(
+          requestedPlan && isCheckoutPlanSelectionAllowed(summary, requestedPlan)
+            ? requestedPlan
+            : initialPlan.plan.id,
+        );
         setSelectedNetwork(summary.networks.find((item) => item.available)?.id || '');
         const saved = readMembershipPaymentSession(code);
         if (saved) {
